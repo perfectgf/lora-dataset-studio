@@ -64,6 +64,15 @@ def check_target(data_dir: Path, *, init: bool) -> None:
         if normalised.endswith(real):
             _refuse(f'{data_dir} is a real install ({real}). The showcase needs '
                     f'its own directory — never seed into data somebody uses.')
+    # The showcase's own path is PUBLIC: the workspace prints "Images folder
+    # <path>" in a banner above the grid, so it lands in any screenshot taken
+    # there. A path under a user profile therefore publishes the account name.
+    # Measured, not guessed — the first showcase shot carried it in plain sight.
+    if '/users/' in normalised or '/home/' in normalised:
+        print(f'WARNING: {data_dir} contains a user profile. The app prints the '
+              f'images folder in a banner, so that path will appear in your '
+              f'screenshots. Prefer something neutral like C:/lds-showcase.',
+              file=sys.stderr)
     marker = data_dir / MARKER
     if init:
         if marker.exists():
@@ -91,6 +100,26 @@ def identities(images_dir: Path):
             yield child.name, files
 
 
+def set_reference(svc, dataset_id: int, raw: bytes) -> None:
+    """Give the dataset its reference photo, the way the app does."""
+    import uuid
+    from app.config import LOCAL_USER
+    from app.routes.datasets import ensure_dataset_dir
+
+    with svc.reference_mutation(dataset_id):
+        dsdir = ensure_dataset_dir(dataset_id)
+        original = f'{LOCAL_USER}_datasetreforig_{uuid.uuid4().hex[:8]}.webp'
+        shown = f'{LOCAL_USER}_datasetref_{uuid.uuid4().hex[:8]}.webp'
+        svc.write_image_atomic(os.path.join(dsdir, original),
+                               svc.normalize_to_webp(raw, size=2048))
+        svc.write_image_atomic(os.path.join(dsdir, shown),
+                               svc.normalize_to_webp(raw, size=1024))
+        ds = svc.get_dataset(LOCAL_USER, dataset_id)
+        ds.ref_original_filename = original
+        ds.ref_filename = shown
+        svc.db.session.commit()
+
+
 def seed(data_dir: Path, images_dir: Path) -> tuple[int, int]:
     # Imported here, after the guard has run: importing the app creates the
     # database, so a refused target must never get this far.
@@ -115,6 +144,14 @@ def seed(data_dir: Path, images_dir: Path) -> tuple[int, int]:
             # script imported nothing while reporting success.
             payload = [f.read_bytes() for f in files]
             ids, failed = svc.import_images(LOCAL_USER, ds.id, payload, crop=False)
+            # The library tile IS the reference photo — a dataset without one
+            # renders as a coloured letter, which is not what a showcase is for.
+            # Same two files the /ref route writes (full-frame original + the
+            # displayed reference), through the same helpers, minus the auto
+            # head-crop: that one needs an Ollama vision model, and a showcase
+            # must seed on a machine that has none.
+            if payload:
+                set_reference(svc, ds.id, payload[0])
             if failed:
                 # `import_images` refuses a blob it cannot decode as an image.
                 # It does NOT apply the 768px short-side floor — that belongs to
