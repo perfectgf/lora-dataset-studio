@@ -1113,6 +1113,32 @@ class JobQueueManager:
             logger.exception('job_queue: staged input prune failed')
 
     # -- worker -----------------------------------------------------------
+    def held_off_gpu_reason(self):
+        """WHAT is holding the worker off the GPU right now, or None if it is free.
+
+        The four conditions `process_one` checks before it looks at a single row,
+        minus the fifth — 'a job is already running' — which is not a hold but the
+        serialization working as designed.
+
+        It exists because a caller outside this module cannot tell a paused queue
+        from a slow one, and one that guessed got it wrong: the bulk improve drain
+        counted every poll of a queue frozen by a training run against its own
+        15-minute stall timeout, then declared itself stalled and silently dropped
+        the rest of the batch. Waiting on a queue that is provably held is not a
+        stall, it is waiting.
+        """
+        # NOUN PHRASES, not sentences: every caller reads "waiting for {x}"
+        # or "held by {x}", and a clause would garble both.
+        if _vision_window_blocks_gpu():
+            return 'a vision pass'
+        if self._get_system_state('training_in_progress', False):
+            return 'LoRA training'
+        if self._get_system_state('vision_in_progress', False):
+            return 'a vision pass'
+        if self.has_comfyui_stalled_barrier():
+            return 'a paused ComfyUI job'
+        return None
+
     def process_one(self) -> bool:
         """Run one queued image while closing the local ComfyUI/vision race."""
         job = None
