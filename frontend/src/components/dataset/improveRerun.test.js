@@ -77,8 +77,12 @@ test('the tile renders a real button with an aria-label and calls onReimprove', 
   // The accessible name falls back to `rerunImprove.title` and is REPLACED, while
   // a dataset pass holds the tile, by the sentence naming that pass — a refused
   // write must never be mute (tests/dataset-tile-reads-stay-live.test.mjs).
-  assert.match(tile, /aria-label=\{refused \|\| rerunImprove\.title\}/);
-  assert.match(tile, /disabled=\{busy \|\| !rerunImprove\.enabled\}/);
+  // Both read `queueRefused`, not `busy`: re-improving adds a row to the
+  // serialized image queue, so a generation batch running elsewhere no longer
+  // refuses it (GitHub #44, utils/activityLanes.js). What DOES refuse it still
+  // says so out loud — the accessible name carries the sentence.
+  assert.match(tile, /aria-label=\{queueRefusedReason \|\| rerunImprove\.title\}/);
+  assert.match(tile, /disabled=\{queueRefused \|\| !rerunImprove\.enabled\}/);
   // The tile must never hand an improvement to the generic route.
   assert.match(tile, /canRegenerateGeneric\(img, \{ isRescueDerived \}\)/);
 });

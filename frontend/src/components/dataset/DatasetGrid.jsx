@@ -258,7 +258,11 @@ function GridPager({ view, onGo, where }) {
 }
 
 export default function DatasetGrid({ images, datasetId, onStatus, onCaption, onCrop, onDelete,
-                                      onMirror, onRegenerate, onScoreFace, scoringFaceIds, onReimprove, onView, onBatch, busy, nonces,
+                                      onMirror, onRegenerate, onScoreFace, scoringFaceIds, onReimprove, onView, onBatch, busy,
+                                      /* Queue-lane gate (GitHub #44): `busy` is every pass; this one is only
+                                         what actually refuses a NEW queued job. Defaults to `busy` so a caller
+                                         that does not pass it keeps the old blanket. */
+                                      queueBusy = undefined, nonces,
                                       mirroringIds, faceThresholds, datasetKind = 'character',
                                       onImproveBatch, kleinAvailable = false,
                                       eligibilityImages, dualCaptions = false,
@@ -303,6 +307,11 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
     () => improvementStateByParent(images), [images]);
   const autoTriageApplying = autoTriageRuns.has(datasetId);
   const bulkBusy = busy || launchingImprove || !!bulkAction || autoTriageApplying;
+  // Same three local locks, but over the queue-lane gate: launching an improve
+  // or a retry while a generation batch is still running is exactly what #44
+  // asked for, and the backend queue serializes them anyway.
+  const queueLaunchBusy = (queueBusy ?? busy)
+    || launchingImprove || !!bulkAction || autoTriageApplying;
   /* WHAT BLOCKS WHAT — three answers, not one.
      `bulkBusy` blocks WRITES: a running pass owns the pixels, the statuses and
      the files, and a second writer would race it. That has never been in doubt.
@@ -440,7 +449,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
   // what will be skipped); the server re-checks it and owns the pacing.
   const improveSelected = async (engineId) => {
     const { eligible, excluded } = partitionKleinImproveSelection(improveUniverse, ids);
-    if (!onImproveBatch || !eligible.length || bulkBusy) return;
+    if (!onImproveBatch || !eligible.length || queueLaunchBusy) return;
     if (improveEngineBlockedReason(engineId, {
       caps, engines: caps?.engines, eligibleCount: eligible.length,
     })) return;
@@ -534,7 +543,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
                 return (
                   <button key={engine.id} type="button"
                     onClick={() => improveSelected(engine.id)}
-                    disabled={bulkBusy || !!improveLabel || !!blocked}
+                    disabled={queueLaunchBusy || !!improveLabel || !!blocked}
                     title={blocked
                       ? `${blocked}${exclusionSummary ? ` ${exclusionSummary}.` : ''}`
                       : `${engine.summary} Runs in the background, a few at a time — survives a page reload.${exclusionSummary ? ` Excluded: ${exclusionSummary}.` : ''}`}
@@ -582,6 +591,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
             improvementState={improvementStates.get(img.id)}
             onCrop={onCrop} onDelete={onDelete} onMirror={onMirror}
             mirrorBusy={Boolean(mirroringIds?.has(img.id))} busy={bulkBusy}
+            queueBusy={queueLaunchBusy}
             busyReason={busyReason}
             onScoreFace={onScoreFace} scoreFaceBusy={Boolean(scoringFaceIds?.has(img.id))}
             faceScoringBusy={Boolean(scoringFaceIds?.size)}

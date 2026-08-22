@@ -15,6 +15,7 @@ import {
   normalizeTrainingMode,
   trainingModeSettingsPayload,
 } from '../utils/trainingMode.js';
+import { activityBlocks } from '../utils/activityLanes.js';
 import { refreshDatasetIfActive } from '../utils/datasetRefresh';
 import { ENGINE_LABELS } from '../components/dataset/engineSelection.js';
 import { retryRequestForReferenceEdit } from '../components/dataset/referenceEdit.js';
@@ -1676,13 +1677,23 @@ export function useDataset() {
   const watermarkingLive = localActivityRuns.has(`watermark:${currentId}`)
     || actKind === 'watermark_detect' || actKind === 'watermark_clean';
   const busyLive = busy || !!activity;
+  // GitHub #44 — `busyLive` is the CONSERVATIVE union and stays the gate for
+  // everything that owns the dataset's rows. Starting a job that merely becomes
+  // a row in the serialized image queue asks a narrower question, because the
+  // queue is already a queue: `activityLanes` answers it per action kind, so an
+  // ✨ improve batch (or a one-tile Retry, which publishes 'generate' too) no
+  // longer greys out ⚡ Generate for as long as it runs.
+  const generationBusy = busy || activityBlocks(activity, 'generate');
+  const improveBusy = busy || activityBlocks(activity, 'improve');
+  const referenceEditBusy = busy || activityBlocks(activity, 'edit_reference');
   const canRetryReferenceEdit = Boolean(retryRequestForReferenceEdit(
     referenceEditRetryRef.current.get(String(currentId)),
     data?.reference_edit,
   ));
 
 
-  return { datasets, currentId, data, busy: busyLive, localBusy: busy, captioning: captioningLive,
+  return { datasets, currentId, data, busy: busyLive, localBusy: busy,
+           generationBusy, improveBusy, referenceEditBusy, captioning: captioningLive,
            lastCaptionRun,
            analyzing: analyzingLive, watermarking: watermarkingLive, activity,
            nonces, mirroringIds, refNonce, scoringFaceIds, recaptioningIds, create, open,

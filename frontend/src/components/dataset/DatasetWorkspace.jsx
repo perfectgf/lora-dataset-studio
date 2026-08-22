@@ -1285,7 +1285,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                      closing the lightbox must not leave you on a page that no
                      longer holds the image you were looking at. */
                   viewingImageId={viewImg?.id ?? null}
-                  onBatch={ds.batchImages} busy={ds.busy}
+                  onBatch={ds.batchImages} busy={ds.busy} queueBusy={ds.improveBusy}
                   onBulkBusyChange={setGridBulkBusy}
                   onImproveBatch={ds.improveBatch} activity={act}
                           subjectType={d.subject_type || 'human'}
@@ -1349,7 +1349,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <ClassifyFramingButton images={images} ollama={caps.ollama} capsLoading={capsLoading}
                     busy={ds.busy} activity={act} onClassify={(n) => ds.classify(n)} />
                   <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">
-                    <VariationCatalog key={`vc-${d.id}-${bodyFid}`} datasetId={d.id} busy={ds.busy}
+                    <VariationCatalog key={`vc-${d.id}-${bodyFid}`} datasetId={d.id} busy={ds.generationBusy}
                       generating={act && act.kind === 'generate' ? act : null}
                       onGenerate={(...args) => {
                         // Guard-rail: a batch is already in flight — launching another one
