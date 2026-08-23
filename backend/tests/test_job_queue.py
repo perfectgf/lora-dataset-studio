@@ -392,7 +392,6 @@ def test_claim_on_pending_returns_true_and_sets_status(app):
     """_claim on a pending row must atomically set status='processing' and heartbeat."""
     from app.job_queue import queue_manager, _claim
     from app.models import ImageGenerationQueue
-    from datetime import datetime
     with app.app_context():
         jid = queue_manager.add_job(workflow_data={'1': {}})
         assert _claim(jid) is True
@@ -423,7 +422,6 @@ def test_cancel_during_claim_race_guard(app):
     The atomic _claim must fail, returning False, preventing submission to ComfyUI."""
     from app.job_queue import queue_manager, _claim
     from app.models import ImageGenerationQueue
-    from app.extensions import db
     with app.app_context():
         jid = queue_manager.add_job(workflow_data={'1': {}},
                                     metadata={'model_name': 'klein_edit_dataset'})

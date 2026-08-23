@@ -1367,6 +1367,14 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
      ×, by ⓘ again, or by Escape. */
   const [gesturesOpen, setGesturesOpen] = useState(false);
   const inlineActions = useMediaQuery('(min-width: 1024px)');
+  /* 📏 The fold has a HEIGHT, and every rule on this board was written about
+     its width. Measured at 844×390 — a phone held sideways, which is how a
+     board gets looked at one-handed — the fixed chrome came to 214 px of the
+     390 there are: 55 %, leaving 176 px of actual board. The same chrome is
+     27 % of an 800-px fold and had always passed.
+     500 px is the line because it is under every phone held upright (the
+     shortest common one is 800) and over every phone held sideways. */
+  const tallFold = useMediaQuery('(min-height: 500px)');
   const inlineReadouts = useMediaQuery('(min-width: 1536px)');
   useEffect(() => {
     if (!moreOpen && !gesturesOpen) return undefined;
@@ -1540,8 +1548,6 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
       .catch(() => setContinueRuns({}));
   }, [toast]);
 
-  const continueSteps = useMemo(
-    () => canvasContinueSteps(continueTarget?.node), [continueTarget]);
   const continueRow = useMemo(
     () => canvasContinueRow(continueTarget?.node,
       [...(continueRuns?.actives || []), ...(continueRuns?.recent || [])]),
@@ -2088,6 +2094,25 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
     </>
   );
 
+  /* ⓘ The door to the board's manual — written ONCE and PLACED, like every
+     other control in this overlay (see useMediaQuery: Tailwind can hide a chip
+     at a width, it cannot move one, and two copies drift the first time one
+     gains a prop). It rides with the action chips while they are in the shelf
+     and joins the readouts once they are inline, so it never occupies a row of
+     its own. */
+  const gestureChip = (
+    <button type="button" data-testid="canvas-gestures-info"
+      onClick={() => setGesturesOpen((v) => !v)}
+      aria-expanded={gesturesOpen}
+      aria-label="How the board is driven"
+      title="How the board is driven — mouse, trackpad and touch"
+      className={'flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-border px-2 '
+        + 'text-[0.6875rem] font-semibold sm:px-3 lg:h-9 '
+        + (gesturesOpen ? 'bg-indigo-500/15 text-content' : 'bg-app/60 text-content-muted hover:text-content')}>
+      <span aria-hidden>ⓘ</span> How this board works
+    </button>
+  );
+
   return (
     <>
       {/* The edge gradients + glow, defined ONCE for the whole page: every lane's
@@ -2142,6 +2167,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
            at any z-index, can paint over a sibling overlay: two independent
            guarantees instead of one, for the controls the user cannot afford to
            lose. It sits at z-0 so every overlay above it (z-20) still wins. */
+        data-probe-world="board"
         className="lds-canvas-frame relative isolate z-0 min-h-[320px] w-full flex-1 select-none touch-none overflow-hidden rounded-xl border border-border bg-app/40"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -2234,8 +2260,19 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               an opaque pill. Same tokens, deliberately — the two bars are the
               same kind of object and were never meant to be one solid and one
               made of glass. */}
+          {/* 📱 …and it STANDS DOWN while the ⋯ shelf is open on a short fold.
+              Not a cut: the filter is what you use to decide WHAT the board
+              shows, and the shelf is what you use to act on what it is already
+              showing — nobody needs both in the same second, and on a 390-px
+              fold the two of them plus the toolbar left 176 px of board. It
+              comes straight back when the shelf closes, and nothing changes at
+              any height a phone is held upright at.
+              The run tracker below does NOT stand down with it: a generation in
+              flight is the one thing you opened the board to watch. */}
           {filterSlot ? (
-            <div className="pointer-events-auto rounded-xl border border-border bg-surface-overlay p-1.5 shadow-lg">
+            <div data-probe-chrome="filter"
+              className={'pointer-events-auto rounded-xl border border-border bg-surface-overlay p-1.5 shadow-lg'
+                + (moreOpen && !tallFold ? ' hidden' : '')}>
               {filterSlot}
             </div>
           ) : null}
@@ -2259,7 +2296,8 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               at once there, and the desktop layout is not what this pass is
               about. */}
           {runPhase !== 'idle' && (
-          <div className={'pointer-events-auto rounded-xl border border-border bg-surface-overlay p-1.5 shadow-lg'
+          <div data-probe-chrome="tracker"
+            className={'pointer-events-auto rounded-xl border border-border bg-surface-overlay p-1.5 shadow-lg'
             + (panelOpen && runPhase === 'working' ? ' hidden lg:block' : '')}>
         {/* 🎨 The generation in flight, ON the board. Visible with the settings
             panel closed, and after a reload — which is the whole point: a launch
@@ -2284,7 +2322,19 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
         {/* BOTTOM — what you DO to the board. Bottom edge on purpose: it is
             thumb-height on a phone, and it is the corner a board has least to
             say in. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 p-2 sm:p-3">
+        {/* 📏 A flex COLUMN with a ceiling, and both halves are load-bearing.
+            The ceiling reserves the top chrome — measured at 844×390, a phone
+            held sideways, where the ⓘ bubble grew upward until it lay 448×54 px
+            ON TOP of the dataset filter at the far end of the screen. Being a
+            floating sibling stops this stack from pushing the toolbar; nothing
+            stopped it from covering what is above it.
+            The COLUMN is what makes the ceiling work without arithmetic: the
+            bubble is the only shrinkable child (`min-h-0`), so flexbox hands it
+            whatever is left after the shelf and the bar have taken their
+            height — at any shelf height, on any screen. A `max-h` in rem would
+            have had to guess at a shelf that is 106 px on one phone and 281 on
+            another. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex max-h-[calc(100%-4.5rem)] flex-col justify-end p-2 sm:p-3">
           {/* ⋯ The second shelf, ON the board instead of IN the toolbar. A
               SIBLING of the pill and only while asked for: whatever this width
               cannot hold floats over the board, closes with its Close button or
@@ -2308,16 +2358,40 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               is the third rung of the same ladder — pill, then shelf, then this
               — and each one floats over the board instead of pushing it. */}
           {gesturesOpen && (
-            <div data-testid="canvas-gestures-bubble" role="dialog"
+            <div data-testid="canvas-gestures-bubble" data-probe-chrome="bubble"
+              data-probe-reading role="dialog"
               aria-label="How the board is driven"
-              className="pointer-events-auto mb-1.5 max-w-full rounded-xl border border-border bg-surface-overlay/95 p-2.5 shadow-xl backdrop-blur sm:max-w-md">
+              /* 📏 CAPPED, and it scrolls inside its own cap. Measured at
+                 844×390 — a phone held sideways — the bubble grew upward until
+                 it lay 448×54 px ON TOP of the dataset filter at the other end
+                 of the screen. Being a floating sibling stops it pushing the
+                 toolbar; nothing stopped it from covering what is above it.
+                 `13rem` is the toolbar, the shelf and the filter bar it must
+                 not reach.
+                 ⚠️ A scroll container is safe HERE and would not be in the ⋯
+                 shelf: this box holds one paragraph, and a scroller CLIPS its
+                 children — which is exactly how a 354-px menu once showed as a
+                 20-px sliver inside the filter bar. Nothing in here opens. */
+              /* ⚠️ `min-h-0` is what lets the column above shrink this box at
+                 all — a flex child's default `min-height:auto` refuses to go
+                 below its content, which is precisely how it grew off the top
+                 of a landscape screen. A scroll container is safe HERE and
+                 would not be in the ⋯ shelf: this box holds one paragraph, and
+                 a scroller CLIPS its children — which is how a 354-px menu once
+                 showed as a 20-px sliver inside the filter bar. Nothing in here
+                 opens. */
+              className="pointer-events-auto mb-1.5 min-h-0 max-w-full overflow-y-auto rounded-xl border border-border bg-surface-overlay/95 p-2.5 shadow-xl backdrop-blur sm:max-w-md">
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <span className="text-content text-[0.6875rem] font-semibold">
                   <span aria-hidden>ⓘ</span> How this board works
                 </span>
                 <button type="button" onClick={() => setGesturesOpen(false)}
                   aria-label="Close the board help"
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-app/60 text-content-muted hover:text-content">×</button>
+                  /* 40 px below `lg`, like every control in this overlay. It
+                     shipped at 28 — the way OUT of the bubble, and the smallest
+                     thing on it. Found by scripts/responsiveProbe.mjs the first
+                     time it opened the bubble and measured what was inside. */
+                  className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-app/60 text-content-muted hover:text-content lg:h-7 lg:w-7">×</button>
               </div>
               <p className="m-0 text-content-subtle text-[0.6875rem] leading-relaxed">
                 {BOARD_GESTURES}
@@ -2325,49 +2399,41 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
             </div>
           )}
           {moreOpen && (
-            <div data-testid="canvas-more-sheet"
+            <div data-testid="canvas-more-sheet" data-probe-chrome="shelf" data-probe-panel="shelf"
               className="pointer-events-auto mb-1.5 flex max-w-full flex-col gap-2 rounded-xl border border-border bg-surface-overlay/95 p-2 shadow-xl backdrop-blur">
+              {/* ⚠️ TWO rows, and which control sits in which one MOVES with the
+                  width. Not cosmetics — measured by scripts/responsiveProbe.mjs,
+                  which is where this rule came from: the shelf used to stack
+                  four rows, two of them holding a single small chip in a
+                  900-px box (23 % and 8 % full). Every box was inside every
+                  other box and every source-level test was green; it simply
+                  read as broken, and it cost 47 % of a 360-px fold.
+
+                  The rule is that a row must EARN its line. ⓘ is a chip, so it
+                  travels with the chips — and when the chips are inline in the
+                  toolbar (`lg` and up) it has no row to belong to, so it joins
+                  the readouts instead of sitting alone. Close is pushed to the
+                  far edge of whatever row it lands in: it is the way out, and
+                  the way out belongs at the end. */}
               {!inlineActions && (
-                <div className="flex flex-wrap items-center gap-1.5">{boardActions}</div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {boardActions}
+                  {gestureChip}
+                </div>
               )}
-              {!inlineReadouts && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">{boardReadouts}</div>
-              )}
-              {/* The ONLY place the board's gestures are discoverable, and now
-                  the only one at every width. A gesture that is not listed here
-                  does not exist as far as anyone is concerned — including 🖼🖼
-                  drop-to-fuse, which nobody would ever guess.
-
-                  📱 FOLDED, and that is the point of it being written this way
-                  rather than simply printed. The list is ~500 characters: at
-                  400 px it wraps to ten lines, ~340 px of an 800-px screen,
-                  stacked UNDER the five controls someone opened ⋯ to reach. The
-                  sheet had eaten the board — the same failure the toolbar had
-                  before it, moved one box outwards.
-
-                  A <details> is safe HERE in a way it was not in the pill: the
-                  sheet is a SIBLING of the toolbar, so nothing it grows by can
-                  add a row to the bar, and the bar's height is what that lesson
-                  was about. Closed it costs one line; the words are one tap
-                  away and go away the same way, which is the difference between
-                  help you call up and help that has taken the screen. */}
-              <button type="button" data-testid="canvas-gestures-info"
-                onClick={() => setGesturesOpen((v) => !v)}
-                aria-expanded={gesturesOpen}
-                aria-label="How the board is driven"
-                title="How the board is driven — mouse, trackpad and touch"
-                className={'flex h-10 w-fit items-center gap-1.5 rounded-md border border-border px-2 text-[0.6875rem] font-semibold sm:px-3 lg:h-9 '
-                  + (gesturesOpen ? 'bg-indigo-500/15 text-content' : 'bg-app/60 text-content-muted hover:text-content')}>
-                <span aria-hidden>ⓘ</span> How this board works
-              </button>
-              <button type="button" onClick={() => setMoreOpen(false)}
-                aria-label="Close the board tools"
-                className="h-9 self-end rounded-md border border-border bg-app/60 px-3 text-content-muted text-[0.6875rem] font-semibold hover:text-content">
-                Close
-              </button>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                {!inlineReadouts && boardReadouts}
+                {inlineActions && gestureChip}
+                <button type="button" onClick={() => setMoreOpen(false)}
+                  aria-label="Close the board tools"
+                  className="ml-auto flex h-10 items-center rounded-md border border-border bg-app/60 px-3 text-content-muted text-[0.6875rem] font-semibold hover:text-content lg:h-9">
+                  Close
+                </button>
+              </div>
             </div>
           )}
-          <div className="pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface-overlay p-1.5 shadow-lg">
+          <div data-probe-chrome="toolbar"
+            className="pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface-overlay p-1.5 shadow-lg">
         {/* 📱 The board's controls, on a phone.
             Every target here is 40 px up to `lg` and the familiar 36 px above it.
             Not cosmetics: this row is the ONLY way to zoom without a wheel, and a

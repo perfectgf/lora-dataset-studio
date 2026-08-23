@@ -1,5 +1,4 @@
 """HTTP driver for the pod's ai-toolkit UI API — fully mocked."""
-import os
 
 import pytest
 

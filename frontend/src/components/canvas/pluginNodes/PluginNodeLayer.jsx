@@ -23,7 +23,6 @@ const warnedTypes = new Set();
 function warnUnknown(type) {
   if (warnedTypes.has(type)) return;
   warnedTypes.add(type);
-  // eslint-disable-next-line no-console
   console.warn('unknown plugin node type', type);
 }
 

@@ -5,7 +5,6 @@ Covers the four contracts the graph relies on: a gone run is removed with its
 notes; a run whose checkpoints are still on disk is refused (409, never a silent
 erase); deleting a parent detaches — never orphans a 500 on — a living child;
 an unknown id is 404."""
-import os
 
 
 def _rec(dataset_id=1, family='zimage', source='local', steps=1000, version=1,

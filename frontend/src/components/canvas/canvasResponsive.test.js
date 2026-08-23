@@ -160,8 +160,15 @@ test('the board gestures are reachable at every width, from a single source', ()
 test('the board manual is behind ⓘ, never printed in the ⋯ shelf', () => {
   const shelf = canvas.slice(canvas.indexOf('data-testid="canvas-more-sheet"'),
     canvas.indexOf('aria-label="Close the board tools"'));
-  // The shelf carries the OPENER and not one word of the manual.
-  assert.match(shelf, /data-testid="canvas-gestures-info"/);
+  // The shelf carries the OPENER and not one word of the manual. ⓘ is written
+  // ONCE, above, and PLACED twice — it rides with the action chips while they
+  // are in the shelf and joins the readouts once they go inline, so it never
+  // occupies a row of its own (scripts/responsiveProbe.mjs measures that, and
+  // two copies of the button would drift the first time one gained a prop).
+  assert.match(canvas, /const gestureChip = \(/);
+  assert.equal((canvas.match(/data-testid="canvas-gestures-info"/g) || []).length, 1);
+  assert.match(shelf, /\{gestureChip\}/);
+  assert.match(shelf, /\{inlineActions && gestureChip\}/);
   assert.doesNotMatch(shelf, /\{BOARD_GESTURES\}/);
 
   // The bubble is a SIBLING of the shelf, and renders before it, exactly as the
@@ -182,12 +189,18 @@ test('the board manual is behind ⓘ, never printed in the ⋯ shelf', () => {
 
   // ⓘ is a tap target, not a line of 11-px text: the same 40/36 px every other
   // control in this overlay uses, on the device that most needs the list.
-  const opener = shelf.slice(shelf.indexOf('data-testid="canvas-gestures-info"'));
-  assert.match(opener.slice(0, opener.indexOf('</button>')), /\bh-10\b/);
-  assert.match(opener.slice(0, opener.indexOf('</button>')), /\blg:h-9\b/);
+  const chip = canvas.slice(canvas.indexOf('const gestureChip = ('));
+  const chipBody = chip.slice(0, chip.indexOf('</button>'));
+  assert.match(chipBody, /\bh-10\b/);
+  assert.match(chipBody, /\blg:h-9\b/);
   // An emoji is not an accessible name, and the state is announced.
-  assert.match(shelf, /aria-label="How the board is driven"/);
-  assert.match(shelf, /aria-expanded=\{gesturesOpen\}/);
+  assert.match(chipBody, /aria-label="How the board is driven"/);
+  assert.match(chipBody, /aria-expanded=\{gesturesOpen\}/);
+  // Close is finger-sized too, and it sits at the row's far edge — the way out
+  // belongs at the end of whatever row it lands in.
+  // …asserted on the whole file, not on `shelf`: that slice deliberately ENDS
+  // at the Close button's aria-label, so its className is just past the edge.
+  assert.match(canvas, /ml-auto flex h-10 items-center[^"]*lg:h-9/);
 
   // ⚠️ The bubble does NOT die with the shelf: it is read against the board, so
   // closing ⋯ to see what the sentence describes has to be possible.
@@ -328,7 +341,12 @@ test('the board search folds behind 🔍 on a phone and is untouched from lg', (
   assert.match(toggle.slice(0, 600), /\blg:hidden\b/);
   // The field itself: hidden while folded, its own full-width row while open,
   // and from `lg` the exact 12-rem flex item it has always been.
-  assert.match(filter, /searchOpen \? 'basis-full ' : 'hidden '/);
+  // 📏 …and when it IS unfolded, whether it takes a row of its own depends on
+  // the HEIGHT, not the width: on a phone held sideways a full-width field put
+  // the bar at 146 px and the chrome over budget, for a field that fits beside
+  // the chips at that width. Measured by scripts/responsiveProbe.mjs.
+  assert.match(filter, /searchOpen \? `\${tallFold \? 'basis-full' : 'basis-auto'} ` : 'hidden '/);
+  assert.match(filter, /useMediaQuery\('\(min-height: 500px\)'\)/);
   assert.match(filter, /lg:h-9 lg:block lg:basis-48/);
   // A filter you cannot see must still announce itself — the bar's own rule.
   assert.match(filter, /queryActive\n?\s*\? 'border-indigo-400\/60 bg-indigo-500\/15/);

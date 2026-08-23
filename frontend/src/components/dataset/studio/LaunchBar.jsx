@@ -5,7 +5,7 @@
 // ce n'est pas juste « lancer » (« Deploy 2 checkpoints, then generate ») et
 // POURQUOI quand il ne peut pas (familles mélangées). Absents → le libellé
 // historique, à l'identique.
-export default function LaunchBar({ canLaunch, launching, onLaunch, label = null, title = null }) {
+export default function LaunchBar({ canLaunch, onLaunch, label = null, title = null }) {
   return (
     <button type="button" disabled={!canLaunch} onClick={onLaunch} title={title || undefined}
       className="ml-auto min-w-0 px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">

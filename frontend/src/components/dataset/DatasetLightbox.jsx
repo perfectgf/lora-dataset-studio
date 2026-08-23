@@ -723,8 +723,8 @@ export default function DatasetLightbox({
         )}
         {onCrop && (
           <button type="button" onClick={() => onCrop(img)} disabled={pixelEditRefused}
-            title={refused || 'Open the crop editor for this image (stretchable box, any ratio)'}
-            aria-label={refused || 'Open the crop editor for this image'}
+            title={pixelEditReason || 'Open the crop editor for this image (stretchable box, any ratio)'}
+            aria-label={pixelEditReason || 'Open the crop editor for this image'}
             className="min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             ✂ Crop
           </button>
@@ -760,7 +760,7 @@ export default function DatasetLightbox({
         {onMirror && (
           <button type="button" onClick={mirror} disabled={pixelEditRefused || mirrorBusy}
             aria-busy={mirrorBusy}
-            aria-label={refused
+            aria-label={pixelEditReason
               || (mirrorBusy ? `Mirroring ${alt} horizontally` : `Mirror ${alt} horizontally`)}
             title={refused
               || (mirrorBusy ? 'Mirroring horizontally…' : 'Mirror horizontally (flip left and right)')}
@@ -777,16 +777,16 @@ export default function DatasetLightbox({
              Emoji stay aria-hidden — the label is the text. */
           <div className={`flex items-stretch gap-2 ${rail ? 'w-full' : 'w-full sm:w-auto'}`}>
             <button type="button" onClick={rotate(270)} disabled={pixelEditRefused || mirrorBusy}
-              aria-busy={mirrorBusy} aria-label={refused || `Rotate ${alt} 90 degrees left`}
-              title={refused
+              aria-busy={mirrorBusy} aria-label={pixelEditReason || `Rotate ${alt} 90 degrees left`}
+              title={pixelEditReason
                 || "Rotate 90° left (counter-clockwise) — keeps the file's format; four turns come back round"}
               className={`min-h-9 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45 ${
                 rail ? '' : 'sm:flex-none'}`}>
               <span aria-hidden="true">↺</span> Rotate left
             </button>
             <button type="button" onClick={rotate(90)} disabled={pixelEditRefused || mirrorBusy}
-              aria-busy={mirrorBusy} aria-label={refused || `Rotate ${alt} 90 degrees right`}
-              title={refused
+              aria-busy={mirrorBusy} aria-label={pixelEditReason || `Rotate ${alt} 90 degrees right`}
+              title={pixelEditReason
                 || "Rotate 90° right (clockwise) — keeps the file's format; four turns come back round"}
               className={`min-h-9 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45 ${
                 rail ? '' : 'sm:flex-none'}`}>

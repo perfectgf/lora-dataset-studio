@@ -246,7 +246,6 @@ def test_asserted_face_membership_survives_mutation_and_bank_copy_without_stale_
 @pytest.mark.parametrize('mutation', ('rotate', 'clean'))
 def test_asserted_face_membership_survives_bank_dataset_bank_roundtrip(
         app, tmp_path, mutation):
-    from app.extensions import db
     from app.models import BankImage, FaceDatasetImage
     from app.services import bank_transfer_metadata as transfer
     from app.services import face_dataset_service as datasets
@@ -289,7 +288,7 @@ def test_asserted_face_membership_survives_bank_dataset_bank_roundtrip(
 def test_asserted_face_membership_does_not_hide_a_true_stale_pixel_lane(
         app, tmp_path, destination):
     from app.extensions import db
-    from app.models import BankImage, FaceDatasetImage, ImageBank
+    from app.models import FaceDatasetImage, ImageBank
     from app.services import face_dataset_service as datasets
     from app.services import image_bank_service as banks
 
@@ -519,7 +518,6 @@ def test_first_watermark_attestation_invalidates_a_replaced_raw_generation(
         app, tmp_path):
     """A NULL watermark SHA is not permission to bless stale Score results."""
     from app.extensions import db
-    from app.models import BankImage
     from app.services import bank_transfer_metadata as transfer
     from app.services import image_bank_service as banks
 

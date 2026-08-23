@@ -3,7 +3,6 @@
 LoKr and EMA are arch-generic in ai-toolkit; the Krea-only fields below are
 deliberately scoped so a source-labelled Krea recipe is never a silent no-op.
 """
-import json
 
 import pytest
 

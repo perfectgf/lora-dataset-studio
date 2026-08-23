@@ -75,11 +75,9 @@ function LocationEditor({
     }
     setJob({ phase: 'scanning' })
     for (let i = 0; i < 100000; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, 700))
       let state
       try {
-        // eslint-disable-next-line no-await-in-loop
         state = (await apiFetch(`/api/storage/move/progress?job_id=${started.job_id}`,
           { background: true })).job
       } catch { continue }

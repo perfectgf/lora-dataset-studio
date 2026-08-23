@@ -1,6 +1,5 @@
 """Body-fidelity mode: permanent body marks are identity — banned from captions
 (prompt suffix + post-filters + leak badge) so they bind to the trigger."""
-import pytest
 
 from app.services import face_variations as fv
 

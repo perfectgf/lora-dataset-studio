@@ -248,7 +248,6 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   }
 
   const triageEverything = async (next) => {
-    // eslint-disable-next-line no-alert
     if (!window.confirm(triageAllConfirmation(next, counts.clips || 0))) return
     await applyTriage(triageAllPayload(next), counts.clips || 0)
   }

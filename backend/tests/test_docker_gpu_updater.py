@@ -7,7 +7,6 @@ actual installation.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import stat
@@ -26,6 +25,10 @@ GPU_BAT = REPO_ROOT / "update-docker-gpu.bat"
 GENERIC_BAT = REPO_ROOT / "update-docker.bat"
 POWERSHELL = shutil.which("powershell.exe")
 COMSPEC = os.environ.get("COMSPEC") or shutil.which("cmd.exe")
+# Seconds allowed for one cmd.exe -> .bat -> .bat -> PowerShell chain. Cold, on
+# a hosted CI runner shared with seven other xdist workers, 20 s was crossed
+# twice in two days; this guards against a hang, not against a slow start.
+BAT_TIMEOUT = 120
 GIT = shutil.which("git.exe") or shutil.which("git")
 TEST_COMMIT = "1" * 40
 
@@ -467,13 +470,18 @@ def test_bat_alias_handles_special_path_and_rejects_hostile_argument(tmp_path):
     )
     _write(scripts / UPDATER.name, probe)
 
+    # cmd.exe -> update-docker.bat -> update-docker-gpu.bat -> PowerShell, cold,
+    # on a hosted runner that is also running seven other xdist workers: CI
+    # measured that chain past 20 s twice in two days (2026-08-21, 2026-08-22)
+    # and called it a failure of THIS test. The budget guards against a hang,
+    # not a slow start, so it is generous — a genuine hang still trips it.
     ok = subprocess.run(
         [COMSPEC, "/d", "/c", str(install / GENERIC_BAT.name), "main"],
         input="\n",
         capture_output=True,
         text=True,
         errors="replace",
-        timeout=20,
+        timeout=BAT_TIMEOUT,
         check=False,
     )
     assert ok.returncode == 0
@@ -494,7 +502,7 @@ def test_bat_alias_handles_special_path_and_rejects_hostile_argument(tmp_path):
         capture_output=True,
         text=True,
         errors="replace",
-        timeout=20,
+        timeout=BAT_TIMEOUT,
         check=False,
     )
     assert rejected.returncode == 2
@@ -507,7 +515,7 @@ def test_bat_alias_handles_special_path_and_rejects_hostile_argument(tmp_path):
         capture_output=True,
         text=True,
         errors="replace",
-        timeout=20,
+        timeout=BAT_TIMEOUT,
         check=False,
     )
     assert extra.returncode == 2
@@ -548,7 +556,7 @@ def test_public_bat_ignores_environment_test_injections(tmp_path):
         capture_output=True,
         text=True,
         errors="replace",
-        timeout=20,
+        timeout=BAT_TIMEOUT,
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr

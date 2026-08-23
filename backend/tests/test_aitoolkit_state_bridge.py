@@ -40,7 +40,6 @@ from app.training_bridge.lds_aitk_bridge_contract import (
     ENV_IDENTITY_FILE,
     ENV_PROTOCOL,
     ENV_RESERVE_BYTES,
-    ENV_STATUS_FILE,
     IDENTITY_SCHEMA,
     atomic_json_nofollow,
     probe_aitoolkit_source,

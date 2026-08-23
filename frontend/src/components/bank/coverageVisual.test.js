@@ -4,7 +4,6 @@
 import { bankTreeSource } from './bankTreeSource.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import { spreadReadout, spreadCoverageNote } from './coverageVisual.js';
 
 const ws = bankTreeSource();

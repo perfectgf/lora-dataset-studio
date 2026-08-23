@@ -12,7 +12,6 @@ The salvage tests build real archives with numpy and truncate one on purpose,
 because the thing being asserted — that a file cut mid-write is REJECTED — is a
 property of decompressing it, not of any flag we could stub.
 """
-import importlib.util
 import os
 import pathlib
 import sys

@@ -651,7 +651,6 @@ def metric_thresholds() -> dict:
 
 def _clip_row(clip: VideoClip, relpaths: dict, thresholds=None) -> dict:
     metrics = json.loads(clip.metrics_json) if clip.metrics_json else None
-    measured = metrics if metrics and metrics.get('metrics_state') == 'ok' else None
     duration_s = round(clip.end_s - clip.start_s, 3)
     # Flags are DERIVED here, at read time, from raw scores + the thresholds in
     # force — never stored. Sorted so the payload is deterministic.

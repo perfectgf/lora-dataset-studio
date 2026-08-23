@@ -32,7 +32,6 @@ only the in-process progress bookkeeping the routes poll — the same shape as
 ``setup_installer``.
 """
 import copy
-import io
 import json
 import logging
 import os

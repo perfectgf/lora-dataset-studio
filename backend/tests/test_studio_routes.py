@@ -569,7 +569,6 @@ def test_rate_valid_ratings_accepted(client):
     with client.application.app_context():
         from app.services import face_dataset_service as svc
         from app.models import LoraTestImage
-        from app.config import LOCAL_USER
         img = LoraTestImage(dataset_id=ds_id, checkpoint='z image\\lora_nova_000001000.safetensors',
                             strength=1.0, status='done')
         svc.db.session.add(img)

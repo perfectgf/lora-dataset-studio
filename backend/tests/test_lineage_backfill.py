@@ -3,7 +3,6 @@ the edge was persisted. Conservative: an edge is stamped only when the evidence
 is unambiguous, and it is marked so it stays auditable."""
 from datetime import datetime, timedelta
 
-import pytest
 
 from app.extensions import db
 from app.models import SystemState, TrainingRunRecord
@@ -56,7 +55,7 @@ def test_edited_dataset_between_launches_is_left_root(app):
     indistinguishable from a fresh restart on the reworked dataset. Ambiguous ->
     no edge (better an honest root than an invented parent)."""
     with app.app_context():
-        a = _rec(steps=1000, fp='fpA', order=0)
+        _rec(steps=1000, fp='fpA', order=0)
         b = _rec(steps=2000, fp='fpB', order=1)     # dataset edited -> new fingerprint
         assert bf.reconstruct_edges() == 0
         db.session.refresh(b)
@@ -97,7 +96,7 @@ def test_chains_resume_after_an_ambiguous_gap(app):
     and the next record continuing IT (same new fingerprint, growing target) is
     still linked to it — the break doesn't poison what follows."""
     with app.app_context():
-        a = _rec(steps=1000, fp='fpA', order=0)
+        _rec(steps=1000, fp='fpA', order=0)
         b = _rec(steps=2000, fp='fpB', order=1)     # dataset edited -> root
         c = _rec(steps=3000, fp='fpB', order=2)     # continues b on the new dataset
         assert bf.reconstruct_edges() == 1

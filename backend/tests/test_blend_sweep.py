@@ -17,7 +17,6 @@ Ce qui est épinglé ici, dans l'ordre où ça peut casser :
   · la VUE PILE — les combinaisons d'un même run ne doivent pas s'écraser en une
     variante unique étiquetée avec les poids de sa première cellule.
 """
-import pytest
 
 _ST = (b'\x08\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{}}'.ljust(32, b'\x00'))
 

@@ -40,7 +40,7 @@ import { apiFetch, putJson } from '../../api/fetchClient';
 import SettingsLink from '../common/SettingsLink';
 import PromptOverrideField from '../common/PromptOverrideField';
 import KleinModelSetting from '../shared/KleinModelSetting';
-import { improveInstructionLine, improveAnimeCaution, readImproveInstruction } from './kleinImproveHint';
+import { improveInstructionLine, improveAnimeCaution } from './kleinImproveHint';
 import {
   IMPROVE_OFF_NOTE, IMPROVE_SCOPE_NOTE, createImproveSaver, effectiveImprovePrompt,
   improveEditorState, improveSettingsPatch,

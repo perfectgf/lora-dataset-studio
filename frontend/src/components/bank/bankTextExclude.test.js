@@ -12,7 +12,6 @@ import { bankTreeSource } from './bankTreeSource.js';
 // it fails, and never letting the replacement over-promise.
 
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import test from 'node:test';
 
 import {

@@ -509,7 +509,6 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
     : oc?.text;
   const cleaning = working && workingKind === 'clean';   // navigation is held while true, so this always tracks `item`
   const restoring = working && workingKind === 'restore';
-  const repairing = working && workingKind === 'repair';
   // A real pixel edit ran (cleanDetail set on crop/inpaint/Klein) → a .orig exists to
   // undo. The "nothing to do" cleaned fallback sets no detail, so Restore stays hidden.
   const restorable = outcome === 'cleaned' && Boolean(cleanDetail[item?.id]);

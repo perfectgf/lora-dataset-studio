@@ -370,7 +370,6 @@ def test_improve_refuses_an_empty_pool_before_it_starts_anything(client, app, tm
     preflight is in the launcher and not in the job thread."""
     from app.extensions import db
     from app.models import BankImage
-    from app.services import image_bank_service as banks
 
     bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})
     ids = _ids(app, bank_id)

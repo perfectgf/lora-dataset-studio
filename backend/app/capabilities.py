@@ -1169,7 +1169,7 @@ def _validated_setup_http_base(value) -> str:
                 or parsed.username is not None or parsed.password is not None
                 or parsed.path not in ('', '/') or parsed.query or parsed.fragment):
             return ''
-        parsed.port  # validate a numeric/in-range port without resolving the host
+        _ = parsed.port  # validate a numeric/in-range port without resolving the host
     except (TypeError, ValueError):
         return ''
     return raw

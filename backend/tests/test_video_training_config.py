@@ -26,7 +26,6 @@ THE TWO CLAIMS UNDER TEST
    True. Every step number in this app was parsed by a regex anchored on
    `_<digits>.safetensors$` — an anchor those names break.
 """
-import json
 import os
 
 import pytest

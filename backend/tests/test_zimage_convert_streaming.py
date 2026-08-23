@@ -34,7 +34,6 @@ The two properties that make the fix a fix rather than a rewrite:
     test runs on — so the test says what it checks: this spelling coming back).
 """
 import importlib.util
-import json
 import os
 import re
 import struct

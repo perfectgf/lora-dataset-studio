@@ -39,7 +39,7 @@ export default function LockableSlider({
 
   const toggleLock = () => setLocked((prev) => {
     const next = !prev;
-    try { localStorage.setItem(storageKey, String(next)); } catch {}
+    try { localStorage.setItem(storageKey, String(next)); } catch { /* storage may be unavailable; the toggle still works for this page */ }
     return next;
   });
 

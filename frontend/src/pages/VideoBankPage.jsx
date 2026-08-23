@@ -91,7 +91,6 @@ export default function VideoBankPage() {
   }
 
   const remove = async (bank) => {
-    // eslint-disable-next-line no-alert
     if (!window.confirm(`Remove the video bank “${bank.name}”?\n\nOnly the triage data (detected shots, decisions, thumbnails) is deleted — your video files and any dataset already built from them are NOT touched.`)) return
     try {
       await del(`/api/video-bank/${bank.id}`)

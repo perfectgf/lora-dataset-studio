@@ -7,7 +7,6 @@ ever moved without being asked.
 """
 import os
 
-import pytest
 
 
 def test_map_lists_every_category_without_walking_the_disk(app, monkeypatch):

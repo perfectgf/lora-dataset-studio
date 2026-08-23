@@ -126,7 +126,7 @@ def test_build_skips_unreadable_dataset_without_aborting(app, tmp_path, monkeypa
     from app.services import full_backup as fb
 
     with app.app_context():
-        good = _dataset_with_image(svc, LOCAL_USER, 'Good', 'good')
+        _dataset_with_image(svc, LOCAL_USER, 'Good', 'good')
         bad = _dataset_with_image(svc, LOCAL_USER, 'Bad', 'bad')
 
         real = svc.write_backup_zip

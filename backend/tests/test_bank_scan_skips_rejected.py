@@ -10,7 +10,6 @@ files, so skipping rejected rows must not stop a FIRST scan from doing that.
 """
 from unittest.mock import patch
 
-import pytest
 from PIL import Image
 
 
@@ -96,7 +95,6 @@ def test_the_scan_still_auto_rejects_an_unreadable_file(app, tmp_path):
     """NON-REGRESSION: the filter must not disarm the pass's own verdict. A
     pending row that turns out unreadable is still rejected by the first scan."""
     from app.models import BankImage
-    from app.services import image_bank_service as banks
 
     with app.app_context():
         bank_id = _bank(app, tmp_path, {'ok.jpg': 'image',

@@ -57,10 +57,15 @@ from .. import config as cfg
 from ..extensions import db
 from ..models import BankImage, FaceDataset, FaceDatasetImage, ImageBank
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
-               dataset_activity, image_encoding, input_budget, path_guard, trash)
+               dataset_activity, image_encoding, path_guard, trash)
+# The scope vocabulary is a leaf (pass_scopes.py) so face_dataset_service never
+# imports this module; the three names stay readable as banks.* for every caller.
+from .pass_scopes import PASS_SCOPES, CAPTION_SCOPES, normalize_pass_statuses  # noqa: F401
+# Re-exported on purpose: the promote tests patch `banks._existing_dhash_rows`.
+from .face_dataset_service import _existing_dhash_rows  # noqa: F401
 from .face_dataset_service import (SCRAPE_IMPORT_MAX, _dhash, _download_scrape_item,
                                    _dataset_ingest_lock,
-                                   _existing_dhash_rows, _hamming, _SCRAPE_DL_WORKERS,
+                                   _hamming, _SCRAPE_DL_WORKERS,
                                    _watermark_regions_payload,
                                    _source_metadata_storage, bank_deterministic_analysis,
                                    import_images, _preserved_import_extension,
@@ -3164,35 +3169,8 @@ def _scan_one(src_root: str, thumbs: Path, item: tuple) -> dict:
 # pass that reaches it spends real time (GPU, in most cases) on images you
 # decided against. It is never a default, never part of the default, and the
 # dialog that offers it says what it costs.
-PASS_SCOPES = ('keep', 'pending', 'reject')
-
-
-def normalize_pass_statuses(statuses, allowed=PASS_SCOPES):
-    """Validate a per-run scope → a canonical list, or None for "as before".
-
-    None / [] → None, meaning the pass keeps its own historical filter. Anything
-    outside ``allowed`` raises ValueError → 400, exactly like a bad vocabulary."""
-    if statuses is None:
-        return None
-    if isinstance(statuses, str):       # a lone 'keep' is a scope of one
-        statuses = [statuses]
-    if not isinstance(statuses, (list, tuple, set)):
-        raise ValueError('invalid statuses: expected a list of statuses')
-    want = []
-    for s in statuses:
-        if not isinstance(s, str):
-            raise ValueError('invalid status: expected status names')
-        v = s.strip().lower()
-        if not v:
-            continue
-        if v not in allowed:
-            raise ValueError(f'invalid status: {v}')
-        want.append(v)
-    if not want:
-        return None
-    # Canonical order + dedup, so ['pending','keep'] and ['keep','pending'] are
-    # one value and never two code paths.
-    return [s for s in PASS_SCOPES if s in want]
+# PASS_SCOPES itself lives in pass_scopes.py — a leaf both surfaces import, so the
+# dataset side never has to reach into this module for three words.
 
 
 def _unscored_clause():
@@ -5181,7 +5159,6 @@ def select_diverse(user_id, bank_id, n=60, *, typicality=_TYPICALITY_DEFAULT,
     'typicality': w}. Raises ValueError (→400, "run ✨ Score first") when no
     embedding exists yet, so the UI shows the clear hint instead of an empty,
     unexplained selection."""
-    import numpy as np
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -9188,7 +9165,7 @@ def _medium_job(bank_id, rescan, statuses=None, ids=None):
 # the app enforced on the user rather than a fact about the data, and the launch
 # dialog is where the cost of aiming a GPU pass at the bin can finally be stated
 # instead of assumed.
-CAPTION_SCOPES = PASS_SCOPES
+# CAPTION_SCOPES comes from pass_scopes.py with PASS_SCOPES (same tuple, two names).
 
 
 def _normalize_caption_statuses(statuses):
@@ -9336,8 +9313,8 @@ def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None,
 # for the same caption (test_scene_caption_parity.py reads both against it).
 # Re-exported under the historical names: callers and tests already say
 # `banks.SCENE_MAX_PROMPT`.
+from .scene_captions import SCENE_MAX_PROMPT  # noqa: E402,F401  re-exported as banks.SCENE_MAX_PROMPT
 from .scene_captions import (            # noqa: E402  (module-level, grouped with its section)
-    SCENE_MAX_PROMPT,
     scene_framing as _scene_framing,
     scene_label as _scene_label,
     scene_prompt as _scene_prompt,
@@ -11078,7 +11055,7 @@ def _dataset_import_job(bank_id, dataset_id, src_dir, image_rows, activity_token
                     values, compatible, cache_bundle = _dataset_row_bank_values(
                         row, dest, preserve_analysis,
                         analysis_cache_dir=analysis_cache_dir)
-                except Exception as exc:  # noqa: BLE001 — any partial transfer aborts
+                except Exception:  # noqa: BLE001 — any partial transfer aborts
                     logger.warning('dataset import: copy %s failed', filename,
                                    exc_info=True)
                     abort('Could not preserve the complete Dataset image and its '

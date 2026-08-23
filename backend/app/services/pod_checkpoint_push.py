@@ -40,10 +40,8 @@ partial state, and that a truncated or oversized slice is never accepted. The
 transfer itself is proven only in production — the same honesty ``dense_pod_hub``
 states about its own two programs.
 """
-import json
 import logging
 import os
-import posixpath
 
 from . import dense_pod_hub as hub
 

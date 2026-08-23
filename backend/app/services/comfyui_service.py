@@ -20,7 +20,6 @@ only ever a trap for the next caller.
 """
 
 import os
-import time
 import socket
 import threading
 import logging

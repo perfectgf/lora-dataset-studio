@@ -66,7 +66,6 @@ import {
   semanticEngineLabel, semanticEnginePatchBody, semanticEngineState, semanticPrerequisite,
 } from './bankSemanticEngine.js'
 // Ordered zone model + the "what's next" accent, both pure/testable.
-import { BANK_ZONES, nextBankStep } from './bankGuide.js'
 // Grid ordering menu (which sorts exist, and which ones have data) — pure/testable.
 import { bankSortGroups, loadBankSort, saveBankSort } from '../../utils/gridSort.js'
 // 🏷️ One image's caption → the chips you can filter by, and the same chips over a
@@ -1416,7 +1415,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const clusters = payload?.clusters || []
   const styleClusters = payload?.style_clusters || []
   const framingCounts = chipPrint.framing
-  const framingClassified = counts?.framing_classified || 0
   // Only surface framing chips once the pass has classified something (plus the
   // active one, so a chip you're filtering on never vanishes mid-review).
   const shownFramings = FRAMING_BUCKETS.filter(
@@ -1638,18 +1636,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   // everything.
   const isFiltered = isFacetFiltered(filter)
 
-  // The ONE recommended next step, from the counters the header strip already
-  // reads. Advisory only — draws an amber "Next step" accent on that zone.
-  const activeStep = nextBankStep({
-    scanned: counts?.scanned || 0,
-    scored: scored || 0,
-    keep: counts?.keep || 0,
-    scoringAvailable: !!caps?.bank_scoring,
-  })
-  const analyzeZone = BANK_ZONES.find((z) => z.id === 'analyze')
-  const triageZone = BANK_ZONES.find((z) => z.id === 'triage')
-  const curateZone = BANK_ZONES.find((z) => z.id === 'curate')
-  const promoteZone = BANK_ZONES.find((z) => z.id === 'promote')
 
   return (
     /* ── Structure B ──────────────────────────────────────────────────────

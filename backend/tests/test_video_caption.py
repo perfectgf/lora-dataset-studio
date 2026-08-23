@@ -28,7 +28,6 @@ absolute rule — no unverified model claim):
 Both heavy seams — the frame decode and the model — are monkeypatched here, so
 the suite runs with neither PyAV nor torch.
 """
-import pytest
 
 from app.services import video_caption as vc
 

@@ -11,7 +11,7 @@ def _stalled_studio_cell(app, *, run_id='recovery-run', known_prompt=False):
     from app.config import LOCAL_USER
     from app.extensions import db
     from app.job_queue import queue_manager
-    from app.models import ImageGenerationQueue, LoraTestImage
+    from app.models import LoraTestImage
     from app.services import face_dataset_service as svc
 
     with app.app_context():
@@ -84,7 +84,7 @@ def _assert_still_stalled(app, cell_id, job_id, *, prompt_id=None):
     from app.models import ImageGenerationQueue, LoraTestImage
 
     with app.app_context():
-        cell = db_cell = LoraTestImage.query.get(cell_id)
+        cell = LoraTestImage.query.get(cell_id)
         queue = ImageGenerationQueue.query.filter_by(job_id=job_id).one()
         assert cell.status == 'pending'
         assert cell.job_id == job_id

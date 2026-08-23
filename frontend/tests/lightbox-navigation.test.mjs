@@ -21,7 +21,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { readFileSync } from 'node:fs'
 
-import { render, renderToStaticMarkup, createElement } from './support/mountJsx.mjs'
+import { renderToStaticMarkup, createElement } from './support/mountJsx.mjs'
 
 const {
   freshLightboxImageState, lightboxImageState, lightboxNeighbours, stampedPatch,

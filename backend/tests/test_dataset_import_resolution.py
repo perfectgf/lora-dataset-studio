@@ -248,7 +248,6 @@ def test_zip_and_folder_merge_preserve_raw_sources(app, tmp_path):
     """ZIP and folder routes share `_merge_training_images`; cover both public
     entries so a future shortcut cannot reintroduce a WebP rewrite in one lane."""
     from app.config import LOCAL_USER
-    from app.models import FaceDatasetImage
     from app.services import face_dataset_service as svc
 
     zip_raw = _image_bytes('PNG', seed=12)

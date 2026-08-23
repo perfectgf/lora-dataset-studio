@@ -369,7 +369,7 @@ def test_style_aitoolkit_export_is_content_only(app, tmp_path):
                                             filename=filename,
                                             caption=f'zsty_export, {caption}'))
         svc.db.session.commit()
-        out = lt.export_dataset_to_aitoolkit(
+        lt.export_dataset_to_aitoolkit(
             LOCAL_USER, ds.id, masked=True, dest_dir=tmp_path / 'export')
         sidecar = next((tmp_path / 'export').glob('*.txt'))
         assert sidecar.read_text(encoding='utf-8') == caption

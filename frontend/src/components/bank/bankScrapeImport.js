@@ -78,7 +78,6 @@ export async function runBankScrapeImport({ items, destination, post, onBatch,
     onBatch?.({ index: i, count: batches.length, total: items.length });
     let d;
     try {
-      // eslint-disable-next-line no-await-in-loop
       d = await post(endpoint, body);
     } catch (e) {
       // The REAL post (fetchClient.postJson) THROWS on any non-2xx — it never

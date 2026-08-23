@@ -771,7 +771,6 @@ def test_import_probe_cache_key_includes_interpreter_path(app, monkeypatch):
     """Changing interpreter path should invalidate the import cache."""
     with app.app_context():
         from app import capabilities, config
-        import sys
 
         # First call: interpreter A returns True
         monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: True)

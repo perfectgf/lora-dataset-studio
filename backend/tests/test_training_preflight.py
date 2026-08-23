@@ -377,7 +377,6 @@ def test_preflight_route(client, app, monkeypatch):
     monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
     with app.app_context():
         from app import config as cfg
-        root = __import__('pathlib').Path(cfg.get('aitoolkit.dir') or '')
     # configure a fake ai-toolkit so the gate opens
     import pathlib, tempfile
     tmp = pathlib.Path(tempfile.mkdtemp())

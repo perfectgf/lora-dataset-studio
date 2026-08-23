@@ -120,7 +120,12 @@ export default function CanvasSystemStats() {
           ? 'Hide the machine load readout (stops polling the server)'
           : 'Show CPU, GPU, VRAM and RAM of the machine running LDS'}
         aria-label={enabled ? 'Hide the machine load readout' : 'Show the machine load readout'}
-        className="flex h-6 items-center rounded border border-border bg-app/40 px-1 text-content-subtle/70 text-[0.625rem] hover:text-content">
+        /* 📱 40 px below `lg`, like everything else in this overlay. It was
+           h-6 = 24, the smallest target on the board, and a miss on it lands on
+           the board and pans it — which reads as "the readout is stuck on".
+           Found by scripts/responsiveProbe.mjs, not by eye: a 24-px glyph next
+           to 11-px text looks perfectly deliberate in a screenshot. */
+        className="flex h-10 items-center rounded border border-border bg-app/40 px-1.5 text-content-subtle/70 text-[0.625rem] hover:text-content lg:h-6 lg:px-1">
         {enabled ? '▾' : '📊'}
       </button>
       <HelpBadge topic="canvas-machine-load" />

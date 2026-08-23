@@ -15,7 +15,6 @@ Three states, three answers, and the LoRA lane must not move a millimetre.
 """
 import json
 
-import pytest
 
 
 def _dense_run(dataset_id, tmp_path, *, status='done', hf_repo='acme/dense-1',

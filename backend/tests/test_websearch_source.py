@@ -5,7 +5,6 @@ indirection `_images`."""
 import pytest
 
 from app.scrape.sources import websearch
-from app.scrape.sources.base import Match
 from app.scrape.sources.websearch import WebSearchSource
 
 

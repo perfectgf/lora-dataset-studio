@@ -15,7 +15,7 @@ import {
   KREA_IDENTITY_STRENGTH_MIN, KREA_IDENTITY_STRENGTH_MAX,
   KREA_GROUNDING_MIN, KREA_GROUNDING_MAX, KREA_GROUNDING_STEP,
   KREA_STEPS_MIN, KREA_STEPS_MAX,
-  clampDial, clampRefBoost, clampIdentityStrength, clampGrounding, clampSteps,
+  clampRefBoost, clampIdentityStrength, clampGrounding, clampSteps,
   refBoostDescription, identityStrengthDescription, stepsDescription,
   kreaDialPayload, createDialSaver,
 } from './kreaDials.js';

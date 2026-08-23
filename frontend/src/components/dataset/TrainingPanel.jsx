@@ -836,7 +836,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     refreshStatus();
     const id = setInterval(refreshStatus, 10000);
     return () => clearInterval(id);
-  }, [caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [caps.training_visible]);
 
   useEffect(() => {
     onNavigationStateChange?.({
@@ -1397,7 +1397,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     })().finally(() => { if (alive) setTrainingModeBusy(false); });
     return () => { alive = false; };
   }, [baseInfo, fullMode, fullTransformerEligible, fullTransformerReason,
-    trainType, variant, base, ds.setDatasetTrainingMode]); // eslint-disable-line react-hooks/exhaustive-deps
+    trainType, variant, base, ds.setDatasetTrainingMode]);
 
   const toggleSliderMode = async () => {
     const next = !sliderOn;
