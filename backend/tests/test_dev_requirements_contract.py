@@ -114,7 +114,7 @@ def test_torch_test_overlay_is_cpu_only_official_and_exactly_pinned():
         '--index-url https://download.pytorch.org/whl/cpu',
         'torch==2.13.0+cpu',
     ], 'the test overlay must be only the exact CPU Torch wheel from the official index'
-    assert 'setuptools==83.0.0' in _lines(_DEV), \
+    assert 'setuptools==84.0.0' in _lines(_DEV), \
         'preinstall the audited build backend before switching to the Torch index'
     assert not any(line.lower().startswith('torch') for line in _lines(_DEV))
     assert not any(line.lower().startswith('torch') for line in _lines(_RUNTIME))
