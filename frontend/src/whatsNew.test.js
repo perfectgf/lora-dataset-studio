@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import {
   WHATS_NEW,
   sortedEntries,
@@ -40,6 +41,38 @@ test('every entry has the required shape and a unique, stable id', () => {
     assert.ok(e.blurb && typeof e.blurb === 'string', `blurb: ${e.id}`);
     assert.ok(!seen.has(e.id), `duplicate id: ${e.id}`);
     seen.add(e.id);
+  }
+});
+
+// A screenshot only helps if it is THERE. The release body links it by an
+// absolute URL pinned to the tag, so a wrong path does not fail loudly at build
+// time — it ships a release page with a broken image on it, which is worse than
+// no picture. Catch it here, where a rename is being made.
+test('every declared screenshot exists, and is an image', () => {
+  const root = new URL('../../', import.meta.url);
+  let declared = 0;
+  for (const e of WHATS_NEW) {
+    if (e.image === undefined) continue;
+    declared += 1;
+    assert.equal(typeof e.image, 'string', `image must be a path: ${e.id}`);
+    assert.ok(!e.image.startsWith('/'), `image path is repo-relative: ${e.id}`);
+    assert.match(e.image, /\.(png|jpg|jpeg|gif|webp)$/i, `image extension: ${e.id}`);
+    assert.ok(existsSync(new URL(e.image, root)),
+      `screenshot missing from the repo: ${e.image} (${e.id})`);
+  }
+  // Not an assertion on the count — entries without a picture are normal, and
+  // the field is optional on purpose.
+  assert.ok(declared >= 0);
+});
+
+// Rule 2 of the doctrine in whatsNew.js, enforced rather than trusted: the
+// maintainer's own images are NSFW and out of bounds for anything public. Only
+// the curated, generated showcase set is publishable, and it lives in one place.
+test('screenshots come from the tracked showcase folder, never from anywhere else', () => {
+  for (const e of WHATS_NEW) {
+    if (e.image === undefined) continue;
+    assert.match(e.image, /^docs\/screenshots\//,
+      `a public screenshot must live under docs/screenshots/: ${e.image} (${e.id})`);
   }
 });
 

@@ -95,9 +95,26 @@ export function extractCredits(entries) {
 }
 
 /**
+ * A screenshot's absolute URL, pinned to the TAG being released.
+ *
+ * Two things a relative path cannot do. A release body is rendered on a page
+ * that has no repository root, so `docs/screenshots/x.png` resolves to nothing
+ * and shows a broken image. And pinning to `main` would mean the picture in a
+ * six-month-old release silently becomes the CURRENT screen — a note claiming
+ * to show what shipped, showing something else. The tag ref is immutable, so
+ * the image stays the one that was true when it was written.
+ */
+export function screenshotUrl(tag, relPath) {
+  const clean = String(relPath).replace(/^\/+/, '');
+  return `${REPO_URL}/raw/${encodeURIComponent(tag)}/${clean.split('/').map(encodeURIComponent).join('/')}`;
+}
+
+/**
  * The release body. `to:` targets are dropped on purpose: they are in-app router
  * paths ('/settings/engines'), which mean nothing on a GitHub page and would
- * render as dead links.
+ * render as dead links. `image:` is the opposite case — it exists precisely to
+ * be seen here, and is rendered AFTER the prose: the text explains what changed,
+ * the picture shows it.
  */
 export function renderNotes({ preamble = '', tag, previousTag, entries }) {
   const out = [];
@@ -106,6 +123,12 @@ export function renderNotes({ preamble = '', tag, previousTag, entries }) {
 
   for (const e of entries) {
     out.push(`### ${e.title}`, '', String(e.blurb).trim(), '');
+    if (e.image) {
+      // The alt text is the entry's own title: a reader on a screen reader, or
+      // on a connection that never loads it, still learns what the picture was
+      // meant to show.
+      out.push(`![${e.title}](${screenshotUrl(tag, e.image)})`, '');
+    }
   }
 
   const credits = extractCredits(entries);

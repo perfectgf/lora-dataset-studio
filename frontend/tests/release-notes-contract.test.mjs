@@ -14,6 +14,7 @@ import {
   renderNotes,
   extractCredits,
   emptySignal,
+  screenshotUrl,
   REPO_URL,
 } from '../scripts/releaseNotes.mjs';
 import { WHATS_NEW } from '../src/whatsNew.js';
@@ -127,3 +128,34 @@ test('a deliberate plumbing release warns instead of failing, and still publishe
 test('a release with news says nothing at all', () => {
   assert.equal(emptySignal({ entries: [CURRENT[0]], tag: 'v1', previousTag: 'v0' }), null);
 });
+
+// A screenshot is only useful on the release page if the URL survives the trip.
+// Two ways it does not: a repo-relative path (the page has no repository root,
+// so it renders broken) and a `main` ref (the picture in a six-month-old release
+// silently becomes the CURRENT screen — a note claiming to show what shipped,
+// showing something else).
+test('a screenshot is linked absolutely, and pinned to the released tag', () => {
+  const url = screenshotUrl('v2026.08.22', 'docs/screenshots/canvas/board.png');
+  assert.ok(url.startsWith('https://'), url);
+  assert.ok(url.includes('/raw/v2026.08.22/'), `pinned to the tag: ${url}`);
+  assert.doesNotMatch(url, /\/raw\/main\//, url);
+  assert.ok(url.endsWith('docs/screenshots/canvas/board.png'), url);
+});
+
+test('an entry with a screenshot renders it under its prose; one without changes nothing', () => {
+  const withShot = renderNotes({
+    tag: 'v1', previousTag: 'v0',
+    entries: [{ id: 'a', date: '2026-01-01', title: 'A change', blurb: 'What it does.',
+      image: 'docs/screenshots/canvas/board.png' }],
+  });
+  // Order matters: the text explains, the picture shows.
+  assert.ok(withShot.indexOf('What it does.') < withShot.indexOf('!['), withShot);
+  assert.match(withShot, /!\[A change\]\(https:\/\/[^)]*\/raw\/v1\/docs\/screenshots\/canvas\/board\.png\)/);
+
+  const without = renderNotes({
+    tag: 'v1', previousTag: 'v0',
+    entries: [{ id: 'a', date: '2026-01-01', title: 'A change', blurb: 'What it does.' }],
+  });
+  assert.doesNotMatch(without, /!\[/, 'an entry with no image must add no markup');
+});
+
