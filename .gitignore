@@ -78,3 +78,7 @@ docs/superpowers/
 # excluded by packaging/build_release_zip.ps1 (/XD) and refused by
 # scripts/check_release_artifacts.py if it ever reaches an archive.
 /backend/extensions/
+
+# Written at the repo root by an external homelab dashboard (the port it
+# found the server on). Not ours, machine-local, never shipped.
+/.lds-dashboard-port
