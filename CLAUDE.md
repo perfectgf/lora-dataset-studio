@@ -41,7 +41,11 @@ during a wave, so the full gate belongs at the **push**, not at every commit.
   `frontend/` (~1 min — it carries the help-registry and What's-new contracts).
 - **Before the push that LANDS the wave** — both suites, whole and green, on
   that exact tree: `python -m pytest -n 8 --dist loadfile` (system Python) and
-  `node --test` from `frontend/`. Non-negotiable. **Do not lean on CI for this**:
+  `node --test` from `frontend/`. **Plus both linters**: `ruff check backend
+  scripts packaging` and `npx eslint .` from `frontend/` — CI's Lint job runs
+  outside the size gate, so a branch merged with a pre-gate file can turn
+  `main` red on lint alone with every test green (it happened: an F401 in a
+  branch written before the gate existed). Non-negotiable. **Do not lean on CI for this**:
   its push gate is size-based (`.github/workflows/ci.yml`) and skips the heavy
   jobs on a small push, so a red can reach `main` with nothing having run.
 - **Before an intermediate push on a branch** — the targeted tests above, plus
