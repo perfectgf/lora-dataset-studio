@@ -10924,47 +10924,13 @@ def _drain_improve_queue(user_id, dataset_id, image_ids, token, sleep=time.sleep
             'remaining': total - queued - failed}
 
 
-def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,
-                     engine=None, klein_model=None, generation_lora_preset=None):
-    """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
-    in-flight job, drop the old file, reset the row to pending with the new
-    job_id. Returns the new job_id, or None if the image is not owned / not a
-    generated variation. Raises ValueError if the dataset has no reference or
-    the variation prompt can't be recovered.
-
-    `prompt` (optional) is the user-EDITED core creative prompt from the tile's
-    ✏️ bubble. When given it REPLACES and is PERSISTED into `variation_prompt`
-    (so a later plain regenerate / reject-regenerate reuses the edit), then feeds
-    the identity-guard wrapper like any catalog prompt — the face lock is still
-    applied on top, the user only steers the creative half. Empty/None = the
-    current behaviour (recover the prompt from the row or the label).
-
-    `engine` (optional, one of ``KNOWN_ENGINES``) is an EXPLICIT caller
-    override. The ordinary workspace Retry omits it, so it reuses the engine
-    recorded on the row; callers that deliberately pass one can still move a
-    tile to another lane. Exception:
-    an NSFW-labelled tile always stays on the local Klein path (fail-closed —
-    NSFW never goes to third-party APIs, mirroring the batch generate rule).
-    `klein_model` (optional) is the workspace's Klein model pick, used when a
-    row born on an API engine switches to Klein (its klein_model column holds
-    an engine TAG, not a real model file).
-    `generation_lora_preset` (optional): NAME of the generation-LoRA preset
-    picked in the workspace (Idea by @waltm). Both local engines resolve it —
-    Klein and Krea each from their OWN config list (`klein.generation_lora_presets`
-    / `krea.generation_lora_presets`), so the same name can mean two different
-    chains depending on which engine `target` resolves to below — resolved from
-    the CONFIG only (fail-closed; unknown name degrades to no extra LoRAs)."""
-    img = _owned_image(user_id, image_id)
-    if not img or img.source != 'generated':
-        return None
-    _guard_not_bank_export(img.dataset_id)
-    if img.derivation_kind == KLEIN_SMALL_IMAGE:
-        raise ValueError('small-image rescue candidates cannot be regenerated; re-import the source')
-    if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
-        raise ValueError('upscale & improve candidates cannot be regenerated from the dataset reference')
-    ds = db.session.get(FaceDataset, img.dataset_id)
-    if not ds.ref_filename:
-        raise ValueError('reference image required')
+def _rgn_resolve_target(img, prompt, engine):
+    """The prompt recovery and engine election, moved verbatim
+    (2026-08-23): the user's edited prompt (persisted), else the row's,
+    else the label's; then the requested engine over the row's origin,
+    with the fail-closed NSFW clamp applied BOTH before and after the
+    disabled-engines fallback. Returns (edited, stored_prompt, prompt,
+    target)."""
     edited = (prompt or '').strip()
     stored_prompt = edited[:500] if edited else img.variation_prompt
     prompt = stored_prompt or prompt_by_label(img.variation_label or '')
@@ -10996,10 +10962,17 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         # ...and the NSFW clamp must survive that fallback.
         if is_nsfw_label(img.variation_label) and target in API_ENGINES:
             target = origin if origin in LOCAL_ENGINES else 'klein'
-    # Complete every fallible target-specific preflight before changing either
-    # the row or its current file. Klein enqueue is itself part of preparation:
-    # if the later DB transition fails, that exact new job is cancelled below.
-    from ..job_queue import queue_manager
+    return edited, stored_prompt, prompt, target
+
+
+def _rgn_prepare_target(user_id, img, ds, target, engine, klein_model,
+                        generation_lora_preset, prompt, lora_strength):
+    """Every fallible target-specific preflight, moved verbatim, BEFORE the
+    row or its file changes: the exact previous row state (for the Trash
+    failure path), then per engine — API reference checks, or the Krea /
+    Klein enqueue (either raises here and the tile keeps its image).
+    Returns (old_state, old_path, new_job_id, api_generate, aspect,
+    ref_bytes, model, engine)."""
     old_state = {
         field: getattr(img, field) for field in (
             'filename', 'caption', 'status', 'fail_reason', 'fail_kind', 'job_id',
@@ -11085,7 +11058,18 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
             base_lora_strength=_generation_base_lora_strength(),
             extra_metadata={'is_dataset': True, 'dataset_id': img.dataset_id,
                             'variation_label': img.variation_label})
+    return (old_state, old_path, new_job_id, api_generate, aspect,
+            ref_bytes, model, engine)
 
+
+def _rgn_swap_row(user_id, img, edited, stored_prompt, target, engine,
+                  model, new_job_id, old_state):
+    """The in-place row transition, moved verbatim: cancel the old
+    unstarted job inside the same transaction, clear every per-image
+    verdict with the file, stamp the new engine identity and job — and on
+    ANY failure roll back and cancel the prepared replacement job so
+    nothing runs unlinked."""
+    from ..job_queue import queue_manager
     # Persist the replacement state first. The old file remains in place until
     # this commit succeeds, eliminating rows that reference an already-moved file.
     try:
@@ -11125,6 +11109,14 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                                  new_job_id)
         raise
 
+
+def _rgn_trash_old(user_id, img, image_id, old_path, old_state,
+                   new_job_id):
+    """The old file's disposal, moved verbatim: Trash it now that no row
+    references it; if Trash itself fails, cancel the replacement job and
+    put the exact previous row state back in one restoration
+    transaction."""
+    from ..job_queue import queue_manager
     # The DB no longer references the old filename. If Trash itself fails, put
     # the exact previous row state back and cancel the prepared Klein job.
     try:
@@ -11148,6 +11140,153 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
                              image_id)
         raise
 
+
+def _rgn_run_api(app, img, ds, user_id, image_id, prompt, aspect,
+                 ref_bytes, engine, api_generate):
+    """The API lane's execution, moved verbatim: with an app handle the
+    call runs in a background thread under the batch's own 'generate'
+    indicator; without one it runs synchronously, holding that indicator
+    itself, naming refusals and quota errors instead of disguising them,
+    and never leaking the activity entry. Returns the engine tag."""
+    if app is not None:
+        # Threaded path: _run_nanobanana_batch owns the 'generate' indicator
+        # (begin/bump/end) so a single API regenerate takes the same lock as a
+        # batch — every concurrent action stays disabled until it finishes.
+        try:
+            threading.Thread(target=_run_nanobanana_batch,
+                             args=(app, [(img.id, prompt, aspect,
+                                          dataset_prompt_suffix(ds, img.framing))],
+                                   ref_bytes, engine, img.dataset_id),
+                             daemon=True).start()
+        except Exception as e:
+            img.status = 'failed'
+            img.fail_reason = f'{engine}: failed to start generation: {e}'[:500]
+            db.session.commit()
+            raise
+        return engine
+    # Synchronous path (legacy / no-app callers): guard the same 'generate'
+    # indicator directly so the payload advertises the regenerate too, and a
+    # raise never leaks the entry (finally end()).
+    token = None
+    try:
+        token = dataset_activity.begin(
+            img.dataset_id, 'generate', total=1, engine=engine)
+        gen_kwargs = {'aspect_ratio': aspect}
+        if engine == 'chatgpt':
+            from .chatgpt_image import _use_subscription
+            gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
+        try:
+            out = api_generate(
+                ref_bytes,
+                wrap_variation(prompt, ref_count=len(ref_bytes),
+                               suffix=dataset_prompt_suffix(ds, img.framing),
+                               subject_type=subject_type_of(ds)),
+                **gen_kwargs)
+        except EngineRefused as e:
+            # Même règle que dans le lot : un refus se nomme, il ne se
+            # déguise pas en panne (et il n'invente pas de contournement).
+            out = None
+            img.status = 'failed'
+            img.fail_reason = f'{engine}: {str(e)[:400]}'
+            img.fail_kind = 'refused'
+            db.session.commit()
+            return engine
+        except SubscriptionQuotaExceeded:
+            out = None
+            img.status = 'failed'
+            img.fail_reason = _QUOTA_MSG
+            img.fail_kind = 'error'
+            db.session.commit()
+            return engine
+        except SubscriptionUnavailable as e:
+            out = None
+            img.status = 'failed'
+            img.fail_reason = f'chatgpt: {e}'
+            img.fail_kind = 'error'
+            db.session.commit()
+            return engine
+        if out:
+            fn = f"{user_id}_{_ENGINE_FILE_TAG[engine]}_{uuid.uuid4().hex[:8]}.webp"
+            write_image_atomic(os.path.join(_dataset_dir(img.dataset_id), fn),
+                               normalize_to_webp(out))
+            img.filename = fn
+        else:
+            img.status = 'failed'
+            img.fail_reason = f'{engine}: {_EMPTY_MSG}'
+            img.fail_kind = 'empty'
+        db.session.commit()
+        return engine
+    except Exception as e:
+        db.session.rollback()
+        current = db.session.get(FaceDatasetImage, image_id)
+        if current and current.filename is None:
+            current.status = 'failed'
+            current.fail_reason = f'{engine}: {e}'[:500]
+            current.fail_kind = 'error'
+            db.session.commit()
+        raise
+    finally:
+        if token is not None:
+            dataset_activity.end(token)
+
+
+def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=None,
+                     engine=None, klein_model=None, generation_lora_preset=None):
+    """Re-enqueue a single generated variation IN PLACE (same row id): cancel any
+    in-flight job, drop the old file, reset the row to pending with the new
+    job_id. Returns the new job_id, or None if the image is not owned / not a
+    generated variation. Raises ValueError if the dataset has no reference or
+    the variation prompt can't be recovered.
+
+    `prompt` (optional) is the user-EDITED core creative prompt from the tile's
+    ✏️ bubble. When given it REPLACES and is PERSISTED into `variation_prompt`
+    (so a later plain regenerate / reject-regenerate reuses the edit), then feeds
+    the identity-guard wrapper like any catalog prompt — the face lock is still
+    applied on top, the user only steers the creative half. Empty/None = the
+    current behaviour (recover the prompt from the row or the label).
+
+    `engine` (optional, one of ``KNOWN_ENGINES``) is an EXPLICIT caller
+    override. The ordinary workspace Retry omits it, so it reuses the engine
+    recorded on the row; callers that deliberately pass one can still move a
+    tile to another lane. Exception:
+    an NSFW-labelled tile always stays on the local Klein path (fail-closed —
+    NSFW never goes to third-party APIs, mirroring the batch generate rule).
+    `klein_model` (optional) is the workspace's Klein model pick, used when a
+    row born on an API engine switches to Klein (its klein_model column holds
+    an engine TAG, not a real model file).
+    `generation_lora_preset` (optional): NAME of the generation-LoRA preset
+    picked in the workspace (Idea by @waltm). Both local engines resolve it —
+    Klein and Krea each from their OWN config list (`klein.generation_lora_presets`
+    / `krea.generation_lora_presets`), so the same name can mean two different
+    chains depending on which engine `target` resolves to below — resolved from
+    the CONFIG only (fail-closed; unknown name degrades to no extra LoRAs)."""
+    img = _owned_image(user_id, image_id)
+    if not img or img.source != 'generated':
+        return None
+    _guard_not_bank_export(img.dataset_id)
+    if img.derivation_kind == KLEIN_SMALL_IMAGE:
+        raise ValueError('small-image rescue candidates cannot be regenerated; re-import the source')
+    if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
+        raise ValueError('upscale & improve candidates cannot be regenerated from the dataset reference')
+    ds = db.session.get(FaceDataset, img.dataset_id)
+    if not ds.ref_filename:
+        raise ValueError('reference image required')
+    edited, stored_prompt, prompt, target = _rgn_resolve_target(
+        img, prompt, engine)
+    # Complete every fallible target-specific preflight before changing either
+    # the row or its current file. Klein enqueue is itself part of preparation:
+    # if the later DB transition fails, that exact new job is cancelled below.
+    (old_state, old_path, new_job_id, api_generate, aspect, ref_bytes,
+     model, engine) = _rgn_prepare_target(
+        user_id, img, ds, target, engine, klein_model,
+        generation_lora_preset, prompt, lora_strength)
+
+    _rgn_swap_row(user_id, img, edited, stored_prompt, target, engine,
+                  model, new_job_id, old_state)
+
+    _rgn_trash_old(user_id, img, image_id, old_path, old_state,
+                   new_job_id)
+
     # API target ('nanobanana'/'chatgpt' — requested, or the row's origin when
     # no engine was given): the row's klein_model column carries the engine tag.
     # With an `app` handle the call runs in a background thread (the row flips
@@ -11155,86 +11294,8 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
     # reacts at once); without it the call is synchronous (test path / legacy
     # callers).
     if target in API_ENGINES:
-        if app is not None:
-            # Threaded path: _run_nanobanana_batch owns the 'generate' indicator
-            # (begin/bump/end) so a single API regenerate takes the same lock as a
-            # batch — every concurrent action stays disabled until it finishes.
-            try:
-                threading.Thread(target=_run_nanobanana_batch,
-                                 args=(app, [(img.id, prompt, aspect,
-                                              dataset_prompt_suffix(ds, img.framing))],
-                                       ref_bytes, engine, img.dataset_id),
-                                 daemon=True).start()
-            except Exception as e:
-                img.status = 'failed'
-                img.fail_reason = f'{engine}: failed to start generation: {e}'[:500]
-                db.session.commit()
-                raise
-            return engine
-        # Synchronous path (legacy / no-app callers): guard the same 'generate'
-        # indicator directly so the payload advertises the regenerate too, and a
-        # raise never leaks the entry (finally end()).
-        token = None
-        try:
-            token = dataset_activity.begin(
-                img.dataset_id, 'generate', total=1, engine=engine)
-            gen_kwargs = {'aspect_ratio': aspect}
-            if engine == 'chatgpt':
-                from .chatgpt_image import _use_subscription
-                gen_kwargs['force_lane'] = 'subscription' if _use_subscription() else 'api'
-            try:
-                out = api_generate(
-                    ref_bytes,
-                    wrap_variation(prompt, ref_count=len(ref_bytes),
-                                   suffix=dataset_prompt_suffix(ds, img.framing),
-                                   subject_type=subject_type_of(ds)),
-                    **gen_kwargs)
-            except EngineRefused as e:
-                # Même règle que dans le lot : un refus se nomme, il ne se
-                # déguise pas en panne (et il n'invente pas de contournement).
-                out = None
-                img.status = 'failed'
-                img.fail_reason = f'{engine}: {str(e)[:400]}'
-                img.fail_kind = 'refused'
-                db.session.commit()
-                return engine
-            except SubscriptionQuotaExceeded:
-                out = None
-                img.status = 'failed'
-                img.fail_reason = _QUOTA_MSG
-                img.fail_kind = 'error'
-                db.session.commit()
-                return engine
-            except SubscriptionUnavailable as e:
-                out = None
-                img.status = 'failed'
-                img.fail_reason = f'chatgpt: {e}'
-                img.fail_kind = 'error'
-                db.session.commit()
-                return engine
-            if out:
-                fn = f"{user_id}_{_ENGINE_FILE_TAG[engine]}_{uuid.uuid4().hex[:8]}.webp"
-                write_image_atomic(os.path.join(_dataset_dir(img.dataset_id), fn),
-                                   normalize_to_webp(out))
-                img.filename = fn
-            else:
-                img.status = 'failed'
-                img.fail_reason = f'{engine}: {_EMPTY_MSG}'
-                img.fail_kind = 'empty'
-            db.session.commit()
-            return engine
-        except Exception as e:
-            db.session.rollback()
-            current = db.session.get(FaceDatasetImage, image_id)
-            if current and current.filename is None:
-                current.status = 'failed'
-                current.fail_reason = f'{engine}: {e}'[:500]
-                current.fail_kind = 'error'
-                db.session.commit()
-            raise
-        finally:
-            if token is not None:
-                dataset_activity.end(token)
+        return _rgn_run_api(app, img, ds, user_id, image_id, prompt,
+                            aspect, ref_bytes, engine, api_generate)
 
     # Advertise the in-flight Klein job so a single regenerate takes the same lock
     # as a batch; link_completed_dataset_image clears it on completion.
