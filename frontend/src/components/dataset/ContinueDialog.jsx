@@ -128,6 +128,13 @@ export default function ContinueDialog({
   const [saveEvery, setSaveEvery] = useState(inheritedSave);
   const [sampleEvery, setSampleEvery] = useState(inheritedSampleEvery);
   const [prompts, setPrompts] = useState('');   // blank = keep the run's prompts
+  // Preview steps / CFG (#46). Blank = keep whatever the run already uses. NOT
+  // gated by `trajectoryLocked`: they change how a preview image is rendered,
+  // never the loop or the loader, so a full-state resume can honour them — and
+  // a resume is exactly when you have SEEN the previews and know they are
+  // unreadable.
+  const [sampleSteps, setSampleSteps] = useState('');
+  const [sampleGuidance, setSampleGuidance] = useState('');
   const [timestep, setTimestep] = useState(inheritedTimestep); // '' = keep current
   const [lrFactor, setLrFactor] = useState(1);  // 1 = keep the run's LR
 
@@ -177,6 +184,12 @@ export default function ContinueDialog({
     }
     if (prompts.trim() !== '') {
       overrides.sample_prompts = prompts.split('\n').map((s) => s.trim()).filter(Boolean);
+    }
+    if (sampleSteps.trim() !== '' && Number.isFinite(Number(sampleSteps))) {
+      overrides.sample_steps = Number(sampleSteps);
+    }
+    if (sampleGuidance.trim() !== '' && Number.isFinite(Number(sampleGuidance))) {
+      overrides.sample_guidance = Number(sampleGuidance);
     }
     if (!trajectoryLocked && timestep !== '' && timestep !== inheritedTimestep) {
       overrides.timestep_type = timestep;
@@ -451,6 +464,26 @@ export default function ContinueDialog({
                   className="px-2 py-1.5 rounded-lg border border-border bg-surface text-content text-[0.6875rem] font-mono leading-relaxed resize-y placeholder:text-content-subtle" />
                 <span className="text-content-subtle text-[0.625rem]">test images only — never affects the weights</span>
               </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-content text-[0.75rem] w-28 shrink-0">Preview quality</span>
+                <label className="flex items-center gap-1.5">
+                  <input type="number" min="1" max="60" step="1" value={sampleSteps}
+                    onChange={(e) => setSampleSteps(e.target.value)}
+                    placeholder="keep"
+                    aria-label="Preview steps"
+                    className="w-16 px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+                  <span className="text-content-muted text-[0.625rem]">steps</span>
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="number" min="1" max="20" step="0.5" value={sampleGuidance}
+                    onChange={(e) => setSampleGuidance(e.target.value)}
+                    placeholder="keep"
+                    aria-label="Preview guidance scale"
+                    className="w-16 px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+                  <span className="text-content-muted text-[0.625rem]">CFG</span>
+                </label>
+                <span className="text-content-subtle text-[0.625rem]">preview rendering only — allowed even on full state</span>
+              </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-content text-[0.75rem] w-28 shrink-0">Timestep weighting</span>
                 <select value={timestep} onChange={(e) => setTimestep(e.target.value)}
