@@ -140,7 +140,8 @@ test('the advanced block opens by itself when an override is already set', () =>
    Settings ids by scanning for id="…"), so the two must not drift apart. */
 test('every field id is rendered literally in LocalToolsSection and has a help topic', () => {
   const jsx = read('./LocalToolsSection.jsx')
-  const registry = read('../../help/helpRegistry.js')
+  // Topic data lives in ./topics/* since the 2026-08-24 registry split.
+  const registry = read('../../help/topics/settingsFields.js')
   for (const f of COMFY_FOLDER_FIELDS) {
     assert.ok(jsx.includes(`id="${f.id}"`), `${f.id} is not rendered literally in the JSX`)
     assert.ok(registry.includes(`'comfyui.${f.key}'`), `comfyui.${f.key} has no help topic`)

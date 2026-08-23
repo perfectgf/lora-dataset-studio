@@ -13,7 +13,12 @@ const panel = fs.readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), '
 const workspace = fs.readFileSync(new URL('./DatasetWorkspace.jsx', import.meta.url), 'utf8');
 const captionLab = fs.readFileSync(new URL('./CaptionLab.jsx', import.meta.url), 'utf8');
 const hook = fs.readFileSync(new URL('../../hooks/useDataset.js', import.meta.url), 'utf8');
-const registry = fs.readFileSync(new URL('../../help/helpRegistry.js', import.meta.url), 'utf8');
+// Registry topic data lives in ./topics/* since the 2026-08-24 split.
+const registry = ['../../help/helpRegistry.js', '../../help/topics/settingsSections.js',
+  '../../help/topics/workspaceSections.js', '../../help/topics/pages.js',
+  '../../help/topics/videoLane.js', '../../help/topics/settingsFields.js',
+  '../../help/topics/actions.js']
+  .map((p) => fs.readFileSync(new URL(p, import.meta.url), 'utf8')).join('\n');
 
 /** The JSX block of the one button that calls stopTraining(), from the guard
  *  that renders it to its closing tag — so the label assertions below can only

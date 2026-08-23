@@ -25,7 +25,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const SRC = readFileSync(new URL('./VariationCatalog.jsx', import.meta.url), 'utf8');
-const helpRegistry = readFileSync(new URL('../../help/helpRegistry.js', import.meta.url), 'utf8');
+// The registry split its topic data into ./topics/* (2026-08-24) — the
+// contract is about the topics, so it reads all the sources as one text.
+const helpRegistry = ['../../help/helpRegistry.js', '../../help/topics/settingsSections.js',
+  '../../help/topics/workspaceSections.js', '../../help/topics/pages.js',
+  '../../help/topics/videoLane.js', '../../help/topics/settingsFields.js',
+  '../../help/topics/actions.js']
+  .map((p) => readFileSync(new URL(p, import.meta.url), 'utf8')).join('\n');
 const ENGINES = readFileSync(
   new URL('../settings/EnginesSection.jsx', import.meta.url), 'utf8');
 

@@ -196,8 +196,13 @@ test('the button and the amber warning both live in the caption window', () => {
 });
 
 test('re-caption has a help topic pointing at a real guide anchor', () => {
-  const registry = fs.readFileSync(
-    new URL('../../help/helpRegistry.js', import.meta.url), 'utf8');
+  // Topic data lives in help/topics/* since the 2026-08-24 registry split;
+  // a topic's section is layout, not contract, so read them all as one text.
+  const registry = ['settingsSections', 'workspaceSections', 'pages',
+    'videoLane', 'settingsFields', 'actions']
+    .map((m) => fs.readFileSync(
+      new URL(`../../help/topics/${m}.js`, import.meta.url), 'utf8'))
+    .join(' ');
   const i = registry.indexOf("action('bank-recaption'");
   assert.ok(i > 0, 'bank-recaption has no help topic');
   const entry = registry.slice(i, i + 1200);
