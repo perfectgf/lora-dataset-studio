@@ -72,7 +72,9 @@ test('exactly one component talks to the quantize endpoints', () => {
 })
 
 test('both hosts render the shared component instead of their own controls', () => {
-  for (const rel of ['../src/components/dataset/TrainingPanel.jsx',
+  // The training-side host is the extracted recipe card since slice 1 —
+  // the panel renders it, the recipe file imports and mounts the tool.
+  for (const rel of ['../src/components/dataset/FullTransformerRecipe.jsx',
     '../src/components/settings/StorageSection.jsx']) {
     const src = read(rel)
     assert.match(src, /import Fp8QuantizeTool from '[^']*Fp8QuantizeTool'/, `${rel}: no import`)

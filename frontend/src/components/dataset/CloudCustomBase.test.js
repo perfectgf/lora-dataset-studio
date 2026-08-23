@@ -7,7 +7,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const panel = readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), 'utf8');
+// The flow spans the panel and the extracted CloudLaunchDialog (slice 1):
+// the contract is about the FEATURE, so it reads both sources as one text.
+const panel = readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('./CloudLaunchDialog.jsx', import.meta.url), 'utf8');
 
 test('cloud dialog embeds the custom-base push gate and blocks launch until ready', () => {
   assert.match(panel, /function CustomBasePushSection\(/);

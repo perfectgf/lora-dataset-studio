@@ -8,8 +8,12 @@ const primitives = readFileSync(
   new URL('./primitives.jsx', import.meta.url), 'utf8')
 const settingsPage = readFileSync(
   new URL('../../pages/SettingsPage.jsx', import.meta.url), 'utf8')
+// The cloud dialog's token notices moved to CloudLaunchDialog.jsx (panel
+// decomposition slice 1); the contract spans both sources.
 const trainingPanel = readFileSync(
   new URL('../dataset/TrainingPanel.jsx', import.meta.url), 'utf8')
+  + readFileSync(
+    new URL('../dataset/CloudLaunchDialog.jsx', import.meta.url), 'utf8')
 
 function handleSaveSource() {
   const start = settingsPage.indexOf('  const handleSave = async () => {')

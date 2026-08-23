@@ -18,7 +18,11 @@ import {
   isFullTransformerEligible,
 } from '../../utils/trainingMode.js';
 
-const panel = readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), 'utf8');
+// Slice 1 moved the dense recipe/picker and the cloud dialog to their own
+// files; this flow spans all three, so the contract reads them as one text.
+const panel = readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('./FullTransformerRecipe.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('./CloudLaunchDialog.jsx', import.meta.url), 'utf8');
 
 const picker = panel.slice(
   panel.indexOf('DENSE_BASE_PICKER_START'),

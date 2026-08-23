@@ -23,7 +23,11 @@ import {
 } from './trainingMode.js';
 import { preflightUrl } from '../components/dataset/preflightLane.js';
 
-const panel = readFileSync(new URL('../components/dataset/TrainingPanel.jsx', import.meta.url), 'utf8');
+// Slice 1 moved the dense recipe/picker and the cloud dialog to their own
+// files; the mode contract spans all three, so it reads them as one text.
+const panel = readFileSync(new URL('../components/dataset/TrainingPanel.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('../components/dataset/FullTransformerRecipe.jsx', import.meta.url), 'utf8')
+  + readFileSync(new URL('../components/dataset/CloudLaunchDialog.jsx', import.meta.url), 'utf8');
 const datasetHook = readFileSync(new URL('../hooks/useDataset.js', import.meta.url), 'utf8');
 const runsPage = readFileSync(new URL('../pages/CloudRunsPage.jsx', import.meta.url), 'utf8');
 const stopDialog = readFileSync(new URL('../pages/cloudStopDialog.js', import.meta.url), 'utf8');
