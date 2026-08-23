@@ -439,10 +439,29 @@ def _new_run():
 
 
 def _append(action, line):
-    log = _runs[action]['log']
+    # A worker thread can outlive its registry entry: the tests reset _runs
+    # between cases while a download thread is still draining, and clearing
+    # runs mid-flight is one registry write away in prod too. A cleared entry
+    # means nobody is watching this run any more — drop the line rather than
+    # killing the thread (the CI's recurring `KeyError: 'seedvr2_model'`
+    # warning was this, raised from the error handler's own _append).
+    run = _runs.get(action)
+    if run is None:
+        return
+    log = run['log']
     log.append(line.rstrip('\n'))
     if len(log) > _LOG_MAX:
         del log[:-_LOG_MAX]
+
+
+def _finish_run(action, returncode, state):
+    """Stamp a worker's final state, tolerating an entry cleared under it —
+    same contract as _append, for the same orphaned-thread reason."""
+    run = _runs.get(action)
+    if run is None:
+        return
+    run['returncode'] = returncode
+    run['state'] = state
 
 
 def _note(action, line):
@@ -1055,8 +1074,7 @@ def status_many(actions) -> dict:
 def _execute(action):
     try:
         rc = _WORKERS[action](action)
-        _runs[action]['returncode'] = rc
-        _runs[action]['state'] = 'success' if rc == 0 else 'error'
+        _finish_run(action, rc, 'success' if rc == 0 else 'error')
         if action in _IMPORT_CACHE_ACTIONS and rc == 0:
             try:
                 capabilities.clear_import_cache()
@@ -1095,12 +1113,10 @@ def _execute(action):
                 logger.debug('krea node-cache clear failed after %s', action, exc_info=True)
     except Cancelled:
         _append(action, 'cancelled by user')
-        _runs[action]['returncode'] = None
-        _runs[action]['state'] = 'cancelled'
+        _finish_run(action, None, 'cancelled')
     except Exception as e:  # never let a worker thread die silently
         _append(action, f'error: {e}')
-        _runs[action]['returncode'] = -1
-        _runs[action]['state'] = 'error'
+        _finish_run(action, -1, 'error')
     finally:
         # Always hand the pip worker to the next queued install, even on failure — a
         # crashed install must not wedge the queue behind it.
