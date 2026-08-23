@@ -1197,10 +1197,13 @@ def test_progress_heartbeat_still_raises_on_a_real_database_error(ct, app,
 
 
 def test_monitor_uses_the_soft_write_for_its_progress_heartbeat(ct):
-    """The heartbeat seam must stay wired, or the regression returns silently."""
+    """The heartbeat seam must stay wired, or the regression returns silently.
+
+    The polling loop moved out of _monitor into _poll_job_until_terminal
+    (2026-08-23, verbatim extraction) — the seam moved with it."""
     import inspect
 
-    source = inspect.getsource(ct._monitor)
+    source = inspect.getsource(ct._poll_job_until_terminal)
     assert '_set_soft(run, phase_detail=f"{status}: {info}"[:500])' in source
 
 

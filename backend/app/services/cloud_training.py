@@ -5327,6 +5327,491 @@ def reconcile_full_transformer_deliveries(_api=None, now=None) -> list:
     return acted
 
 
+def _wait_for_pod_ready(run, stop_event, c, cap_anchor,
+                        resuming_existing_pod, job_started):
+    """Boot phase of `_monitor`: block until the pod's UI answers.
+
+    Returns ``'ready'`` when the pod answered, ``'stopped'`` when the user
+    stopped the run during boot (the row is already landed -- the caller
+    just stands down). Raises `_ReattachFailed` / `RuntimeError` exactly as
+    the inline block did; `_monitor`'s except handlers own those.
+
+    Extracted VERBATIM from `_monitor` (2026-08-23). This loop carries the
+    scar tissue of four separate incidents (2026-07-12 stale port,
+    2026-07-13 stop-during-boot, 2026-07-14 restart-renews-the-window,
+    run #146's reattach condemnation) and its comments are the record --
+    the extraction moved them and changed none.
+    """
+    # Boot-readiness timeout anchor. A FRESH launch measures from now
+    # (post-provision) so dataset staging / offer search never eat into
+    # the pod's boot budget. A RESUME must NOT get a brand-new window on
+    # every restart: that let a pod whose UI never answered survive
+    # 37 min across two restarts instead of the 15-min READY_TIMEOUT
+    # (incident 2026-07-14). On resume we anchor to the DURABLE
+    # created_at (cap_anchor), so readiness measures the TOTAL time since
+    # launch across every restart — the intended behaviour even for a pod
+    # that was honestly still booting.
+    #
+    # ... unless the pod is not booting at all. A run we ENTER with a
+    # started remote job is REATTACHING: the pod booted long ago, its
+    # trainer is running, and the durable anchor has therefore already
+    # eaten the whole boot budget. Run #146 (2026-08-03) is what that
+    # costs: adopted at 16:01:58 at step 825/3000, one poll where the
+    # vast API simply did not list the instance, and 10 s later the
+    # budget check condemned it — pod alive, job training, money spent.
+    # A reattach gets its own short window instead (see below).
+    reattaching = resuming_existing_pod and job_started
+    boot_started = (cap_anchor if resuming_existing_pod and not reattaching
+                    else _now())
+
+    # -- wait until the pod's UI answers ----------------------------
+    # Readiness is checked BEFORE the elapsed-time read: an
+    # already-booted pod (the common case, and every resumed run)
+    # must be able to break out on the very first iteration without
+    # ever touching _now() -- a test clock that jumps in large
+    # strides per call must not misfire this boot-timeout on a pod
+    # that was, in fact, instantly ready.
+    template_mode = bool((c.get('template_hash') or '').strip())
+    # Two clocks, exactly like the pre-step-1 phase further down:
+    #  * ready_timeout is IDLE time, rearmed by any boot fact the pod
+    #    had never shown before. Judging on elapsed time alone killed
+    #    honest 26 GB image pulls at 25 min — while the evidence that
+    #    they were progressing was already read, one line above, and
+    #    shown to the user in the phase line.
+    #  * boot_budget is the ABSOLUTE ceiling, evaluated BEFORE the
+    #    rearm so a host that dribbles one new fact per poll cannot
+    #    rearm its way past it. Raising ready_timeout instead would
+    #    have been a cover-up: a pod that shows nothing is money
+    #    burning and must still die in 25 minutes.
+    ready_timeout = (int(c.get('ready_timeout_minutes') or 0) * 60
+                     or READY_TIMEOUT_SECONDS)
+    raw_boot_budget = c.get('boot_budget_minutes')
+    boot_budget = int(90 if raw_boot_budget is None
+                      else (raw_boot_budget or 0)) * 60
+    slow_ban_seconds = float(
+        cfg.get('cloud.slow_boot_blacklist_hours') or 6) * 3600
+    if reattaching:
+        # Not a boot: a reconnection. Both clocks become the SAME
+        # tolerance the poll loop already grants a pod that stops
+        # answering mid-run (cloud.unreachable_grace_minutes, 6 min by
+        # default) — measured from this attempt, not from launch. That
+        # is minutes of consecutive negative evidence instead of the
+        # single unlucky poll that killed #146, and it stays bounded:
+        # a pod that is really gone is still given up in 6 minutes.
+        reconnect_seconds = (
+            int(c.get('unreachable_grace_minutes') or 0) * 60
+            or UNREACHABLE_GRACE_SECONDS)
+        ready_timeout = boot_budget = reconnect_seconds
+    # None until the first observation: the state a monitor INHERITS
+    # (every fact a resumed pod already shows) is a baseline, not
+    # progress — otherwise every app restart would hand a dead pod a
+    # brand-new window, the 2026-07-14 regression all over again.
+    boot_facts = None
+    boot_progress_ts = boot_started
+    boot_rearms = 0
+    _set(run, phase_detail='Waiting for the pod to boot')
+    port = int(c.get('ui_port') or 18675)
+    if template_mode and port == 8675:
+        # 8675 is the pre-template default that Settings saves may have
+        # baked into config.json; the official template only publishes
+        # the UI behind the pod proxy on 18675 — a stale 8675 makes the
+        # boot-wait spin for its whole budget (observed live 2026-07-12).
+        logger.warning('cloud.ui_port=8675 is stale for template mode — using 18675')
+        port = 18675
+    while True:
+        _assert_run_open(run)
+        # A transient vast API hiccup is just "not ready yet" -- only
+        # READY_TIMEOUT_SECONDS may fail the boot wait, never a single
+        # 502 that would destroy a pod about to come up fine.
+        try:
+            inst = vast_client.get_instance(run.vast_instance_id)
+        except vast_client.VastError as e:
+            logger.warning('boot-wait: vast API hiccup (%s) — retrying', e)
+            inst = None
+        # Template launches authenticate with the vast-generated
+        # per-instance token (the pod's Caddy proxy accepts it as a
+        # Bearer header) — pick it up as soon as the record shows it.
+        if inst and not run.auth_token and inst.get('jupyter_token'):
+            _set(run, auth_token=inst['jupyter_token'])
+        # The address of the pod we are actually paying for — the only
+        # host identity that a machine_id re-registration cannot shed.
+        if inst and inst.get('public_ipaddr'):
+            _stamp_host_ip(run, inst['public_ipaddr'])
+        # ...and WHICH TRAINER it booted, which a template launch can
+        # otherwise change under us without any local change.
+        if inst and inst.get('image_uuid'):
+            _stamp_pod_image(run, inst['image_uuid'])
+        derived = vast_client.derive_base_url(inst, port) if inst else None
+        # The vast API is not the authority on whether the pod exists —
+        # the pod is. Its listing has gaps (an answer without our
+        # instance in it, indistinguishable from a destroyed pod), and
+        # #146 was condemned inside one. When the row already carries an
+        # address, that gap costs exactly one HTTP probe to settle: a
+        # pod that answers its own URL is a pod that exists, whatever
+        # the marketplace API is currently saying about it.
+        base = derived or (run.base_url or None)
+        ready = False
+        if base:
+            if derived and run.base_url != derived:
+                _set(run, base_url=derived)
+            ready = _make_remote(run).is_ready()
+            if ready:
+                break
+        # Honor "Stop run" DURING boot too — but only on a pod that is
+        # NOT ready yet (a ready pod breaks out above and the training
+        # loop handles the stop normally). Without this, the boot-wait
+        # spun its whole 25-min budget on a dead host while the stop
+        # button silently did nothing (observed live 2026-07-13, a
+        # 5090 stuck in 'loading'). No job exists yet -> terminate.
+        if stop_event.is_set():
+            stop_event.clear()
+            # A user killing a boot this late is almost always a stuck
+            # host — blacklist it like a timeout would. An early stop
+            # (changed their mind) says nothing about the host.
+            if _now() - boot_started > 8 * 60:
+                _blacklist_run_host(run, 'user stopped a boot stuck past 8 min')
+            _finish(run, 'stopped', detail='Stopped by user during boot')
+            return 'stopped'
+        # Live telemetry: surface WHERE the boot is stuck (image pull,
+        # port publication, UI warm-up) in the UI phase line and the
+        # log — runs #3/#4 died blind on 'Waiting for the pod to boot'.
+        st = (inst or {}).get('actual_status') or 'not listed yet'
+        has_ports = bool(((inst or {}).get('ports') or {}).get(f'{port}/tcp'))
+        stage = (f'pod {st}' if not has_ports
+                 else 'pod up — waiting for the UI to answer')
+        detail = f'Waiting for the pod to boot — {stage}'
+        if run.phase_detail != detail:
+            logger.info('boot-wait run %s: status=%s port_%s_published=%s '
+                        'base=%s ready=%s', run.id, st, port, has_ports,
+                        base or '-', ready)
+            _set(run, phase_detail=detail)
+        facts = _boot_facts(inst, port, base)
+        if boot_facts is None:
+            boot_facts = set(facts)      # baseline, not progress
+        elif (reattaching and boot_budget
+                and _now() - boot_started > boot_budget):
+            # A reattach that never got an answer. The host is not at
+            # fault (it was training minutes ago), so it is not banned,
+            # and the job is not stoppable, so no stop is sent.
+            raise _ReattachFailed(
+                'the pod could not be reached again after the app '
+                f'restarted — no answer for {boot_budget // 60} min: '
+                f'{_boot_stage_label(inst, port, base)}')
+        elif boot_budget and _now() - boot_started > boot_budget:
+            # Ceiling first, so advancing evidence can never buy an
+            # unbounded boot. This host was still visibly working —
+            # slow, not broken — so it is skipped for HOURS, not days:
+            # a saturated uplink is a condition of the night, and a
+            # three-day exile the user never sees is the wrong price
+            # for it. (A host that shows nothing takes the full ban
+            # below — that mechanism has already saved real money.)
+            _blacklist_run_host(
+                run, 'pod was still booting past the boot budget',
+                ttl_seconds=slow_ban_seconds if boot_rearms else None)
+            raise RuntimeError(
+                'pod did not become ready in time — still booting after '
+                f'{boot_budget // 60} min: '
+                f'{_boot_stage_label(inst, port, base)}')
+        elif facts - boot_facts:
+            boot_facts |= facts
+            boot_progress_ts = _now()
+            boot_rearms += 1
+        elif _now() - boot_progress_ts > ready_timeout:
+            if reattaching:
+                raise _ReattachFailed(
+                    'the pod could not be reached again after the app '
+                    f'restarted — no answer for {ready_timeout // 60} '
+                    f'min: {_boot_stage_label(inst, port, base)}')
+            # Nothing about this pod changed for the whole idle budget:
+            # a dead or frozen host. Full ban, as before.
+            _blacklist_run_host(run, 'pod stopped making boot progress')
+            raise RuntimeError(
+                'pod did not become ready in time — no boot progress '
+                f'for {ready_timeout // 60} min: '
+                f'{_boot_stage_label(inst, port, base)}')
+        _sleep(POLL_SECONDS)
+    return 'ready'
+
+
+def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
+                             cap_anchor, max_seconds):
+    """Polling phase of `_monitor`: watch the remote job to a terminal state.
+
+    Every exit lands the row itself (done / stopped / error / the two
+    error_pod_kept shapes) and returns; unreachable-past-grace raises, and
+    `_monitor`'s except handlers own it, exactly as when this loop was
+    inline.
+
+    Extracted VERBATIM from `_monitor` (2026-08-23). The two watchdogs
+    (stall, first-step with its download-budget ceiling) each carry the
+    paid-run incident that shaped them (runs #75, #107, #146, the
+    2026-07-27 Discord report) in place -- moved, not rewritten.
+    """
+    # -- poll until terminal ------------------------------------------
+    # Two watchdogs share one progress clock (last_progress_ts):
+    #  * stall — once training has produced a step, kill if the step
+    #    counter freezes past stall_timeout_minutes.
+    #  * first-step — BEFORE the first step (base download, quantize,
+    #    latent caching) kill if step 1 is never reached in time. Only
+    #    the runtime cap used to bound this phase, so a pod whose base
+    #    download collapsed to a crawl burned the WHOLE cap for zero
+    #    steps (run #75: 26.3 GB base at ~12 kB/s, 10h45 / 7 € / 0 saves
+    #    — 2026-07-19). A healthy Krea-2-Raw run reaches step 1 in a few
+    #    minutes (its full 2000-step run was ~84 min), so the default is
+    #    generous enough to survive an honestly slow download.
+    #    The step counter is NOT the only progress signal in that phase:
+    #    the pod's log carries the base-model download's byte counter,
+    #    and a pod whose bytes advance is a pod that progresses. Judging
+    #    the phase on steps alone killed a paid run whose download was
+    #    perfectly healthy (reported by j_o_e_l. on Discord 2026-07-27:
+    #    KREA-2 RAW on a 5090, FAILED at 59 min, never past step 0 —
+    #    26.3 GB at the 2.58 MB/s measured on another pod is ~2 h 50, so
+    #    the 45-min budget GUARANTEED the failure). Advancing bytes now
+    #    rearm this clock, exactly as a step rearms the stall clock.
+    #    Raising the timeout instead would have been a cover-up: a
+    #    genuinely wedged pod must still die fast, because it is money
+    #    burning. Hence the second, ABSOLUTE ceiling below.
+    #  * download budget — the ceiling that keeps the rearm honest. A
+    #    host at 200 kB/s advances its bytes at every poll for 36 h;
+    #    rearming alone would let it ride the whole runtime cap for zero
+    #    steps, which IS the run-#75 failure the first-step watchdog was
+    #    built to stop. The default (180 min) clears the measured 2 h 50
+    #    worst case and stays far under the 480-min runtime cap; 0 turns
+    #    the ceiling off and leaves the runtime cap as sole backstop.
+    stall_seconds = int(c.get('stall_timeout_minutes') or 30) * 60
+    first_step_seconds = int(c.get('first_step_timeout_minutes') or 45) * 60
+    raw_budget = c.get('first_step_download_budget_minutes')
+    dl_budget_seconds = int(180 if raw_budget is None else (raw_budget or 0)) * 60
+    grace_seconds = (int(c.get('unreachable_grace_minutes') or 0) * 60
+                     or UNREACHABLE_GRACE_SECONDS)
+    last_step = -1
+    last_progress_ts = _now()
+    # Peak bytes the pod has reported downloading, and the anchor of the
+    # absolute pre-step-1 ceiling. `downloaded_bytes` only ever grows:
+    # a bar that restarts lower is treated as no progress, which is the
+    # conservative side of the choice.
+    downloaded_bytes = 0.0
+    first_step_anchor = last_progress_ts
+    # Time of the FIRST failure of the current unreachable streak (None
+    # while the pod answers). The grace must measure CONSECUTIVE get_job
+    # failure time, not time-since-last-success: the per-poll log/sample
+    # mirror and checkpoint sync can each block for tens of seconds on a
+    # degrading vast proxy, and anchoring to the last success would let
+    # that non-probe time silently eat the grace and declare a still-live
+    # pod 'unreachable' on its very first failed probe.
+    unreachable_since = None
+    polls = 0
+    while True:
+        _assert_run_open(run)
+        if _now() - cap_anchor > max_seconds:
+            try:
+                remote.stop_job(job_id)
+            except Exception:
+                pass
+            if _dense_delivers_local(run):
+                # The cap is about not paying for ever, not about
+                # throwing the result away: a dense master that only
+                # exists on this pod dies with it. Bring it home first —
+                # the supervisor leaves a monitor that is actively
+                # writing alone (see _rescuing_checkpoint) — then the
+                # pod goes, exactly as the cap intends.
+                _deliver_dense_locally(
+                    run, remote, should_cancel=stop_event.is_set,
+                    require_open=True)
+                return
+            _try_download_checkpoint(run, remote, allow_stale=True)
+            _finish_if_open(run, 'stopped',
+                            detail='Max runtime reached — pod terminated',
+                            error='max runtime cap hit')
+            return
+        if stop_event.is_set():
+            stop_event.clear()
+            _set(run, phase_detail='Stopping on user request')
+            try:
+                remote.stop_job(job_id)
+            except Exception:
+                pass
+            if _dense_delivers_local(run):
+                # Stopping the TRAINING is not abandoning the result:
+                # the LoRA lane rescues its checkpoint here too. A
+                # second press of Stop cancels the transfer itself
+                # (should_cancel), keeping what already landed.
+                _deliver_dense_locally(
+                    run, remote, should_cancel=stop_event.is_set,
+                    require_open=True)
+                return
+            _try_download_checkpoint(run, remote, allow_stale=True)
+            _finish_if_open(run, 'stopped', detail='Stopped by user')
+            return
+        try:
+            job = remote.get_job(job_id)
+            unreachable_since = None
+        except Exception as e:
+            now = _now()
+            if unreachable_since is None:
+                unreachable_since = now
+            if now - unreachable_since > grace_seconds:
+                raise RuntimeError(f'pod unreachable: {e}')
+            _sleep(POLL_SECONDS)
+            continue
+
+        log_text = _pull_log_and_samples(run, remote, job_id)
+        # Mid-run checkpoint mirror, throttled (~2 min at 10 s polls):
+        # list_files is cheap, but no need to hammer it every poll —
+        # the pod only writes a new save every save_every steps.
+        polls += 1
+        if polls % _CKPT_SYNC_EVERY_POLLS == 0:
+            _sync_latest_checkpoint(run, remote)
+        status = job.get('status')
+        info = job.get('info') or ''
+        _set_soft(run, phase_detail=f"{status}: {info}"[:500])
+
+        if status == 'completed':
+            if _is_full_transformer_run(run):
+                # LAST use of the pod, and the only moment the ~26 GB
+                # master and a GPU are in the same place: turn it into
+                # the ~10 GB file people actually load in ComfyUI.
+                # Fail-open by construction — the master exists either
+                # way, on the pod and (for a hub run) on the Hub.
+                _export_full_transformer_fp8(run, remote)
+                if _dense_delivers_local(run):
+                    # Local FIRST, and the pod stays until the file on
+                    # this computer is proven. Everything after that
+                    # point — the Hub backup, the pod cleanup — can
+                    # fail without costing the run.
+                    _deliver_dense_locally(
+                        run, remote, should_cancel=stop_event.is_set,
+                        require_open=True)
+                    return
+                _set(run, phase_detail='Verifying Hugging Face delivery…')
+                _complete_full_transformer_delivery(run)
+                return
+            ok = _try_download_checkpoint(run, remote)
+            if not ok:
+                # A host that cannot DELIVER its result (even through
+                # the resume loop) is a bad host — skip it next time.
+                _blacklist_run_host(run, 'could not serve the final checkpoint')
+                # LoRA > a few minutes of pod time: keep the pod for
+                # manual recovery; max-runtime/reconcile will reap it.
+                # Same guard as _finish_if_open: announcing a kept pod
+                # for a run the supervisor just force-stopped would
+                # point the user at an instance that is already gone.
+                _assert_run_open(run)
+                _set(run, status='error_pod_kept',
+                     error='checkpoint download failed — pod kept, '
+                           f'recover manually at {run.base_url}',
+                     finished_at=datetime.utcnow())
+                return
+            _download_intermediates(run, remote)
+            _import_result(run)
+            _mirror_into_local_run(run)
+            # The video lane's provenance, written beside the weights —
+            # the face lane's registry cannot hold it (its manifest is
+            # face IMAGES, its dataset_id a face id). No-op for a face
+            # run, and best-effort: bookkeeping never fails a run.
+            video_run_lineage.record(run)
+            _finish_if_open(run, 'done', detail='Training complete')
+            return
+        if status in ('error', 'stopped'):
+            if _is_full_transformer_run(run):
+                # The 403 that killed run #146 at step 2750/3000: the
+                # training was fine, the PUSH was refused. Naming it is
+                # what turns "rent another GPU" into "click Settings".
+                detail, error = _dense_remote_failure(status, info, log_text)
+                _keep_full_transformer_pod(
+                    run, detail=detail, error=error,
+                    stop_remote=(status == 'error'))
+            else:
+                _try_download_checkpoint(run, remote, allow_stale=True)
+                _finish_if_open(
+                    run, 'error' if status == 'error' else 'stopped',
+                    detail=f'Remote job {status}', error=info or status)
+            return
+        # -- stall watchdog: guiding rule — NEVER kill a run that
+        # progresses. The elif keeps a progressing poll from ever
+        # evaluating the stall clock (a coarse test clock jumping in
+        # large strides per call must not misfire on a healthy run).
+        step = job.get('step') or 0
+        if step > last_step:
+            last_step = step
+            last_progress_ts = _now()
+        elif last_step > 0 and (_now() - last_progress_ts) > stall_seconds:
+            try:
+                remote.stop_job(job_id)
+            except Exception:
+                pass
+            if _is_full_transformer_run(run):
+                _keep_full_transformer_pod(
+                    run,
+                    detail='Stalled — no step progress for '
+                           f'{stall_seconds // 60} min; pod kept for '
+                           'dense-checkpoint recovery',
+                    error='stall watchdog; dense pod kept')
+            else:
+                _try_download_checkpoint(run, remote, allow_stale=True)
+                _finish_if_open(
+                    run, 'error',
+                    detail='Stalled — no step progress for '
+                           f'{stall_seconds // 60} min; pod terminated',
+                    error='stall watchdog')
+            return
+        elif last_step <= 0:
+            # -- before step 1: the same guiding rule, applied to the
+            # signal this phase actually has. Nothing to rescue here
+            # either way — no checkpoint exists yet.
+            if dl_budget_seconds and \
+                    (_now() - first_step_anchor) > dl_budget_seconds:
+                # Checked BEFORE the rearm on purpose: a pod that
+                # advances a handful of bytes every poll would otherwise
+                # rearm its way past every ceiling.
+                try:
+                    remote.stop_job(job_id)
+                except Exception:
+                    pass
+                _finish_if_open(
+                    run, 'error',
+                    detail='Still not training after '
+                           f'{dl_budget_seconds // 60} min '
+                           f'(base model fetched: {_fetched_label(downloaded_bytes)}) '
+                           '— pod terminated before it could burn the '
+                           'whole runtime cap',
+                    error='first-step download budget')
+                return
+            # download_bytes_seen, not parse_download_progress: the
+            # card's parser reports the LAST bar, and with several
+            # files in flight consecutive tails end on different bars,
+            # so its `done` alternates between two frozen files and
+            # would read as endless movement. A kill decision needs the
+            # total, which only a file that really advanced can raise.
+            seen = lt.download_bytes_seen(log_text)
+            if seen is not None and seen > downloaded_bytes:
+                downloaded_bytes = seen
+                last_progress_ts = _now()
+            elif (_now() - last_progress_ts) > first_step_seconds:
+                # Say what was MEASURED. The old wording ("pod likely
+                # stuck downloading the base model") is exactly what
+                # j_o_e_l. read while his pod downloaded normally, and it
+                # sent him hunting a vast.ai fault that did not exist.
+                if downloaded_bytes > 0:
+                    what = ('its base-model download stopped at '
+                            f'{_fetched_label(downloaded_bytes)}')
+                else:
+                    what = ('the pod never reported a single downloaded '
+                            'byte')
+                try:
+                    remote.stop_job(job_id)
+                except Exception:
+                    pass
+                _finish_if_open(
+                    run, 'error',
+                    detail='No training step reached in '
+                           f'{first_step_seconds // 60} min and '
+                           f'{what}; pod terminated',
+                    error='first-step watchdog')
+                return
+        _sleep(POLL_SECONDS)
+
+
 def _monitor(app, run_id):
     """Full run lifecycle in a daemon thread.
 
@@ -5372,194 +5857,12 @@ def _monitor(app, run_id):
             if not run.vast_instance_id:
                 _provision(run)
             _assert_run_open(run)
-            # Boot-readiness timeout anchor. A FRESH launch measures from now
-            # (post-provision) so dataset staging / offer search never eat into
-            # the pod's boot budget. A RESUME must NOT get a brand-new window on
-            # every restart: that let a pod whose UI never answered survive
-            # 37 min across two restarts instead of the 15-min READY_TIMEOUT
-            # (incident 2026-07-14). On resume we anchor to the DURABLE
-            # created_at (cap_anchor), so readiness measures the TOTAL time since
-            # launch across every restart — the intended behaviour even for a pod
-            # that was honestly still booting.
-            #
-            # ... unless the pod is not booting at all. A run we ENTER with a
-            # started remote job is REATTACHING: the pod booted long ago, its
-            # trainer is running, and the durable anchor has therefore already
-            # eaten the whole boot budget. Run #146 (2026-08-03) is what that
-            # costs: adopted at 16:01:58 at step 825/3000, one poll where the
-            # vast API simply did not list the instance, and 10 s later the
-            # budget check condemned it — pod alive, job training, money spent.
-            # A reattach gets its own short window instead (see below).
-            reattaching = resuming_existing_pod and job_started
-            boot_started = (cap_anchor if resuming_existing_pod and not reattaching
-                            else _now())
+            # -- wait until the pod's UI answers (extracted loop) ----------
+            if _wait_for_pod_ready(run, stop_event, c, cap_anchor,
+                                   resuming_existing_pod,
+                                   job_started) == 'stopped':
+                return
 
-            # -- wait until the pod's UI answers ----------------------------
-            # Readiness is checked BEFORE the elapsed-time read: an
-            # already-booted pod (the common case, and every resumed run)
-            # must be able to break out on the very first iteration without
-            # ever touching _now() -- a test clock that jumps in large
-            # strides per call must not misfire this boot-timeout on a pod
-            # that was, in fact, instantly ready.
-            template_mode = bool((c.get('template_hash') or '').strip())
-            # Two clocks, exactly like the pre-step-1 phase further down:
-            #  * ready_timeout is IDLE time, rearmed by any boot fact the pod
-            #    had never shown before. Judging on elapsed time alone killed
-            #    honest 26 GB image pulls at 25 min — while the evidence that
-            #    they were progressing was already read, one line above, and
-            #    shown to the user in the phase line.
-            #  * boot_budget is the ABSOLUTE ceiling, evaluated BEFORE the
-            #    rearm so a host that dribbles one new fact per poll cannot
-            #    rearm its way past it. Raising ready_timeout instead would
-            #    have been a cover-up: a pod that shows nothing is money
-            #    burning and must still die in 25 minutes.
-            ready_timeout = (int(c.get('ready_timeout_minutes') or 0) * 60
-                             or READY_TIMEOUT_SECONDS)
-            raw_boot_budget = c.get('boot_budget_minutes')
-            boot_budget = int(90 if raw_boot_budget is None
-                              else (raw_boot_budget or 0)) * 60
-            slow_ban_seconds = float(
-                cfg.get('cloud.slow_boot_blacklist_hours') or 6) * 3600
-            if reattaching:
-                # Not a boot: a reconnection. Both clocks become the SAME
-                # tolerance the poll loop already grants a pod that stops
-                # answering mid-run (cloud.unreachable_grace_minutes, 6 min by
-                # default) — measured from this attempt, not from launch. That
-                # is minutes of consecutive negative evidence instead of the
-                # single unlucky poll that killed #146, and it stays bounded:
-                # a pod that is really gone is still given up in 6 minutes.
-                reconnect_seconds = (
-                    int(c.get('unreachable_grace_minutes') or 0) * 60
-                    or UNREACHABLE_GRACE_SECONDS)
-                ready_timeout = boot_budget = reconnect_seconds
-            # None until the first observation: the state a monitor INHERITS
-            # (every fact a resumed pod already shows) is a baseline, not
-            # progress — otherwise every app restart would hand a dead pod a
-            # brand-new window, the 2026-07-14 regression all over again.
-            boot_facts = None
-            boot_progress_ts = boot_started
-            boot_rearms = 0
-            _set(run, phase_detail='Waiting for the pod to boot')
-            port = int(c.get('ui_port') or 18675)
-            if template_mode and port == 8675:
-                # 8675 is the pre-template default that Settings saves may have
-                # baked into config.json; the official template only publishes
-                # the UI behind the pod proxy on 18675 — a stale 8675 makes the
-                # boot-wait spin for its whole budget (observed live 2026-07-12).
-                logger.warning('cloud.ui_port=8675 is stale for template mode — using 18675')
-                port = 18675
-            while True:
-                _assert_run_open(run)
-                # A transient vast API hiccup is just "not ready yet" -- only
-                # READY_TIMEOUT_SECONDS may fail the boot wait, never a single
-                # 502 that would destroy a pod about to come up fine.
-                try:
-                    inst = vast_client.get_instance(run.vast_instance_id)
-                except vast_client.VastError as e:
-                    logger.warning('boot-wait: vast API hiccup (%s) — retrying', e)
-                    inst = None
-                # Template launches authenticate with the vast-generated
-                # per-instance token (the pod's Caddy proxy accepts it as a
-                # Bearer header) — pick it up as soon as the record shows it.
-                if inst and not run.auth_token and inst.get('jupyter_token'):
-                    _set(run, auth_token=inst['jupyter_token'])
-                # The address of the pod we are actually paying for — the only
-                # host identity that a machine_id re-registration cannot shed.
-                if inst and inst.get('public_ipaddr'):
-                    _stamp_host_ip(run, inst['public_ipaddr'])
-                # ...and WHICH TRAINER it booted, which a template launch can
-                # otherwise change under us without any local change.
-                if inst and inst.get('image_uuid'):
-                    _stamp_pod_image(run, inst['image_uuid'])
-                derived = vast_client.derive_base_url(inst, port) if inst else None
-                # The vast API is not the authority on whether the pod exists —
-                # the pod is. Its listing has gaps (an answer without our
-                # instance in it, indistinguishable from a destroyed pod), and
-                # #146 was condemned inside one. When the row already carries an
-                # address, that gap costs exactly one HTTP probe to settle: a
-                # pod that answers its own URL is a pod that exists, whatever
-                # the marketplace API is currently saying about it.
-                base = derived or (run.base_url or None)
-                ready = False
-                if base:
-                    if derived and run.base_url != derived:
-                        _set(run, base_url=derived)
-                    ready = _make_remote(run).is_ready()
-                    if ready:
-                        break
-                # Honor "Stop run" DURING boot too — but only on a pod that is
-                # NOT ready yet (a ready pod breaks out above and the training
-                # loop handles the stop normally). Without this, the boot-wait
-                # spun its whole 25-min budget on a dead host while the stop
-                # button silently did nothing (observed live 2026-07-13, a
-                # 5090 stuck in 'loading'). No job exists yet -> terminate.
-                if stop_event.is_set():
-                    stop_event.clear()
-                    # A user killing a boot this late is almost always a stuck
-                    # host — blacklist it like a timeout would. An early stop
-                    # (changed their mind) says nothing about the host.
-                    if _now() - boot_started > 8 * 60:
-                        _blacklist_run_host(run, 'user stopped a boot stuck past 8 min')
-                    _finish(run, 'stopped', detail='Stopped by user during boot')
-                    return
-                # Live telemetry: surface WHERE the boot is stuck (image pull,
-                # port publication, UI warm-up) in the UI phase line and the
-                # log — runs #3/#4 died blind on 'Waiting for the pod to boot'.
-                st = (inst or {}).get('actual_status') or 'not listed yet'
-                has_ports = bool(((inst or {}).get('ports') or {}).get(f'{port}/tcp'))
-                stage = (f'pod {st}' if not has_ports
-                         else 'pod up — waiting for the UI to answer')
-                detail = f'Waiting for the pod to boot — {stage}'
-                if run.phase_detail != detail:
-                    logger.info('boot-wait run %s: status=%s port_%s_published=%s '
-                                'base=%s ready=%s', run.id, st, port, has_ports,
-                                base or '-', ready)
-                    _set(run, phase_detail=detail)
-                facts = _boot_facts(inst, port, base)
-                if boot_facts is None:
-                    boot_facts = set(facts)      # baseline, not progress
-                elif (reattaching and boot_budget
-                        and _now() - boot_started > boot_budget):
-                    # A reattach that never got an answer. The host is not at
-                    # fault (it was training minutes ago), so it is not banned,
-                    # and the job is not stoppable, so no stop is sent.
-                    raise _ReattachFailed(
-                        'the pod could not be reached again after the app '
-                        f'restarted — no answer for {boot_budget // 60} min: '
-                        f'{_boot_stage_label(inst, port, base)}')
-                elif boot_budget and _now() - boot_started > boot_budget:
-                    # Ceiling first, so advancing evidence can never buy an
-                    # unbounded boot. This host was still visibly working —
-                    # slow, not broken — so it is skipped for HOURS, not days:
-                    # a saturated uplink is a condition of the night, and a
-                    # three-day exile the user never sees is the wrong price
-                    # for it. (A host that shows nothing takes the full ban
-                    # below — that mechanism has already saved real money.)
-                    _blacklist_run_host(
-                        run, 'pod was still booting past the boot budget',
-                        ttl_seconds=slow_ban_seconds if boot_rearms else None)
-                    raise RuntimeError(
-                        'pod did not become ready in time — still booting after '
-                        f'{boot_budget // 60} min: '
-                        f'{_boot_stage_label(inst, port, base)}')
-                elif facts - boot_facts:
-                    boot_facts |= facts
-                    boot_progress_ts = _now()
-                    boot_rearms += 1
-                elif _now() - boot_progress_ts > ready_timeout:
-                    if reattaching:
-                        raise _ReattachFailed(
-                            'the pod could not be reached again after the app '
-                            f'restarted — no answer for {ready_timeout // 60} '
-                            f'min: {_boot_stage_label(inst, port, base)}')
-                    # Nothing about this pod changed for the whole idle budget:
-                    # a dead or frozen host. Full ban, as before.
-                    _blacklist_run_host(run, 'pod stopped making boot progress')
-                    raise RuntimeError(
-                        'pod did not become ready in time — no boot progress '
-                        f'for {ready_timeout // 60} min: '
-                        f'{_boot_stage_label(inst, port, base)}')
-                _sleep(POLL_SECONDS)
 
             remote = _make_remote(run)
 
@@ -5639,269 +5942,10 @@ def _monitor(app, run_id):
                     on_start_attempt=mark_job_start_attempt)
                 job_started = True
 
-            # -- poll until terminal ------------------------------------------
-            # Two watchdogs share one progress clock (last_progress_ts):
-            #  * stall — once training has produced a step, kill if the step
-            #    counter freezes past stall_timeout_minutes.
-            #  * first-step — BEFORE the first step (base download, quantize,
-            #    latent caching) kill if step 1 is never reached in time. Only
-            #    the runtime cap used to bound this phase, so a pod whose base
-            #    download collapsed to a crawl burned the WHOLE cap for zero
-            #    steps (run #75: 26.3 GB base at ~12 kB/s, 10h45 / 7 € / 0 saves
-            #    — 2026-07-19). A healthy Krea-2-Raw run reaches step 1 in a few
-            #    minutes (its full 2000-step run was ~84 min), so the default is
-            #    generous enough to survive an honestly slow download.
-            #    The step counter is NOT the only progress signal in that phase:
-            #    the pod's log carries the base-model download's byte counter,
-            #    and a pod whose bytes advance is a pod that progresses. Judging
-            #    the phase on steps alone killed a paid run whose download was
-            #    perfectly healthy (reported by j_o_e_l. on Discord 2026-07-27:
-            #    KREA-2 RAW on a 5090, FAILED at 59 min, never past step 0 —
-            #    26.3 GB at the 2.58 MB/s measured on another pod is ~2 h 50, so
-            #    the 45-min budget GUARANTEED the failure). Advancing bytes now
-            #    rearm this clock, exactly as a step rearms the stall clock.
-            #    Raising the timeout instead would have been a cover-up: a
-            #    genuinely wedged pod must still die fast, because it is money
-            #    burning. Hence the second, ABSOLUTE ceiling below.
-            #  * download budget — the ceiling that keeps the rearm honest. A
-            #    host at 200 kB/s advances its bytes at every poll for 36 h;
-            #    rearming alone would let it ride the whole runtime cap for zero
-            #    steps, which IS the run-#75 failure the first-step watchdog was
-            #    built to stop. The default (180 min) clears the measured 2 h 50
-            #    worst case and stays far under the 480-min runtime cap; 0 turns
-            #    the ceiling off and leaves the runtime cap as sole backstop.
-            stall_seconds = int(c.get('stall_timeout_minutes') or 30) * 60
-            first_step_seconds = int(c.get('first_step_timeout_minutes') or 45) * 60
-            raw_budget = c.get('first_step_download_budget_minutes')
-            dl_budget_seconds = int(180 if raw_budget is None else (raw_budget or 0)) * 60
-            grace_seconds = (int(c.get('unreachable_grace_minutes') or 0) * 60
-                             or UNREACHABLE_GRACE_SECONDS)
-            last_step = -1
-            last_progress_ts = _now()
-            # Peak bytes the pod has reported downloading, and the anchor of the
-            # absolute pre-step-1 ceiling. `downloaded_bytes` only ever grows:
-            # a bar that restarts lower is treated as no progress, which is the
-            # conservative side of the choice.
-            downloaded_bytes = 0.0
-            first_step_anchor = last_progress_ts
-            # Time of the FIRST failure of the current unreachable streak (None
-            # while the pod answers). The grace must measure CONSECUTIVE get_job
-            # failure time, not time-since-last-success: the per-poll log/sample
-            # mirror and checkpoint sync can each block for tens of seconds on a
-            # degrading vast proxy, and anchoring to the last success would let
-            # that non-probe time silently eat the grace and declare a still-live
-            # pod 'unreachable' on its very first failed probe.
-            unreachable_since = None
-            polls = 0
-            while True:
-                _assert_run_open(run)
-                if _now() - cap_anchor > max_seconds:
-                    try:
-                        remote.stop_job(job_id)
-                    except Exception:
-                        pass
-                    if _dense_delivers_local(run):
-                        # The cap is about not paying for ever, not about
-                        # throwing the result away: a dense master that only
-                        # exists on this pod dies with it. Bring it home first —
-                        # the supervisor leaves a monitor that is actively
-                        # writing alone (see _rescuing_checkpoint) — then the
-                        # pod goes, exactly as the cap intends.
-                        _deliver_dense_locally(
-                            run, remote, should_cancel=stop_event.is_set,
-                            require_open=True)
-                        return
-                    _try_download_checkpoint(run, remote, allow_stale=True)
-                    _finish_if_open(run, 'stopped',
-                                    detail='Max runtime reached — pod terminated',
-                                    error='max runtime cap hit')
-                    return
-                if stop_event.is_set():
-                    stop_event.clear()
-                    _set(run, phase_detail='Stopping on user request')
-                    try:
-                        remote.stop_job(job_id)
-                    except Exception:
-                        pass
-                    if _dense_delivers_local(run):
-                        # Stopping the TRAINING is not abandoning the result:
-                        # the LoRA lane rescues its checkpoint here too. A
-                        # second press of Stop cancels the transfer itself
-                        # (should_cancel), keeping what already landed.
-                        _deliver_dense_locally(
-                            run, remote, should_cancel=stop_event.is_set,
-                            require_open=True)
-                        return
-                    _try_download_checkpoint(run, remote, allow_stale=True)
-                    _finish_if_open(run, 'stopped', detail='Stopped by user')
-                    return
-                try:
-                    job = remote.get_job(job_id)
-                    unreachable_since = None
-                except Exception as e:
-                    now = _now()
-                    if unreachable_since is None:
-                        unreachable_since = now
-                    if now - unreachable_since > grace_seconds:
-                        raise RuntimeError(f'pod unreachable: {e}')
-                    _sleep(POLL_SECONDS)
-                    continue
-
-                log_text = _pull_log_and_samples(run, remote, job_id)
-                # Mid-run checkpoint mirror, throttled (~2 min at 10 s polls):
-                # list_files is cheap, but no need to hammer it every poll —
-                # the pod only writes a new save every save_every steps.
-                polls += 1
-                if polls % _CKPT_SYNC_EVERY_POLLS == 0:
-                    _sync_latest_checkpoint(run, remote)
-                status = job.get('status')
-                info = job.get('info') or ''
-                _set_soft(run, phase_detail=f"{status}: {info}"[:500])
-
-                if status == 'completed':
-                    if _is_full_transformer_run(run):
-                        # LAST use of the pod, and the only moment the ~26 GB
-                        # master and a GPU are in the same place: turn it into
-                        # the ~10 GB file people actually load in ComfyUI.
-                        # Fail-open by construction — the master exists either
-                        # way, on the pod and (for a hub run) on the Hub.
-                        _export_full_transformer_fp8(run, remote)
-                        if _dense_delivers_local(run):
-                            # Local FIRST, and the pod stays until the file on
-                            # this computer is proven. Everything after that
-                            # point — the Hub backup, the pod cleanup — can
-                            # fail without costing the run.
-                            _deliver_dense_locally(
-                                run, remote, should_cancel=stop_event.is_set,
-                                require_open=True)
-                            return
-                        _set(run, phase_detail='Verifying Hugging Face delivery…')
-                        _complete_full_transformer_delivery(run)
-                        return
-                    ok = _try_download_checkpoint(run, remote)
-                    if not ok:
-                        # A host that cannot DELIVER its result (even through
-                        # the resume loop) is a bad host — skip it next time.
-                        _blacklist_run_host(run, 'could not serve the final checkpoint')
-                        # LoRA > a few minutes of pod time: keep the pod for
-                        # manual recovery; max-runtime/reconcile will reap it.
-                        # Same guard as _finish_if_open: announcing a kept pod
-                        # for a run the supervisor just force-stopped would
-                        # point the user at an instance that is already gone.
-                        _assert_run_open(run)
-                        _set(run, status='error_pod_kept',
-                             error='checkpoint download failed — pod kept, '
-                                   f'recover manually at {run.base_url}',
-                             finished_at=datetime.utcnow())
-                        return
-                    _download_intermediates(run, remote)
-                    _import_result(run)
-                    _mirror_into_local_run(run)
-                    # The video lane's provenance, written beside the weights —
-                    # the face lane's registry cannot hold it (its manifest is
-                    # face IMAGES, its dataset_id a face id). No-op for a face
-                    # run, and best-effort: bookkeeping never fails a run.
-                    video_run_lineage.record(run)
-                    _finish_if_open(run, 'done', detail='Training complete')
-                    return
-                if status in ('error', 'stopped'):
-                    if _is_full_transformer_run(run):
-                        # The 403 that killed run #146 at step 2750/3000: the
-                        # training was fine, the PUSH was refused. Naming it is
-                        # what turns "rent another GPU" into "click Settings".
-                        detail, error = _dense_remote_failure(status, info, log_text)
-                        _keep_full_transformer_pod(
-                            run, detail=detail, error=error,
-                            stop_remote=(status == 'error'))
-                    else:
-                        _try_download_checkpoint(run, remote, allow_stale=True)
-                        _finish_if_open(
-                            run, 'error' if status == 'error' else 'stopped',
-                            detail=f'Remote job {status}', error=info or status)
-                    return
-                # -- stall watchdog: guiding rule — NEVER kill a run that
-                # progresses. The elif keeps a progressing poll from ever
-                # evaluating the stall clock (a coarse test clock jumping in
-                # large strides per call must not misfire on a healthy run).
-                step = job.get('step') or 0
-                if step > last_step:
-                    last_step = step
-                    last_progress_ts = _now()
-                elif last_step > 0 and (_now() - last_progress_ts) > stall_seconds:
-                    try:
-                        remote.stop_job(job_id)
-                    except Exception:
-                        pass
-                    if _is_full_transformer_run(run):
-                        _keep_full_transformer_pod(
-                            run,
-                            detail='Stalled — no step progress for '
-                                   f'{stall_seconds // 60} min; pod kept for '
-                                   'dense-checkpoint recovery',
-                            error='stall watchdog; dense pod kept')
-                    else:
-                        _try_download_checkpoint(run, remote, allow_stale=True)
-                        _finish_if_open(
-                            run, 'error',
-                            detail='Stalled — no step progress for '
-                                   f'{stall_seconds // 60} min; pod terminated',
-                            error='stall watchdog')
-                    return
-                elif last_step <= 0:
-                    # -- before step 1: the same guiding rule, applied to the
-                    # signal this phase actually has. Nothing to rescue here
-                    # either way — no checkpoint exists yet.
-                    if dl_budget_seconds and \
-                            (_now() - first_step_anchor) > dl_budget_seconds:
-                        # Checked BEFORE the rearm on purpose: a pod that
-                        # advances a handful of bytes every poll would otherwise
-                        # rearm its way past every ceiling.
-                        try:
-                            remote.stop_job(job_id)
-                        except Exception:
-                            pass
-                        _finish_if_open(
-                            run, 'error',
-                            detail='Still not training after '
-                                   f'{dl_budget_seconds // 60} min '
-                                   f'(base model fetched: {_fetched_label(downloaded_bytes)}) '
-                                   '— pod terminated before it could burn the '
-                                   'whole runtime cap',
-                            error='first-step download budget')
-                        return
-                    # download_bytes_seen, not parse_download_progress: the
-                    # card's parser reports the LAST bar, and with several
-                    # files in flight consecutive tails end on different bars,
-                    # so its `done` alternates between two frozen files and
-                    # would read as endless movement. A kill decision needs the
-                    # total, which only a file that really advanced can raise.
-                    seen = lt.download_bytes_seen(log_text)
-                    if seen is not None and seen > downloaded_bytes:
-                        downloaded_bytes = seen
-                        last_progress_ts = _now()
-                    elif (_now() - last_progress_ts) > first_step_seconds:
-                        # Say what was MEASURED. The old wording ("pod likely
-                        # stuck downloading the base model") is exactly what
-                        # j_o_e_l. read while his pod downloaded normally, and it
-                        # sent him hunting a vast.ai fault that did not exist.
-                        if downloaded_bytes > 0:
-                            what = ('its base-model download stopped at '
-                                    f'{_fetched_label(downloaded_bytes)}')
-                        else:
-                            what = ('the pod never reported a single downloaded '
-                                    'byte')
-                        try:
-                            remote.stop_job(job_id)
-                        except Exception:
-                            pass
-                        _finish_if_open(
-                            run, 'error',
-                            detail='No training step reached in '
-                                   f'{first_step_seconds // 60} min and '
-                                   f'{what}; pod terminated',
-                            error='first-step watchdog')
-                        return
-                _sleep(POLL_SECONDS)
+            # -- poll until terminal (extracted loop) ----------------------
+            _poll_job_until_terminal(run, remote, job_id, stop_event, c,
+                                     cap_anchor, max_seconds)
+            return
         except _RunClosedExternally as closed:
             # Someone with more authority than this thread (a forced stop, the
             # supervisor) already closed the run. Do NOT touch the row -- but a
