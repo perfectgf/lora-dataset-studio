@@ -1548,8 +1548,6 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
       .catch(() => setContinueRuns({}));
   }, [toast]);
 
-  const continueSteps = useMemo(
-    () => canvasContinueSteps(continueTarget?.node), [continueTarget]);
   const continueRow = useMemo(
     () => canvasContinueRow(continueTarget?.node,
       [...(continueRuns?.actives || []), ...(continueRuns?.recent || [])]),

@@ -502,7 +502,6 @@ def test_dataset_roundtrip_preserves_score_face_caches_without_quality_scan(
         app, tmp_path):
     from app.extensions import db
     from app.models import BankImage, FaceDatasetImage, ImageBank
-    from app.services import bank_jobs
     from app.services import bank_transfer_metadata as transfer
     from app.services import image_bank_service as banks
     from app.services.dataset_storage import dataset_path
@@ -1351,7 +1350,7 @@ def test_complete_legacy_quality_carries_face_scalars_without_an_old_face_hash(
 def test_same_size_mtime_replacement_cannot_reuse_hashed_runtime_cache(
         app, tmp_path):
     from app.extensions import db
-    from app.models import BankImage, ImageBank
+    from app.models import ImageBank
     from app.services import bank_transfer_metadata as transfer
     from app.services import image_bank_service as banks
 
@@ -1409,8 +1408,7 @@ def test_direct_bank_copy_discards_destination_on_incomplete_cache_write(
 
 def test_same_path_replacement_invalidates_source_analysis(app, tmp_path):
     from app.extensions import db
-    from app.models import BankImage, ImageBank
-    from app.services import bank_transfer_metadata as transfer
+    from app.models import ImageBank
     from app.services import image_bank_service as banks
 
     with app.app_context():

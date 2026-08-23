@@ -141,7 +141,6 @@ _comfyui_circuit_next_window_s = _COMFYUI_CIRCUIT_INITIAL_S
 
 def _check_comfyui_circuit():
     """Check if the ComfyUI circuit breaker allows a request."""
-    global _comfyui_circuit_open_until
     if time.time() < _comfyui_circuit_open_until:
         return False  # Circuit is open, skip call
     return True

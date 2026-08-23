@@ -44,11 +44,12 @@ test('the dataset lightbox offers both directions, labelled and keyboard reachab
   assert.match(lightbox, /if \(!onRotate \|\| pixelEditRefused \|\| mirrorBusy\) return/);
   // Real <button>s (focusable, Enter/Space) with an explicit label — the emoji
   // is decoration, never the accessible name.
-  // `refused ||` in front: while a dataset pass holds the image the accessible
-  // name becomes the sentence naming that pass, instead of a silently grey
-  // button (tests/dataset-tile-reads-stay-live.test.mjs).
-  assert.match(lightbox, /aria-label=\{refused \|\| `Rotate \$\{alt\} 90 degrees left`\}/);
-  assert.match(lightbox, /aria-label=\{refused \|\| `Rotate \$\{alt\} 90 degrees right`\}/);
+  // `pixelEditReason ||` in front: while a dataset pass holds the image — or an
+  // upscale of it is still rendering — the accessible name becomes the sentence
+  // naming WHY, instead of a silently grey button. It is the same reason the
+  // `disabled` flag reads (tests/dataset-tile-reads-stay-live.test.mjs).
+  assert.match(lightbox, /aria-label=\{pixelEditReason \|\| `Rotate \$\{alt\} 90 degrees left`\}/);
+  assert.match(lightbox, /aria-label=\{pixelEditReason \|\| `Rotate \$\{alt\} 90 degrees right`\}/);
   assert.match(lightbox, /onClick=\{rotate\(270\)\}/);
   assert.match(lightbox, /onClick=\{rotate\(90\)\}/);
   assert.ok(lightbox.includes('<span aria-hidden="true">↺</span> Rotate left'));

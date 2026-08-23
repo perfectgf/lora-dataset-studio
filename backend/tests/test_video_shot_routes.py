@@ -11,7 +11,7 @@ before the cache existed, and the fix is one pass, not a different body.
 import pytest
 
 from app.config import LOCAL_USER
-from app.models import VideoClip, VideoSource
+from app.models import VideoSource
 from app.services import shot_probs
 from app.services import video_bank_service as svc
 
@@ -167,10 +167,10 @@ def test_the_source_list_says_which_files_can_be_re_cut_instantly(client, bank):
 
 
 def test_every_shot_route_404s_on_a_bank_that_does_not_exist(client):
-    for path, body in ((f'/api/video-bank/9999/shot-threshold', {'threshold': 0.5}),
-                       (f'/api/video-bank/9999/recut', {}),
-                       (f'/api/video-bank/9999/shot-dry-run', {}),
-                       (f'/api/video-bank/9999/source/1/single-shot', None)):
+    for path, body in (('/api/video-bank/9999/shot-threshold', {'threshold': 0.5}),
+                       ('/api/video-bank/9999/recut', {}),
+                       ('/api/video-bank/9999/shot-dry-run', {}),
+                       ('/api/video-bank/9999/source/1/single-shot', None)):
         assert client.post(path, json=body).status_code == 404
 
 

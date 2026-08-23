@@ -680,7 +680,9 @@ const TOPICS = [
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // 🎬 Les scènes vivent dans le même rail que le lot d'historique, monté par le
   // Studio de test ET par « Generate from the board » : un seul sujet pour les deux.
-  action('studio-scene-prompts', '🎬 Scenes: run a bank’s captions in order',
+  // Les DEUX sources (banque et dataset) partagent ce sujet : c'est le même
+  // panneau et le même contrat — deux entrées d'aide diraient qu'il y en a deux.
+  action('studio-scene-prompts', '🎬 Scenes: run a bank’s or a dataset’s captions in order',
     ['studio', 'test studio', 'canvas', 'generate from the board', 'scene', 'scenes',
      'scenes from a bank', 'bank captions', 'import captions', 'captions from a bank',
      'use my bank captions', 'reuse a caption', 'staging', 'mise en scene',
@@ -688,7 +690,14 @@ const TOPICS = [
      'pick scenes', 'tick scenes', 'select all scenes', 'load scenes',
      'one pass per scene', 'run captions in order', 'choose a bank',
      'no scenes loaded', 'scene skipped', 'image without a caption',
-     'caption pass', 'thumbnail of the page', 'which page'],
+     'caption pass', 'thumbnail of the page', 'which page',
+     // Ce que quelqu'un tape quand la source qu'il veut rejouer est son dataset
+     // — et ce qu'il cherchait avant que le dataset soit offert : un moyen de ne
+     // PAS réexporter son dataset vers une banque pour atteindre ce panneau.
+     'scenes from a dataset', 'dataset captions', 'captions from a dataset',
+     'use my dataset captions', 'run my dataset captions', 'choose a dataset',
+     'replay my dataset', 'my own captions', 'only banks?', 'no dataset in the list',
+     'rejected images', 'does it use rejected images', 'kept and pending'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   action('studio-enhance-prompt', '✨ Enhance: enrich the test prompt with the local model',
     ['studio', 'test studio', 'enhance', 'enhance prompt', 'improve prompt', 'better prompt',

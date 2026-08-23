@@ -7,7 +7,7 @@ import { runCost } from './runCost';
 // `promptMult` : nombre de prompts cochés dans l'historique (axe 📝 lot). Déjà
 // compté dans `total` — il n'est ici que pour NOMMER d'où vient le multiplicateur,
 // sinon le compteur triple sans que rien à l'écran dise pourquoi.
-export default function SeedControls({ seed, seedLocked, onReroll, onToggleLock, genCount, onGenCount, total, batchMult = 1, promptMult = 1, secondsPerImage = null, fmt }) {
+export default function SeedControls({ seed, seedLocked, onReroll, onToggleLock, genCount, onGenCount, total, batchMult = 1, promptMult = 1, secondsPerImage = null }) {
   // ⏱ L'estimation était « ×12 s » en dur : vraie sur une 4090 en Z-Image Turbo,
   // fausse partout ailleurs. `secondsPerImage` est la médiane RÉELLE mesurée sur
   // cette machine (null tant que l'historique est trop court → le repli).

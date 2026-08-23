@@ -3,7 +3,6 @@
 // wiring assertion must survive a move (see bankTreeSource.js).
 import { bankTreeSource } from './bankTreeSource.js';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import test from 'node:test';
 
 import {

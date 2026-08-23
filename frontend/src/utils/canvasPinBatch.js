@@ -57,7 +57,7 @@ import {
 } from './canvasImageGroups.js';
 import { groupBarMaxHeight } from './canvasNodeChrome.js';
 import {
-  IMG_DEFAULT, IMG_MAX, IMG_MIN, imageNodeExtent, slideBelow, slideRight,
+  IMG_DEFAULT, IMG_MAX, IMG_MIN, imageNodeExtent, slideRight,
   spotBesideCard,
 } from './canvasImageNodes.js';
 

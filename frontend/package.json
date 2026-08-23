@@ -13,7 +13,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:navigation": "node --test src/components/dataset/workspaceNavigation.test.js",
-    "probe:responsive": "node scripts/responsiveProbe.mjs"
+    "probe:responsive": "node scripts/responsiveProbe.mjs",
+    "lint": "eslint ."
   },
   "dependencies": {
     "qrcode.react": "^4.2.0",
@@ -25,6 +26,10 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
+    "eslint": "9.39.5",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "globals": "15.15.0",
     "playwright-core": "^1.62.1",
     "postcss": "^8.5.23",
     "tailwindcss": "^3.4.10",

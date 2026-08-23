@@ -126,6 +126,47 @@ jobs:
             echo "run_heavy=false" >> "$GITHUB_OUTPUT"
           fi
 
+  lint:
+    # Cheap and unconditional: correctness-class lint on both halves, on every
+    # event — it is not behind the size gate because it costs a minute and the
+    # things it catches (an unused import, a hook called under a condition, a
+    # reference to a name that does not exist) hide just as well in a small push.
+    # Run the same two commands locally: `ruff check .` at the repo root and
+    # `npm run lint` in frontend/ (rules in ruff.toml / frontend/eslint.config.mjs).
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff (the version pinned in backend/requirements-dev.txt)
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -n 's/^ruff==\([0-9][0-9A-Za-z.]*\).*$/\1/p' backend/requirements-dev.txt | head -n1)
+          test -n "$pin" || { echo "backend/requirements-dev.txt no longer pins ruff" >&2; exit 1; }
+          python -m pip install --quiet "ruff==$pin"
+
+      - name: Ruff (backend, scripts, packaging)
+        run: ruff check . --output-format github
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint (frontend)
+        working-directory: frontend
+        run: npm run lint
+
   backend-tests:
     name: Backend tests
     needs: gate

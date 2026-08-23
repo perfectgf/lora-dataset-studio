@@ -3,9 +3,7 @@ edges. Covers the graph shapes the Runs tree must render — a simple continuati
 chain, a superseded branch (resumed below where the parent ended), a legacy root
 with no persisted parent — plus the two write paths that STAMP the edge
 (local continue_training and cloud continue_cloud_run)."""
-import json
 
-import pytest
 
 
 def _rec(reg, dataset_id=1, family='zimage', source='local', base_model='',
@@ -163,7 +161,6 @@ class _FakeProc:
 def _stub_launch(monkeypatch, tmp_path, app):
     """Reach launch_training (real config + real register_launch) without
     spawning ai-toolkit — the proven seam from test_continue_flexible."""
-    import os
     from app import config as cfg
     from app.services import lora_training as lt
     root = tmp_path / 'aitoolkit'

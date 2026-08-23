@@ -6,7 +6,6 @@ comfyui.inject_krea_loras' clamp — not Klein's 1.5.
 
 Nothing here renders anything: no GPU second, no paid call.
 """
-import json
 import os
 
 import pytest

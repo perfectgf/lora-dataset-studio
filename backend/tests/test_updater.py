@@ -2,7 +2,6 @@
 release-ZIP update path (download mocked, but a REAL forged mini-ZIP is extracted
 and swapped in a tmp tree). git and the network are fully mocked — no real pull,
 no real download, no restart (schedule_restart is never called here)."""
-import json
 import os
 import threading
 import zipfile

@@ -1,0 +1,56 @@
+# Ruff — the backend's lint gate (`ruff check .` from the repo root).
+#
+# Scope on purpose: correctness and dead code, not style. Every rule here
+# either flags something that cannot be intended (an import nobody uses, a
+# variable assigned and dropped, a dict literal that writes the same key
+# twice, `except:` swallowing KeyboardInterrupt) or a known footgun (a mutable
+# default argument). Formatting, line length and naming stay out of the gate:
+# the suite, not the linter, is the arbiter of behaviour, and a style rule
+# that rewrites thousands of lines buys nothing a reviewer can read.
+#
+# Run it the way CI does: `ruff check .` — version pinned in
+# backend/requirements-dev.txt. `ruff check . --fix` applies the safe fixes.
+
+target-version = "py310"
+line-length = 120          # reported only by rules we do not enable; kept sane for editors
+
+extend-exclude = [
+    "frontend",            # JavaScript — ESLint's job (frontend/eslint.config.mjs)
+    "data",
+    "docs",
+    ".venv",
+    "venv",
+    "env",
+    ".python",
+    "run",
+    "basedir",
+    "data-docker",
+    "data-docker-gpu",
+    "packaging/build",
+    "packaging/dist",
+]
+
+[lint]
+select = [
+    "F",       # pyflakes: unused imports/variables, undefined names, redefinitions, bad f-strings
+    "E9",      # syntax / io errors
+    "E711", "E712",  # comparisons to None / True / False with ==
+    "E713", "E714",  # `not x in y` / `not x is y`
+    "E721",    # type comparison with ==
+    "E722",    # bare except
+    "B006",    # mutable default argument
+    "B008",    # function call in default argument
+    "B018",    # useless expression
+    "PLW0602", # `global x` without assignment — the statement does nothing
+]
+ignore = [
+    "E741",    # ambiguous variable names (l, I, O) — a style call, and the suite's fixtures use them on purpose
+]
+
+[lint.per-file-ignores]
+# Tests routinely take a fixture whose name shadows a module-level alias of
+# the module under test (`ct` the import, `ct` the fixture). Pyflakes reads
+# that as a redefinition; it is the fixture doing its job.
+"backend/tests/*" = ["F811"]
+# Re-exports: an import in a package __init__ IS the public surface.
+"**/__init__.py" = ["F401"]

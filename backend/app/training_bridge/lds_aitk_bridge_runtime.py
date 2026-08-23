@@ -17,13 +17,11 @@ import os
 import platform
 import random
 import re
-import shutil
 import stat
 import subprocess
 import sys
 import tarfile
 import time
-import types
 import uuid
 from contextlib import contextmanager
 from collections import Counter, defaultdict, deque
@@ -52,7 +50,6 @@ try:
         ENV_RESTORE_DIR,
         ENV_STATUS_FILE,
         ENV_STRICT,
-        IDENTITY_SCHEMA,
         SHAPE_REVISION,
         STATE_SCHEMA,
         atomic_json_nofollow,
@@ -76,7 +73,6 @@ except ImportError:  # Package import used by unit tests.
         ENV_RESTORE_DIR,
         ENV_STATUS_FILE,
         ENV_STRICT,
-        IDENTITY_SCHEMA,
         SHAPE_REVISION,
         STATE_SCHEMA,
         atomic_json_nofollow,
@@ -3201,8 +3197,6 @@ def install_from_environment() -> dict[str, Any]:
     global _ORIGINAL_AITK_SETUP_EPOCH
     global _ORIGINAL_AITK_CACHE_LATENTS
     global _ORIGINAL_AITK_CACHE_TEXT
-    global _EARLY_CACHE_ARCHIVE
-    global _EARLY_CACHE_DESCRIPTORS
 
     if _INSTALLED:
         return _SOURCE_PROBE

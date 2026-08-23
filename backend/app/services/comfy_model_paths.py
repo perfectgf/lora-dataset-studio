@@ -113,6 +113,16 @@ def is_loadable_model(name: str) -> bool:
 MODEL_FILE_SUFFIXES = ('.safetensors', '.gguf', '.sft')
 
 
+# ComfyUI's ONE directory exclusion, from
+# `folder_paths.get_filename_list_` → `recursive_search(x, excluded_dir_names=[".git"])`.
+# Measured against a live 0.30.1 instance: a `.safetensors` planted under
+# `models/unet/.git/` never appears in `GET /object_info`, while the same file in
+# a dot-directory that is NOT `.git` does. Listing one would be a trap — ComfyUI
+# validates a loader's combo value against this very list, so the job would be
+# refused at queue time for a file the app had offered.
+EXCLUDED_DIR_NAMES = frozenset({'.git'})
+
+
 # --- family scans -------------------------------------------------------------
 # Four functions used to walk these same folders looking for one family's
 # weights: the two Studio listers (`comfyui.get_krea_models`,
@@ -125,11 +135,17 @@ MODEL_FILE_SUFFIXES = ('.safetensors', '.gguf', '.sft')
 # They are folded onto the two below. Not onto ONE, because the two SHAPES are
 # genuinely different and pretending otherwise would cost more than it saves:
 #
-#   * a lister walks the tree to any DEPTH and returns flat relative names,
-#     because the picker's value is a path a loader accepts;
-#   * a resolver reads ONE level and returns (subfolder, [names]) groups, because
-#     it walks roots in ComfyUI's own priority order and has to say WHICH folder
-#     a candidate came from.
+#   * a lister returns flat relative names, because the picker's value is a path
+#     a loader accepts;
+#   * a resolver returns (prefix, [names]) groups, because it walks roots in
+#     ComfyUI's own priority order and has to say WHICH folder a candidate came
+#     from.
+#
+# The SHAPE is the only difference left. DEPTH used to be a second one — the
+# lister walked the tree, the resolver read one level — and that was a bug, not a
+# design: a model two folders down was offered by the Test Studio and refused by
+# Generate. Both now walk to any depth, because that is what ComfyUI does. See
+# the note on `scan_family_folders` for the measurement.
 #
 # What they must not do is disagree about the rules — which extensions count,
 # what makes a folder this family's, whether a file sitting at a root counts.
@@ -155,12 +171,20 @@ def scan_family_tree(roots, dir_tokens, *, root_file_accept=None, accept=None,
     to the family at all", the other "is this file, wherever it sits, one the
     family knows is unusable". Folding the second into the first is what made
     the same checkpoint refused at a root and accepted one folder down.
+
+    `followlinks=True` mirrors `folder_paths.recursive_search`. It is inert on
+    Windows — Python reports `os.path.islink() is False` for a junction, so the
+    default would descend anyway — and load-bearing everywhere else: on Linux,
+    and therefore on the rented cloud trainers, a symlinked model folder is a
+    real symlink. A defect that can only appear on the rented machine is one
+    nobody would ever find locally.
     """
     out = []
     for base_dir in roots or []:
         if not os.path.isdir(base_dir):
             continue
-        for root, _dirs, files in os.walk(base_dir):
+        for root, dirs, files in os.walk(base_dir, followlinks=True):
+            dirs[:] = [d for d in dirs if d not in EXCLUDED_DIR_NAMES]
             rel_dir = os.path.relpath(root, base_dir)
             at_root = rel_dir == '.'
             if at_root:
@@ -181,14 +205,63 @@ def scan_family_tree(roots, dir_tokens, *, root_file_accept=None, accept=None,
 
 def scan_family_folders(roots, dir_tokens, *, accept=None,
                         suffixes=MODEL_FILE_SUFFIXES):
-    """``[(prefix, [filenames])]`` ONE level under each root, in the order the
+    """``[(prefix, [filenames])]`` at ANY depth under each root, in the order the
     roots were given (ComfyUI's own priority order).
 
-    `prefix` is a subfolder whose NAME carries one of `dir_tokens`, or ``''`` for
-    a file dropped straight into the root of a search folder — flat /
-    Stability-Matrix installs have no subfolder, and ``os.path.join('', name) ==
-    name`` is exactly what a UNETLoader loads. Per root: subfolders first
-    (sorted), then the root entry.
+    `prefix` is a relative DIRECTORY whose path carries one of `dir_tokens`
+    (case-insensitive, in any component — so ``Krea/nested`` qualifies through
+    its parent, exactly as it does for `scan_family_tree`), or ``''`` for a file
+    dropped straight into the root of a search folder — flat / Stability-Matrix
+    installs have no subfolder, and ``os.path.join('', name) == name`` is exactly
+    what a UNETLoader loads.
+
+    DEPTH, and why this walks the tree
+    ----------------------------------
+    This read ONE level until 2026-08-04, and that was the bug. ComfyUI descends
+    without limit: `folder_paths.recursive_search` is a plain `os.walk`, and the
+    name it publishes is `os.path.relpath(file, root)` — subfolder included — so a
+    model two folders down is listed AND loadable (`get_full_path` joins that same
+    relative string back onto the root). Measured on a live 0.30.1 instance: fake
+    weights planted at depth 2 and at depth 4 both appeared in
+    `GET /object_info` under their full relative name.
+
+    The Studio's lister already walked the tree, so the two halves disagreed about
+    the same folder. What that cost, stated at the precision it was checked at:
+
+      * REACHED TODAY — `krea.base_model` is a free-text field whose own help text
+        invites "unless you own several Krea builds" to name one. Name a file more
+        than one folder down and `resolve_krea_unet` matched its basename against
+        a one-level scan, found nothing, logged "not found under any krea folder"
+        and fell through to `elect_krea_base`. The job then ran on a DIFFERENT
+        base than the one typed, and the image looked plausible, so nothing ever
+        raised the question. A setting silently ignored is worse than one that
+        errors.
+      * LATENT — `klein_model_on_disk` returned None for the same shape, which its
+        caller turns into "the Klein model chosen for this dataset is no longer on
+        disk" about a file that IS on disk. Not reachable from the UI today: the
+        Klein picker's choices come from `capabilities._scan_models`, a THIRD
+        scanner that is still one-level (`routes/datasets.py`, klein choices), so
+        a deep model is never offered there in the first place. Fixed here anyway
+        because the invariant that function documents was false, and because the
+        remaining gap is now in one place instead of two.
+
+    ORDER, which is behaviour and not cosmetics
+    -------------------------------------------
+    Subfolder groups are ordered by the rule `resolve_model_file` already
+    documents — shortest relative path first, then alphabetical — so a shallower
+    folder always wins a basename collision against a deeper one. Deliberately the
+    SAME rule and not a second one: two tie-breaks would only ever diverge on
+    collisions, which is to say rarely, which is to say long after the change.
+    For the depth-1 layouts every install has today it is character-for-character
+    the previous `sorted()`, so no existing install changes its elected base.
+
+    The root entry stays LAST within its root, which a strict "shortest path
+    first" reading would put first. That position is load-bearing, not an
+    oversight: `elect_krea_base` breaks ties on the candidate's INDEX and
+    `resolve_klein_unet` falls back to the first loadable name, so promoting root
+    files would silently re-elect a different default base on installs that hold
+    both. Fixing depth is this change; re-ranking root against subfolder is not,
+    and it would be invisible in exactly the same way.
 
     `accept(filename) -> bool` is the family's own exclusion list — the
     checkpoints that carry its token without being one of its bases. ``None`` =
@@ -198,26 +271,24 @@ def scan_family_folders(roots, dir_tokens, *, accept=None,
     keep = accept or (lambda _name: True)
     out = []
     for base_dir in roots or []:
-        try:
-            entries = os.listdir(base_dir)
-        except OSError:
+        if not os.path.isdir(base_dir):
             continue
-        subs = sorted(d for d in entries
-                      if any(t in d.lower() for t in dir_tokens)
-                      and os.path.isdir(os.path.join(base_dir, d)))
-        for sub in subs:
-            try:
-                names = sorted(n for n in os.listdir(os.path.join(base_dir, sub))
-                               if n.lower().endswith(suffixes))
-            except OSError:
-                continue
-            names = [n for n in names if keep(n)]
-            if names:
-                out.append((sub, names))
-        root_names = sorted(n for n in entries
-                            if any(t in n.lower() for t in dir_tokens)
-                            and n.lower().endswith(suffixes) and keep(n)
-                            and os.path.isfile(os.path.join(base_dir, n)))
+        subs, root_names = [], []
+        for dirpath, dirs, filenames in os.walk(base_dir, followlinks=True):
+            dirs[:] = [d for d in dirs if d not in EXCLUDED_DIR_NAMES]
+            rel_dir = os.path.relpath(dirpath, base_dir)
+            names = sorted(n for n in filenames
+                           if n.lower().endswith(suffixes) and keep(n))
+            if rel_dir == '.':
+                # At a root there is no directory to carry the claim, so the
+                # FILENAME has to — a `diffusion_models` root holds every
+                # family's weights at once.
+                root_names = [n for n in names
+                              if any(t in n.lower() for t in dir_tokens)]
+            elif names and any(t in rel_dir.lower() for t in dir_tokens):
+                subs.append((rel_dir, names))
+        subs.sort(key=lambda group: (group[0].count(os.sep), group[0].lower()))
+        out.extend(subs)
         if root_names:
             out.append(('', root_names))
     return out

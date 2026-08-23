@@ -4,7 +4,6 @@
 import { bankTreeSource } from './bankTreeSource.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
 /* THE WIRING of the 🏷️ row, which node --test cannot mount (JSX). The counting
  * itself is unit-tested in bankTags.test.js; what is pinned here is that the row

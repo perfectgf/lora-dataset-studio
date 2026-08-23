@@ -7000,8 +7000,6 @@ def all_runs(limit: int = 20) -> dict:
                # local rows live only in the registry -> addressed by record id;
                # a cloud row overrides this with 'cloud-<id>' via _run_payload.
                'share_key': f'rec-{rec.id}',
-               # Stable retry target for a LOCAL run (cloud rows retry by run_id).
-               'record_id': rec.id,
                'created_at': rec.created_at.isoformat() if rec.created_at else None}
         if rec.source == 'local' and rec.id == failed_local_id:
             row['status'] = 'error'
@@ -8210,7 +8208,6 @@ def run_lineage(record_id) -> dict:
     BELOW where its parent ended means the parent has saves set aside — flagged
     on the edge (superseded) and on the parent node (has_superseded_tail)."""
     from . import checkpoint_registry as reg
-    from ..models import TrainingRunRecord
     records = reg.resolve_lineage(record_id)
     if not records:
         return {'nodes': [], 'edges': [], 'root_id': None,

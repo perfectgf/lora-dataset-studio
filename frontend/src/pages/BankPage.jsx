@@ -177,7 +177,6 @@ export default function BankPage() {
   }
 
   const remove = async (bank) => {
-    // eslint-disable-next-line no-alert
     if (!window.confirm(`Remove the bank “${bank.name}”?\n\nOnly the triage data (decisions, scores, thumbnails) is deleted — the source folder and its images are NOT touched.`)) return
     try {
       await del(`/api/bank/${bank.id}`)

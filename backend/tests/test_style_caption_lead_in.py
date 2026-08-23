@@ -2,7 +2,6 @@
 by the LoRA). The prompt already forbids it, but JoyCaption is not an instruction
 follower, so the openers survive ("A digital illustration of a young woman…").
 This is the post-filter net — the style twin of drop_identity_sentences."""
-import io
 import json
 import os
 

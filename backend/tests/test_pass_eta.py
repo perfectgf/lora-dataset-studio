@@ -207,7 +207,7 @@ def test_a_finished_job_carries_no_estimate(app):
     """"About twenty minutes left" under a completed pass is the loudest way to
     say the number means nothing."""
     bank_jobs.reset()
-    job = bank_jobs.start(app, 8811, 'scan', lambda j: bank_jobs.progress(
+    bank_jobs.start(app, 8811, 'scan', lambda j: bank_jobs.progress(
         j, done=5, total=10), total=10)
     snap = bank_jobs.get(8811)
     assert snap['finished'] is True

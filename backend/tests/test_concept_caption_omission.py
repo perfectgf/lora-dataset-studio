@@ -17,11 +17,10 @@ LOCALLY by the caption pipeline, so we patch it at the source module
 import io
 import os
 
-import pytest
 from PIL import Image
 
 from app.extensions import db
-from app.models import FaceDataset, FaceDatasetImage
+from app.models import FaceDatasetImage
 from app.services import face_dataset_service as svc
 from app.config import LOCAL_USER, save_config
 

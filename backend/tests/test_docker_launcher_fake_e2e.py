@@ -553,7 +553,12 @@ def test_foreign_container_collision_fails_without_compose_mutation(tmp_path):
     )
 
     assert result.returncode == 1
-    assert "belongs to another project or folder" in result.stderr
+    # Same wrap trap as the unhealthy assertion above: PowerShell folds the
+    # error record at the console width, and the fold lands wherever the path
+    # in the record pushes it — a long --basetemp (xdist adds /gwN) was enough
+    # to split this phrase across two lines and fail a launcher that had said
+    # exactly the right thing. Assert the words, not the spelling of the wrap.
+    assert "belongstoanotherprojectorfolder" in re.sub(r"\s+", "", result.stderr)
     assert not _compose_calls(calls, "up", "studio")
     assert not _compose_calls(calls, "stop", "ollama")
     assert [call for call in calls if "logs" in call["args"]]

@@ -98,7 +98,6 @@ def test_pipeline_runs_every_step_in_canonical_order(client, tmp_path, monkeypat
 
 # --- auto-reject params ------------------------------------------------------
 def test_pipeline_auto_reject_honors_flags_and_dedup(client, tmp_path, monkeypatch):
-    from app.services import image_bank_service as svc
     # Two identical flat images (a duplicate pair) + one photo. 'uniform' flags
     # the flats; dedup would also target the pair.
     bank_id, _src = _mkbank(client, tmp_path, {

@@ -9,7 +9,6 @@ import { defaultPipelineStepKeys } from './bankSemanticEngine.js';
 
 const facets = fs.readFileSync(new URL('./bankFacets.js', import.meta.url), 'utf8');
 const dialog = fs.readFileSync(new URL('./LaunchAllDialog.jsx', import.meta.url), 'utf8');
-const report = fs.readFileSync(new URL('./PipelineReport.jsx', import.meta.url), 'utf8');
 const ws = bankTreeSource();
 
 test('the launch dialog posts the three config keys the backend expects', () => {

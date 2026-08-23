@@ -32,7 +32,6 @@ export default function VideoDatasetsPanel() {
   useEffect(() => { refresh() }, [refresh])
 
   const remove = async (ds) => {
-    // eslint-disable-next-line no-alert
     if (!window.confirm(`Delete the video dataset “${ds.name}”?\n\nThe encoded clips are deleted. The bank they came from keeps every shot and every decision — you can re-cut at another length without triaging again.`)) return
     try {
       await del(`/api/video-dataset/${ds.id}`)
@@ -157,7 +156,6 @@ function VideoTrainingSection({ ds }) {
         const room = typeof body.free_gigabytes === 'number'
           ? ` You have ${body.free_gigabytes.toFixed(1)} GB free there.`
           : ''
-        // eslint-disable-next-line no-alert
         if (window.confirm(`${body.error}\n\nDownload about ${body.gigabytes} GB from ${body.repo}?${room}`)) {
           setBusy(false)
           return start(true)

@@ -11,7 +11,6 @@ picked on price alone did not have the disk the job asks for, and a single
 refusal ended everything. Those two are pinned here.
 """
 import base64
-import json
 
 import pytest
 

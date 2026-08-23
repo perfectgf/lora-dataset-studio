@@ -248,6 +248,24 @@ def dataset_get(dataset_id):
     return (jsonify(payload), 200) if payload else (jsonify({'error': 'not found'}), 404)
 
 
+@bp.get('/dataset/<int:dataset_id>/scenes')
+def dataset_scenes(dataset_id):
+    """The dataset's captions as ORDERED scene cards — the same read
+    `/api/bank/<id>/scenes` serves, on the images the user curated rather than
+    on a reference pile, so the generation panels can offer either source as a
+    prompt batch. Read-only: no GPU, no writes, answers while a pass is running.
+    ?statuses=keep,pending scopes it like a Bank pass (default: kept + pending,
+    never the rejects). 404 on a missing dataset."""
+    raw = (request.args.get('statuses') or '').strip()
+    statuses = [s for s in (p.strip() for p in raw.split(',')) if s] or None
+    try:
+        payload = svc.export_scene_captions(LOCAL_USER, dataset_id, statuses=statuses)
+    except ValueError as e:
+        msg = str(e)
+        return jsonify({'error': msg}), 404 if msg == 'dataset not found' else 400
+    return jsonify(payload)
+
+
 @bp.get('/dataset/<int:dataset_id>/coverage')
 def dataset_coverage_get(dataset_id):
     """Read-only variety report: what the captions never mention (camera view,
@@ -1018,8 +1036,12 @@ def dataset_caption(dataset_id):
     """Caption the kept images. Optional {image_ids:[...]} scopes the pass to a subset
     (the Identity-leak panel re-captions one leaking image, or all of them, in place) —
     a targeted call always OVERWRITES (those captions already exist), so it implies
-    force. Omitted → the whole-dataset batch, gated by {force} as before. Same engine,
-    mode and kind rules for both; serialized against training by the vision window."""
+    force. Omitted → the whole-dataset batch, gated by {force} as before. A forced
+    BATCH spares the captions a human wrote or corrected (caption_origin 'asserted'),
+    exactly as the caption editor promises; naming images is the explicit opt-out
+    that rewrites those too — same protection shape as the bank's caption endpoint.
+    Same engine, mode and kind rules for both; serialized against training by the
+    vision window."""
     ds = svc.get_dataset(LOCAL_USER, dataset_id)
     if not ds:
         return jsonify({'error': 'not found'}), 404

@@ -25,7 +25,6 @@ Three consequences, one test section each:
 
 No model is ever loaded here: the worker is a seam and is monkeypatched.
 """
-import pytest
 
 from app.services import video_caption as vc
 

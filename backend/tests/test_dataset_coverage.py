@@ -8,7 +8,6 @@ count, that "no captions" says so instead of drawing an empty panel.
 
 Nothing here runs a model: the whole feature is DB rows plus regex.
 """
-import pytest
 
 
 # --- the lexicon, alone -----------------------------------------------------

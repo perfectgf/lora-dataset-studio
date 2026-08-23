@@ -50,6 +50,75 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-22-a-base-model-filed-deeper-than-one-folder-is-found',
+    date: '2026-08-22',
+    title: 'A Krea or Klein base model filed two folders deep is found, like ComfyUI finds it',
+    blurb:
+      'If you named a “Base model file” that sat more than one folder deep — a folder inside '
+      + 'your Krea folder — the app looked only one level down, did not find it, and refused to '
+      + 'run with “not on disk” about a file that was right there (and before that guard '
+      + 'existed, it quietly generated with a different Krea build instead). The Test Studio '
+      + 'already saw those files; Generate did not. Both now look as deep as you have filed '
+      + 'things, in the same folders and the same order ComfyUI itself searches — so what the '
+      + 'Studio lists is what Generate can load, and a name you type resolves wherever it sits. '
+      + 'When two files share a name, the shallower one wins, and a `.git` folder is skipped '
+      + 'exactly as ComfyUI skips it.',
+    to: '/settings/engines',
+  },
+  {
+    id: '2026-08-22-scene-prompts-from-a-dataset',
+    date: '2026-08-22',
+    title: 'Replay your own dataset’s captions as scenes, not just a bank’s',
+    blurb:
+      '🎬 Scenes could run a BANK’s captions in order — which meant the sequence you most '
+      + 'wanted to replay, the one in the dataset you captioned and curated yourself, was the '
+      + 'one place it would not read from. The section under the prompt (Test Studio and the '
+      + 'board’s 🎨 Generate) now starts with two buttons, 🗃 Bank and 📁 Dataset: pick either, '
+      + 'load its captions in order — each card showing the image it came from — tick the ones '
+      + 'you want, and every ticked scene becomes one pass of the same run. Everything else is '
+      + 'unchanged, deliberately: same checkpoints, same settings, same seed, and an image with '
+      + 'no caption is still skipped and counted rather than guessed. A dataset reads its KEPT '
+      + 'and pending images only — the ones you rejected stay out, because you already answered '
+      + 'that question. And the captions ride without the trigger word, exactly as they are '
+      + 'stored, so the run prepends the trigger of the LoRA you are actually testing: scenes '
+      + 'written for one character replay against another.',
+    to: '/studio',
+  },
+  {
+    id: '2026-08-22-typed-captions-survive-a-forced-pass',
+    date: '2026-08-22',
+    title: 'A forced re-caption no longer overwrites what you typed',
+    blurb:
+      'The caption editor has promised since the day it shipped that a hand-written caption '
+      + 'survives a forced 🔄 Re-caption. The Bank kept that promise; the dataset overwrote '
+      + 'everything on every forced batch, your own words included. Both surfaces spare them '
+      + 'now — and a caption you type WHILE an image is still being captioned wins over the '
+      + 'answer that comes back for it. Naming images explicitly stays the way to re-caption '
+      + 'them anyway, which is what the identity-leak panel does.',
+    to: '/datasets?section=captions',
+  },
+  {
+    id: '2026-08-22-dataset-watermark-scan-runs-again',
+    date: '2026-08-22',
+    title: '🧽 Find watermarks runs again on a dataset',
+    blurb:
+      'The dataset scan stopped on its very first image when it ran through the detector: it '
+      + 'was reading one field fewer than the scan hands back, while the Bank read them all. '
+      + 'Fixed — and pinned by a test that reads BOTH surfaces, so the two cannot drift apart '
+      + 'again without something going red.',
+  },
+  {
+    id: '2026-08-22-bank-stops-filing-distant-faces-too-small',
+    date: '2026-08-22',
+    title: 'The Bank stops filing distant faces as “too small”',
+    blurb:
+      'A head in a full-body shot reaches the face model a few pixels wide however large the '
+      + 'file is, because the detector fits the whole frame into its window before it looks. '
+      + 'The dataset scorer already rescued those by looking again at a crop around the head; '
+      + 'the Bank did not, and left them unscored. Same rescue on both surfaces now, with the '
+      + 'same numbers, held together by one test.',
+  },
+  {
     id: '2026-08-22-generation-queue',
     date: '2026-08-22',
     title: 'Line your work up instead of waiting on it',

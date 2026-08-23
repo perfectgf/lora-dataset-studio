@@ -4,7 +4,6 @@
 import { bankTreeSource } from './bankTreeSource.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import {
   ENDPOINT_JOB_KIND, JOB_LABELS, bankIsBusy, busyLine, busyRefusal,
   busyRefusalLive, jobLabel,

@@ -15,9 +15,7 @@ worker that cannot start is worse than a red one: the failure lands per ITEM,
 hours later, and reads as a fact about the user's data.
 """
 import os
-import subprocess
 import sys
-from types import SimpleNamespace
 
 import pytest
 
