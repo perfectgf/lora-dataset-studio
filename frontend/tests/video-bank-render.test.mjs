@@ -355,11 +355,14 @@ test('nothing in this lane can scroll the page sideways at 400 px', () => {
 // ---- (7) the surfaces that announce this lane exist -------------------------
 
 test('the video bank is announced and documented', async () => {
-  const { WHATS_NEW, isValidTarget } = await import('../src/whatsNew.js')
-  const entry = WHATS_NEW.find((e) => e.id === '2026-08-04-video-bank')
+  const { WHATS_NEW } = await import('../src/whatsNew.js')
+  // The entry may have moved to the archive since it shipped — search the union.
+  const { WHATS_NEW_ARCHIVE } = await import('../src/whatsNewArchive.js')
+  const entry = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE].find((e) => e.id === '2026-08-04-video-bank')
   assert.ok(entry, 'the What’s-new entry is what a release note is generated from')
-  assert.equal(entry.to, '/video-bank')
-  assert.ok(isValidTarget(entry.to), '/video-bank must be a navigable target')
+  // Archived entries drop their in-app target by doctrine (whatsNew.js,
+  // rule "Keep the list tidy") — the deep link lived while the entry was live.
+  assert.equal(entry.to, undefined)
   // Benefit-first, and it names the silence it removes.
   assert.match(entry.title, /rushes/)
 

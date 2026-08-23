@@ -6,6 +6,11 @@ import test from 'node:test';
 
 import { getHelpTopic } from '../src/help/helpRegistry.js';
 import { WHATS_NEW } from '../src/whatsNew.js';
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js';
+
+// The entry under test may have moved to the archive since it shipped
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE];
 
 const source = fs.readFileSync(
   new URL('../src/pages/CloudRunsPage.jsx', import.meta.url),
@@ -37,7 +42,8 @@ test('Runs-to-Studio is discoverable in help, the guide, and What’s New', () =
   assert.match(guide, /^## Test a run straight from Runs$/m);
   assert.match(guide, /🧪 Test in Studio/);
 
-  const news = WHATS_NEW.find((entry) => entry.id === '2026-07-30-runs-test-in-studio');
-  assert.equal(news?.to, '/cloud');
+  const news = ALL_WHATS_NEW.find((entry) => entry.id === '2026-07-30-runs-test-in-studio');
+  // Archived → no in-app target, by doctrine (whatsNew.js, "Keep the list tidy").
+  assert.equal(news?.to, undefined);
   assert.match(news?.blurb || '', /🧪 Test in Studio/);
 });

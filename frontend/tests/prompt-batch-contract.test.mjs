@@ -23,6 +23,11 @@ import test from 'node:test'
 
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 import { WHATS_NEW } from '../src/whatsNew.js'
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
+
+// The entry under test may have moved to the archive since it shipped
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 
 const read = (rel) => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
 const RECENT = read('components/dataset/studio/RecentPrompts.jsx')
@@ -136,8 +141,8 @@ test('the batch has a help topic and a What\'s-new entry', () => {
   // The words someone types after being turned away by the cap that used to exist.
   assert.ok(topic.keywords.includes('at most 24 prompts'))
 
-  const entry = WHATS_NEW.find((e) => e.id === '2026-08-03-studio-prompt-batch')
+  const entry = ALL_WHATS_NEW.find((e) => e.id === '2026-08-03-studio-prompt-batch')
   assert.ok(entry, 'the prompt batch needs a What\'s-new entry')
-  const lifted = WHATS_NEW.find((e) => e.id === '2026-08-03-prompt-batch-no-cap')
+  const lifted = ALL_WHATS_NEW.find((e) => e.id === '2026-08-03-prompt-batch-no-cap')
   assert.ok(lifted, 'lifting the cap needs its own What\'s-new entry')
 })

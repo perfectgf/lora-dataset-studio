@@ -76,8 +76,11 @@ test('screenshots come from the tracked showcase folder, never from anywhere els
   }
 });
 
-test('seed waves are all present', () => {
-  const ids = new Set(WHATS_NEW.map((e) => e.id));
+test('seed waves are all present', async () => {
+  // The founding entries now live in the ARCHIVE (whatsNewArchive.js) — this
+  // guard is about deletion, not location: an id must exist in the union.
+  const { WHATS_NEW_ARCHIVE } = await import('./whatsNewArchive.js');
+  const ids = new Set([...WHATS_NEW, ...WHATS_NEW_ARCHIVE].map((e) => e.id));
   for (const id of [
     '2026-07-17-watermark-engine',
     '2026-07-17-scrape-section',

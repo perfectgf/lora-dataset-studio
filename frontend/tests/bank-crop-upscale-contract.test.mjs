@@ -28,6 +28,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import './support/mountJsx.mjs'
 import { WHATS_NEW } from '../src/whatsNew.js'
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
+
+// The entry under test may have moved to the archive since it shipped
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 import { BANK_PASSES, BANK_PASS_ORDER } from '../src/components/bank/bankPasses.js'
 import { JOB_LABELS } from '../src/components/bank/bankPassRun.js'
@@ -178,7 +183,7 @@ test('a selection retargets ↩ Revert at the selection, not the whole bank', ()
 })
 
 test('the feature is announced and documented', () => {
-  const entry = WHATS_NEW.find((e) => e.id === '2026-08-16-bank-crop-and-upscale')
+  const entry = ALL_WHATS_NEW.find((e) => e.id === '2026-08-16-bank-crop-and-upscale')
   assert.ok(entry, "What's new entry for the bank crop/upscale is missing")
   assert.equal(entry.to, '/bank')
   assert.match(entry.blurb, /nofaceman/)            // credit where it is due

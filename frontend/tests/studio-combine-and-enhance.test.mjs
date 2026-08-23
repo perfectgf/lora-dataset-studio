@@ -19,6 +19,11 @@ import {
 import { enhanceBlocker } from '../src/components/dataset/studio/enhanceGate.js'
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 import { WHATS_NEW } from '../src/whatsNew.js'
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
+
+// The entry under test may have moved to the archive since it shipped
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 
 const readStudio = (name) => readFileSync(
   new URL(`../src/components/dataset/studio/${name}`, import.meta.url), 'utf8')
@@ -153,6 +158,6 @@ test('both features are documented and announced', () => {
     assert.ok(topic.guide?.chapter && topic.guide?.anchor, `${id} needs a Guide anchor`)
   }
   for (const id of ['2026-08-01-studio-combine-loras', '2026-08-01-studio-enhance-prompt']) {
-    assert.ok(WHATS_NEW.some((e) => e.id === id), `missing What's new entry ${id}`)
+    assert.ok(ALL_WHATS_NEW.some((e) => e.id === id), `missing What's new entry ${id}`)
   }
 })

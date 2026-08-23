@@ -16,6 +16,11 @@ import test from 'node:test'
 
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 import { WHATS_NEW } from '../src/whatsNew.js'
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
+
+// The entry under test may have moved to the archive since it shipped
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 
 const read = (rel) => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
 const SHELL = read('components/dataset/studio/StudioShell.jsx')
@@ -86,6 +91,6 @@ test('the fix has a help topic and a What\'s-new entry', () => {
   assert.ok(topic, 'studio-multilora-steps must be a registered help topic')
   assert.ok(topic.keywords.includes('steps'))
 
-  const entry = WHATS_NEW.find((e) => e.id === '2026-08-03-multilora-steps-and-cfg')
+  const entry = ALL_WHATS_NEW.find((e) => e.id === '2026-08-03-multilora-steps-and-cfg')
   assert.ok(entry, 'the steps fix needs a What\'s-new entry')
 })

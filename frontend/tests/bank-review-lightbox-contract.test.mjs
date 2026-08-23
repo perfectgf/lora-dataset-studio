@@ -12,6 +12,11 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { WHATS_NEW } from '../src/whatsNew.js'
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
+
+// The entry under test may have moved to the archive since it shipped
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 import { REVIEW_SHORTCUT_HINT, ownsTypedKeys } from '../src/components/shared/reviewShortcuts.js'
 
@@ -108,9 +113,10 @@ test('header counters follow the run and the grid refreshes on close', () => {
 })
 
 test('the mode is announced and documented', () => {
-  const entry = WHATS_NEW.find((e) => e.id === '2026-07-24-bank-review-one-by-one')
+  const entry = ALL_WHATS_NEW.find((e) => e.id === '2026-07-24-bank-review-one-by-one')
   assert.ok(entry, "What's new entry for the review mode is missing")
-  assert.equal(entry.to, '/bank')
+  // Archived → no in-app target, by doctrine (whatsNew.js, "Keep the list tidy").
+  assert.equal(entry.to, undefined)
   const topic = getHelpTopic('bank-review-one-by-one')
   assert.ok(topic, 'help topic bank-review-one-by-one is missing')
   assert.equal(topic.guide.anchor, 'review-a-bank-one-image-at-a-time')

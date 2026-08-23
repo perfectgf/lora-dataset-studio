@@ -11,6 +11,11 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { WHATS_NEW } from '../src/whatsNew.js'
+import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
+
+// The entry under test moved to the archive when it shipped long ago
+// (see whatsNew.js, rule "Keep the list tidy") — search the union.
+const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -69,9 +74,10 @@ test('the keyboard cannot decide on an image while an editor is open', () => {
 })
 
 test('the feature is announced and documented', () => {
-  const entry = WHATS_NEW.find((e) => e.id === '2026-07-28-bank-watermark-mask-editing')
+  const entry = ALL_WHATS_NEW.find((e) => e.id === '2026-07-28-bank-watermark-mask-editing')
   assert.ok(entry, "What's new entry for the bank mask editor is missing")
-  assert.equal(entry.to, '/bank')
+  // Archived → no in-app target, by doctrine (whatsNew.js, "Keep the list tidy").
+  assert.equal(entry.to, undefined)
   assert.match(entry.blurb, /Qeeyana/)             // credit where it is due
   const topic = getHelpTopic('bank-edit-watermark-mask')
   assert.ok(topic, 'help topic bank-edit-watermark-mask is missing')
