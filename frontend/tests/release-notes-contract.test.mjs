@@ -142,6 +142,34 @@ test('a screenshot is linked absolutely, and pinned to the released tag', () => 
   assert.ok(url.endsWith('docs/screenshots/canvas/board.png'), url);
 });
 
+// ── The wiring, not just the rendering ───────────────────────────────────────
+// v2026.08.23 shipped imageless with the mechanism landed AND the screenshot
+// committed: nobody had written the one `image:` line that joins them, and
+// nothing failed. Both directions of the pairing are contracts now — a file
+// with no entry is a picture that will never be seen, and an entry pointing at
+// a missing file is a broken image on the release page.
+
+test('every release screenshot on disk is referenced by an entry', async () => {
+  const { readdirSync, existsSync } = await import('node:fs');
+  const dir = new URL('../../docs/screenshots/release/', import.meta.url);
+  if (!existsSync(dir)) return;   // no screenshots yet — nothing to orphan
+  const referenced = new Set(WHATS_NEW.map((e) => e.image).filter(Boolean));
+  for (const f of readdirSync(dir)) {
+    assert.ok(referenced.has(`docs/screenshots/release/${f}`),
+      `docs/screenshots/release/${f} is referenced by no What's-new entry — `
+      + 'a picture nobody wired is a picture nobody will ever see');
+  }
+});
+
+test('every screenshot an entry references exists in the tree', async () => {
+  const { existsSync } = await import('node:fs');
+  for (const e of WHATS_NEW) {
+    if (!e.image) continue;
+    assert.ok(existsSync(new URL(`../../${e.image}`, import.meta.url)),
+      `${e.id} references ${e.image}, which does not exist — a broken image on the release page`);
+  }
+});
+
 test('an entry with a screenshot renders it under its prose; one without changes nothing', () => {
   const withShot = renderNotes({
     tag: 'v1', previousTag: 'v0',
