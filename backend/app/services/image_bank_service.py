@@ -1806,15 +1806,12 @@ def _flag_counts(bank_id, th) -> tuple[dict, dict]:
     return flags, actionable
 
 
-def bank_payload(user_id, bank_id) -> dict | None:
-    """Everything the bank workspace needs on one poll: counts, flag totals,
-    duplicate/cluster summaries, live job, thresholds."""
-    bank = get_bank(user_id, bank_id)
-    if not bank:
-        return None
-    th = thresholds()
-    base = BankImage.query.filter_by(bank_id=bank_id)
-    total = base.count()
+def _bp_caption_scope_sums(bank_id):
+    """The caption pass's per-pile truth, moved verbatim (2026-08-23): for
+    each status pile, how many rows a caption run would actually write
+    (no caption yet), how many a HUMAN wrote (a forced run skips them),
+    and how many carry a caption nobody recorded. One query, nine
+    conditional sums. Returns the nine figures in that order."""
     # 🏷️ What each caption SCOPE would really caption: in that status AND still
     # without a caption. NOT counts.keep / counts.pending — the pass skips rows
     # that already have one, so quoting the status total would advertise a number
@@ -1851,6 +1848,18 @@ def bank_payload(user_id, bank_id) -> dict | None:
             _cap_sum('keep', unrecorded), _cap_sum('pending', unrecorded),
             _cap_sum('reject', unrecorded))
         .filter(BankImage.bank_id == bank_id).one())
+    return (todo_keep, todo_pending, todo_reject, asserted_keep,
+            asserted_pending, asserted_reject, unrecorded_keep,
+            unrecorded_pending, unrecorded_reject)
+
+
+def _bp_counts(base, total, todo_keep, todo_pending, todo_reject,
+               asserted_keep, asserted_pending, asserted_reject,
+               unrecorded_keep, unrecorded_pending, unrecorded_reject):
+    """The workspace's headline counters, moved verbatim: piles, scan
+    coverage with its named blind spot, promotion (back-link OR legacy
+    flag OR dataset rows that point here), per-pass coverage, edits split
+    by which gesture produced them, and the angle backfill offer."""
     counts = {
         'total': total,
         'scanned': base.filter(BankImage.quality_state.isnot(None)).count(),
@@ -1923,6 +1932,15 @@ def bank_payload(user_id, bank_id) -> dict | None:
         'angle_backfillable': base.filter(BankImage.face_state.isnot(None),
                                           BankImage.face_yaw.is_(None)).count(),
     }
+    return counts
+
+
+def _bp_pass_scopes(bank_id, counts, th, todo_keep, todo_pending,
+                    todo_reject):
+    """What each pass would REALLY walk, per pile, moved verbatim: every
+    entry is computed from the same clause its pass's pool filters on,
+    never from a second copy of the predicate — the numbers on the launch
+    dialogs have to be the numbers the runs move."""
     # 🎛 WHAT EACH PASS WOULD REALLY DO, PER PILE. The launch dialogs put a
     # number on every scope line, and that number has to be the number the run
     # walks — the whole reason these exist. So each entry is computed from the
@@ -2022,10 +2040,15 @@ def bank_payload(user_id, bank_id) -> dict | None:
                     'nsfw_measured': _todo_by_status(
                         bank_id, BankImage.nsfw_score.isnot(None))},
     }
-    framing = _framing_counts(bank_id)
-    flags, flags_actionable = _flag_counts(bank_id, th)
-    res_buckets = _res_bucket_counts(bank_id)
-    origins = _origin_counts(bank_id)
+    return pass_scopes
+
+
+def _bp_similarity_summaries(bank_id, base):
+    """The duplicate and cluster summaries, moved verbatim: exact dup
+    groups, stage-2 semantic near-dups (same shape), the forty biggest
+    person clusters (cover = surest face) and style clusters (cover =
+    lowest id), plus how many rows the face pass reached. Returns
+    (dup, semantic_dup, clusters, faces_scanned, style_clusters)."""
     dup_rows = (db.session.query(BankImage.dup_group, func.count(BankImage.id))
                 .filter(BankImage.bank_id == bank_id,
                         BankImage.dup_group.isnot(None))
@@ -2078,6 +2101,34 @@ def bank_payload(user_id, bank_id) -> dict | None:
                  .order_by(BankImage.id.asc()).first())
         style_clusters.append({'id': cid, 'size': size,
                                'cover_image_id': cover.id if cover else None})
+    return dup, semantic_dup, clusters, faces_scanned, style_clusters
+
+
+def bank_payload(user_id, bank_id) -> dict | None:
+    """Everything the bank workspace needs on one poll: counts, flag totals,
+    duplicate/cluster summaries, live job, thresholds."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        return None
+    th = thresholds()
+    base = BankImage.query.filter_by(bank_id=bank_id)
+    total = base.count()
+    (todo_keep, todo_pending, todo_reject, asserted_keep,
+     asserted_pending, asserted_reject, unrecorded_keep,
+     unrecorded_pending, unrecorded_reject) = _bp_caption_scope_sums(
+        bank_id)
+    counts = _bp_counts(
+        base, total, todo_keep, todo_pending, todo_reject, asserted_keep,
+        asserted_pending, asserted_reject, unrecorded_keep,
+        unrecorded_pending, unrecorded_reject)
+    pass_scopes = _bp_pass_scopes(bank_id, counts, th, todo_keep,
+                                  todo_pending, todo_reject)
+    framing = _framing_counts(bank_id)
+    flags, flags_actionable = _flag_counts(bank_id, th)
+    res_buckets = _res_bucket_counts(bank_id)
+    origins = _origin_counts(bank_id)
+    (dup, semantic_dup, clusters, faces_scanned,
+     style_clusters) = _bp_similarity_summaries(bank_id, base)
     semantic = semantic_engine_info(user_id, bank_id)
     counts['semantic_ready'] = bool(semantic and semantic['ready'])
     counts['semantic_indexed'] = int(
