@@ -74,7 +74,7 @@ ruff==0.16.4
 # Torch's official CPU index otherwise resolves an old vulnerable setuptools.
 # Install the audited build backend from PyPI in the base environment first so
 # the optional overlay reuses it instead of downgrading through that index.
-setuptools==83.0.0
+setuptools==84.0.0
 
 # Test-only ML extras. These are never in requirements.txt on purpose: the app
 # installs them into dedicated environments on demand (see requirements-ml.txt).
