@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useLocation } from 'react-router'
 import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
@@ -13,15 +13,20 @@ import ComfyRecoveryBanner from './components/common/ComfyRecoveryBanner'
 import GenerationQueueDock from './components/common/GenerationQueueDock'
 import DockerUpdateInstructions from './components/common/DockerUpdateInstructions'
 import PinokioUpdateInstructions from './components/common/PinokioUpdateInstructions'
-import DatasetPage from './pages/DatasetPage'
-import BankPage from './pages/BankPage'
-import VideoBankPage from './pages/VideoBankPage'
-import StudioPage from './pages/StudioPage'
-import SettingsPage from './pages/SettingsPage'
-import SetupPage from './pages/SetupPage'
-import GuidePage from './pages/GuidePage'
-import CloudRunsPage from './pages/CloudRunsPage'
-import CanvasPage from './pages/CanvasPage'
+import { lazyPage } from './utils/lazyPage'
+
+// Each page is its own chunk, fetched on first navigation — the entry bundle
+// stops carrying all eighteen routes to paint one. `lazyPage` also owns the
+// stale-chunk reload after an Update & restart (see utils/lazyPage.js).
+const DatasetPage = lazyPage(() => import('./pages/DatasetPage'))
+const BankPage = lazyPage(() => import('./pages/BankPage'))
+const VideoBankPage = lazyPage(() => import('./pages/VideoBankPage'))
+const StudioPage = lazyPage(() => import('./pages/StudioPage'))
+const SettingsPage = lazyPage(() => import('./pages/SettingsPage'))
+const SetupPage = lazyPage(() => import('./pages/SetupPage'))
+const GuidePage = lazyPage(() => import('./pages/GuidePage'))
+const CloudRunsPage = lazyPage(() => import('./pages/CloudRunsPage'))
+const CanvasPage = lazyPage(() => import('./pages/CanvasPage'))
 import { recommendedMet } from './hooks/useSetupSteps'
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import HeaderMenu from './components/common/HeaderMenu'
@@ -432,6 +437,18 @@ function UpdateBanner() {
  * once-per-session redirect to the wizard; a verified one is never interrupted
  * again and re-verifies quietly in the background. */
 
+/* What the content area shows for the instant a page's chunk is in flight —
+   first navigation to a route, or the one reload after an update. Quiet on
+   purpose: the shell around it is already painted, so a big spinner would
+   shout about a wait that is usually under a second. */
+function PageLoading() {
+  return (
+    <div className="flex items-center justify-center py-24" role="status" aria-label="Loading this page">
+      <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-border border-t-content-muted" aria-hidden />
+    </div>
+  )
+}
+
 function Shell() {
   const { pathname } = useLocation();
   const wideWorkspaceRoute = pathname === '/canvas' || pathname === '/bank';
@@ -476,7 +493,13 @@ function Shell() {
           : wideWorkspaceRoute
             ? 'mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-4 sm:py-6'
             : 'mx-auto max-w-5xl px-4 py-6'}>
-        <Outlet />
+        {/* The Suspense sits INSIDE the shell on purpose: a page chunk loading
+            on first navigation swaps only the content area, while the nav, the
+            banners and the queue dock stay put — wrapping <Routes> instead
+            made the whole chrome blink away on every first visit. */}
+        <Suspense fallback={<PageLoading />}>
+          <Outlet />
+        </Suspense>
       </main>
       <TipHost />
       {/* One ComfyUI, one queue, fed by every surface — so the dock that shows
