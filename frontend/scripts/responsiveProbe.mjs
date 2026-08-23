@@ -268,7 +268,7 @@ function findHeadlessShell(fs, path) {
 /* One evaluate() rather than a call per element: every round trip is a chance
    for the layout to have moved between two questions about it. */
 const MEASURE = ({ minRowFill, narrowPanel, minTouch, desktopBreakpoint,
-  truncationSlack, minTextWidth }) => {
+  truncationSlack, minTextWidth, expectChrome }) => {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const violations = [];
@@ -297,7 +297,12 @@ const MEASURE = ({ minRowFill, narrowPanel, minTouch, desktopBreakpoint,
     : true);
   const chromeEls = [...document.querySelectorAll('[data-probe-chrome]')].filter(visible);
   const chrome = chromeEls.map((el) => ({ el, b: box(el) }));
-  if (!chrome.length) {
+  // Only a page that is SUPPOSED to carry markers may alarm on their absence —
+  // that alarm exists to catch a mapped page whose markers were refactored
+  // away. A page outside PAGES has no chrome by design and is measured at rest
+  // (overflow / targets / truncation over the whole DOM, zero chrome surfaces);
+  // its coverage line says so instead.
+  if (!chrome.length && expectChrome) {
     violations.push({ kind: 'unmarked', el: 'data-probe-chrome',
       detail: 'no chrome markers found — the probe measured nothing, which is NOT a pass' });
   }
@@ -581,9 +586,22 @@ async function main() {
           await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
           await page.waitForTimeout(900);
         } catch (e) {
-          reachable = false;
-          findings.push({ width, height, state: state.name, kind: 'load',
-            el: args.url, detail: e.message.split('\n')[0] });
+          // A page with NO probe markers (anything outside PAGES — Settings,
+          // Guide…) never grows a [data-probe-chrome], so waiting only for the
+          // chrome reported every unknown page as unreachable — breaking the
+          // header's promise that such pages are measured at rest. Fall back to
+          // "the app painted something": overflow/targets/truncation still
+          // measure the DOM with zero chrome surfaces.
+          try {
+            await page.waitForFunction(
+              () => ((document.getElementById('root') || {}).childElementCount || 0) > 0,
+              { timeout: 5000 });
+            await page.waitForTimeout(900);
+          } catch {
+            reachable = false;
+            findings.push({ width, height, state: state.name, kind: 'load',
+              el: args.url, detail: e.message.split('\n')[0] });
+          }
         }
         if (!reachable) continue;
 
@@ -608,6 +626,7 @@ async function main() {
           minRowFill: MIN_ROW_FILL, narrowPanel: NARROW_PANEL,
           minTouch: MIN_TOUCH_PX, desktopBreakpoint: DESKTOP_BREAKPOINT,
           truncationSlack: TRUNCATION_SLACK, minTextWidth: MIN_TEXT_WIDTH,
+          expectChrome: pageSpec !== UNKNOWN_PAGE,
         });
         measured += 1;
         for (const s of result.coverage.chrome) seenSurfaces.add(s);
