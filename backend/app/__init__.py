@@ -661,14 +661,18 @@ def create_app(config_object=None):
     from .routes import register_blueprints
     register_blueprints(app, csrf)
 
-    from .extension_loader import load_extensions
-    load_extensions(app, csrf)
-
     # Non-loopback clients must present the access token (run.py generates one
     # when the bind is opened) — without this, `server.host: 0.0.0.0` would hand
     # the whole LAN the API keys, the GPU and the datasets. Loopback = untouched.
     from .netguard import install_network_guard
     install_network_guard(app)
+
+    # AFTER the network guard, deliberately: before_request hooks run in
+    # registration order, so an extension's hook can never answer a request the
+    # token gate would have refused. Extensions are trusted local code either
+    # way — this only keeps a public bind's front door in front.
+    from .extension_loader import load_extensions
+    load_extensions(app, csrf)
 
     # Registered last of the write-path guards, so a caller still has to clear CSRF
     # and the access token before we tell them anything about their own body.

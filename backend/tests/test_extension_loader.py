@@ -90,3 +90,32 @@ def test_the_kill_switch_disables_loading(tmp_path, monkeypatch):
 def test_a_missing_dir_is_a_silent_no_op(tmp_path, monkeypatch):
     application = _make_app(tmp_path, monkeypatch, tmp_path / 'does-not-exist')
     assert application.config['EXTENSIONS_MANIFEST'] == []
+
+
+def test_the_network_guard_outranks_extension_hooks(tmp_path, monkeypatch):
+    """Extensions load AFTER the network guard installs, so a hook an extension
+    registers can never answer a request the token gate would have refused —
+    before_request hooks run in registration order. Extensions are trusted
+    local code either way; this keeps a public bind's front door in front."""
+    ext_dir = tmp_path / 'exts'
+    _write_ext(ext_dir, 'demo_ext_door', '''
+        from flask import jsonify, request
+
+        def register(app, csrf):
+            @app.before_request
+            def wave_health_through():
+                if request.path == '/api/health':
+                    return jsonify({'open': True})
+    ''')
+    application = _make_app(tmp_path, monkeypatch, ext_dir)
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'sekret')
+    c = application.test_client()
+    # Loopback turns the gate on; the extension's hook happily answers loopback.
+    c.put('/api/settings', json={'config': {'server': {'require_token': True}}})
+    remote = {'REMOTE_ADDR': '192.168.1.50'}
+    refused = c.get('/api/health', environ_base=remote)
+    assert refused.status_code == 403          # the gate spoke first
+    allowed = c.get('/api/health', environ_base=remote,
+                    headers={'Authorization': 'Bearer sekret'})
+    assert allowed.status_code == 200
+    assert allowed.get_json() == {'open': True}  # then the extension answers
