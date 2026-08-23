@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '../components/common/Toast';
 import { postJson } from './useDataset';
-import { getCsrfToken } from '../api/fetchClient';
+import { del } from '../api/fetchClient';
 
 export function useLoraTestStudio(datasetId, family = null) {
   const toast = useToast();
@@ -143,18 +143,20 @@ export function useLoraTestStudio(datasetId, family = null) {
     return d;
   }, [datasetId, refresh, toast]);
 
-  // Supprime le réglage mémorisé (DELETE — pas géré par postJson). `fam` cible une
-  // famille précise (les autres gardent leur best) ; absent → famille courante du hook.
+  // Supprime le réglage mémorisé via del() du client partagé (même récupération
+  // CSRF que toute mutation). `fam` cible une famille précise (les autres
+  // gardent leur best) ; absent → famille courante du hook.
   const clearBest = useCallback(async (fam) => {
     const f = fam || family;
     const qs = f ? `?family=${encodeURIComponent(f)}` : '';
-    const res = await fetch(`/api/dataset/${datasetId}/lora-test/best${qs}`, {
-      method: 'DELETE',
-      headers: { 'X-CSRFToken': getCsrfToken() },
-      credentials: 'include',
-    });
-    const d = await res.json().catch(() => ({}));
-    if (d.ok) toast.success('Saved setting removed'); else toast.error(d.error || 'Error');
+    let d;
+    try {
+      d = await del(`/api/dataset/${datasetId}/lora-test/best${qs}`);
+      if (d.ok) toast.success('Saved setting removed'); else toast.error(d.error || 'Error');
+    } catch (e) {
+      d = { ok: false, error: e.message };
+      toast.error(e.message || 'Error');
+    }
     await refresh();
     return d;
   }, [datasetId, refresh, toast, family]);

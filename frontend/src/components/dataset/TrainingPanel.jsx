@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
-import { apiFetch, getCsrfToken } from '../../api/fetchClient';
+import { apiFetch, del, getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { postJson } from '../../hooks/useDataset';
 import useHubPresence from '../../hooks/useHubPresence';
@@ -1128,10 +1128,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (!window.confirm(`Delete the preset “${selPreset.name}”?`)) return;
     setPresetBusy(true);
     try {
-      const r = await fetch(`/api/train/presets/${selPreset.id}`, {
-        method: 'DELETE', headers: { 'X-CSRFToken': getCsrfToken() }, credentials: 'include',
-      });
-      if (!r.ok) toast.error('Could not delete the preset.');
+      // del() rides the shared client: same CSRF expiry recovery as every
+      // other mutation — a stale token retries once instead of failing.
+      await del(`/api/train/presets/${selPreset.id}`);
       setPresetSel('');
       await loadPresets('');
     } catch { toast.error('Could not delete the preset.'); }
