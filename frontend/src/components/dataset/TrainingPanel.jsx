@@ -5,7 +5,6 @@ import { Link } from 'react-router';
 import { apiFetch, del, getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { postJson } from '../../hooks/useDataset';
-import useHubPresence from '../../hooks/useHubPresence';
 import { animeFamilyNote } from './animeFamilyNote.js';
 import { dualCaptionsSupport } from './dualCaptions.js';
 import { loadMergeOpen, saveMergeOpen } from './loraMerge.js';
@@ -77,10 +76,7 @@ import {
   TRAINING_MODE_LORA,
   denseQuantizeTarget,
   denseTurboWarning,
-  fullTransformerArtifactFiles,
-  fullTransformerArtifactView,
   fullTransformerBaseLabel,
-  fullTransformerFp8Note,
   fullTransformerUnavailableReason,
   hfCloudTokenReadiness,
   isFullTransformerEligible,
@@ -89,7 +85,7 @@ import {
 import CloudLaunchDialog from './CloudLaunchDialog';
 import {
   CUSTOM_BASE_SENTINEL, DEFAULT_CUSTOM_FAMILIES, DenseBasePicker,
-  FullTransformerAdvancedRecipe,
+  FullTransformerAdvancedRecipe, FullTransformerArtifactNotice,
 } from './FullTransformerRecipe';
 // Compat re-export: tests and callers keep importing these from the panel.
 export { DenseBasePicker, FullTransformerAdvancedRecipe } from './FullTransformerRecipe';
@@ -144,70 +140,6 @@ function timeAgo(iso) {
 // Family label for a checkpoint group header — mirrors CloudRunsPage's FAMILY_LABEL.
 const GROUP_FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima' };
 const groupFamLabel = (f) => GROUP_FAMILY_LABEL[f] || f || 'LoRA';
-
-const FULL_ARTIFACT_TONE = {
-  success: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100',
-  error: 'border-rose-400/45 bg-rose-500/10 text-rose-100',
-  warning: 'border-amber-400/45 bg-amber-500/10 text-amber-100',
-  info: 'border-sky-400/40 bg-sky-500/10 text-sky-100',
-};
-
-function FullTransformerArtifactNotice({ run }) {
-  // Is the repository still there? `artifact_status` cannot say — it is stamped
-  // at delivery and never revisited, which is how this notice came to read
-  // "Full model available … verified" above a link answering 404. Asked after
-  // this block has already rendered; until it answers, the view speaks about
-  // the delivery in the past tense, which is all it ever knew. At most one of
-  // this panel's two notices exists at a time, so this is one question, once.
-  const presence = useHubPresence(run?.hf_repo_id ? [run.run_id] : []);
-  const view = fullTransformerArtifactView(run, presence[run?.run_id] || null);
-  const files = fullTransformerArtifactFiles(run);
-  const fp8Note = fullTransformerFp8Note(run);
-  const hint = run?.inference_hint || null;
-  return (
-    <div role={view.tone === 'error' || view.tone === 'warning' ? 'alert' : 'status'}
-      className={`w-fit max-w-full rounded-lg border px-3 py-2 text-[0.6875rem] leading-relaxed ${FULL_ARTIFACT_TONE[view.tone]}`}>
-      <span className="font-semibold">{view.label}</span>
-      <span className="block opacity-90">{view.detail}</span>
-      {view.href && (
-        <a href={view.href} target="_blank" rel="noreferrer"
-          className="mt-1 inline-block font-semibold text-sky-200 underline hover:text-sky-100">
-          Open private model on Hugging Face ↗
-        </a>
-      )}
-      {files.length > 0 && (
-        <ul className="mt-1.5 m-0 list-none p-0 flex flex-col gap-1">
-          {files.map((file) => (
-            <li key={file.kind}
-              className={`rounded border px-2 py-1 ${file.primary
-                ? 'border-emerald-300/45 bg-emerald-400/10' : 'border-white/15 bg-black/15'}`}>
-              <span className="font-mono break-all">{file.name}</span>
-              {file.sizeBytes ? <span className="opacity-80"> · {fmtBytes(file.sizeBytes)}</span> : null}
-              <span className="block opacity-85">{file.note}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {fp8Note && (
-        <p className="m-0 mt-1 opacity-85">ℹ {fp8Note}</p>
-      )}
-      {/* No button here on purpose. The conversion has ONE surface — the recipe
-          card's "Quantize a model to fp8" block, which now targets this very
-          model on its own. Two doors doing the same thing on the same screen is
-          what the cloud button already was. */}
-      {view.available && hint?.note && (
-        <p className="m-0 mt-1 opacity-90">⚠ {hint.note}</p>
-      )}
-      {!view.href && view.repositoryHref && (
-        <a href={view.repositoryHref} target="_blank" rel="noreferrer"
-          title="This link opens only the repository; the weights have not been verified yet"
-          className="mt-1 inline-block font-semibold text-amber-100 underline hover:text-white">
-          Inspect Hugging Face repository (delivery unverified) ↗
-        </a>
-      )}
-    </div>
-  );
-}
 
 /** Panneau d'entraînement LoRA : lance l'UI ai-toolkit (pause ComfyUI),
  * affiche l'état, liste les checkpoints et importe celui choisi.
