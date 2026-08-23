@@ -70,6 +70,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-23-drop-in-extensions',
+    date: '2026-08-23',
+    title: 'Drop a local extension in, and it loads at boot',
+    blurb:
+      'A new backend/extensions/ folder loads optional local packages at start: each one '
+      + 'registers its own API routes and can mount its own UI script, and the app lists what '
+      + 'loaded. Nothing changes on a normal install — the folder does not exist, and it can '
+      + 'never reach a release bundle (three separate locks, each pinned by its own test). An '
+      + 'extension is code you place on your own machine, trusted like the app itself; it loads '
+      + 'behind the access-token gate, a broken one is skipped instead of taking the app down, '
+      + 'and LDS_EXTENSIONS=0 turns the whole mechanism off. The contract is documented in '
+      + 'docs/guide/extensions.md.',
+  },
+  {
     id: '2026-08-23-runpod-pod',
     date: '2026-08-23',
     title: 'Run the whole studio on a rented RunPod GPU',

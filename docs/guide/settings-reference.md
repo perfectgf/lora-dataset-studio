@@ -28,6 +28,8 @@ For containerized or scripted setups, a handful of environment variables overrid
 | `LDS_HOST` | Bind host — takes priority over `server.host`. |
 | `LDS_PUBLIC` | Set to `1` when the app is served on a URL the public internet can reach (a rented GPU box's proxy hostname, a tunnel). Forces the access-token gate on whatever `server.require_token` says, and makes the launcher generate a token if none exists. Only affects non-loopback binds. |
 | `LDS_ALLOW_UNAUTHENTICATED` | Set to `1` to deliberately opt out of the token gate — for setups that already authenticate the connection themselves (a VPN, a reverse proxy that requires its own login, a trusted Docker network). Overrides `LDS_PUBLIC`: with this set, a public bind is served with no token check at all. |
+| `LDS_EXTENSIONS` | Set to `0` to disable the local extension loader entirely — no package under the extensions directory is imported. See the [Extensions guide](extensions.md). |
+| `LDS_EXTENSIONS_DIR` | Directory the extension loader scans (default `backend/extensions/`, which is gitignored and never ships). Mostly for tests and unusual layouts. |
 | `FLASK_DEBUG` | `1` enables Flask debug mode. |
 
 ## Overview
