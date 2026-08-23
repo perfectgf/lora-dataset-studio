@@ -2511,20 +2511,12 @@ def _prepare_cloud_generation(user_id, dataset_id, base_model):
         wait_seconds=120)
 
 
-def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
-                          variant=None, train_type=None, masked=None,
-                          allow_caption_mismatch=False, allow_uncaptioned=False,
-                          allow_caption_quality=False,
-                          allow_unverified_weights=False, allow_not_ready=False,
-                          allow_hf_storage=False, allow_local_disk=False,
-                          allow_parallel_run=False,
-                          gpu_name=None, resume_ckpt_path=None, resume_step=None,
-                          resume_hf=None,
-                          auto_retry_count=0, auto_retry_of=None,
-                          strict_gpu=False, train_settings_snapshot=_UNSET,
-                          train_slider_snapshot=_UNSET, resume_topology=None,
-                          parent_record_id=None, resumed_from=None,
-                          training_mode='lora') -> dict:
+def _lct_resolve_and_refuse(user_id, dataset_id, train_type, base_model,
+                            variant, training_mode):
+    """launch_cloud_training's entry: key check, orphan reconcile (fire-and-
+    forget), dataset/mode/family resolution, and every family refusal, in
+    the original order. Moved verbatim (2026-08-24). Returns
+    (ds, mode, fam, base_model, variant)."""
     if not cfg.secret('VAST_API_KEY'):
         raise RuntimeError('vast.ai API key is not configured — add it in Settings')
     # A user launching after days away is exactly when an expired
@@ -2596,6 +2588,18 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         raise ValueError('Anima cloud training is coming once the pod image is '
                          'verified — train it locally for now')
     variant = (variant or '').strip().lower()
+    return ds, mode, fam, base_model, variant
+
+
+def _lct_dense_preflight(ds, mode, fam, variant, base_model,
+                         train_slider_snapshot, resume_ckpt_path,
+                         allow_hf_storage, allow_local_disk):
+    """The full-transformer lane's pre-rent checks, moved verbatim: recipe and
+    Slider incompatibility, HF token validation, the local-disk and Hub
+    storage forecasts with their confirmable ceilings. Returns
+    (variant, dense_delivery, dense_hub_warning, dense_keep_bf16 — the
+    last is None outside dense mode)."""
+    dense_keep_bf16 = None
     if mode == 'full_transformer':
         if fam != 'krea':
             raise ValueError('full_transformer cloud training is supported only '
@@ -2684,6 +2688,19 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
     else:
         dense_delivery = None
         dense_hub_warning = None
+    return variant, dense_delivery, dense_hub_warning, dense_keep_bf16
+
+
+def _lct_validate_selection(ds, dataset_id, fam, variant, base_model, mode,
+                            allow_caption_mismatch, allow_uncaptioned,
+                            allow_caption_quality, allow_unverified_weights,
+                            allow_not_ready, allow_hf_storage,
+                            allow_local_disk, allow_parallel_run):
+    """Confirmations snapshot, recipe/variant resolution, the custom-base and
+    official-base pre-rent checks, the advisory guardrails and the caption
+    preflight — moved verbatim. Returns (confirmations, recipe, variant,
+    base_repo)."""
+    from . import hf_base_push
     confirmations = {
         'allow_caption_mismatch': bool(allow_caption_mismatch),
         'allow_uncaptioned': bool(allow_uncaptioned),
@@ -2768,7 +2785,15 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
                         allow_caption_quality=allow_caption_quality,
                         allow_not_ready=allow_not_ready,
                         variant=variant)
+    return confirmations, recipe, variant, base_repo
 
+
+def _lct_reserve_run(user_id, dataset_id, ds, fam, variant, base_model,
+                     mode, dense_delivery, confirmations,
+                     allow_parallel_run):
+    """Freeze the dataset, then take the process-wide reservation lock for the
+    authoritative re-check + the 'preparing' row insert — moved verbatim.
+    Returns (run, run_name, _prepared)."""
     # The explicit launch base (''=official) rides into the run name so a
     # custom-base run keeps its own folder/prefix (combo-hash suffix, exactly
     # like local runs) and Base/De-Turbo cannot share Turbo's run path.
@@ -2809,6 +2834,22 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
             }))
         db.session.add(run)
         db.session.commit()
+    return run, run_name, _prepared
+
+
+def _lct_arm_and_start(run, ds, user_id, dataset_id, steps, masked, fam,
+                       variant, base_model, mode, base_repo, recipe,
+                       confirmations, dense_delivery, dense_hub_warning,
+                       dense_keep_bf16, gpu_name, resume_ckpt_path,
+                       resume_step, resume_hf, auto_retry_count,
+                       auto_retry_of, strict_gpu, train_settings_snapshot,
+                       train_slider_snapshot, resume_topology,
+                       parent_record_id, resumed_from, run_name, _prepared):
+    """Everything past the reservation row, moved verbatim: job naming, the
+    dense repository, the persisted selection, the full stamped params
+    (snapshots, resume seeds, provenance registration) and the monitor
+    start — with the fail-closed except that lands the row as 'error'
+    instead of stranding 'preparing'. Returns (n_steps, params)."""
     try:
         # Anything failing past this point (params, thread start) must not
         # strand the 'preparing' row forever — that would deadlock the
@@ -2962,6 +3003,49 @@ def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
         _set(run, status='error', error=f'launch failed: {e}',
              finished_at=datetime.utcnow())
         raise
+    return n_steps, params
+
+
+
+def launch_cloud_training(user_id, dataset_id, steps=None, base_model=_UNSET,
+                          variant=None, train_type=None, masked=None,
+                          allow_caption_mismatch=False, allow_uncaptioned=False,
+                          allow_caption_quality=False,
+                          allow_unverified_weights=False, allow_not_ready=False,
+                          allow_hf_storage=False, allow_local_disk=False,
+                          allow_parallel_run=False,
+                          gpu_name=None, resume_ckpt_path=None, resume_step=None,
+                          resume_hf=None,
+                          auto_retry_count=0, auto_retry_of=None,
+                          strict_gpu=False, train_settings_snapshot=_UNSET,
+                          train_slider_snapshot=_UNSET, resume_topology=None,
+                          parent_record_id=None, resumed_from=None,
+                          training_mode='lora') -> dict:
+    (ds, mode, fam, base_model,
+     variant) = _lct_resolve_and_refuse(
+        user_id, dataset_id, train_type, base_model, variant, training_mode)
+    (variant, dense_delivery, dense_hub_warning,
+     dense_keep_bf16) = _lct_dense_preflight(
+        ds, mode, fam, variant, base_model, train_slider_snapshot,
+        resume_ckpt_path, allow_hf_storage, allow_local_disk)
+    (confirmations, recipe, variant,
+     base_repo) = _lct_validate_selection(
+        ds, dataset_id, fam, variant, base_model, mode,
+        allow_caption_mismatch, allow_uncaptioned, allow_caption_quality,
+        allow_unverified_weights, allow_not_ready, allow_hf_storage,
+        allow_local_disk, allow_parallel_run)
+
+    run, run_name, _prepared = _lct_reserve_run(
+        user_id, dataset_id, ds, fam, variant, base_model, mode,
+        dense_delivery, confirmations, allow_parallel_run)
+    n_steps, params = _lct_arm_and_start(
+        run, ds, user_id, dataset_id, steps, masked, fam, variant,
+        base_model, mode, base_repo, recipe, confirmations,
+        dense_delivery, dense_hub_warning, dense_keep_bf16, gpu_name,
+        resume_ckpt_path, resume_step, resume_hf, auto_retry_count,
+        auto_retry_of, strict_gpu, train_settings_snapshot,
+        train_slider_snapshot, resume_topology, parent_record_id,
+        resumed_from, run_name, _prepared)
     result = {'run_id': run.id, 'status': run.status,
               'job_name': run.job_name, 'steps': n_steps,
               'training_mode': mode}
