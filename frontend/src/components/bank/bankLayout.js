@@ -158,7 +158,16 @@ export function passesButtonLabel(live) {
  * panel open under the user a second after the page settles is worse than
  * leaving it shut.
  */
-export function passesPanelStartsOpen(counts) {
+/** Below this width the panel does NOT open itself. Measured by the responsive
+ *  probe on a fresh bank: at 360 px the panel is ~1 550 px tall — the eight pass
+ *  buttons, the semantic-engine card, the watermark and edit panels and the
+ *  overview, all stacked — so "opens itself once" put the first image two
+ *  screens down. The ⚙ Passes button is in the header on every width; on a
+ *  phone it stays a button. Same breakpoint as the rail (`lg`). */
+export const PASSES_AUTO_OPEN_MIN_PX = 1024;
+
+export function passesPanelStartsOpen(counts, viewportWidth = Infinity) {
+  if (typeof viewportWidth === 'number' && viewportWidth < PASSES_AUTO_OPEN_MIN_PX) return false;
   if (!counts || typeof counts.total !== 'number') return PASSES_PANEL_DEFAULT_OPEN;
   if (counts.total <= 0) return PASSES_PANEL_DEFAULT_OPEN;
   return (counts.scanned || 0) <= 0;

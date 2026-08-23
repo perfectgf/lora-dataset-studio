@@ -149,7 +149,7 @@ export default function LoraPicker({ preselectDataset, preselectFamily = null, o
   const count = selection.length;
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
+    <div data-probe-panel="picker" className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-content-muted text-[0.6875rem] uppercase">LoRA to test</span>
         {/* Ce badge annonçait « ⚖ Comparaison » dès 2 LoRA cochés — faux depuis que

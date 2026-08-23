@@ -114,7 +114,7 @@ function ActionsHost({ sheet, open, panelId, label, closeRef, onDone, children }
         <h2 className="min-w-0 truncate text-sm font-semibold text-white">Image actions</h2>
         <button type="button" ref={closeRef} onClick={onDone}
           title="Close the actions panel (Esc)" aria-label="Close the actions panel"
-          className="min-h-9 shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">
+          className="min-h-10 lg:min-h-9 shrink-0 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">
           Done
         </button>
       </div>
@@ -503,12 +503,13 @@ export default function DatasetLightbox({
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Inspect — ${alt}`}
+      data-probe-chrome="lightbox" data-probe-layer
       className={`fixed inset-0 z-[9996] bg-black/95 flex ${rail ? 'flex-row' : 'flex-col'}`}
       onClick={onClose}>
       <button type="button" ref={closeRef}
         onClick={(e) => { e.stopPropagation(); onClose(); }}
         title="Close (Esc)" aria-label="Close inspection"
-        className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-lg leading-none">✕</button>
+        className="absolute top-3 right-3 z-10 w-10 h-10 lg:w-9 lg:h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-lg leading-none">✕</button>
 
       {/* The image area is the positioning context for ⟨ / ⟩ — NOT the dialog:
           in rail mode the dialog's right edge is the action rail, and an arrow
@@ -652,13 +653,13 @@ export default function DatasetLightbox({
             <button type="button" onClick={() => decide('keep')} disabled={deciding || curationRefused}
               aria-label={refused || `Keep ${alt} and move to the next image`}
               title={refused || 'Keep this image and move on (K) — kept images are the ones captioned, exported and trained on'}
-              className="min-h-9 flex-1 rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-45">
+              className="min-h-10 lg:min-h-9 flex-1 rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-4 py-1.5 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-45">
               ✓ Keep<ShortcutKey>K</ShortcutKey>
             </button>
             <button type="button" onClick={() => decide('reject')} disabled={deciding || curationRefused}
               aria-label={refused || `Reject ${alt} and move to the next image`}
               title={refused || 'Reject this image and move on (R) — reversible, and nothing is deleted from disk'}
-              className="min-h-9 flex-1 rounded-lg border border-rose-400/60 bg-rose-500/20 px-4 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-45">
+              className="min-h-10 lg:min-h-9 flex-1 rounded-lg border border-rose-400/60 bg-rose-500/20 px-4 py-1.5 text-xs font-semibold text-rose-100 hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-45">
               ✕ Reject<ShortcutKey>R</ShortcutKey>
             </button>
             <button type="button" onClick={skipImage} disabled={!nextImage || !onNavigate}
@@ -668,7 +669,7 @@ export default function DatasetLightbox({
               title={nextImage
                 ? 'Decide later (S) — moves on and leaves this image exactly as it is'
                 : nav.nextReason || 'There is no next image to skip to'}
-              className="min-h-9 flex-1 rounded-lg border border-white/25 px-4 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45">
+              className="min-h-10 lg:min-h-9 flex-1 rounded-lg border border-white/25 px-4 py-1.5 text-xs font-semibold text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45">
               ⏭ Skip<ShortcutKey>S</ShortcutKey>
             </button>
           </div>
@@ -685,7 +686,7 @@ export default function DatasetLightbox({
               ? `Hide the original next to ${alt}`
               : `Show the original next to ${alt}`}
             title={COMPARE_HELP}
-            className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold">
+            className="min-h-10 lg:min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold">
             {compareMode === 'derived' ? '⊟ Exit comparison' : '⧉ Compare with original'}
           </button>
         )}
@@ -702,7 +703,7 @@ export default function DatasetLightbox({
               ? `Hide the reference photo next to ${alt}`
               : `Show the reference photo next to ${alt}`}
             title={REFERENCE_COMPARE_HELP}
-            className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-sky-400/50 bg-sky-500/20 hover:bg-sky-500/30 text-sky-100 text-xs font-semibold">
+            className="min-h-10 lg:min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-sky-400/50 bg-sky-500/20 hover:bg-sky-500/30 text-sky-100 text-xs font-semibold">
             {compareMode === 'reference' ? '⊟ Exit comparison' : '◐ Compare with reference'}
           </button>
         )}
@@ -725,7 +726,7 @@ export default function DatasetLightbox({
           <button type="button" onClick={() => onCrop(img)} disabled={pixelEditRefused}
             title={pixelEditReason || 'Open the crop editor for this image (stretchable box, any ratio)'}
             aria-label={pixelEditReason || 'Open the crop editor for this image'}
-            className="min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            className="min-h-10 lg:min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             ✂ Crop
           </button>
         )}
@@ -739,7 +740,7 @@ export default function DatasetLightbox({
           <button type="button" onClick={() => onMarkWatermark(img)} disabled={curationRefused}
             title={refused || 'Draw the watermark zones on this image — works even when the scan found nothing. What you draw becomes the flag, and 🧽 Clean then repaints exactly that.'}
             aria-label={refused || watermarkMaskButtonLabel(img)}
-            className="min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            className="min-h-10 lg:min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             🚩 {watermarkMaskButtonLabel(img)}
           </button>
         )}
@@ -753,7 +754,7 @@ export default function DatasetLightbox({
           <button type="button" onClick={() => patchImageState({ repairOpen: true })} disabled={curationRefused}
             title={refused || 'Repaint part of this image from your own description — draw a box or paint over the thing with the brush, say what should be there ("remove the necklace"), and everything outside it stays byte-identical.'}
             aria-label={refused || 'Repair an area of this image'}
-            className="min-h-9 px-3 py-1.5 rounded-lg bg-sky-500/25 hover:bg-sky-500/35 text-sky-50 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            className="min-h-10 lg:min-h-9 px-3 py-1.5 rounded-lg bg-sky-500/25 hover:bg-sky-500/35 text-sky-50 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             ✦ Repair
           </button>
         )}
@@ -764,7 +765,7 @@ export default function DatasetLightbox({
               || (mirrorBusy ? `Mirroring ${alt} horizontally` : `Mirror ${alt} horizontally`)}
             title={refused
               || (mirrorBusy ? 'Mirroring horizontally…' : 'Mirror horizontally (flip left and right)')}
-            className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            className="min-h-10 lg:min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             {mirrorBusy ? '⇆ Mirroring…' : '⇆ Mirror horizontally'}
           </button>
         )}
@@ -780,7 +781,7 @@ export default function DatasetLightbox({
               aria-busy={mirrorBusy} aria-label={pixelEditReason || `Rotate ${alt} 90 degrees left`}
               title={pixelEditReason
                 || "Rotate 90° left (counter-clockwise) — keeps the file's format; four turns come back round"}
-              className={`min-h-9 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`min-h-10 lg:min-h-9 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45 ${
                 rail ? '' : 'sm:flex-none'}`}>
               <span aria-hidden="true">↺</span> Rotate left
             </button>
@@ -788,7 +789,7 @@ export default function DatasetLightbox({
               aria-busy={mirrorBusy} aria-label={pixelEditReason || `Rotate ${alt} 90 degrees right`}
               title={pixelEditReason
                 || "Rotate 90° right (clockwise) — keeps the file's format; four turns come back round"}
-              className={`min-h-9 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45 ${
+              className={`min-h-10 lg:min-h-9 flex-1 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-45 ${
                 rail ? '' : 'sm:flex-none'}`}>
               <span aria-hidden="true">↻</span> Rotate right
             </button>
@@ -799,7 +800,7 @@ export default function DatasetLightbox({
             <button type="button"
               onClick={improve(btn.id, btn.disabled)} disabled={btn.disabled}
               aria-busy={improvementActive} title={btn.title}
-              className="min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+              className="min-h-10 lg:min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
               {btn.label}
             </button>
             {/* Klein's note goes BETWEEN the two buttons in the rail, and only

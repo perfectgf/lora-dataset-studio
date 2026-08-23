@@ -19,7 +19,7 @@
 export function Chip({ active, onClick, children, title }) {
   return (
     <button type="button" onClick={onClick} title={title}
-      className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${active
+      className={`min-h-10 lg:min-h-0 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors ${active
         ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
         : 'border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised'}`}>
       {children}
@@ -33,7 +33,7 @@ export function Stat({ label, value, tone }) {
   const toneCls = { emerald: 'text-emerald-300', rose: 'text-rose-300', indigo: 'text-indigo-300' }[tone] || 'text-content'
   const n = typeof value === 'number' ? value.toLocaleString() : value
   return (
-    <span className="inline-flex items-baseline gap-1">
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
       <span className={`font-semibold tabular-nums ${toneCls}`}>{n}</span>
       <span className="text-xs text-content-subtle">{label}</span>
     </span>
@@ -64,7 +64,7 @@ export function FilterGroup({ label, children }) {
 export function PassButton({ onClick, disabled, title, children }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={title}
-      className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content transition-colors hover:bg-surface disabled:opacity-50 disabled:hover:bg-surface-raised">
+      className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content transition-colors hover:bg-surface disabled:opacity-50 disabled:hover:bg-surface-raised">
       {children}
     </button>
   )

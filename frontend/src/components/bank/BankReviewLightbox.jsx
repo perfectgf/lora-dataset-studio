@@ -319,6 +319,7 @@ export default function BankReviewLightbox({
 
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Review the bank image by image"
+      data-probe-chrome="review" data-probe-layer
       className="fixed inset-0 z-[9996] flex flex-col bg-black/95">
       <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 py-2 text-sm">
         <span className="font-semibold text-white">▶ Review</span>
@@ -332,7 +333,7 @@ export default function BankReviewLightbox({
           🎲 Random order
         </label>
         <button type="button" onClick={onClose} title="Close (Esc)" aria-label="Close review"
-          className="ml-auto h-9 w-9 rounded-full bg-white/10 text-lg leading-none text-white hover:bg-white/20">✕</button>
+          className="ml-auto h-10 w-10 lg:h-9 lg:w-9 rounded-full bg-white/10 text-lg leading-none text-white hover:bg-white/20">✕</button>
       </div>
 
       {done ? (
@@ -381,19 +382,19 @@ export default function BankReviewLightbox({
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button type="button" onClick={goBack} disabled={session.pos === 0}
               title="Previous image (←) — navigation only, decides nothing"
-              className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
               ←
             </button>
             <button type="button" onClick={() => rotateCurrent(-90)} disabled={busy}
               aria-label="Rotate this image 90 degrees left"
               title="Rotate 90° left ([) — decides nothing. Your own file is never modified: the turn is stored and applied to what you see and to what gets promoted."
-              className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
               <span aria-hidden="true">↺</span><span className="sr-only">Rotate left</span>
             </button>
             <button type="button" onClick={() => rotateCurrent(90)} disabled={busy}
               aria-label="Rotate this image 90 degrees right"
               title="Rotate 90° right (]) — decides nothing. Your own file is never modified: the turn is stored and applied to what you see and to what gets promoted."
-              className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-white/20 px-3 py-2 text-sm text-white disabled:opacity-35 hover:bg-white/10">
               <span aria-hidden="true">↻</span><span className="sr-only">Rotate right</span>
             </button>
             {/* ✂ and ↩ sit with the rotate pair, not with ✓/✕/⏭: everything left

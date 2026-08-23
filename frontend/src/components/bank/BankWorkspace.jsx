@@ -1374,7 +1374,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
      opens ITSELF once. Guarded on the computed boolean rather than on `counts`,
      so the first scan flipping it to false never re-runs this — and so a user
      who closes the panel on such a bank is not fought by the effect. */
-  const passesShouldOpen = passesPanelStartsOpen(counts)
+  const passesShouldOpen = passesPanelStartsOpen(counts, viewportWidth())
   useEffect(() => { if (passesShouldOpen) setPassesOpen(true) }, [passesShouldOpen])
   const semanticState = semanticEngineState(payload, capsLoading ? null : caps)
   semanticEngineRef.current = semanticState.engine
@@ -1653,15 +1653,21 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       {/* ── The top bar ──────────────────────────────────────────────────
           Bank identity, the counters, and the DECISIVE actions. Everything
           here is bank-wide; anything that narrows the grid lives in the rail. */}
-      <header className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* A phone held sideways has ~390 px of fold: the card drops its path and
+          counter rows and most of its padding, and becomes a one-line toolbar. */}
+      <header data-probe-chrome="header"
+        className="space-y-2 rounded-xl border border-border bg-surface px-4 py-3 [@media(max-height:500px)]:flex [@media(max-height:500px)]:flex-nowrap [@media(max-height:500px)]:items-center [@media(max-height:500px)]:gap-3 [@media(max-height:500px)]:space-y-0 [@media(max-height:500px)]:py-1">
+        <div className="flex flex-wrap items-center gap-2 [@media(max-height:500px)]:min-w-0 [@media(max-height:500px)]:shrink">
           <button type="button" onClick={onBack}
-            className="rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
+            className="min-h-10 lg:min-h-0 rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
             ← Banks
           </button>
           <h1 className="text-lg text-content">🗃️ {payload?.name || `Bank #${bankId}`}</h1>
           {payload?.source_path && (
-            <div className="flex min-w-0 grow items-center gap-2">
+            /* hidden below sm: opening or moving the folder is a gesture on the
+               machine that serves the app, and on a 360-px screen this row alone
+               cost 60 px of a fold the header was already taking 38 % of. */
+            <div className="hidden min-w-0 grow items-center gap-2 sm:flex [@media(max-height:500px)]:!hidden">
               <p className="min-w-0 grow truncate font-mono text-xs text-content-subtle"
                 title={payload.source_path}>
                 {payload.source_path}
@@ -1669,7 +1675,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               <button type="button" onClick={openSourceFolder}
                 disabled={openingSourceFolder} aria-busy={openingSourceFolder}
                 title="Open this Bank's source folder in the system file explorer."
-                className="shrink-0 rounded border border-border px-2 py-0.5 text-xs text-content-muted hover:bg-surface-raised hover:text-content disabled:cursor-wait disabled:opacity-60">
+                className="min-h-10 lg:min-h-0 shrink-0 rounded border border-border px-2 py-0.5 text-xs text-content-muted hover:bg-surface-raised hover:text-content disabled:cursor-wait disabled:opacity-60">
                 {openingSourceFolder ? 'Opening…' : '📂 Open folder'}
               </button>
               {/* Cold path. The folder-sync note below offers this too, but only once
@@ -1678,14 +1684,16 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                   after breaking the bank to discover it could have been repaired. */}
               <button type="button" onClick={() => setRelocating(true)}
                 title="Moving this folder to another disk? Point the bank at its new location."
-                className="shrink-0 rounded border border-border px-2 py-0.5 text-xs text-content-muted hover:bg-surface-raised hover:text-content">
+                className="min-h-10 lg:min-h-0 shrink-0 rounded border border-border px-2 py-0.5 text-xs text-content-muted hover:bg-surface-raised hover:text-content">
                 📦 Move folder…
               </button>
             </div>
           )}
         </div>
         {counts && (
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border pt-2 text-sm">
+          /* One scrolling line below sm: eight counters wrapping to four rows were
+             a quarter of a phone's fold, before a single image. */
+          <div className="flex flex-nowrap items-baseline gap-x-4 gap-y-1 overflow-x-auto border-t border-border pt-2 text-sm sm:flex-wrap sm:overflow-visible [@media(max-height:500px)]:hidden">
             <Stat label="images" value={counts.total} />
             <Stat label="scanned" value={counts.scanned} />
             {scored > 0 && <Stat label="scored" value={scored} />}
@@ -1705,26 +1713,26 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         )}
         {/* The decisive actions. ⚙ Passes opens the analysis panel; the other
             three are the ones that change what leaves this bank. */}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto border-t border-border pt-2 sm:flex-wrap sm:overflow-visible [@media(max-height:500px)]:ml-auto [@media(max-height:500px)]:flex-nowrap [@media(max-height:500px)]:overflow-x-auto [@media(max-height:500px)]:border-t-0 [@media(max-height:500px)]:pt-0">
           {/* ☰ exists only where the rail cannot sit beside the grid — at 400 px
               it is the ONLY way back to the filters, so it is a real button and
               never a CSS-hidden one. */}
           {!railIsColumnNow && (
             <button type="button" onClick={openRail}
               aria-expanded={railOpen} aria-controls="bank-filter-rail"
-              className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface">
+              className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface">
               ☰ Filters
             </button>
           )}
           <button type="button" onClick={togglePasses}
             aria-expanded={passesOpen} aria-controls="bank-passes-panel"
             title="Open the analysis passes — scan, score, group by person, framing, medium, crops, watermarks and captions."
-            className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface">
+            className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface">
             {passesButtonLabel(live)}
           </button>
           <button type="button" onClick={() => setLaunchOpen(true)} disabled={live || !(counts?.total > 0)}
             title={`Run the whole triage in one go — scan, auto-reject, Score${semanticState.engine === 'siglip2' ? ', SigLIP 2 semantic index' : ''}, crops/variants, watermarks, group by person and (optionally) caption. Start it and walk away. If the person pass is in, it checks your folders first and asks once, before the run.`}
-            className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-white shadow disabled:opacity-50">
+            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-white shadow disabled:opacity-50">
             🚀 Launch all…
           </button>
           <span className="ml-auto" />
@@ -1732,7 +1740,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             title={canPromote
               ? 'Copy the kept selection into a dataset — or into a brand-new bank, to keep working on a shortlist apart'
               : 'Keep some images first'}
-            className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
             ⬆ Promote…
           </button>
           {/* Disabled outright when this bank's folder belongs to a dataset: the
@@ -1745,7 +1753,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               : (counts?.reject > 0)
                 ? 'Delete the rejected images from your disk (OS trash when available). Irreversible — asks you to type DELETE first. Kept images are untouched.'
                 : 'No rejected images to delete'}
-            className="rounded-md border border-rose-500/50 px-3 py-1.5 text-sm text-rose-300 disabled:opacity-40 hover:bg-rose-500/10">
+            className="min-h-10 lg:min-h-0 rounded-md border border-rose-500/50 px-3 py-1.5 text-sm text-rose-300 disabled:opacity-40 hover:bg-rose-500/10">
             🗑 Delete rejected from disk{(counts?.reject > 0) ? ` (${counts.reject})` : ''}
           </button>
         </div>
@@ -1785,9 +1793,15 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       {/* ⚙ The analysis passes, opened on demand. All eight are here with their
           own dialogs untouched — only the door changed. */}
       {passesOpen && (
-        <div id="bank-passes-panel">
+        /* data-probe-reading: the panel is what you asked for when you pressed ⚙,
+           one tap puts it away, and nothing in it is used against the grid behind
+           it (every pass opens its own window) — so it is measured for targets,
+           truncation and fill, and charged to no fold budget. Plain comment: this
+           is an EXPRESSION position (inside `{passesOpen && ( … )}`). */
+        <div id="bank-passes-panel" data-probe-chrome="passes" data-probe-panel="passes" data-probe-reading>
           <BankPassesPanel
             bankId={bankId} payload={payload} counts={counts} live={live}
+            compact={!railIsColumnNow}
             caps={caps} capsLoading={capsLoading}
             semanticState={semanticState} semanticReady={semanticReady}
             semanticBlocked={semanticBlocked} semanticSwitching={semanticSwitching}
@@ -1898,7 +1912,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             <button type="button" onClick={() => setShowAutoReject((v) => !v)} disabled={live}
               aria-expanded={showAutoReject}
               title="Bulk-reject the still-undecided images carrying the chosen quality flags"
-              className="rounded-md border border-border bg-surface-raised px-2 py-0.5 text-xs text-content disabled:opacity-50 hover:bg-surface">
+              className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-2 py-0.5 text-xs text-content disabled:opacity-50 hover:bg-surface">
               🧹 Auto-reject…
             </button>
             {showAutoReject && (
@@ -1911,7 +1925,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                     counts this panel exists to show. Capped height + internal
                     scroll so "Reject them" is reachable however long the caveats
                     get. */}
-                <div className="fixed inset-x-3 bottom-3 z-50 max-h-[70vh] overflow-y-auto rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-1 sm:w-72">
+                <div data-probe-chrome="auto-reject" data-probe-panel="auto-reject" data-probe-layer
+                  className="fixed inset-x-3 bottom-3 z-50 max-h-[70vh] overflow-y-auto rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-1 sm:w-72">
                   <p className="text-xs text-content-muted">
                     Rejects the UNDECIDED images with these flags. Your manual ✓/✕ are never changed;
                     everything stays reversible (nothing is deleted from disk).
@@ -1970,7 +1985,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                     </p>
                   )}
                   <button type="button" onClick={applyAutoReject} disabled={!rejectFlags.size}
-                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
+                    className="min-h-10 lg:min-h-0 w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
                     Reject them
                   </button>
                 </div>
@@ -2036,7 +2051,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             {curateOpen === 'diverse' && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setCurateOpen(null)} aria-hidden />
-                <div className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
+                <div data-probe-chrome="curate-diverse" data-probe-panel="curate-diverse" data-probe-layer
+                  className="absolute z-50 mt-1 w-72 rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2">
                   <p className="text-xs text-content-muted">
                     Selects the most <strong>varied</strong> images of the current filter — the best
                     coverage of the visual space, not N look-alikes. Reviews as a normal selection
@@ -2095,7 +2111,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                 <div className="fixed inset-0 z-40" onClick={() => setCurateOpen(null)} aria-hidden />
                 {/* Bottom sheet below sm (measured at 400 px, an anchored w-80 panel
                     pushes the page sideways), normal popover from sm up. */}
-                <div className="fixed inset-x-4 bottom-4 z-50 max-h-[75vh] overflow-y-auto rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-1 sm:max-h-none sm:w-80 sm:overflow-visible">
+                <div data-probe-chrome="curate-balanced" data-probe-panel="curate-balanced" data-probe-layer
+                  className="fixed inset-x-4 bottom-4 z-50 max-h-[75vh] overflow-y-auto rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-1 sm:max-h-none sm:w-80 sm:overflow-visible">
                   <p className="text-xs text-content-muted">
                     Splits your pick <strong>evenly across the framings</strong> — “20 face, 20 bust,
                     20 body” — and fills each bucket with the same most-varied sampling.
@@ -2191,7 +2208,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                     page is scrolled. So the vertical anchor is explicit, and the
                     sheet scrolls internally when the copy is long. From sm up it
                     behaves exactly like its two sibling popovers. */}
-                <div className="fixed inset-x-4 bottom-4 z-50 max-h-[75vh] overflow-y-auto rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-1 sm:max-h-none sm:w-80 sm:overflow-visible">
+                <div data-probe-chrome="curate-text" data-probe-panel="curate-text" data-probe-layer
+                  className="fixed inset-x-4 bottom-4 z-50 max-h-[75vh] overflow-y-auto rounded-lg border border-border bg-surface-overlay p-3 shadow-xl space-y-2 sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:mt-1 sm:max-h-none sm:w-80 sm:overflow-visible">
                   <p className="text-xs text-content-muted">
                     Ranks the <strong>current filter</strong> by how close each image is to your
                     words. It refines what the grid is showing — it does not search the whole bank.

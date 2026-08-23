@@ -66,6 +66,8 @@ export default function BankFilterRail({
 
   return (
     <aside aria-label="Bank filters"
+      data-probe-chrome={isDrawer ? 'rail' : undefined} data-probe-layer={isDrawer ? '' : undefined}
+      data-probe-panel="rail"
       className={isDrawer
         /* ⚠️ `bg-surface-overlay`, NOT `bg-surface`: the tint is 4 %-alpha white
            for cards sitting ON the opaque page — painted with it, this drawer
@@ -76,7 +78,7 @@ export default function BankFilterRail({
         <GroupLabel>Filters</GroupLabel>
         {isDrawer && (
           <button type="button" onClick={onClose} aria-label="Close the filters"
-            className="ml-auto rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
+            className="min-h-10 lg:min-h-0 ml-auto rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
             ✕
           </button>
         )}
@@ -105,7 +107,7 @@ export default function BankFilterRail({
             <button key={s.label} type="button"
               onClick={s.set || (() => setF({ status: filter.status === s.id ? null : s.id }))}
               aria-pressed={active}
-              className={`rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${active
+              className={`min-h-10 lg:min-h-0 rounded-md border px-2.5 py-1.5 text-sm font-semibold transition-colors ${active
                 ? s.on
                 : 'border-border bg-surface-raised text-content-muted hover:text-content hover:bg-surface'}`}>
               {s.label}
@@ -318,7 +320,7 @@ export default function BankFilterRail({
         <div className="border-t border-border pt-2">
           <button type="button" onClick={() => setMoreOpen((v) => !v)}
             aria-expanded={moreOpen} aria-controls="bank-rail-more"
-            className="flex w-full items-center gap-1.5 text-left text-xs text-content-muted hover:text-content">
+            className="min-h-10 lg:min-h-0 flex w-full items-center gap-1.5 text-left text-xs text-content-muted hover:text-content">
             <span aria-hidden>🎛</span>
             <span className="font-medium">More filters</span>
             <span className="text-content-subtle">({hiddenAxes})</span>
@@ -404,7 +406,7 @@ export default function BankFilterRail({
                       <span>{angleState.offer.why}</span>
                       <button type="button" onClick={() => setPassOpen('angles')} disabled={!!live}
                         title={angleState.offer.why}
-                        className="rounded-md border border-border bg-surface-raised px-2 py-0.5 text-[11px] text-content transition-colors hover:bg-surface disabled:opacity-50">
+                        className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-2 py-0.5 text-[11px] text-content transition-colors hover:bg-surface disabled:opacity-50">
                         ⤢ {angleState.offer.label}
                       </button>
                     </p>
@@ -459,7 +461,7 @@ export default function BankFilterRail({
       <div className="border-t border-border pt-2">
         <button type="button" onClick={() => setThresholdsOpen((v) => !v)}
           aria-expanded={thresholdsOpen} aria-controls="bank-thresholds-panel"
-          className="flex w-full items-center gap-1.5 text-left text-xs text-content-muted hover:text-content">
+          className="min-h-10 lg:min-h-0 flex w-full items-center gap-1.5 text-left text-xs text-content-muted hover:text-content">
           <span aria-hidden>🎚</span>
           <span className="font-medium">Filter thresholds</span>
           {/* The gloss is the first thing to go on a phone: the label already
@@ -525,7 +527,7 @@ export default function BankFilterRail({
           </select>
         </label>
         <button type="button" onClick={() => setTileSize((s) => (s === 'M' ? 'S' : 'M'))}
-          className="rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
+          className="min-h-10 lg:min-h-0 rounded-md border border-border px-2 py-0.5 text-xs text-content-muted hover:text-content">
           {tileSize === 'M' ? 'Small tiles' : 'Medium tiles'}
         </button>
       </div>

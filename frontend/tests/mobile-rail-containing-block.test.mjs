@@ -56,8 +56,11 @@ for (const [file, label] of RAILS) {
 
 test('the destinations rail under the dataset sections is covered too', () => {
   // It carries no badge today, so it cannot be caught by symptom — only by rule.
+  // (The rail also folds on a phone held sideways — ≤ 500 px of fold — which is
+  // the responsive probe's finding, not this test's: here only `relative` and
+  // the rail's existence are the contract.)
   const src = read('../src/components/dataset/DatasetWorkspace.jsx')
-  assert.match(src, /className="relative -mx-4 -mt-1 overflow-x-auto px-4 pb-3 lg:hidden"/)
+  assert.match(src, /className="relative -mx-4 overflow-x-auto px-4 pb-1 lg:hidden \[@media\(max-height:500px\)\]:hidden"/)
 })
 
 test('the reason is written down where the class is', () => {

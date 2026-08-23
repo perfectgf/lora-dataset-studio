@@ -90,7 +90,7 @@ const GRID_STATUS_FILTER_KEY = 'datasetGridStatusFilter';
 const GRID_SORT_KEY = 'datasetGridSort';
 
 // Style partagé des items du menu « ⋯ More » du header (actions secondaires).
-const MENU_ITEM = 'w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
+const MENU_ITEM = 'min-h-10 lg:min-h-0 w-full flex items-center gap-2 text-left px-2.5 py-1.5 rounded-md text-sm text-content hover:bg-surface-raised disabled:opacity-40';
 
 /* En-tête de section (miroir visuel du SectionHeader de Settings, en h2 : le h1
    de la page reste le nom du dataset) : eyebrow mono + titre + description. */
@@ -136,7 +136,7 @@ function GridStatusFilter({ value, counts, onChange }) {
         return (
           <button key={f.id} type="button" onClick={() => onChange(f.id)}
             aria-pressed={on} title={f.title}
-            className={`px-2 py-0.5 rounded-full border text-[0.6875rem] font-semibold tabular-nums ${
+            className={`min-h-10 lg:min-h-0 px-2 py-0.5 rounded-full border text-[0.6875rem] font-semibold tabular-nums ${
               on ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-100'
                 : 'border-border bg-surface text-content-muted hover:text-content'}`}>
             {f.label} ({counts[f.id] ?? 0})
@@ -190,7 +190,7 @@ function GridFilterBar({
   onRemoveExclude, onRemoveInclude, onRemoveStatus, onRemoveCoverage, onClearAll,
 }) {
   return (
-    <div role="status"
+    <div role="status" data-probe-chrome="filter-bar"
       className="flex items-center gap-2 flex-wrap rounded-lg border-2 border-amber-400/50 bg-amber-400/10 px-3 py-2">
       <span className="text-amber-200 text-sm font-semibold shrink-0">🔎 Filtered view</span>
       <span className="text-content-muted text-xs tabular-nums shrink-0">
@@ -203,7 +203,7 @@ function GridFilterBar({
             <span aria-hidden>◧</span> {statusLabel} only
             <button type="button" onClick={onRemoveStatus}
               aria-label="Show images with any decision again"
-              className="w-4 h-4 grid place-items-center rounded-full hover:bg-amber-500/30">✕</button>
+              className="min-h-10 min-w-10 lg:min-h-0 lg:min-w-0 lg:w-4 lg:h-4 grid place-items-center rounded-full hover:bg-amber-500/30">✕</button>
           </span>
         )}
         {coverageLabel && (
@@ -212,7 +212,7 @@ function GridFilterBar({
             <span aria-hidden>🔍</span> {coverageLabel}
             <button type="button" onClick={onRemoveCoverage}
               aria-label="Stop showing only the images from that coverage chip"
-              className="w-4 h-4 grid place-items-center rounded-full hover:bg-emerald-500/30">✕</button>
+              className="min-h-10 min-w-10 lg:min-h-0 lg:min-w-0 lg:w-4 lg:h-4 grid place-items-center rounded-full hover:bg-emerald-500/30">✕</button>
           </span>
         )}
         {excludes.map((t) => (
@@ -221,7 +221,7 @@ function GridFilterBar({
             <span aria-hidden>⊘</span> {t}
             <button type="button" onClick={() => onRemoveExclude(t)}
               aria-label={`Stop hiding images tagged ${t}`}
-              className="w-4 h-4 grid place-items-center rounded-full hover:bg-rose-500/30">✕</button>
+              className="min-h-10 min-w-10 lg:min-h-0 lg:min-w-0 lg:w-4 lg:h-4 grid place-items-center rounded-full hover:bg-rose-500/30">✕</button>
           </span>
         ))}
         {includes.map((t) => (
@@ -230,7 +230,7 @@ function GridFilterBar({
             <span aria-hidden>◉</span> only {t}
             <button type="button" onClick={() => onRemoveInclude(t)}
               aria-label={`Stop isolating images tagged ${t}`}
-              className="w-4 h-4 grid place-items-center rounded-full hover:bg-indigo-500/30">✕</button>
+              className="min-h-10 min-w-10 lg:min-h-0 lg:min-w-0 lg:w-4 lg:h-4 grid place-items-center rounded-full hover:bg-indigo-500/30">✕</button>
           </span>
         ))}
       </div>
@@ -910,7 +910,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const panelNavItem = (sectionId, destination, chip = false) => {
     const isActive = sectionId === section && destination.id === panel;
     const className = chip
-      ? `shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs ${
+      ? `min-h-10 shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs ${
           isActive
             ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-100'
             : 'border-border text-content-subtle hover:text-content'}`
@@ -937,7 +937,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const navItem = (s, chip) => {
     const isActive = s.id === section;
     const base = chip
-      ? `flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${
+      ? `flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${
           isActive ? 'border-border-strong bg-surface-raised text-content' : 'border-border text-content-muted hover:text-content'}`
       : `relative flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium ${
           isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:bg-surface hover:text-content'}`;
@@ -1006,9 +1006,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
            publish) vivent dans la section « Import & export » de la sidebar. ---- */}
       {/* relative z-30 : le header est un flex item ; sans stacking-context propre,
           le z-20 du menu « ⋯ More » resterait piégé sous les frères plus bas. */}
-      <div className="relative z-30 flex items-center gap-2 flex-wrap">
+      <div data-probe-chrome="header" className="relative z-30 flex items-center gap-x-2 gap-y-1 flex-wrap">
         <button type="button" onClick={onBack}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm transition-colors">
+          className="min-h-10 lg:min-h-0 flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm transition-colors">
           ← Datasets
         </button>
         <h1 className="text-content font-bold">{d.name}</h1>
@@ -1021,7 +1021,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <button type="button"
             onClick={() => { try { navigator.clipboard.writeText(d.trigger_word || ''); } catch { /* ignore */ } }}
             title="Copy the trigger word (to put in your prompts)"
-            className="flex items-center gap-1 px-2 py-0.5 rounded-lg border border-indigo-400/40 bg-indigo-500/10 text-[0.6875rem]">
+            className="min-h-10 lg:min-h-0 flex items-center gap-1 px-2 py-0.5 rounded-lg border border-indigo-400/40 bg-indigo-500/10 text-[0.6875rem]">
             <span className="text-content-subtle">trigger:</span>
             <code className="text-indigo-300 font-semibold">{d.trigger_word || '—'}</code>
             <span aria-hidden className="text-content-subtle">⧉</span>
@@ -1029,7 +1029,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         )}
         <div className="ml-auto flex items-center gap-2">
           <button type="button" disabled={!kept} onClick={exportZipGuarded}
-            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="min-h-10 lg:min-h-0 px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
             ⬇ Export ZIP ({kept})
           </button>
           {/* summary en display:flex → pas de marqueur natif ; les items restent
@@ -1037,10 +1037,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <details className="relative">
             <summary
               title="More dataset actions — edit settings, body fidelity"
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm cursor-pointer select-none">
+              className="min-h-10 lg:min-h-0 flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border bg-surface text-content-muted hover:text-content hover:bg-surface-raised text-sm cursor-pointer select-none">
               ⋯ More
             </summary>
-            <div className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
+            <div data-probe-chrome="more-menu" data-probe-panel="more-menu"
+              className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
               <button type="button" onClick={() => setSettingsOpen(true)}
                 title={isStyle ? 'Edit the Style dataset name and review its always-on behavior.' : 'Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list.'}
                 className={MENU_ITEM}>
@@ -1093,14 +1094,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
               included — draws at 73% of the screen with dead space beside it.
               Nothing overflows visibly, because the escapee is a 1 px box no
               one can see. */}
-          <nav aria-label="Dataset sections" className="relative -mx-4 overflow-x-auto px-4 pb-2 lg:hidden">
+          <nav aria-label="Dataset sections" data-probe-chrome="sections"
+            className="relative -mx-4 overflow-x-auto px-4 pb-1 lg:hidden">
             <ul className="m-0 flex list-none gap-2 p-0">
               {WORKSPACE_SECTIONS.map((s) => <li key={s.id}>{navItem(s, true)}</li>)}
             </ul>
           </nav>
           {activePanels.length > 0 && (
-            <nav aria-label={`${sectionMeta[section].title} destinations`}
-              className="relative -mx-4 -mt-1 overflow-x-auto px-4 pb-3 lg:hidden">
+            /* On a phone held sideways (≤ 500 px of fold) this second rail is the
+               one thing to give back: the section buttons above still reach every
+               panel, this rail only jumps inside the open one. */
+            <nav aria-label={`${sectionMeta[section].title} destinations`} data-probe-chrome="destinations"
+              className="relative -mx-4 overflow-x-auto px-4 pb-1 lg:hidden [@media(max-height:500px)]:hidden">
               <ul id={`dataset-mobile-panels-${section}`} className="m-0 flex list-none gap-2 p-0">
                 {activePanels.map((destination) => (
                   <li key={destination.id}>{panelNavItem(section, destination, true)}</li>
@@ -1109,7 +1114,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             </nav>
           )}
           {/* Desktop: sticky rail + guided progress below it */}
-          <div className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-3">
+          <div data-probe-panel="sections-rail" className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-3">
             <nav aria-label="Dataset sections">
               <p className="m-0 px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Dataset</p>
               <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
@@ -1269,7 +1274,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               {rescueGridImages.length > 0 && (
                 // One wrapping row at 400 px: the decision chips flow, the Sort
                 // control drops onto its own line instead of forcing a scrollbar.
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <div data-probe-chrome="grid-toolbar" className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                   <GridStatusFilter value={statusFilter} counts={statusCounts}
                     onChange={setStatusFilter} />
                   <GridSortSelect value={gridSort} images={rescueGridImages}

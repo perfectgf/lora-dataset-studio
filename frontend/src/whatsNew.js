@@ -50,6 +50,23 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-23-bank-datasets-and-studio-fit-a-phone',
+    date: '2026-08-23',
+    title: 'The Bank, the Datasets and the Test Studio now fit a phone',
+    blurb:
+      'The same measuring pass that fixed the Canvas has been run over the three pages you '
+      + 'actually live in, at five real screen sizes, and what it found is fixed. Every button, '
+      + 'chip and menu item on those pages is finger-sized below desktop widths. The Bank header '
+      + 'gives the screen back on a phone: the counters and the action row scroll on one line '
+      + 'instead of stacking, and a phone held sideways gets a one-row header. The passes panel '
+      + 'no longer opens itself on a phone (it was 1 500 px tall there) and, below desktop '
+      + 'widths, folds everything that is not a pass button so the passes stay one tap away. '
+      + 'In a dataset, the two chip rails no longer touch, and the in-section shortcuts fold on '
+      + 'a phone held sideways — the section buttons still reach every panel. Nothing changes on '
+      + 'a desktop.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-22-a-base-model-filed-deeper-than-one-folder-is-found',
     date: '2026-08-22',
     title: 'A Krea or Klein base model filed two folders deep is found, like ComfyUI finds it',

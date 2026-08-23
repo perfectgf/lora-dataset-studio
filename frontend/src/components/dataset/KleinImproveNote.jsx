@@ -208,15 +208,15 @@ export default function KleinImproveNote({
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
           disabled={!server.loaded}
-          className="underline text-indigo-300 hover:text-indigo-200 disabled:opacity-40"
+          className="min-h-10 lg:min-h-0 inline-flex items-center underline text-indigo-300 hover:text-indigo-200 disabled:opacity-40"
         >
           <span aria-hidden="true">✎ </span>
           {open ? 'Close the instruction editor' : 'Edit this instruction here'}
         </button>
-        <SettingsLink section="engines" focus="identity-prompt-klein-improve">
+        <SettingsLink section="engines" focus="identity-prompt-klein-improve" className="min-h-10 lg:min-h-0 inline-flex items-center">
           All Klein prompts in Settings
         </SettingsLink>
-        <SettingsLink section="engines" focus="klein-improve-strength">
+        <SettingsLink section="engines" focus="klein-improve-strength" className="min-h-10 lg:min-h-0 inline-flex items-center">
           Adjust improve strength
         </SettingsLink>
       </p>

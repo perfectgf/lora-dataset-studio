@@ -189,7 +189,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
 
       {/* --- Setup du run ------------------------------------------------ */}
       {!d.pending && (
-        <div id="st-setup" className="flex flex-col gap-2 scroll-mt-16">
+        <div id="st-setup" data-probe-panel="setup" className="flex flex-col gap-2 scroll-mt-16">
           {/* The ONE thing the canvas does differently: its checkpoints are the
               pills ticked on the board, so it hands in its own recap here and
               the picker stays out of the way. */}

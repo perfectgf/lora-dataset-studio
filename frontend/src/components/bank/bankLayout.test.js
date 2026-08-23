@@ -153,3 +153,20 @@ test('the filter drawer floats on an OPAQUE panel, never on the card tint', () =
   assert.doesNotMatch(drawer, /\bbg-surface\b(?!-)/)
   assert.doesNotMatch(drawer, /bg-surface-overlay\/\d/)
 })
+
+/* The panel opens itself only where it has room to. Measured by the responsive
+   probe on a fresh bank at 360 px: ~1 550 px of panel — the eight pass buttons,
+   the semantic-engine card, the watermark and edit panels and the overview, all
+   stacked — put the first image two screens down. The ⚙ Passes button is in the
+   header on every width; below lg it stays a button. */
+test('the passes panel does not open itself on a phone, and still does on a desktop', () => {
+  const fresh = { total: 9000, scanned: 0 }
+  assert.equal(passesPanelStartsOpen(fresh, 360), false)
+  assert.equal(passesPanelStartsOpen(fresh, 844), false)
+  assert.equal(passesPanelStartsOpen(fresh, 1023), false)
+  assert.equal(passesPanelStartsOpen(fresh, 1024), true)
+  assert.equal(passesPanelStartsOpen(fresh, 1440), true)
+  // no width given (server, tests, old callers) = the historical answer
+  assert.equal(passesPanelStartsOpen(fresh), true)
+  assert.equal(passesPanelStartsOpen(fresh, undefined), true)
+})

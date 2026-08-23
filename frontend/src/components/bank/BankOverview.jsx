@@ -53,7 +53,7 @@ export default function BankOverview({ payload }) {
         <h2 id="bank-overview-title" className="min-w-0 text-sm font-semibold text-content">
           <button type="button" onClick={() => setOpen((value) => !value)}
             aria-expanded={open} aria-controls={contentId}
-            className="flex min-w-0 items-center gap-1.5 rounded text-left hover:text-indigo-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70">
+            className="min-h-10 lg:min-h-0 flex min-w-0 items-center gap-1.5 rounded text-left hover:text-indigo-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70">
             <span aria-hidden="true" className="w-3 shrink-0 text-content-subtle">
               {open ? '▾' : '▸'}
             </span>

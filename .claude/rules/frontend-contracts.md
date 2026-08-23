@@ -28,25 +28,50 @@ nothing — so those assertions prove a class is WRITTEN, never that the screen
 works. Three responsive regressions shipped through that gap in one week, each
 one found by a person holding a phone.
 
-**So a change that touches layout is not verified until the probe has run:**
+**So a change that touches layout is not verified until the probe has run** —
+on the page the change touches, against an instance that holds something to
+open (a bank, a dataset, LoRA files for the Studio):
 
 ```
 cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/canvas
+cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/bank
+cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/datasets
+cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/dataset/studio/<id>
 ```
 
-It renders the page at 360/412/768/904/1024/1280 px, opens what can be opened,
-and measures: **overflow** (nothing past the right edge), **budget** (the fixed
-chrome may not eat the fold — 28 % at rest, 50 % with the ⋯ shelf open),
-**fill** (a panel row must use ≥ 35 % of its width, which is what catches "the
-box is huge and empty"), **targets** (40 px below `lg`) and **overlap**.
+It renders the page at five REAL device sizes (360×800, 412×915, a phone held
+sideways at 844×390, 768×1024, 1280×800), opens what can be opened — each
+state on a fresh load — and measures: **overflow** (nothing past the right
+edge), **budget** (the fixed chrome may not eat the fold — 28 % at rest, 50 %
+with something deliberately open), **fill** (a panel row must use ≥ 35 % of its
+width, which is what catches "the box is huge and empty"), **truncation** (a
+label cut by its own box), **targets** (40 px below `lg`) and **overlap**.
 
 - Exit codes are three: `0` clean, `1` violations, `2` could not run. A probe
-  that cannot run must never read as a pass.
-- Surfaces are found by `data-probe-chrome` / `data-probe-panel` /
-  `data-probe-world`, not by class — restyling cannot silently take a pill out
-  of scope. `canvasProbeMarkers.test.js` fails if a marker or a threshold goes.
+  that cannot run must never read as a pass. The coverage report at the bottom
+  names what was actually reached — a state whose control is absent on this
+  instance is SKIPPED and said so, never counted as clean.
+- Surfaces are found by attribute, never by class — restyling cannot silently
+  take a pill out of scope:
+  - `data-probe-chrome="<name>"` — fixed chrome, budgeted and paired for
+    overlap; only VISIBLE chrome counts (a marker inside a closed `<details>`
+    still has a box). The budget detail names each surface's height.
+  - `data-probe-panel="<name>"` — rows measured for fill.
+  - `data-probe-world` — a pannable surface whose contents are not overflow.
+  - `data-probe-reading` — opened to READ (the Bank's passes panel): chrome in
+    the overlap check, NOT budgeted.
+  - `data-probe-layer` — a lightbox, drawer or sheet that covers the page BY
+    DESIGN: not budgeted, paired with nothing in the overlap check.
+- Bank and Datasets open on a LIST; the probe's `prime` clicks the first item
+  once per viewport (`aria-label="Open the bank …"` / `"Open the dataset …"`)
+  and the app's own localStorage keeps the workspace open for every state
+  after. Rename those labels and the probe measures an empty list.
+- `canvasProbeMarkers.test.js`, `bankProbeMarkers.test.js`,
+  `datasetProbeMarkers.test.js` and `studioProbeMarkers.test.js` fail if a
+  marker, a prime selector or a threshold goes.
 - A breach of the budget is fixed by taking something OUT of the panel, not by
-  raising the number.
+  raising the number. A target under 40 px is fixed with `min-h-10 lg:min-h-0`
+  (finger-sized below `lg`, unchanged on a desktop), not by exempting it.
 
 ## Commits & dist
 

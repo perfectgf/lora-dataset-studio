@@ -30,9 +30,20 @@
  *               the desktop breakpoint.
  *   overlap     no two elements of the fixed chrome may cover each other.
  *
+ * Surfaces are found by attribute, never by class: `data-probe-chrome="<name>"`
+ * (the fixed chrome, budgeted), `data-probe-panel` (rows measured for fill),
+ * `data-probe-world` (a pannable surface whose contents are not overflow),
+ * `data-probe-reading` (opened to READ — not budgeted) and `data-probe-layer`
+ * (a lightbox or dialog that covers the page BY DESIGN — not budgeted, paired
+ * with nothing in the overlap check). Pages: #/canvas, #/bank, #/datasets and
+ * #/dataset/studio/<id>; anything else is measured at rest only.
+ *
  * ── Running it ──────────────────────────────────────────────────────────────
  *
  *   npm run probe:responsive -- --url http://127.0.0.1:5173/#/canvas
+ *   npm run probe:responsive -- --url http://127.0.0.1:5173/#/bank
+ *   npm run probe:responsive -- --url http://127.0.0.1:5173/#/datasets
+ *   npm run probe:responsive -- --url http://127.0.0.1:5173/#/dataset/studio/<id>
  *
  * Options: --viewports 360x800,844x390,1280x800   --states shelf,layouts
  *          --json   --quiet
@@ -134,6 +145,52 @@ const PAGES = {
       { name: 'search', open: ['[data-testid="canvas-filter-search-toggle"]'] },
     ],
   },
+
+  /* The three pages people actually live in. Each opens on a LIST (banks,
+     datasets) or needs an id (the Studio), and the workspace behind the list is
+     what the complaints are about — so `prime` opens the first item once per
+     viewport, and the app's own localStorage keeps it open for every state
+     after that (each state still gets a fresh load). A prime whose control is
+     absent is not a failure: the workspace is already open, or the instance
+     holds nothing to open, and the coverage line says which. */
+  '#/bank': {
+    label: 'Bank',
+    prime: ['[aria-label^="Open the bank"]'],
+    states: [
+      { name: 'resting', open: [] },
+      // The ☰ button exists only where the rail cannot sit beside the grid, so
+      // this state measures the DRAWER on a phone and is skipped on a desktop.
+      { name: 'rail', open: ['[aria-controls="bank-filter-rail"]'] },
+      { name: 'passes', open: ['[aria-controls="bank-passes-panel"]'] },
+      { name: 'auto-reject', open: ['button:has-text("Auto-reject")'] },
+      { name: 'review', open: ['[aria-label^="Review from"]'] },
+    ],
+  },
+  '#/datasets': {
+    label: 'Datasets',
+    prime: ['[aria-label^="Open the dataset"]'],
+    states: [
+      { name: 'resting', open: [] },
+      { name: 'more', open: ['summary:has-text("More")'] },
+      // Two navs carry this label (the phone chip rail and the desktop rail);
+      // `:visible` picks whichever this viewport shows.
+      // `text=Images` is a SUBSTRING match and lands on "Add images" first; the
+      // button is named exactly, and the hidden twin rail is excluded by :visible.
+      { name: 'images', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Images"):not(:has-text("Add"))'] },
+      { name: 'training', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Training")'] },
+      { name: 'lightbox', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Images"):not(:has-text("Add"))',
+        '[aria-label^="Inspect"]'] },
+    ],
+  },
+  '#/dataset/studio': {
+    label: 'Test Studio',
+    states: [
+      { name: 'resting', open: [] },
+      // The bottom bar's first shortcut: it reveals and scrolls to a section —
+      // the page in the state a shortcut leaves it in.
+      { name: 'shortcut', open: ['[data-probe-chrome="action-bar"] button'] },
+    ],
+  },
 };
 
 /** A page the map says nothing about is still worth measuring — at rest, and
@@ -231,7 +288,14 @@ const MEASURE = ({ minRowFill, narrowPanel, minTouch, desktopBreakpoint,
   /* ⚠️ If the markers are gone the probe measures NOTHING and reports a clean
      run — the exact shape of the silent skip this script's exit codes exist to
      avoid. So their absence is itself a violation, loudly. */
-  const chromeEls = [...document.querySelectorAll('[data-probe-chrome]')];
+  /* VISIBLE chrome only. A marker inside a closed <details> (the ⋯ More menu)
+     keeps a measurable box — Chrome parks closed details content under
+     content-visibility: hidden, whose boxes still answer getBoundingClientRect
+     — and it was billed to the fold at rest while nobody could see it. */
+  const visible = (el) => (typeof el.checkVisibility === 'function'
+    ? el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })
+    : true);
+  const chromeEls = [...document.querySelectorAll('[data-probe-chrome]')].filter(visible);
   const chrome = chromeEls.map((el) => ({ el, b: box(el) }));
   if (!chrome.length) {
     violations.push({ kind: 'unmarked', el: 'data-probe-chrome',
@@ -330,15 +394,27 @@ const MEASURE = ({ minRowFill, narrowPanel, minTouch, desktopBreakpoint,
    * It stays a measured surface for everything else — overlap, truncation and
    * target size all still apply to it, and the overlap check is what caught it
    * growing up into the filter bar on the very same screen. */
+  /* `data-probe-layer` is the other kind of surface that is not IN YOUR WAY: a
+     lightbox or a dialog that covers the page BY DESIGN. You opened it, it is the
+     whole screen on purpose, and one tap puts it away. It is measured like any
+     chrome — targets, truncation, fill — but charged to no budget, and the
+     overlap check below pairs it with nothing: a layer overlapping the header
+     is what a layer is, not a defect. */
   let chromeH = 0;
+  const chromeParts = [];
   for (const { el, b } of chrome) {
-    if (el.hasAttribute('data-probe-reading')) continue;
+    const exempt = el.hasAttribute('data-probe-reading') ? 'reading'
+      : el.hasAttribute('data-probe-layer') ? 'layer' : null;
+    chromeParts.push({ name: el.getAttribute('data-probe-chrome'), h: Math.round(b.h), exempt });
+    if (exempt) continue;
     chromeH += b.h;
   }
 
   // ── overlap, among the chrome only ────────────────────────────────────────
   for (let i = 0; i < chrome.length; i += 1) {
     for (let j = i + 1; j < chrome.length; j += 1) {
+      if (chrome[i].el.hasAttribute('data-probe-layer')
+        || chrome[j].el.hasAttribute('data-probe-layer')) continue;
       const a = chrome[i].b; const c = chrome[j].b;
       const ox = Math.min(a.right, c.right) - Math.max(a.x, c.x);
       const oy = Math.min(a.bottom, c.bottom) - Math.max(a.y, c.y);
@@ -405,7 +481,7 @@ const MEASURE = ({ minRowFill, narrowPanel, minTouch, desktopBreakpoint,
     }
   }
 
-  return { vw, vh, chromeH, chromeShare: chromeH / vh, violations, coverage };
+  return { vw, vh, chromeH, chromeShare: chromeH / vh, chromeParts, violations, coverage };
 };
 
 // ── driving the page ────────────────────────────────────────────────────────
@@ -427,8 +503,16 @@ async function main() {
       'npx playwright install chromium   (or set PLAYWRIGHT_BROWSERS_PATH)');
   }
 
-  const route = (args.url.match(/#\/[\w-]*/) || ['#/'])[0];
-  const pageSpec = PAGES[route] || UNKNOWN_PAGE;
+  // The hash path without its query, matched against PAGES by LONGEST prefix:
+  // `#/dataset/studio/7` is the Studio page, `#/datasets` is not `#/dataset`.
+  const hashPath = ((args.url.split('#')[1] || '/').split('?')[0]);
+  const route = Object.keys(PAGES)
+    .filter((k) => {
+      const p = k.slice(1);
+      return hashPath === p || hashPath.startsWith(p + '/');
+    })
+    .sort((a, b) => b.length - a.length)[0] || null;
+  const pageSpec = (route && PAGES[route]) || UNKNOWN_PAGE;
   let states = pageSpec.states;
   if (args.states) states = states.filter((s) => args.states.includes(s.name));
   if (!states.length) cannotRun(`no state named "${args.states?.join(', ')}" on ${route}`);
@@ -450,6 +534,30 @@ async function main() {
         viewport: { width, height }, deviceScaleFactor: 1,
       });
       const page = await ctx.newPage();
+
+      /* Open the workspace behind the list, ONCE per viewport. The app keeps the
+         opened item in localStorage, which lives in this context, so every state
+         after this still gets its fresh load and lands straight in the workspace.
+         Absence of the control is reported, never failed: the coverage line is
+         where "nothing to open on this instance" has to show up. */
+      if (pageSpec.prime?.length) {
+        try {
+          await page.goto('about:blank');
+          await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await page.waitForTimeout(900);
+          for (const selector of pageSpec.prime) {
+            const el = page.locator(selector).first();
+            if ((await el.count()) && (await el.isVisible())) {
+              await el.click({ timeout: 4000 });
+              await page.waitForTimeout(600);
+            } else {
+              skipped.push(`${width}×${height} prime (${selector} absent)`);
+            }
+          }
+        } catch (e) {
+          skipped.push(`${width}×${height} prime (${e.message.split('\n')[0]})`);
+        }
+      }
 
       for (const state of states) {
         /* A FRESH load per state, deliberately. Closing a menu and opening the
@@ -506,11 +614,15 @@ async function main() {
 
         const budget = MAX_CHROME_SHARE[state.name === 'resting' ? 'resting' : 'open'];
         rows.push({ width, height, state: state.name, chromeH: Math.round(result.chromeH),
-          share: result.chromeShare, budget, cov: result.coverage });
+          share: result.chromeShare, budget, cov: result.coverage, parts: result.chromeParts });
         if (result.chromeShare > budget) {
+          // Name the surfaces, tallest first, so the report says WHAT to shrink.
+          const parts = result.chromeParts.filter((p) => !p.exempt)
+            .sort((a, b) => b.h - a.h).map((p) => `${p.name} ${p.h}px`).join(', ');
           findings.push({ width, height, state: state.name, kind: 'budget', el: 'fixed chrome',
             detail: `${Math.round(result.chromeH)} px = ${Math.round(result.chromeShare * 100)}% `
-              + `of the ${result.vh}px fold, over the ${Math.round(budget * 100)}% budget` });
+              + `of the ${result.vh}px fold, over the ${Math.round(budget * 100)}% budget `
+              + `(${parts})` });
         }
         for (const v of result.violations) {
           findings.push({ width, height, state: state.name, ...v });

@@ -259,7 +259,7 @@ export default function BankPage() {
             <li key={b.id}
               className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-4">
               <div className="flex min-w-0 items-center gap-2">
-                <button type="button" onClick={() => open(b.id)}
+                <button type="button" onClick={() => open(b.id)} aria-label={`Open the bank ${b.name}`}
                   className="min-w-0 truncate text-left text-base font-semibold text-content hover:underline">
                   {b.name}
                 </button>

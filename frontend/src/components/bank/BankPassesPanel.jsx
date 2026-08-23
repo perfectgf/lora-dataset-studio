@@ -23,8 +23,26 @@ import { captionButtonLabel, captionScopeNote } from './bankCaptionScope.js'
 import { holdsTheGpu } from './bankScoreDevice.js'
 import { openerLabel } from './scoringPython.js'
 
+/* Below lg the panel folds everything that is not a pass button. Measured by
+   the responsive probe at 360 px: the panel was ~1 500 px tall — engine card,
+   eight buttons, watermark and edit panels, notes, overview, all stacked — so
+   opening it cost two screens. The buttons are what you came for; each
+   secondary block is one tap away, with its name on the fold. From lg up the
+   layout is unchanged. */
+function Fold({ compact, title, children }) {
+  if (!compact) return children
+  return (
+    <details className="rounded-lg border border-border bg-surface">
+      <summary className="min-h-10 cursor-pointer select-none px-3 py-2 text-sm text-content-muted hover:text-content">
+        {title}
+      </summary>
+      <div className="px-3 pb-3">{children}</div>
+    </details>
+  )
+}
+
 export default function BankPassesPanel({
-  bankId, payload, counts, live, caps, capsLoading,
+  bankId, payload, counts, live, caps, capsLoading, compact = false,
   semanticState, semanticReady, semanticBlocked, semanticSwitching, semanticOperationBusy,
   scoreGpuPresent, scoreDevice, scoreNote, visionReady,
   selected, captionScope,
@@ -34,6 +52,7 @@ export default function BankPassesPanel({
   return (
     <div className="grid gap-4 xl:grid-cols-12 xl:items-start">
       <div className="min-w-0 space-y-3 xl:col-span-7">
+        <Fold compact={compact} title="🧠 Semantic engine">
         <BankSemanticEngine state={semanticState} capsLoading={capsLoading}
           switching={semanticSwitching} disabled={semanticOperationBusy} live={live}
           gpuPresent={scoreGpuPresent}
@@ -45,6 +64,7 @@ export default function BankPassesPanel({
             onPassRedo('semantic_index', semanticState.complete)
             onPassOpen('semantic_index')
           }} />
+        </Fold>
 
         {/* Analysis passes — individual, quieter than the primary actions. */}
         <div className="space-y-1.5">
@@ -124,18 +144,22 @@ export default function BankPassesPanel({
           {/* Watermark CLEANING — the two manual levels (crop, then inpaint), with
               their own per-level progress. Lives in its own component so the
               "which level can run, and why not" logic stays unit-tested. */}
+          <Fold compact={compact} title="🧽 Watermarks">
           <BankWatermarkPanel bankId={bankId} live={live}
             onFind={() => onPassOpen('watermark')}
             payload={payload} selectedIds={[...selected]}
             gpuPresent={scoreGpuPresent} onPickPython={onPickPython}
             onChanged={onChanged} />
+          </Fold>
           {/* ✂ Edits — the crop and the upscale made in the Bank itself, next to
               the watermark cleaning because they are the same KIND of thing: the
               three actions that produce new pixels, each undone by throwing away
               a copy the app made (nofaceman, Discord). */}
+          <Fold compact={compact} title="✂ Edits">
           <BankEditPanel bankId={bankId} live={live}
             payload={payload} selectedIds={[...selected]}
             onChanged={onChanged} />
+          </Fold>
           {scoreNote && (
             <p className={`text-xs ${scoreNote.tone === 'warn'
               ? 'text-amber-400/90' : 'text-content-subtle'}`}>
@@ -160,7 +184,7 @@ export default function BankPassesPanel({
           {!capsLoading && (scoreNote?.tone === 'warn' || !caps.bank_scoring) && (
             <div>
               <button type="button" onClick={() => onPickPython('scoring')}
-                className={`rounded-md border px-2 py-1 text-xs font-medium ${scoreGpuPresent
+                className={`min-h-10 lg:min-h-0 rounded-md border px-2 py-1 text-xs font-medium ${scoreGpuPresent
                   ? 'border-amber-400/50 text-amber-300 hover:bg-amber-500/10'
                   : 'border-border text-content-muted hover:bg-surface-raised hover:text-content'}`}>
                 {openerLabel(scoreGpuPresent)}
@@ -185,7 +209,9 @@ export default function BankPassesPanel({
         </div>
       </div>
       <div className="min-w-0 xl:col-span-5">
+        <Fold compact={compact} title="📊 Bank overview">
         <BankOverview payload={payload} />
+        </Fold>
       </div>
     </div>
   )

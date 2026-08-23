@@ -56,7 +56,7 @@ export default function DescribeFilterBar({ bankId, onApply, onFenceBlocked }) {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') run() }} />
         <button type="button" onClick={run} disabled={busy || !text.trim()}
-          className="rounded-md border border-border px-2 py-1 text-xs font-medium
+          className="min-h-10 lg:min-h-0 rounded-md border border-border px-2 py-1 text-xs font-medium
             text-content-muted hover:bg-surface-raised hover:text-content
             disabled:opacity-50">
           {busy ? 'Reading…' : 'Set the filters'}
