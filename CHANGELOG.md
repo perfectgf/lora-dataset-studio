@@ -4,6 +4,12 @@ Shipped improvements rolled out of the README, newest first. Everything below
 is live on `main`; current news and in-progress work are discussed on
 [Discord](https://discord.gg/j6hnJBFtXE).
 
+Since 2026-07-31 the README no longer carries a rolling list of improvements,
+so nothing rolls into this file any more: each release's notes are generated
+from the app's 🎁 What's new panel and published with the release on the
+[Releases page](https://github.com/perfectgf/lora-dataset-studio/releases).
+The roll-ups below are kept as they were written.
+
 ## Rolled 2026-07-31
 
 - **🔤 Find images in a bank by describing them, and pick a set that actually covers your framings** — **🔤 Find by text** ranks the current view against a phrase, reusing the embeddings Score already computed. **⚖️ Balanced pick** spreads a selection over face/bust/body/back and names any framing it cannot fill. **🎨 Pick diverse** now discounts isolated oddities instead of spending its first picks on memes and strangers. Each tool states its limits: text is a ranking rather than a filter, cannot count, and ignores negative wording.
