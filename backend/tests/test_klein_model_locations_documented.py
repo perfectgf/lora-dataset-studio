@@ -93,8 +93,9 @@ def test_documented_layout_resolves(app, tmp_path, label, parts, expected):
         _weights(str(base.joinpath('models', *parts)))
         _save({'comfyui': {'base_dir': str(base)}})
         assert keh.resolve_klein_unet() == expected, label
-        # …and the picker lists it, so choosing it explicitly resolves identically.
-        assert KLEIN_FILE in capabilities._scan_models()['klein'], label
+        # …and the picker lists it under the resolver's own name, so choosing
+        # what was offered resolves identically (a bare name still works too).
+        assert expected in capabilities._scan_models()['klein'], label
         assert keh.resolve_klein_unet(KLEIN_FILE) == expected, label
         # …and the generate preflight no longer calls the model missing.
         assert 'klein_model' not in keh.klein_missing_assets(), label
@@ -117,7 +118,7 @@ def test_extra_model_paths_root_resolves(app, tmp_path):
         """), encoding='utf-8')
         _save({'comfyui': {'base_dir': str(base)}})
         assert keh.resolve_klein_unet() == os.path.join('klein', KLEIN_FILE)
-        assert KLEIN_FILE in capabilities._scan_models()['klein']
+        assert os.path.join('klein', KLEIN_FILE) in capabilities._scan_models()['klein']
         assert 'klein_model' not in keh.klein_missing_assets()
 
 
@@ -149,7 +150,7 @@ def test_models_dir_override_resolves(app, tmp_path):
         _weights(str(elsewhere / 'unet' / 'klein' / KLEIN_FILE))
         _save({'comfyui': {'base_dir': str(base), 'models_dir': str(elsewhere)}})
         assert keh.resolve_klein_unet() == os.path.join('klein', KLEIN_FILE)
-        assert KLEIN_FILE in capabilities._scan_models()['klein']
+        assert os.path.join('klein', KLEIN_FILE) in capabilities._scan_models()['klein']
         assert 'klein_model' not in keh.klein_missing_assets()
 
 

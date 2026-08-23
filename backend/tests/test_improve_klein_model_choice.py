@@ -182,9 +182,13 @@ def test_every_resolvable_layout_is_also_offerable(app, tmp_path, label, parts, 
         target.write_bytes(_VALID_ST)
         cfg.save_config({'comfyui': {'base_dir': str(base)}})
         offered = capabilities._scan_models()['klein']
-        assert KLEIN_FILE in offered, label
+        # Offered under the resolver's own relative name (the probe delegates
+        # to the resolvers' scan since the fifth scanner folded)…
+        assert expected in offered, label
         # …and picking exactly what was offered lands on exactly what the
-        # resolver would have chosen by itself.
+        # resolver would have chosen by itself. A bare name still resolves too
+        # (the deep-search wave's own tests pin that).
+        assert keh.klein_model_on_disk(expected) == expected, label
         assert keh.klein_model_on_disk(KLEIN_FILE) == expected, label
         assert keh.resolve_klein_unet() == expected, label
     cmp.clear_cache()

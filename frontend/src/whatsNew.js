@@ -60,6 +60,13 @@
 //      4. Prefer a screen that shows the CHANGE, not the app. A settings panel,
 //         a toolbar, a queue — those photograph without any dataset image at
 //         all, which is why most entries can carry one cheaply.
+//      5. WIRE THE `image:` FIELD BEFORE THE TAG, on an entry that is NEW in
+//         that tag. The notes select new ids only, so a picture wired onto an
+//         already-shipped entry never appears anywhere. This is not
+//         hypothetical: v2026.08.23 went out imageless with the mechanism
+//         landed AND the PNG committed — nobody had written the one field
+//         line. release-notes-contract.test.mjs now fails on an orphan
+//         screenshot, so the miss is loud instead of silent.
 //  • Keep the list tidy: tail entries older than a couple of months can be
 //    pruned once everyone has cycled through an update or two.
 // =====================================================================
@@ -69,6 +76,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
+  {
+    id: '2026-08-23-setup-model-check-reads-the-pickers-truth',
+    date: '2026-08-23',
+    title: 'The Setup model check now reads exactly what the pickers read',
+    blurb:
+      'Setup had its own way of scanning your model folders — one level deep, with its own '
+      + 'family rules — while the pickers and the generate path had long moved to the full '
+      + 'recursive scan. So a model filed two folders down generated fine but showed ✗ in '
+      + 'Setup, and a Z-Image build in a hyphenated Z-Image folder showed ✓ in Setup while '
+      + 'the Test Studio picker could not see it. One scan now feeds all three — what Setup '
+      + 'checks is what the pickers offer is what Generate loads — and the hyphen spelling '
+      + 'is recognised everywhere.',
+    to: '/setup',
+  },
   {
     id: '2026-08-23-drop-in-extensions',
     date: '2026-08-23',
@@ -229,6 +250,13 @@ export const WHATS_NEW = [
       + 'dataset, the Test Studio, the Canvas or the Bank. You can send one job to the front, or '
       + 'cancel it, without stopping the batch it belongs to. The dock stays out of sight while '
       + 'the queue is empty. Suggested by charlesangus (GitHub #44).',
+    // Wired AFTER this entry's release went out (its id shipped in v2026.08.22,
+    // the screenshot mechanism landed the morning after, and v2026.08.23 was cut
+    // without anyone adding the field) — so this picture missed its one train:
+    // release notes select NEW ids only, and an image added to an already-shipped
+    // entry never appears anywhere. Kept referenced so the file is not an orphan,
+    // and so the wiring test below the mechanism can hold the pairing.
+    image: 'docs/screenshots/release/generation-queue-dock.png',
   },
   {
     id: '2026-08-20-caption-appearance-policy',

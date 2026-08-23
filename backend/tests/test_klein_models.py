@@ -614,8 +614,10 @@ def test_scan_models_sees_klein_in_diffusion_models(app, tmp_path):
         _install(base, 'models', 'diffusion_models', 'Flux2 klein',
                  'flux-2-klein-9b-kv-fp8.safetensors')
         models = capabilities._scan_models()
-        assert 'flux-2-klein-9b-fp8.safetensors' in models['klein']
-        assert 'flux-2-klein-9b-kv-fp8.safetensors' in models['klein']
+        # Relative names, as the loader takes them (the probe delegates to the
+        # resolvers' scan since the fifth scanner folded).
+        assert os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors') in models['klein']
+        assert os.path.join('Flux2 klein', 'flux-2-klein-9b-kv-fp8.safetensors') in models['klein']
 
 
 def test_resolver_honours_pick_from_diffusion_models_folder(app, tmp_path):
@@ -683,8 +685,9 @@ def test_klein_root_file_and_subfolder_both_discovered(app, tmp_path):
         base = _comfy(tmp_path, cfg)                 # unet/klein/flux-2-klein-9b-fp8
         _install(base, 'models', 'diffusion_models', 'flux-2-klein-9b-kv-fp8.safetensors')
         klein = capabilities._scan_models()['klein']
-        assert 'flux-2-klein-9b-fp8.safetensors' in klein      # subfolder file
-        assert 'flux-2-klein-9b-kv-fp8.safetensors' in klein   # root file
+        # Subfolder file under its prefix, root file bare — the loader's names.
+        assert os.path.join('klein', 'flux-2-klein-9b-fp8.safetensors') in klein
+        assert 'flux-2-klein-9b-kv-fp8.safetensors' in klein   # root file stays bare
         # The root pick loads bare; the subfolder pick keeps its prefix.
         assert keh.resolve_klein_unet('flux-2-klein-9b-kv-fp8.safetensors') == \
             'flux-2-klein-9b-kv-fp8.safetensors'

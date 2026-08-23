@@ -118,7 +118,9 @@ def test_klein_engine_stays_dark_until_all_three_assets_present(app, monkeypatch
         config.save_config({'comfyui': {'base_dir': str(base)}})
         with patch('app.capabilities._http_ok', return_value=True):
             caps = capabilities.probe(force=True)
-    assert caps['comfyui']['models']['klein'] == ['k.safetensors']   # picker still lists it
+    import os
+    # picker still lists it — under the RELATIVE name the loader takes
+    assert caps['comfyui']['models']['klein'] == [os.path.join('klein', 'k.safetensors')]
     assert caps['engines']['klein'] is False                          # but engine stays dark
     # The payload names the exact gap so the Setup step lists the missing weights
     # (and keeps their download buttons) instead of blaming the already-present unet.
@@ -794,33 +796,61 @@ def test_import_probe_cache_key_includes_interpreter_path(app, monkeypatch):
 def test_scan_models_empty_when_comfyui_unset(app):
     with app.app_context():
         from app import capabilities
+        from app.utils import comfyui
+        comfyui.clear_model_caches()
         models = capabilities._scan_models()
     assert models == {'zimage': [], 'sdxl': [], 'krea': [], 'klein': []}
 
-def test_scan_models_matches_rules(app, tmp_path):
+def test_scan_models_is_the_resolvers_view(app, tmp_path):
+    """The probe was the FIFTH scanner: its own one-level walk while every
+    resolver scans recursively. It now delegates, so a model the generate path
+    can load — including one filed two folders deep, the exact promise of the
+    deep-search wave — is a model the probe reports, under the same RELATIVE
+    name the loader takes."""
+    import os
     with app.app_context():
         from app import capabilities, config
+        from app.utils import comfyui
         base = tmp_path / 'Comfy'
+        # The resolvers locate the models tree through the OUTPUT dir, which
+        # only resolves on a dir that looks like ComfyUI (main.py + models/) —
+        # the probe follows their route now, markers included.
+        (base / 'output').mkdir(parents=True)
+        (base / 'models').mkdir()
+        (base / 'main.py').touch()
         (base / 'models' / 'unet' / 'Z-Image').mkdir(parents=True)
         (base / 'models' / 'unet' / 'Z-Image' / 'a.safetensors').touch()
         (base / 'models' / 'unet' / 'Z-Image' / 'notes.txt').touch()   # filtered out
+        # The case the old scanner was blind to: two folders down.
+        (base / 'models' / 'unet' / 'Z-Image' / 'nested').mkdir()
+        (base / 'models' / 'unet' / 'Z-Image' / 'nested' / 'deep.safetensors').touch()
         (base / 'models' / 'unet' / 'krea-turbo').mkdir(parents=True)
         (base / 'models' / 'unet' / 'krea-turbo' / 'k.gguf').touch()
         (base / 'models' / 'unet' / 'klein').mkdir(parents=True)
         (base / 'models' / 'unet' / 'klein' / 'k.safetensors').touch()
-        (base / 'models' / 'checkpoints').mkdir(parents=True)
+        (base / 'models' / 'checkpoints' / 'sub').mkdir(parents=True)
         (base / 'models' / 'checkpoints' / 'sdxl_base.safetensors').touch()
+        # CheckpointLoader lists the tree recursively; so does the probe now.
+        (base / 'models' / 'checkpoints' / 'sub' / 'sdxl_two.safetensors').touch()
         config.save_config({'comfyui': {'base_dir': str(base)}})
+        comfyui.clear_model_caches()
         models = capabilities._scan_models()
-    assert models['zimage'] == ['a.safetensors']
-    assert models['krea'] == ['k.gguf']
-    assert models['klein'] == ['k.safetensors']
-    assert models['sdxl'] == ['sdxl_base.safetensors']
+        # probe == resolver, by construction — the same calls, so the same lists
+        assert models['zimage'] == comfyui.get_zimage_models()
+        assert models['krea'] == comfyui.get_krea_models()
+    j = os.path.join
+    assert models['zimage'] == [j('Z-Image', 'a.safetensors'),
+                                j('Z-Image', 'nested', 'deep.safetensors')]
+    assert models['krea'] == [j('krea-turbo', 'k.gguf')]
+    assert models['klein'] == [j('klein', 'k.safetensors')]
+    assert models['sdxl'] == ['sdxl_base.safetensors', j('sub', 'sdxl_two.safetensors')]
 
 def test_scan_models_never_raises_on_absent_dir(app, tmp_path):
     with app.app_context():
         from app import capabilities, config
+        from app.utils import comfyui
         config.save_config({'comfyui': {'base_dir': str(tmp_path / 'does_not_exist')}})
+        comfyui.clear_model_caches()
         models = capabilities._scan_models()
     assert models == {'zimage': [], 'sdxl': [], 'krea': [], 'klein': []}
 
