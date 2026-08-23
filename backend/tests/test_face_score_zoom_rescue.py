@@ -54,6 +54,10 @@ def test_the_zoom_rescue_reaches_both_surfaces():
     import face_embed_infer as fei
     assert (fsi.ZOOM_PAD, fsi.ZOOM_RETRY_MIN_SIDE) \
         == (fei.ZOOM_PAD, fei.ZOOM_RETRY_MIN_SIDE)
+    # The detector input square too: the frame is fitted into it BEFORE
+    # detection, so a bigger square on one surface would find faces the
+    # other calls absent — the drift class this whole file exists for.
+    assert fsi.DET_SIZE == fei.DET_SIZE == (640, 640)
 
 
 def test_a_face_under_the_pixel_floor_is_still_too_small():

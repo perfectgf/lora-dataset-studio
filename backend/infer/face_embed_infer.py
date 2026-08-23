@@ -96,6 +96,12 @@ FACE_PX_MIN = 64.0
 # test_face_score_zoom_rescue.py.
 ZOOM_PAD = 0.6
 ZOOM_RETRY_MIN_SIDE = 1280
+# Detector input size. The whole frame is fitted into this square BEFORE
+# detection looks at it (the reason the zoom rescue exists at all), so the
+# two surfaces must share it: a bigger square on one side would find faces
+# the other calls absent. Pinned across both files by
+# test_face_score_zoom_rescue.
+DET_SIZE = (640, 640)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bank_image_guard import read_validated_bank_image  # noqa: E402
@@ -395,7 +401,7 @@ def main() -> int:
             if models_root:
                 kwargs['root'] = models_root
             app = FaceAnalysis(**kwargs)
-            app.prepare(ctx_id=0 if used_gpu else -1, det_size=(640, 640))
+            app.prepare(ctx_id=0 if used_gpu else -1, det_size=DET_SIZE)
         except Exception as e:  # noqa: BLE001 — must exit as clean JSON, not a mute traceback
             print(json.dumps({'ok': False, 'results': {}, 'clusters': {},
                               'error': f'model load failed: {type(e).__name__}: {e}'}))
