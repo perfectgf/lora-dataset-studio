@@ -9297,74 +9297,21 @@ def _clean_inpaint_engine(route, method):
     return 'lama' if route == 'lama' else 'review'
 
 
-@_serialize_dataset_ingest
-def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='auto',
-                     allow_crop=None):
-    """Apply the crop/inpaint/review routing to every image marked 'detected'. Returns
-    ({'cropped', 'inpainted', 'inpainted_klein', 'needs_review', 'failed', 'skipped'},
-    error|None) -- same tuple contract as score_dataset_faces: `error` is None unless an
-    inpaint that was ATTEMPTED failed (never a silent swallow). Crop stays in PIL.
-
-    `allow_crop` gates the border-crop route (see _route_watermark). None (the default)
-    resolves the persisted `watermark.allow_crop` preference, so a plain call and the
-    batch Clean button both honour Settings; the review lightbox passes an explicit
-    True/False to force crop or inpaint for ONE image. When False, a border mark is
-    repainted (LaMa/Klein per `method`) instead of cropped -- nothing else changes.
-
-    `method` selects the inpaint engine (the batch UI's LaMa|Klein toggle):
-      - 'auto'/'lama' → LaMa (fast, non-generative) for small off-center marks; on-subject
-        marks stay 'review'. Uses the resolved CPU/GPU `device`; GPU mode is protected by
-        the route's exclusive window.
-      - 'klein' → masked Flux.2 Klein inpaint + pixel-space composite for the off-center
-        AND the on-subject marks (making 'review' actionable). Each image is one serialized
-        ComfyUI round-trip; `device` is irrelevant (ComfyUI owns the GPU).
-
-    LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
-    `skipped` (crop still runs) so the UI can nudge "install the ML extras". Klein absent
-    is likewise `skipped`.
-
-    image_ids (optional): restrict the pass to this subset -- the review lightbox cleans
-    ONE image at a time. The filter still requires watermark_state='detected' AND
-    dataset ownership, so a stale/foreign id is a no-op (never touches another dataset,
-    never re-edits an already-cleaned image). None = every detected image (bulk button)."""
-    from . import watermark_lama, watermark_klein
-    ds = get_dataset(user_id, dataset_id)
-    if not ds:
-        raise ValueError('dataset not found')
-    # None = "no explicit choice" -> fall back to the persisted preference (default
-    # True), so the batch button follows Settings; the lightbox passes a real bool.
-    if allow_crop is None:
-        allow_crop = bool(cfg.get('watermark.allow_crop'))
-    q = (FaceDatasetImage.query
-         .filter_by(dataset_id=dataset_id, watermark_state='detected')
-         .filter(FaceDatasetImage.filename.isnot(None)))
-    if image_ids is not None:
-        ids = [int(i) for i in (image_ids or [])
-               if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
-        q = q.filter(FaceDatasetImage.id.in_(ids or [-1]))   # empty subset -> match nothing
-    rows = q.all()
-    row_ids = [img.id for img in rows]
-    out = {'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'needs_review': 0,
-           'failed': 0, 'skipped': 0}
+def _wm_route_images(user_id, row_ids, token, method, allow_crop, lama_ok,
+                     klein_ok, klein_model, out):
+    """The per-image watermark routing pass, moved verbatim (2026-08-23)
+    together with its two closures — they rebind ``error`` via nonlocal,
+    so every writer of that cell lives in this one scope. Manual regions
+    route to Klein or LaMa staging; a detected bbox routes through
+    _route_watermark to crop, inpaint or review. Returns
+    (lama_pending, error, vanished) — the staged LaMa work, the last
+    attempted-and-failed error, and the rows deleted mid-pass."""
+    from . import watermark_klein
     # NOT a key in `out`: that dict is the route's response shape and existing
     # tests pin it. 'skipped' already means "engine unavailable" and must not be
     # overloaded with "the image no longer exists". Logged at the end instead.
     vanished = 0
     error = None
-    lama_ok = watermark_lama.is_available()
-    klein_ok = method == 'klein' and watermark_klein.is_available()
-    # The Klein model this DATASET runs on — the same pick ✨ improve and Klein
-    # generation use. A watermark clean overwrites the image in place, so running
-    # it on a model the dataset did not choose is the one lane where the swap
-    # cannot be spotted afterwards by comparing to a source.
-    klein_model = dataset_klein_model(ds)
-    if klein_ok and klein_model:
-        # Refuse the WHOLE pass by name, before a single file is touched: every
-        # image would fail identically, and a half-cleaned dataset is worse than
-        # an untouched one. None (never chose) skips this — nothing was promised.
-        from . import klein_edit_helper as keh
-        if not keh.klein_model_on_disk(klein_model):
-            raise keh.KleinModelGone(klein_model)
     # (image_id, live_path, staged_path, bboxes, manual_regions). An ID, not an
     # ORM row: this list is carried across the whole per-image loop AND across
     # the LaMa batch, which runs for minutes -- by the time the tail loop writes,
@@ -9435,6 +9382,269 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
                     error = err
         finally:
             _discard_staged_watermark_edit(staged)
+
+    for i, image_id in enumerate(row_ids):
+        dataset_activity.progress(token, done=i + 1)
+        img = _live_image_row(image_id)
+        if img is None:      # deleted while the pass ran
+            vanished += 1
+            continue
+        path = _img_path(img)
+        if img.watermark_regions is not None:
+            try:
+                regions = normalize_watermark_regions(
+                    _safe_json(img.watermark_regions), allow_null=False,
+                )
+            except ValueError as e:
+                out['failed'] += 1
+                error = {'kind': 'failed',
+                         'detail': f'invalid watermark regions: {e}'}
+                db.session.commit()
+                continue
+            if not regions:
+                out['needs_review'] += 1
+                db.session.commit()
+                continue
+            if not os.path.exists(path):
+                out['failed'] += 1
+                db.session.commit()
+                continue
+            if method == 'klein':
+                _run_klein(img, path, regions, True)
+                db.session.commit()
+                continue
+            if not lama_ok:
+                out['skipped'] += 1
+                db.session.commit()
+                continue
+            staged = _stage_oriented_watermark_edit(path)
+            if not staged:
+                out['failed'] += 1
+                error = {'kind': 'failed',
+                         'detail': 'could not stage image EXIF orientation'}
+                db.session.commit()
+                continue
+            if not _preserve_original(path):
+                _backup_failed(img, staged)
+                db.session.commit()
+                continue
+            lama_pending.append((img.id, path, staged, regions, True))
+            continue
+        bbox = _safe_json(img.watermark_bbox)
+        if not (isinstance(bbox, list) and len(bbox) == 4):
+            # Flagged, position unknown. The detector cascade produces this
+            # legitimately (its locator found nothing) and promotion carries
+            # it in from a bank; stamping 'failed' would DESTROY a correct
+            # flag over a missing coordinate. It goes to manual review, where
+            # a zone can be drawn — the same answer the bank gives.
+            out['needs_review'] += 1
+            db.session.commit()
+            continue
+        if not os.path.exists(path):
+            img.watermark_state = 'failed'
+            out['failed'] += 1
+            db.session.commit()
+            continue
+        try:
+            with Image.open(path) as im:
+                # Stored detection boxes are in the browser/VLM's upright
+                # coordinate space, never the raw camera raster. This branch
+                # may route to review/no-op, so keep it header-only until an
+                # actual crop/staging edit needs the pixels.
+                W, H = image_encoding.visual_size_from_header(im)
+        except (OSError, ValueError):
+            img.watermark_state = 'failed'
+            out['failed'] += 1
+            db.session.commit()
+            continue
+        route, box = _route_watermark(tuple(bbox), W, H, allow_crop=allow_crop)
+        if route == 'crop':
+            if not _preserve_original(path):
+                _backup_failed(img)
+            elif _apply_watermark_crop(path, box):
+                # NOTE dHash: the perceptual hash used for import-dedupe is recomputed
+                # ON THE FLY from the file (_existing_dhashes / _dhash), NOT stored in a
+                # column -- there is no stored dHash to leave untouched. So after a crop
+                # the dedupe compares against the CLEANED pixels; re-importing the same
+                # watermarked visual is NOT guaranteed to dedupe against it (a border
+                # crop shifts the whole hash). Preserving the original-dHash behaviour the
+                # spec asks for would need a new stored column -> deferred (out of V1 scope).
+                img.watermark_state = 'cleaned'
+                out['cropped'] += 1
+            else:
+                img.watermark_state = 'failed'
+                out['failed'] += 1
+        else:
+            engine = _clean_inpaint_engine(route, method)
+            if engine == 'klein':
+                _run_klein(img, path, [bbox], False)
+            elif engine == 'lama':
+                if not lama_ok:
+                    out['skipped'] += 1      # leave state='detected' (crop-only mode)
+                else:
+                    staged = _stage_oriented_watermark_edit(path)
+                    if staged:
+                        if _preserve_original(path):
+                            lama_pending.append((img.id, path, staged, [bbox], False))
+                        else:
+                            _backup_failed(img, staged)
+                    else:
+                        img.watermark_state = 'failed'
+                        out['failed'] += 1
+                        error = {'kind': 'failed',
+                                 'detail': 'could not stage image EXIF orientation'}
+            else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
+                out['needs_review'] += 1
+        db.session.commit()
+    return lama_pending, error, vanished
+
+
+def _wm_lama_tail(dataset_id, lama_pending, device, out, error, vanished):
+    """The LaMa batch tail, moved verbatim: one call for a single staged
+    image (manual regions vs single bbox), one batch otherwise; every
+    result is promoted onto a re-fetched LIVE row (the pass runs for
+    minutes and rows get deleted under it), an engine fault marks the
+    non-manual rows failed, and the finally sweep discards every staged
+    disposable copy. Returns the updated (error, vanished)."""
+    from . import watermark_lama
+    if lama_pending:
+        try:
+            if len(lama_pending) == 1:
+                _pid, live_path, staged_path, boxes, manual = lama_pending[0]
+                if manual:
+                    ok, err = watermark_lama.inpaint_watermarks(
+                        staged_path, boxes,
+                        **({'device': device} if device != 'cpu' else {}))
+                else:
+                    ok, err = watermark_lama.inpaint_watermark(
+                        staged_path, boxes[0],
+                        **({'device': device} if device != 'cpu' else {}))
+                results = {staged_path: (ok, err)}
+            else:
+                results = watermark_lama.inpaint_batch(
+                    [{'image_path': staged_path, 'bboxes': boxes}
+                     for _pid, _live_path, staged_path, boxes, _manual in lama_pending],
+                    device=device,
+                )
+            for pending_id, live_path, staged_path, _boxes, manual in lama_pending:
+                img = _live_image_row(pending_id)
+                if img is None:
+                    # Deleted while the batch ran: there is no row left to
+                    # point at the repainted file, so drop the staged edit
+                    # rather than promote it over a master nobody owns.
+                    _discard_staged_watermark_edit(staged_path)
+                    vanished += 1
+                    continue
+                ok, err = results.get(
+                    staged_path,
+                    (False, {'kind': 'failed', 'detail': 'missing inpaint result'}),
+                )
+                if ok and _promote_staged_watermark_edit(staged_path, live_path):
+                    # Kept, for the reason spelled out in the Klein lane above.
+                    img.watermark_state = 'cleaned'
+                    out['inpainted'] += 1
+                elif ok:
+                    if not manual:
+                        img.watermark_state = 'failed'
+                    out['failed'] += 1
+                    error = {'kind': 'failed',
+                             'detail': 'could not promote staged watermark edit'}
+                elif err and err.get('kind') == 'unavailable':
+                    out['skipped'] += 1
+                else:
+                    # Manual correction regions are user-authored retry metadata. Keep
+                    # the image detected when LaMa fails so Clean can be retried.
+                    if not manual:
+                        img.watermark_state = 'failed'
+                    out['failed'] += 1
+                    if err:
+                        error = err
+                db.session.commit()
+        except Exception as exc:  # engine/process faults must not leak a staged edit
+            logger.exception('watermark: LaMa execution failed for dataset %s', dataset_id)
+            error = {'kind': 'failed', 'detail': f'watermark inpaint failed: {exc}'}
+            for pending_id, _live_path, _staged_path, _boxes, manual in lama_pending:
+                img = _live_image_row(pending_id)
+                if img is None:
+                    vanished += 1
+                    continue
+                if not manual:
+                    img.watermark_state = 'failed'
+                out['failed'] += 1
+                db.session.commit()
+        finally:
+            # The engine can crash before returning a result; in that case its
+            # disposable EXIF-oriented copy still has to disappear, while the
+            # master remains exactly where it was.
+            for _pid, _live_path, staged_path, _boxes, _manual in lama_pending:
+                _discard_staged_watermark_edit(staged_path)
+    return error, vanished
+
+
+@_serialize_dataset_ingest
+def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='auto',
+                     allow_crop=None):
+    """Apply the crop/inpaint/review routing to every image marked 'detected'. Returns
+    ({'cropped', 'inpainted', 'inpainted_klein', 'needs_review', 'failed', 'skipped'},
+    error|None) -- same tuple contract as score_dataset_faces: `error` is None unless an
+    inpaint that was ATTEMPTED failed (never a silent swallow). Crop stays in PIL.
+
+    `allow_crop` gates the border-crop route (see _route_watermark). None (the default)
+    resolves the persisted `watermark.allow_crop` preference, so a plain call and the
+    batch Clean button both honour Settings; the review lightbox passes an explicit
+    True/False to force crop or inpaint for ONE image. When False, a border mark is
+    repainted (LaMa/Klein per `method`) instead of cropped -- nothing else changes.
+
+    `method` selects the inpaint engine (the batch UI's LaMa|Klein toggle):
+      - 'auto'/'lama' → LaMa (fast, non-generative) for small off-center marks; on-subject
+        marks stay 'review'. Uses the resolved CPU/GPU `device`; GPU mode is protected by
+        the route's exclusive window.
+      - 'klein' → masked Flux.2 Klein inpaint + pixel-space composite for the off-center
+        AND the on-subject marks (making 'review' actionable). Each image is one serialized
+        ComfyUI round-trip; `device` is irrelevant (ComfyUI owns the GPU).
+
+    LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
+    `skipped` (crop still runs) so the UI can nudge "install the ML extras". Klein absent
+    is likewise `skipped`.
+
+    image_ids (optional): restrict the pass to this subset -- the review lightbox cleans
+    ONE image at a time. The filter still requires watermark_state='detected' AND
+    dataset ownership, so a stale/foreign id is a no-op (never touches another dataset,
+    never re-edits an already-cleaned image). None = every detected image (bulk button)."""
+    from . import watermark_lama, watermark_klein
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    # None = "no explicit choice" -> fall back to the persisted preference (default
+    # True), so the batch button follows Settings; the lightbox passes a real bool.
+    if allow_crop is None:
+        allow_crop = bool(cfg.get('watermark.allow_crop'))
+    q = (FaceDatasetImage.query
+         .filter_by(dataset_id=dataset_id, watermark_state='detected')
+         .filter(FaceDatasetImage.filename.isnot(None)))
+    if image_ids is not None:
+        ids = [int(i) for i in (image_ids or [])
+               if isinstance(i, (int, float, str)) and str(i).lstrip('-').isdigit()]
+        q = q.filter(FaceDatasetImage.id.in_(ids or [-1]))   # empty subset -> match nothing
+    rows = q.all()
+    row_ids = [img.id for img in rows]
+    out = {'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'needs_review': 0,
+           'failed': 0, 'skipped': 0}
+    lama_ok = watermark_lama.is_available()
+    klein_ok = method == 'klein' and watermark_klein.is_available()
+    # The Klein model this DATASET runs on — the same pick ✨ improve and Klein
+    # generation use. A watermark clean overwrites the image in place, so running
+    # it on a model the dataset did not choose is the one lane where the swap
+    # cannot be spotted afterwards by comparing to a source.
+    klein_model = dataset_klein_model(ds)
+    if klein_ok and klein_model:
+        # Refuse the WHOLE pass by name, before a single file is touched: every
+        # image would fail identically, and a half-cleaned dataset is worse than
+        # an untouched one. None (never chose) skips this — nothing was promised.
+        from . import klein_edit_helper as keh
+        if not keh.klein_model_on_disk(klein_model):
+            raise keh.KleinModelGone(klein_model)
+
     # Persistent progress indicator (survives a page reload). The device is included
     # so the UI can honestly state whether ComfyUI is paused for the GPU pass.
     device_label = 'GPU' if device == 'cuda' else 'CPU'
@@ -9442,190 +9652,11 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
         dataset_id, 'watermark_clean', total=len(rows),
         detail=f'Cleaning watermarks on {device_label}…')
     try:
-        for i, image_id in enumerate(row_ids):
-            dataset_activity.progress(token, done=i + 1)
-            img = _live_image_row(image_id)
-            if img is None:      # deleted while the pass ran
-                vanished += 1
-                continue
-            path = _img_path(img)
-            if img.watermark_regions is not None:
-                try:
-                    regions = normalize_watermark_regions(
-                        _safe_json(img.watermark_regions), allow_null=False,
-                    )
-                except ValueError as e:
-                    out['failed'] += 1
-                    error = {'kind': 'failed',
-                             'detail': f'invalid watermark regions: {e}'}
-                    db.session.commit()
-                    continue
-                if not regions:
-                    out['needs_review'] += 1
-                    db.session.commit()
-                    continue
-                if not os.path.exists(path):
-                    out['failed'] += 1
-                    db.session.commit()
-                    continue
-                if method == 'klein':
-                    _run_klein(img, path, regions, True)
-                    db.session.commit()
-                    continue
-                if not lama_ok:
-                    out['skipped'] += 1
-                    db.session.commit()
-                    continue
-                staged = _stage_oriented_watermark_edit(path)
-                if not staged:
-                    out['failed'] += 1
-                    error = {'kind': 'failed',
-                             'detail': 'could not stage image EXIF orientation'}
-                    db.session.commit()
-                    continue
-                if not _preserve_original(path):
-                    _backup_failed(img, staged)
-                    db.session.commit()
-                    continue
-                lama_pending.append((img.id, path, staged, regions, True))
-                continue
-            bbox = _safe_json(img.watermark_bbox)
-            if not (isinstance(bbox, list) and len(bbox) == 4):
-                # Flagged, position unknown. The detector cascade produces this
-                # legitimately (its locator found nothing) and promotion carries
-                # it in from a bank; stamping 'failed' would DESTROY a correct
-                # flag over a missing coordinate. It goes to manual review, where
-                # a zone can be drawn — the same answer the bank gives.
-                out['needs_review'] += 1
-                db.session.commit()
-                continue
-            if not os.path.exists(path):
-                img.watermark_state = 'failed'
-                out['failed'] += 1
-                db.session.commit()
-                continue
-            try:
-                with Image.open(path) as im:
-                    # Stored detection boxes are in the browser/VLM's upright
-                    # coordinate space, never the raw camera raster. This branch
-                    # may route to review/no-op, so keep it header-only until an
-                    # actual crop/staging edit needs the pixels.
-                    W, H = image_encoding.visual_size_from_header(im)
-            except (OSError, ValueError):
-                img.watermark_state = 'failed'
-                out['failed'] += 1
-                db.session.commit()
-                continue
-            route, box = _route_watermark(tuple(bbox), W, H, allow_crop=allow_crop)
-            if route == 'crop':
-                if not _preserve_original(path):
-                    _backup_failed(img)
-                elif _apply_watermark_crop(path, box):
-                    # NOTE dHash: the perceptual hash used for import-dedupe is recomputed
-                    # ON THE FLY from the file (_existing_dhashes / _dhash), NOT stored in a
-                    # column -- there is no stored dHash to leave untouched. So after a crop
-                    # the dedupe compares against the CLEANED pixels; re-importing the same
-                    # watermarked visual is NOT guaranteed to dedupe against it (a border
-                    # crop shifts the whole hash). Preserving the original-dHash behaviour the
-                    # spec asks for would need a new stored column -> deferred (out of V1 scope).
-                    img.watermark_state = 'cleaned'
-                    out['cropped'] += 1
-                else:
-                    img.watermark_state = 'failed'
-                    out['failed'] += 1
-            else:
-                engine = _clean_inpaint_engine(route, method)
-                if engine == 'klein':
-                    _run_klein(img, path, [bbox], False)
-                elif engine == 'lama':
-                    if not lama_ok:
-                        out['skipped'] += 1      # leave state='detected' (crop-only mode)
-                    else:
-                        staged = _stage_oriented_watermark_edit(path)
-                        if staged:
-                            if _preserve_original(path):
-                                lama_pending.append((img.id, path, staged, [bbox], False))
-                            else:
-                                _backup_failed(img, staged)
-                        else:
-                            img.watermark_state = 'failed'
-                            out['failed'] += 1
-                            error = {'kind': 'failed',
-                                     'detail': 'could not stage image EXIF orientation'}
-                else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
-                    out['needs_review'] += 1
-            db.session.commit()
-        if lama_pending:
-            try:
-                if len(lama_pending) == 1:
-                    _pid, live_path, staged_path, boxes, manual = lama_pending[0]
-                    if manual:
-                        ok, err = watermark_lama.inpaint_watermarks(
-                            staged_path, boxes,
-                            **({'device': device} if device != 'cpu' else {}))
-                    else:
-                        ok, err = watermark_lama.inpaint_watermark(
-                            staged_path, boxes[0],
-                            **({'device': device} if device != 'cpu' else {}))
-                    results = {staged_path: (ok, err)}
-                else:
-                    results = watermark_lama.inpaint_batch(
-                        [{'image_path': staged_path, 'bboxes': boxes}
-                         for _pid, _live_path, staged_path, boxes, _manual in lama_pending],
-                        device=device,
-                    )
-                for pending_id, live_path, staged_path, _boxes, manual in lama_pending:
-                    img = _live_image_row(pending_id)
-                    if img is None:
-                        # Deleted while the batch ran: there is no row left to
-                        # point at the repainted file, so drop the staged edit
-                        # rather than promote it over a master nobody owns.
-                        _discard_staged_watermark_edit(staged_path)
-                        vanished += 1
-                        continue
-                    ok, err = results.get(
-                        staged_path,
-                        (False, {'kind': 'failed', 'detail': 'missing inpaint result'}),
-                    )
-                    if ok and _promote_staged_watermark_edit(staged_path, live_path):
-                        # Kept, for the reason spelled out in the Klein lane above.
-                        img.watermark_state = 'cleaned'
-                        out['inpainted'] += 1
-                    elif ok:
-                        if not manual:
-                            img.watermark_state = 'failed'
-                        out['failed'] += 1
-                        error = {'kind': 'failed',
-                                 'detail': 'could not promote staged watermark edit'}
-                    elif err and err.get('kind') == 'unavailable':
-                        out['skipped'] += 1
-                    else:
-                        # Manual correction regions are user-authored retry metadata. Keep
-                        # the image detected when LaMa fails so Clean can be retried.
-                        if not manual:
-                            img.watermark_state = 'failed'
-                        out['failed'] += 1
-                        if err:
-                            error = err
-                    db.session.commit()
-            except Exception as exc:  # engine/process faults must not leak a staged edit
-                logger.exception('watermark: LaMa execution failed for dataset %s', dataset_id)
-                error = {'kind': 'failed', 'detail': f'watermark inpaint failed: {exc}'}
-                for pending_id, _live_path, _staged_path, _boxes, manual in lama_pending:
-                    img = _live_image_row(pending_id)
-                    if img is None:
-                        vanished += 1
-                        continue
-                    if not manual:
-                        img.watermark_state = 'failed'
-                    out['failed'] += 1
-                    db.session.commit()
-            finally:
-                # The engine can crash before returning a result; in that case its
-                # disposable EXIF-oriented copy still has to disappear, while the
-                # master remains exactly where it was.
-                for _pid, _live_path, staged_path, _boxes, _manual in lama_pending:
-                    _discard_staged_watermark_edit(staged_path)
+        lama_pending, error, vanished = _wm_route_images(
+            user_id, row_ids, token, method, allow_crop, lama_ok,
+            klein_ok, klein_model, out)
+        error, vanished = _wm_lama_tail(
+            dataset_id, lama_pending, device, out, error, vanished)
         if vanished:
             logger.info('watermark clean: %s image(s) were deleted while the pass '
                         'ran, skipped', vanished)
