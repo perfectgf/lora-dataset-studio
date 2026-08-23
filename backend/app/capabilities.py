@@ -1075,68 +1075,40 @@ def probe_scrape_deps() -> dict:
             'detail': 'scrape deps OK' if not missing else f"missing: {', '.join(missing)}"}
 
 
-def _model_files(folder) -> list:
-    try:
-        if not folder.is_dir():
-            return []
-        return sorted(
-            p.name for p in folder.iterdir()
-            if p.is_file() and p.suffix.lower() in _MODEL_SUFFIXES
-        )
-    except OSError:
-        return []
-
-
 def _scan_models() -> dict:
-    # Roots come from the SAME resolver ComfyUI uses (base <models> folders + any
-    # extra_model_paths.yaml roots), so the picker/probe list exactly what a running
-    # ComfyUI would load. With no yaml the roots are the historical [unet,
-    # diffusion_models] / [checkpoints], so the output is byte-for-byte unchanged.
-    from .services import comfy_model_paths
-    result = {'zimage': [], 'sdxl': [], 'krea': [], 'klein': []}
-    try:
-        models_dir = cfg.comfyui_dir('models')
-    except Exception:
-        models_dir = None
-    # krea is historically scanned ONLY from the base <models>/unet folder; track it
-    # so an extra root (treated like diffusion_models) doesn't change that bucket.
-    unet_default = os.path.normpath(str(models_dir / 'unet')) if models_dir else None
+    """Model files per family — by the SAME listers the generate path resolves
+    against, so probe == picker == resolver by construction.
 
-    for root in comfy_model_paths.search_roots('diffusion_models'):
-        root_path = Path(root)
-        try:
-            subfolders = [p for p in root_path.iterdir() if p.is_dir()]
-        except OSError:
-            continue
-        krea_eligible = (os.path.normpath(root) == unet_default)
-        for sub in subfolders:
-            name = sub.name
-            if _ZIMAGE_RE.search(name):
-                result['zimage'].extend(_model_files(sub))
-            # Any 'klein'-named subfolder counts: shared installs keep e.g.
-            # diffusion_models/'Flux2 klein'/ (the KV variant) next to our canonical
-            # unet/klein/ download — hiding it made the picker blind to models the
-            # user already owns.
-            elif 'klein' in name.lower():
-                result['klein'].extend(_model_files(sub))
-            elif krea_eligible and name.lower().startswith('krea'):
-                result['krea'].extend(_model_files(sub))
-        # Flat / Stability-Matrix layouts drop the model straight INTO
-        # diffusion_models/ with no klein/ subfolder — scan the root's own files
-        # too and bucket the 'klein'-named ones. These are bare names (no prefix),
-        # which is exactly what UNETLoader loads for a file at the root of a
-        # registered folder. Mirrors klein_edit_helper._klein_unet_folders so the
-        # picker lists only what the resolver can build.
-        for name in _model_files(root_path):
-            if 'klein' in name.lower():
-                result['klein'].append(name)
+    This function used to be the FIFTH scanner: its own one-level `iterdir`
+    walk with its own family rules, while every resolver had moved to the
+    recursive, extra_model_paths-aware scans in `comfy_model_paths`. The
+    divergence was measurable three ways: a model filed two folders deep was
+    loadable and generated with, but ✗ here; a Krea file at the root of a
+    search folder was accepted by `get_krea_models`' root rule and invisible
+    here; and the SDXL bucket read one flat level of `checkpoints/` when
+    ComfyUI's CheckpointLoader lists that tree recursively. Names are now the
+    RELATIVE paths the loaders actually take, exactly as the resolvers return
+    them.
 
-    result['klein'] = sorted(set(result['klein']))
-    sdxl = []
-    for root in comfy_model_paths.search_roots('checkpoints'):
-        sdxl.extend(_model_files(Path(root)))
-    result['sdxl'] = sdxl
-    return result
+    Kept as a function (rather than inlining the four calls at the probe site)
+    because tests and the probe payload both address the four-bucket dict.
+    """
+    from .services import comfy_model_paths, klein_edit_helper
+    from .utils import comfyui as comfy
+    klein = [os.path.join(prefix, f) if prefix else f
+             for prefix, files in klein_edit_helper._klein_unet_folders()
+             for f in files]
+    return {
+        'zimage': comfy.get_zimage_models(),
+        # `('',)` matches every relative directory: an SDXL checkpoint has no
+        # family token — sitting anywhere under a `checkpoints` root IS the
+        # claim, and ComfyUI lists that tree recursively.
+        'sdxl': comfy_model_paths.scan_family_tree(
+            comfy_model_paths.search_roots('checkpoints'), ('',),
+            root_file_accept=lambda _f: True),
+        'krea': comfy.get_krea_models(),
+        'klein': sorted(set(klein)),
+    }
 
 
 # --- Auto-detection (Setup wizard) -----------------------------------------

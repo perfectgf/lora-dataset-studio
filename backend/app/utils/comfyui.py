@@ -2014,8 +2014,14 @@ def get_zimage_models():
             # `diffusion_models` root also holds Krea, FLUX and Klein weights, and
             # nothing in a Z-Image filename separates them reliably — the folder
             # IS the claim here. (Krea does have such a rule; see get_krea_models.)
+            # 'z-image' too: the retired capabilities scanner accepted the
+            # hyphen spelling (z[ -]?image), so a user's Z-Image/ folder showed
+            # ✓ in Setup while this lister — the one the Studio picker actually
+            # reads — could not see it. Folding the fifth scanner onto this one
+            # (probe == picker == resolver) surfaced the gap; the token list is
+            # where the tolerance belongs.
             out = comfy_model_paths.scan_family_tree(
-                _model_scan_roots(out_dir), ("z image", "zimage"))
+                _model_scan_roots(out_dir), ("z image", "zimage", "z-image"))
         except Exception as e:
             logger.error(f"get_zimage_models error: {e}")
     _zimage_models_cache["data"] = out

@@ -70,6 +70,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-23-setup-model-check-reads-the-pickers-truth',
+    date: '2026-08-23',
+    title: 'The Setup model check now reads exactly what the pickers read',
+    blurb:
+      'Setup had its own way of scanning your model folders — one level deep, with its own '
+      + 'family rules — while the pickers and the generate path had long moved to the full '
+      + 'recursive scan. So a model filed two folders down generated fine but showed ✗ in '
+      + 'Setup, and a Z-Image build in a hyphenated Z-Image folder showed ✓ in Setup while '
+      + 'the Test Studio picker could not see it. One scan now feeds all three — what Setup '
+      + 'checks is what the pickers offer is what Generate loads — and the hyphen spelling '
+      + 'is recognised everywhere.',
+    to: '/setup',
+  },
+  {
     id: '2026-08-23-drop-in-extensions',
     date: '2026-08-23',
     title: 'Drop a local extension in, and it loads at boot',

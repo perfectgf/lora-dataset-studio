@@ -381,8 +381,11 @@ def test_scan_models_includes_extra_klein_without_false_positive(app, tmp_path):
               loras: {extloras}
         """)
         models = capabilities._scan_models()
-        assert 'flux-2-klein-9b-kv-fp8.safetensors' in models['klein']
-        assert 'some_style_lora.safetensors' not in models['klein']
+        import os
+        # Relative name, as the loader takes it (the probe delegates to the
+        # resolvers' scan since the fifth scanner folded).
+        assert os.path.join('Flux2 klein', 'flux-2-klein-9b-kv-fp8.safetensors') in models['klein']
+        assert not any('some_style_lora.safetensors' in m for m in models['klein'])
 
 
 def test_scan_models_extra_checkpoints_feed_sdxl(app, tmp_path):
