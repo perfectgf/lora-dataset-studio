@@ -8248,35 +8248,18 @@ def _refuse_unresolved_exact_resume_transactions() -> None:
             'operator recovery before another local training can start')
 
 
-@_serial_local_launch
-def launch_training(user_id, dataset_id, steps: int | None = None, check_captions: bool = True,
-                    base_model=None, variant: str | None = None, train_type: str | None = None,
-                    allow_caption_mismatch: bool = False, masked: bool | None = None,
-                    fresh: bool = False, allow_uncaptioned: bool = False,
-                    allow_caption_quality: bool = False,
-                    vae_path=_PERSISTED, te_path=_PERSISTED,
-                    allow_unverified_weights: bool = False,
-                    allow_not_ready: bool = False,
-                    parent_record_id=None, resumed_from=None,
-                    training_mode=None,
-                    _state_restore_bundle=None,
-                    _state_bridge_required: bool = False,
-                    _state_resume_training_folder=None,
-                    _state_resume_archived=None,
-                    _state_model_pins=None,
-                    _state_resume_journal=None) -> dict:
-    """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
-    en CLI headless (`run.py <config>`).
-
-    ``steps`` = step cible (None → calculé par recommended_steps selon le nombre
-    d'images). ai-toolkit reprend AUTOMATIQUEMENT depuis le dernier checkpoint
-    présent dans le training_folder (get_latest_save_path), donc relancer avec un
-    steps > dernier_step continue l'entraînement. ``fresh=True`` écarte d'abord le
-    run existant (archive_previous_run) → repart de zéro sur le dataset actuel.
-
-    Retourne {pid, config_path, log_path}. Raises RuntimeError if ai-toolkit isn't
-    installed/configured (route maps this to 409, not 400 - it's a backend
-    availability problem, not a bad request)."""
+def _lt_refuse_or_resolve(user_id, dataset_id, train_type, variant,
+                          base_model, check_captions, allow_caption_mismatch,
+                          allow_uncaptioned, allow_caption_quality,
+                          allow_not_ready, allow_unverified_weights,
+                          training_mode, vae_path, te_path,
+                          _state_resume_journal):
+    """launch_training's refusal battery, moved verbatim (2026-08-24):
+    every early ValueError/RuntimeError a launch can earn, in the original
+    order, ending on the run-collision check. Resolves and returns the
+    launch context: (ds, base_model, variant, launch_fam, recipe,
+    launch_view, eff_vae, eff_te). Mutates ds.train_type when the caller
+    passed train_type, exactly as before -- the trunk commits it."""
     # The decorator owns the launch transaction before this first action.  Exact
     # continuation passes its newly-created journal only after the outer
     # transaction has reconciled every older one; all other launches must recover
@@ -8414,13 +8397,19 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
             f"training collision: dataset '{clash.name}' (#{clash.id}) already uses "
             f"the same trigger '{ds.trigger_word}' on the same base - they would write "
             f"to the same folder. Change the trigger_word of one of the two before training.")
-    ds.train_base_model = base_model
-    ds.train_variant = variant
-    # Persist the resolved SDXL VAE/TE overrides (None on every other family) so the
-    # run-dir tag, the config, and continue/queue replays all read the same triplet.
-    ds.train_vae_path = eff_vae
-    ds.train_te_path = eff_te
-    fds.db.session.commit()
+    return ds, base_model, variant, launch_fam, recipe, launch_view, eff_vae, eff_te
+
+
+def _lt_prepare_job(user_id, dataset_id, ds, launch_fam, variant, base_model,
+                    steps, masked, fresh, _state_bridge_required,
+                    _state_model_pins):
+    """Everything between the persisted launch context and the lane paths,
+    moved verbatim: bridge probe/gate, archive-if-fresh, adaptive steps,
+    masked resolution, model pinning, dataset export/freeze, job config
+    (re-built without the bridge when pinning fails soft), config write and
+    the subprocess environment. Returns (archived, steps, masked,
+    _bridge_probe, _bridge_candidate, _bridge_model_pins, dataset_folder,
+    _prepared, _job_config, config_path, env)."""
     # The bridge is an opt-in overlay around one inspected ai-toolkit source
     # shape.  Unknown revisions keep training normally but cannot claim exact
     # checkpoints.  A requested restore is fail-closed.
@@ -8502,20 +8491,24 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     # Environnement du sous-process d'entraînement (HF_HOME + auth Hugging Face,
     # cf. training_subprocess_env). Jamais shell=True ; args en liste.
     env = training_subprocess_env()
-    # Context/status files live inside the mutable run lane.  Protect their
-    # publication with the same lock as lane archive/seed and final admission;
-    # otherwise a launch which passed the cheap preflight earlier could overwrite
-    # an exact resume's context before either request reaches the spawn lock.
-    with _queue_lock:
-        run_dir = _run_root(
-            ds, base_model=base_model, family=launch_fam, variant=variant)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        log_path = _run_log_path(
-            ds, base_model=base_model, family=launch_fam, variant=variant)
-    run_token = secrets.token_hex(16)
-    # The Dataset manifest/snapshot was frozen atomically with the export above;
-    # only the short registry write remains for the spawn transaction below.
-    from . import checkpoint_registry
+    return (archived, steps, masked, _bridge_probe, _bridge_candidate,
+            _bridge_model_pins, dataset_folder, _prepared, _job_config,
+            config_path, env)
+
+
+def _lt_publish_bridge_context(run_dir, config_path, env, masked, _prepared,
+                               _bridge_probe, _bridge_candidate,
+                               _state_restore_bundle, _state_bridge_required):
+    """The bridge context/status publication, verbatim -- INCLUDING the
+    under-lock re-check of process ownership that precedes it (a competing
+    request may have frozen while this one waited). Returns
+    (_bridge_candidate, env, _bridge_identity_path, _bridge_status_path);
+    raises exactly as inline when the lane is already owned or a required
+    bridge cannot be established."""
+    from . import aitoolkit_state_bridge
+    # The Dataset manifest/snapshot was frozen atomically with the export
+    # above; only the short registry write remains for the spawn transaction
+    # (its checkpoint_registry import moved there with it).
     _bridge_identity_path = None
     _bridge_status_path = None
     with _queue_lock:
@@ -8565,6 +8558,22 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                     'exact-state bridge disabled for this launch: %s', exc,
                     exc_info=True)
                 _bridge_candidate = False
+    return _bridge_candidate, env, _bridge_identity_path, _bridge_status_path
+
+
+def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
+                          variant, base_model, recipe, allow_not_ready,
+                          parent_record_id, resumed_from, run_token,
+                          log_path, config_path, env,
+                          _prepared, _state_resume_journal):
+    """The spawn transaction, verbatim: queue + GPU arbiter locks, the
+    authoritative ownership/vision/ComfyUI/Ollama checks, provenance
+    registration, durable identity publication, Popen with its fail-closed
+    pre-spawn cleanup, and the exact-resume journal updates. Returns the
+    spawned process; every refusal raises exactly as inline. Popen success
+    remains the irreversible boundary -- nothing after it may raise into
+    continue_training()."""
+    from . import checkpoint_registry
     # The training queue lock serializes launch/Stop ownership; the shared GPU
     # arbiter also covers vision's check -> flag handoff. Keep this lock order
     # everywhere training launches: queue ownership first, GPU admission second.
@@ -8702,6 +8711,76 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
                 # earlier launching intent + durable fence remain recoverable.
                 logger.exception(
                     'could not attach process identity to exact-resume journal')
+    return proc
+
+
+@_serial_local_launch
+def launch_training(user_id, dataset_id, steps: int | None = None, check_captions: bool = True,
+                    base_model=None, variant: str | None = None, train_type: str | None = None,
+                    allow_caption_mismatch: bool = False, masked: bool | None = None,
+                    fresh: bool = False, allow_uncaptioned: bool = False,
+                    allow_caption_quality: bool = False,
+                    vae_path=_PERSISTED, te_path=_PERSISTED,
+                    allow_unverified_weights: bool = False,
+                    allow_not_ready: bool = False,
+                    parent_record_id=None, resumed_from=None,
+                    training_mode=None,
+                    _state_restore_bundle=None,
+                    _state_bridge_required: bool = False,
+                    _state_resume_training_folder=None,
+                    _state_resume_archived=None,
+                    _state_model_pins=None,
+                    _state_resume_journal=None) -> dict:
+    """Export + config + pause ComfyUI (flag) + lance l'entraînement ai-toolkit
+    en CLI headless (`run.py <config>`).
+
+    ``steps`` = step cible (None → calculé par recommended_steps selon le nombre
+    d'images). ai-toolkit reprend AUTOMATIQUEMENT depuis le dernier checkpoint
+    présent dans le training_folder (get_latest_save_path), donc relancer avec un
+    steps > dernier_step continue l'entraînement. ``fresh=True`` écarte d'abord le
+    run existant (archive_previous_run) → repart de zéro sur le dataset actuel.
+
+    Retourne {pid, config_path, log_path}. Raises RuntimeError if ai-toolkit isn't
+    installed/configured (route maps this to 409, not 400 - it's a backend
+    availability problem, not a bad request)."""
+    (ds, base_model, variant, launch_fam, recipe, launch_view,
+     eff_vae, eff_te) = _lt_refuse_or_resolve(
+        user_id, dataset_id, train_type, variant, base_model, check_captions,
+        allow_caption_mismatch, allow_uncaptioned, allow_caption_quality,
+        allow_not_ready, allow_unverified_weights, training_mode,
+        vae_path, te_path, _state_resume_journal)
+    ds.train_base_model = base_model
+    ds.train_variant = variant
+    # Persist the resolved SDXL VAE/TE overrides (None on every other family) so the
+    # run-dir tag, the config, and continue/queue replays all read the same triplet.
+    ds.train_vae_path = eff_vae
+    ds.train_te_path = eff_te
+    fds.db.session.commit()
+    (archived, steps, masked, _bridge_probe, _bridge_candidate,
+     _bridge_model_pins, dataset_folder, _prepared, _job_config,
+     config_path, env) = _lt_prepare_job(
+        user_id, dataset_id, ds, launch_fam, variant, base_model, steps,
+        masked, fresh, _state_bridge_required, _state_model_pins)
+    # Context/status files live inside the mutable run lane.  Protect their
+    # publication with the same lock as lane archive/seed and final admission;
+    # otherwise a launch which passed the cheap preflight earlier could overwrite
+    # an exact resume's context before either request reaches the spawn lock.
+    with _queue_lock:
+        run_dir = _run_root(
+            ds, base_model=base_model, family=launch_fam, variant=variant)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        log_path = _run_log_path(
+            ds, base_model=base_model, family=launch_fam, variant=variant)
+    run_token = secrets.token_hex(16)
+    (_bridge_candidate, env, _bridge_identity_path,
+     _bridge_status_path) = _lt_publish_bridge_context(
+        run_dir, config_path, env, masked, _prepared, _bridge_probe,
+        _bridge_candidate, _state_restore_bundle, _state_bridge_required)
+    proc = _lt_spawn_transaction(
+        ds, user_id, dataset_id, steps, masked, launch_fam, variant,
+        base_model, recipe, allow_not_ready, parent_record_id, resumed_from,
+        run_token, log_path, config_path, env, _prepared,
+        _state_resume_journal)
     # Watcher event-driven : libère ComfyUI / enchaîne la file dès la fin du
     # process (le poll de /train/status reste le filet de secours).
     _exact_resume_transaction = None

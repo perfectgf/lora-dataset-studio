@@ -24,9 +24,17 @@ SRC = (pathlib.Path(__file__).resolve().parents[1]
 
 
 def _launch_training_body() -> str:
-    start = SRC.index('def launch_training(')
-    end = SRC.index('\ndef ', start + 1)
-    return SRC[start:end]
+    # launch_training's phases moved into _lt_* functions (2026-08-24, verbatim
+    # extraction). The ordering contract spans the whole pipeline, so the body
+    # under test is the moved phases concatenated in CALL order, trunk last —
+    # index comparisons keep exactly their old meaning (the freeze lives in
+    # _lt_prepare_job, the authoritative lock pair in _lt_spawn_transaction,
+    # and the trunk carries neither marker).
+    parts = []
+    for name in ('_lt_prepare_job', '_lt_spawn_transaction', 'launch_training'):
+        start = SRC.index(f'def {name}(')
+        parts.append(SRC[start:SRC.index('\ndef ', start + 1)])
+    return '\n'.join(parts)
 
 
 def _atomic_export_body() -> str:
