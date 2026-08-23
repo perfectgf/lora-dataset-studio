@@ -5906,76 +5906,17 @@ def face_crop_to_square_webp(image_bytes: bytes, size: int = 1024, pad: float = 
 
 
 # --- Import + classify (Qwen3-VL) ------------------------------------------
-@_serialize_dataset_ingest
-def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None,
-                  source_metadata=None, captions=None, caption_origins=None,
-                  bank_image_ids=None,
-                  framings=None, bank_analysis_snapshots=None,
-                  watermark_states=None, watermark_bboxes=None,
-                  watermark_regions=None, watermark_sources=None,
-                  watermark_scores=None, statuses=None,
-                  transfer_metadatas=None, dedupe_seen=None,
-                  preserve_exact_bytes=False, created_ids_sink=None,
-                  provenance_changes_sink=None):
-    """Store original static bytes (or head-crop) + create import rows (status=keep).
-    When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
-    must then hold the GPU-exclusive window - and is by construction a face,
-    so framing='face' is set directly (no classify pass needed).
-
-    dedupe=True (the /import route) drops perceptual duplicates by dHash — both
-    within the batch and vs the dataset's existing files. The hash is computed on
-    the final stored image, so a re-import of the same photo matches its earlier
-    crop instead of comparing a full frame to a head crop. Skips are counted in
-    stats['duplicates'] when a stats dict is passed.
-    Default stays False: service-level callers (scrape flow dedupes upstream on
-    the ORIGINALS, before paying the crop) keep the historical behavior.
-
-    ``source_metadata`` is an optional list parallel to ``files_bytes``. Only
-    validated Pexels or web-search provenance is stored; existing callers can omit it.
-
-    ``captions`` is an optional list parallel to ``files_bytes`` — a pre-existing
-    caption to carry onto the new row (the image-bank promotion path passes the bank
-    captions here, so a promoted selection starts already captioned). Empty/None entries
-    leave the row uncaptioned. A skipped duplicate simply drops its caption with it.
-
-    ``framings`` is an optional list parallel to ``files_bytes`` — a framing
-    ALREADY known for the blob (the image-bank promotion path passes the framing
-    its own classify pass wrote, so a promoted selection lands counted in the
-    composition instead of sitting at 0 until something re-classifies it). Only
-    the catalog buckets are accepted; anything else lands as None so the dataset
-    classifier can still fill it. Ignored when crop=True (a head crop IS a face).
-
-    ``bank_image_ids`` is an optional list parallel to ``files_bytes`` — the
-    bank_image each blob came from, recorded on the new row. A blob dropped as a
-    perceptual DUPLICATE hands its bank id to the row it matched (when that row
-    carries none yet): the dataset does hold that bank image, just under another
-    row, and the bank's "already promoted here" answer must say so. That link is
-    what lets the bank re-offer an image once the user deletes it here. Bank ids
-    that could NOT be linked (the matched row already belongs to another bank —
-    a scalar column can only credit one) are listed in ``stats['bank_unlinked']``.
-
-    ``bank_analysis_snapshots`` is an internal Bank-promotion marker parallel to
-    ``files_bytes``.  When present, this importer recalculates deterministic
-    quality/provenance from the final Dataset bytes and seals a v3 snapshot with
-    their SHA-256.  A byte-identical Bank capture also retains its complete row
-    analysis plus path-free Score/Face embeddings in a bounded sidecar; a
-    transformed image gets deterministic analysis only.  The regular current
-    Dataset fields stay separate and remain user-owned.
-
-    ``dedupe_seen`` is an optional internal mutable cache of ``(dhash, row_id)``
-    pairs for chunked imports. When omitted, the importer loads the dataset's
-    existing hashes itself, preserving the standalone-call behavior.
-
-    Returns (ids, failed_count)."""
-    ds = get_dataset(user_id, dataset_id)
-    if not ds:
-        return [], 0
-    # Sans head-crop, on préserve le ratio ET les octets source autorisés : l'ancien
-    # chemin « carré padé » ajoutait des bandes noires que le LoRA apprendrait, et
-    # forçait tous les imports personnage en carré — un plan buste/corps importé
-    # doit rester tel quel (ai-toolkit gère le bucketing multi-ratios).
-    seen = (dedupe_seen if dedupe_seen is not None
-            else _existing_dhash_rows(dataset_id)) if dedupe else None
+def _imp_input_accessors(crop, source_metadata, captions, caption_origins,
+                         bank_image_ids, framings, bank_analysis_snapshots,
+                         watermark_states, watermark_bboxes,
+                         watermark_regions, watermark_sources,
+                         watermark_scores, statuses, transfer_metadatas):
+    """The importer's input normalisation, moved verbatim (2026-08-23):
+    every optional list parallel to ``files_bytes`` is copied once, and the
+    per-index accessors validate on the way out (an unknown caption-origin
+    stamp, framing bucket, watermark state/source or status never reaches a
+    row). Returns the two lists the row builder indexes directly plus the
+    eleven accessors, in the order the trunk unpacks them."""
     metadata_by_index = list(source_metadata) if source_metadata is not None else []
     captions_by_index = list(captions) if captions is not None else []
     # Parallel to ``captions`` and travelling WITH it. Without this list a bank
@@ -6066,6 +6007,331 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
         if normalized is None:
             raise RuntimeError('invalid Bank/Dataset transfer metadata')
         return normalized
+    return (metadata_by_index, captions_by_index, bank_id_at,
+            caption_origin_at, framing_at, snapshot_at, watermark_state_at,
+            watermark_bbox_at, watermark_regions_at, watermark_source_at,
+            watermark_score_at, status_at, transfer_metadata_at)
+
+
+def _imp_prepare_seal(snapshot_at, index, stored, dataset_id):
+    """Bank-promotion analysis prep for ONE image, moved verbatim: when a
+    snapshot marker rides with this index, recompute deterministic analysis
+    from the final stored bytes and keep the captured cache bundle only on
+    a byte-identical fingerprint. Returns the ``seal_analysis_snapshot``
+    closure the duplicate-absorb and commit steps call at the last moment
+    (it writes the cache sidecar, so it must run only when a row is about
+    to commit)."""
+    final_analysis = None
+    captured_analysis = None
+    captured_cache_bundle = None
+    if snapshot_at(index) is not None:
+        final_analysis = bank_deterministic_analysis(stored)
+        if final_analysis is None:
+            raise RuntimeError('could not seal Bank analysis for Dataset image')
+        captured_analysis = (
+            snapshot_at(index) if isinstance(snapshot_at(index), dict) else None)
+        captured_matches = (
+            captured_analysis is not None
+            and captured_analysis.get('fingerprint')
+            == bank_transfer_metadata.content_fingerprint_bytes(stored))
+        if captured_matches and captured_analysis.get('caches'):
+            captured_cache_bundle = captured_analysis['caches']
+
+    def seal_analysis_snapshot():
+        """Persist the sidecar only when this candidate is about to commit."""
+        if final_analysis is None:
+            return None, None
+        cache_ref = None
+        try:
+            if captured_cache_bundle:
+                cache_ref = bank_transfer_metadata.write_cache_sidecar(
+                    _bank_analysis_cache_dir(dataset_id), captured_cache_bundle)
+                if cache_ref is None:
+                    raise RuntimeError(
+                        'could not preserve Bank Score/Face cache in Dataset')
+            snapshot = bank_transfer_metadata.snapshot_storage(
+                final_analysis, stored, captured=captured_analysis,
+                cache_ref=cache_ref)
+            if snapshot is None:
+                raise RuntimeError(
+                    'could not seal Bank analysis for Dataset image')
+            return snapshot, cache_ref
+        except Exception:
+            _remove_unreferenced_bank_analysis_cache(dataset_id, cache_ref)
+            raise
+    return seal_analysis_snapshot
+
+
+def _imp_dedupe_match(dedupe, stored, seen, dataset_id,
+                      preserve_exact_bytes):
+    """The perceptual-duplicate scan, moved verbatim: dHash the stored
+    bytes, walk the ``seen`` cache refreshing entries whose row changed on
+    disk and evicting stale ones in place, and refuse a merely-similar
+    match when exact bytes must be preserved. Returns (fp, match) — fp for
+    the trunk to cache on commit, match as the row id this image
+    duplicates (None when it is new or dedupe is off)."""
+    match = None
+    fp = None
+    if dedupe:
+        try:
+            with Image.open(io.BytesIO(stored)) as im:
+                fp = _dhash(im)
+        except (OSError, ValueError):
+            fp = None   # unreadable output would have failed above; belt & braces
+        if fp is not None:
+            match = None
+            stale_ids = set()
+            for cached_hash, mid in tuple(seen):
+                if _hamming(fp, cached_hash) > SCRAPE_DHASH_MAX_DISTANCE:
+                    continue
+                live = (FaceDatasetImage.query
+                        .filter(
+                            FaceDatasetImage.id == mid,
+                            FaceDatasetImage.dataset_id == dataset_id,
+                            FaceDatasetImage.status.in_(('keep', 'pending')))
+                        .first())
+                if live is None or not live.filename:
+                    stale_ids.add(mid)
+                    continue
+                try:
+                    live_path = os.path.join(
+                        _dataset_dir(dataset_id), live.filename)
+                    if (preserve_exact_bytes
+                            and Path(live_path).read_bytes() != stored):
+                        # Perceptually similar is not byte-identical and
+                        # cannot carry this image's exact analysis vault.
+                        continue
+                    with Image.open(live_path) as im:
+                        live_hash = _dhash(im)
+                except (OSError, ValueError):
+                    stale_ids.add(mid)
+                    continue
+                if live_hash != cached_hash:
+                    for cache_index, (_old_hash, cached_id) in enumerate(seen):
+                        if cached_id == mid:
+                            seen[cache_index] = (live_hash, mid)
+                            break
+                if _hamming(fp, live_hash) <= SCRAPE_DHASH_MAX_DISTANCE:
+                    match = mid
+                    break
+            if stale_ids:
+                seen[:] = [
+                    (h, mid) for h, mid in seen if mid not in stale_ids
+                ]
+    return fp, match
+
+
+def _imp_absorb_duplicate(match, index, stats, dataset_id, bank_id_at,
+                          seal_analysis_snapshot, provenance_changes_sink):
+    """What happens to a blob the dataset already holds, moved verbatim:
+    count it, hand its bank provenance to the row that owns the bytes
+    (sealing the analysis sidecar first), report an unlinkable bank id
+    back through stats, and record the provenance flip for the caller's
+    rollback bookkeeping — with the rollback/finally pairing that never
+    leaves the session dirty or the cache sidecar orphaned."""
+    if stats is not None:
+        stats['duplicates'] = stats.get('duplicates', 0) + 1
+    # The dataset already holds this image — hand the provenance to
+    # the row that holds it, so the source can tell it landed. When
+    # that row is already claimed (another bank supplied the same
+    # photo first), report the id back: the caller has no verifiable
+    # trace here and needs to fall back on its own bookkeeping.
+    bid = bank_id_at(index)
+    analysis_snapshot = None
+    analysis_cache_ref = None
+    try:
+        if bid:
+            analysis_snapshot, analysis_cache_ref = (
+                seal_analysis_snapshot())
+        linked_before = db.session.get(FaceDatasetImage, match)
+        previous = ((linked_before.bank_image_id,
+                     linked_before.bank_analysis_snapshot)
+                    if linked_before is not None else None)
+        linked = (bool(bid) and _attach_bank_provenance(
+            match, bid, bank_analysis_snapshot=analysis_snapshot,
+            bank_analysis_cache_dir=_bank_analysis_cache_dir(
+                dataset_id)))
+        linked_after = db.session.get(FaceDatasetImage, match)
+        if (provenance_changes_sink is not None
+                and previous is not None
+                and linked_after is not None
+                and previous != (linked_after.bank_image_id,
+                                linked_after.bank_analysis_snapshot)):
+            provenance_changes_sink.append({
+                'image_id': match,
+                'old_bank_image_id': previous[0],
+                'old_snapshot': previous[1],
+                'new_bank_image_id': linked_after.bank_image_id,
+                'new_snapshot': linked_after.bank_analysis_snapshot,
+            })
+        if bid and not linked and stats is not None:
+            stats.setdefault('bank_unlinked', []).append(bid)
+    except Exception:
+        # `_attach_bank_provenance` commits on success.  A fault
+        # before that commit leaves the session unusable until
+        # rollback; a fault after it is resolved by the durable
+        # ownership proof in `finally` below.
+        db.session.rollback()
+        raise
+    finally:
+        _remove_unreferenced_bank_analysis_cache(
+            dataset_id, analysis_cache_ref)
+    logger.info(f"dataset import: perceptual duplicate skipped (dataset {dataset_id})")
+
+
+def _imp_commit_row(user_id, dataset_id, index, stored, extension, scale,
+                    seal_analysis_snapshot, transfer_metadata_at,
+                    captions_by_index, metadata_by_index, status_at,
+                    framing_at, caption_origin_at, bank_id_at,
+                    watermark_state_at, watermark_bbox_at,
+                    watermark_regions_at, watermark_source_at,
+                    watermark_score_at):
+    """One image's atomic landing, moved verbatim: seal the analysis
+    sidecar, restore transfer-metadata values, write the file atomically,
+    insert the row and commit — and on ANY failure roll back, unlink the
+    uncommitted file and drop the now-unreferenced cache sidecar before
+    re-raising. Returns the committed row."""
+    analysis_snapshot, analysis_cache_ref = seal_analysis_snapshot()
+    transfer_metadata = transfer_metadata_at(index)
+    restored = bank_transfer_metadata.dataset_restore_values(
+        transfer_metadata,
+        bank_transfer_metadata.content_fingerprint_bytes(stored))
+    fn = f"{user_id}_dataset_{uuid.uuid4().hex[:8]}{extension}"
+    stored_path = os.path.join(_dataset_dir(dataset_id), fn)
+    try:
+        write_image_atomic(stored_path, stored)
+        cap = (captions_by_index[index] if index < len(captions_by_index) else None)
+        cap = _cap_caption(cap) if (cap or '').strip() else None
+        restored_short = restored.get('caption_short')
+        restored_short = (_cap_caption(restored_short)
+                          if isinstance(restored_short, str)
+                          and restored_short.strip() else None)
+        restored_short_origin = (restored.get('caption_short_origin')
+                                 if restored_short else None)
+        img = FaceDatasetImage(
+                               dataset_id=dataset_id,
+                               source=restored.get('source') or 'import',
+                               status=status_at(index),
+                               filename=fn, framing=framing_at(index),
+                               variation_label=restored.get('variation_label'),
+                               variation_prompt=restored.get('variation_prompt'),
+                               klein_model=restored.get('klein_model'),
+                               face_score=restored.get('face_score'),
+                               face_state=restored.get('face_state'),
+                               fail_reason=restored.get('fail_reason'),
+                               fail_kind=restored.get('fail_kind'),
+                               upscale_ratio=(restored.get('upscale_ratio')
+                                              if restored.get('upscale_ratio')
+                                              is not None else scale),
+                               caption=cap, caption_short=restored_short,
+                               caption_origin=caption_origin_at(index, cap),
+                               caption_short_origin=restored_short_origin,
+                               bank_image_id=bank_id_at(index),
+                               bank_analysis_snapshot=analysis_snapshot,
+                               transfer_metadata=transfer_metadata,
+                               watermark_state=watermark_state_at(index),
+                               watermark_bbox=watermark_bbox_at(index),
+                               watermark_regions=watermark_regions_at(index),
+                               watermark_source=watermark_source_at(index),
+                               watermark_score=watermark_score_at(index),
+                               source_metadata=_source_metadata_storage(
+                                   metadata_by_index[index]
+                                   if index < len(metadata_by_index) else None))
+        db.session.add(img)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        try:
+            os.unlink(stored_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            logger.warning('dataset import: could not remove uncommitted image %s',
+                           stored_path, exc_info=True)
+        _remove_unreferenced_bank_analysis_cache(
+            dataset_id, analysis_cache_ref)
+        raise
+    return img
+
+
+@_serialize_dataset_ingest
+def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None,
+                  source_metadata=None, captions=None, caption_origins=None,
+                  bank_image_ids=None,
+                  framings=None, bank_analysis_snapshots=None,
+                  watermark_states=None, watermark_bboxes=None,
+                  watermark_regions=None, watermark_sources=None,
+                  watermark_scores=None, statuses=None,
+                  transfer_metadatas=None, dedupe_seen=None,
+                  preserve_exact_bytes=False, created_ids_sink=None,
+                  provenance_changes_sink=None):
+    """Store original static bytes (or head-crop) + create import rows (status=keep).
+    When crop=True, each image is auto head-cropped via Qwen3-VL - the CALLER
+    must then hold the GPU-exclusive window - and is by construction a face,
+    so framing='face' is set directly (no classify pass needed).
+
+    dedupe=True (the /import route) drops perceptual duplicates by dHash — both
+    within the batch and vs the dataset's existing files. The hash is computed on
+    the final stored image, so a re-import of the same photo matches its earlier
+    crop instead of comparing a full frame to a head crop. Skips are counted in
+    stats['duplicates'] when a stats dict is passed.
+    Default stays False: service-level callers (scrape flow dedupes upstream on
+    the ORIGINALS, before paying the crop) keep the historical behavior.
+
+    ``source_metadata`` is an optional list parallel to ``files_bytes``. Only
+    validated Pexels or web-search provenance is stored; existing callers can omit it.
+
+    ``captions`` is an optional list parallel to ``files_bytes`` — a pre-existing
+    caption to carry onto the new row (the image-bank promotion path passes the bank
+    captions here, so a promoted selection starts already captioned). Empty/None entries
+    leave the row uncaptioned. A skipped duplicate simply drops its caption with it.
+
+    ``framings`` is an optional list parallel to ``files_bytes`` — a framing
+    ALREADY known for the blob (the image-bank promotion path passes the framing
+    its own classify pass wrote, so a promoted selection lands counted in the
+    composition instead of sitting at 0 until something re-classifies it). Only
+    the catalog buckets are accepted; anything else lands as None so the dataset
+    classifier can still fill it. Ignored when crop=True (a head crop IS a face).
+
+    ``bank_image_ids`` is an optional list parallel to ``files_bytes`` — the
+    bank_image each blob came from, recorded on the new row. A blob dropped as a
+    perceptual DUPLICATE hands its bank id to the row it matched (when that row
+    carries none yet): the dataset does hold that bank image, just under another
+    row, and the bank's "already promoted here" answer must say so. That link is
+    what lets the bank re-offer an image once the user deletes it here. Bank ids
+    that could NOT be linked (the matched row already belongs to another bank —
+    a scalar column can only credit one) are listed in ``stats['bank_unlinked']``.
+
+    ``bank_analysis_snapshots`` is an internal Bank-promotion marker parallel to
+    ``files_bytes``.  When present, this importer recalculates deterministic
+    quality/provenance from the final Dataset bytes and seals a v3 snapshot with
+    their SHA-256.  A byte-identical Bank capture also retains its complete row
+    analysis plus path-free Score/Face embeddings in a bounded sidecar; a
+    transformed image gets deterministic analysis only.  The regular current
+    Dataset fields stay separate and remain user-owned.
+
+    ``dedupe_seen`` is an optional internal mutable cache of ``(dhash, row_id)``
+    pairs for chunked imports. When omitted, the importer loads the dataset's
+    existing hashes itself, preserving the standalone-call behavior.
+
+    Returns (ids, failed_count)."""
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return [], 0
+    # Sans head-crop, on préserve le ratio ET les octets source autorisés : l'ancien
+    # chemin « carré padé » ajoutait des bandes noires que le LoRA apprendrait, et
+    # forçait tous les imports personnage en carré — un plan buste/corps importé
+    # doit rester tel quel (ai-toolkit gère le bucketing multi-ratios).
+    seen = (dedupe_seen if dedupe_seen is not None
+            else _existing_dhash_rows(dataset_id)) if dedupe else None
+    (metadata_by_index, captions_by_index, bank_id_at, caption_origin_at,
+     framing_at, snapshot_at, watermark_state_at, watermark_bbox_at,
+     watermark_regions_at, watermark_source_at, watermark_score_at,
+     status_at, transfer_metadata_at) = _imp_input_accessors(
+        crop, source_metadata, captions, caption_origins, bank_image_ids,
+        framings, bank_analysis_snapshots, watermark_states,
+        watermark_bboxes, watermark_regions, watermark_sources,
+        watermark_scores, statuses, transfer_metadatas)
 
     ids = []
     failed = 0
@@ -6102,201 +6368,22 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
             failed += 1
             logger.warning(f"dataset import: image skipped (dataset {dataset_id}): {e}")
             continue
-        final_analysis = None
-        captured_analysis = None
-        captured_cache_bundle = None
-        if snapshot_at(index) is not None:
-            final_analysis = bank_deterministic_analysis(stored)
-            if final_analysis is None:
-                raise RuntimeError('could not seal Bank analysis for Dataset image')
-            captured_analysis = (
-                snapshot_at(index) if isinstance(snapshot_at(index), dict) else None)
-            captured_matches = (
-                captured_analysis is not None
-                and captured_analysis.get('fingerprint')
-                == bank_transfer_metadata.content_fingerprint_bytes(stored))
-            if captured_matches and captured_analysis.get('caches'):
-                captured_cache_bundle = captured_analysis['caches']
-
-        def seal_analysis_snapshot():
-            """Persist the sidecar only when this candidate is about to commit."""
-            if final_analysis is None:
-                return None, None
-            cache_ref = None
-            try:
-                if captured_cache_bundle:
-                    cache_ref = bank_transfer_metadata.write_cache_sidecar(
-                        _bank_analysis_cache_dir(dataset_id), captured_cache_bundle)
-                    if cache_ref is None:
-                        raise RuntimeError(
-                            'could not preserve Bank Score/Face cache in Dataset')
-                snapshot = bank_transfer_metadata.snapshot_storage(
-                    final_analysis, stored, captured=captured_analysis,
-                    cache_ref=cache_ref)
-                if snapshot is None:
-                    raise RuntimeError(
-                        'could not seal Bank analysis for Dataset image')
-                return snapshot, cache_ref
-            except Exception:
-                _remove_unreferenced_bank_analysis_cache(dataset_id, cache_ref)
-                raise
-        fp = None
-        if dedupe:
-            try:
-                with Image.open(io.BytesIO(stored)) as im:
-                    fp = _dhash(im)
-            except (OSError, ValueError):
-                fp = None   # unreadable output would have failed above; belt & braces
-            if fp is not None:
-                match = None
-                stale_ids = set()
-                for cached_hash, mid in tuple(seen):
-                    if _hamming(fp, cached_hash) > SCRAPE_DHASH_MAX_DISTANCE:
-                        continue
-                    live = (FaceDatasetImage.query
-                            .filter(
-                                FaceDatasetImage.id == mid,
-                                FaceDatasetImage.dataset_id == dataset_id,
-                                FaceDatasetImage.status.in_(('keep', 'pending')))
-                            .first())
-                    if live is None or not live.filename:
-                        stale_ids.add(mid)
-                        continue
-                    try:
-                        live_path = os.path.join(
-                            _dataset_dir(dataset_id), live.filename)
-                        if (preserve_exact_bytes
-                                and Path(live_path).read_bytes() != stored):
-                            # Perceptually similar is not byte-identical and
-                            # cannot carry this image's exact analysis vault.
-                            continue
-                        with Image.open(live_path) as im:
-                            live_hash = _dhash(im)
-                    except (OSError, ValueError):
-                        stale_ids.add(mid)
-                        continue
-                    if live_hash != cached_hash:
-                        for cache_index, (_old_hash, cached_id) in enumerate(seen):
-                            if cached_id == mid:
-                                seen[cache_index] = (live_hash, mid)
-                                break
-                    if _hamming(fp, live_hash) <= SCRAPE_DHASH_MAX_DISTANCE:
-                        match = mid
-                        break
-                if stale_ids:
-                    seen[:] = [
-                        (h, mid) for h, mid in seen if mid not in stale_ids
-                    ]
-                if match is not None:
-                    if stats is not None:
-                        stats['duplicates'] = stats.get('duplicates', 0) + 1
-                    # The dataset already holds this image — hand the provenance to
-                    # the row that holds it, so the source can tell it landed. When
-                    # that row is already claimed (another bank supplied the same
-                    # photo first), report the id back: the caller has no verifiable
-                    # trace here and needs to fall back on its own bookkeeping.
-                    bid = bank_id_at(index)
-                    analysis_snapshot = None
-                    analysis_cache_ref = None
-                    try:
-                        if bid:
-                            analysis_snapshot, analysis_cache_ref = (
-                                seal_analysis_snapshot())
-                        linked_before = db.session.get(FaceDatasetImage, match)
-                        previous = ((linked_before.bank_image_id,
-                                     linked_before.bank_analysis_snapshot)
-                                    if linked_before is not None else None)
-                        linked = (bool(bid) and _attach_bank_provenance(
-                            match, bid, bank_analysis_snapshot=analysis_snapshot,
-                            bank_analysis_cache_dir=_bank_analysis_cache_dir(
-                                dataset_id)))
-                        linked_after = db.session.get(FaceDatasetImage, match)
-                        if (provenance_changes_sink is not None
-                                and previous is not None
-                                and linked_after is not None
-                                and previous != (linked_after.bank_image_id,
-                                                linked_after.bank_analysis_snapshot)):
-                            provenance_changes_sink.append({
-                                'image_id': match,
-                                'old_bank_image_id': previous[0],
-                                'old_snapshot': previous[1],
-                                'new_bank_image_id': linked_after.bank_image_id,
-                                'new_snapshot': linked_after.bank_analysis_snapshot,
-                            })
-                        if bid and not linked and stats is not None:
-                            stats.setdefault('bank_unlinked', []).append(bid)
-                    except Exception:
-                        # `_attach_bank_provenance` commits on success.  A fault
-                        # before that commit leaves the session unusable until
-                        # rollback; a fault after it is resolved by the durable
-                        # ownership proof in `finally` below.
-                        db.session.rollback()
-                        raise
-                    finally:
-                        _remove_unreferenced_bank_analysis_cache(
-                            dataset_id, analysis_cache_ref)
-                    logger.info(f"dataset import: perceptual duplicate skipped (dataset {dataset_id})")
-                    continue
-        analysis_snapshot, analysis_cache_ref = seal_analysis_snapshot()
-        transfer_metadata = transfer_metadata_at(index)
-        restored = bank_transfer_metadata.dataset_restore_values(
-            transfer_metadata,
-            bank_transfer_metadata.content_fingerprint_bytes(stored))
-        fn = f"{user_id}_dataset_{uuid.uuid4().hex[:8]}{extension}"
-        stored_path = os.path.join(_dataset_dir(dataset_id), fn)
-        try:
-            write_image_atomic(stored_path, stored)
-            cap = (captions_by_index[index] if index < len(captions_by_index) else None)
-            cap = _cap_caption(cap) if (cap or '').strip() else None
-            restored_short = restored.get('caption_short')
-            restored_short = (_cap_caption(restored_short)
-                              if isinstance(restored_short, str)
-                              and restored_short.strip() else None)
-            restored_short_origin = (restored.get('caption_short_origin')
-                                     if restored_short else None)
-            img = FaceDatasetImage(
-                                   dataset_id=dataset_id,
-                                   source=restored.get('source') or 'import',
-                                   status=status_at(index),
-                                   filename=fn, framing=framing_at(index),
-                                   variation_label=restored.get('variation_label'),
-                                   variation_prompt=restored.get('variation_prompt'),
-                                   klein_model=restored.get('klein_model'),
-                                   face_score=restored.get('face_score'),
-                                   face_state=restored.get('face_state'),
-                                   fail_reason=restored.get('fail_reason'),
-                                   fail_kind=restored.get('fail_kind'),
-                                   upscale_ratio=(restored.get('upscale_ratio')
-                                                  if restored.get('upscale_ratio')
-                                                  is not None else scale),
-                                   caption=cap, caption_short=restored_short,
-                                   caption_origin=caption_origin_at(index, cap),
-                                   caption_short_origin=restored_short_origin,
-                                   bank_image_id=bank_id_at(index),
-                                   bank_analysis_snapshot=analysis_snapshot,
-                                   transfer_metadata=transfer_metadata,
-                                   watermark_state=watermark_state_at(index),
-                                   watermark_bbox=watermark_bbox_at(index),
-                                   watermark_regions=watermark_regions_at(index),
-                                   watermark_source=watermark_source_at(index),
-                                   watermark_score=watermark_score_at(index),
-                                   source_metadata=_source_metadata_storage(
-                                       metadata_by_index[index]
-                                       if index < len(metadata_by_index) else None))
-            db.session.add(img)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            try:
-                os.unlink(stored_path)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                logger.warning('dataset import: could not remove uncommitted image %s',
-                               stored_path, exc_info=True)
-            _remove_unreferenced_bank_analysis_cache(
-                dataset_id, analysis_cache_ref)
-            raise
+        seal_analysis_snapshot = _imp_prepare_seal(
+            snapshot_at, index, stored, dataset_id)
+        fp, match = _imp_dedupe_match(
+            dedupe, stored, seen, dataset_id, preserve_exact_bytes)
+        if match is not None:
+            _imp_absorb_duplicate(
+                match, index, stats, dataset_id, bank_id_at,
+                seal_analysis_snapshot, provenance_changes_sink)
+            continue
+        img = _imp_commit_row(
+            user_id, dataset_id, index, stored, extension, scale,
+            seal_analysis_snapshot, transfer_metadata_at,
+            captions_by_index, metadata_by_index, status_at, framing_at,
+            caption_origin_at, bank_id_at, watermark_state_at,
+            watermark_bbox_at, watermark_regions_at, watermark_source_at,
+            watermark_score_at)
         if dedupe and fp is not None:
             seen.append((fp, img.id))
         ids.append(img.id)
