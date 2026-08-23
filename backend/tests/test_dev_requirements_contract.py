@@ -101,8 +101,8 @@ def test_pytest_is_pinned_exactly_and_only_in_the_dev_file():
     CI's run."""
     dev = _lines(_DEV)
     assert [line for line in dev if line.lower().startswith('pytest')] == [
-        'pytest==9.0.3',
-        'pytest-xdist==3.6.1',
+        'pytest==9.1.1',
+        'pytest-xdist==3.8.0',
     ], 'pin the audited collector exactly — another pytest is not evidence about CI'
     assert not any(l.lower().startswith('pytest') for l in _lines(_RUNTIME)), \
         'test dependencies belong in requirements-dev.txt, not in the end-user install'
