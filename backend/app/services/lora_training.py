@@ -7253,80 +7253,8 @@ _KREA_MIN_VRAM_GB = 24
 _VRAM24_FAMILIES = ('krea', 'flux')   # familles 12B qui recommandent ~24 GB à 1024
 
 
-def training_preflight(user_id, dataset_id, train_type=None, variant=None,
-                       lane=None, masked=None, training_mode=None,
-                       base_model=_PERSISTED) -> dict:
-    """Pre-launch sanity report: {'blockers': [...], 'warnings': [...]}. Blockers
-    stop the launch (too few images for the family); warnings ask for one explicit
-    confirm in the UI. Pure reads — never mutates, never raises on probe failures
-    (an unknown GPU must not block a run).
-
-    Émet AUSSI `checks` (liste structurée {id,label,status,detail,target}) +
-    `verdict` ('ready'|'warnings'|'blocked') pour la pastille de préparation du
-    workspace — construits DANS LA MÊME PASSE que blockers/warnings (une seule
-    source de vérité, aucune règle dupliquée). `target` = id de section du
-    workspace (gf-generate/gf-images) où corriger — None quand rien à cibler.
-    NB : le check 'captioned' (images gardées sans caption) est un fail dans
-    `checks` (assert_trainable refusera le launch) mais volontairement PAS un
-    blocker ici — le flux modal existant (launch → erreur explicite) est conservé.
-
-    ``lane`` ('local' default, or 'cloud') says WHERE the run will execute. Every
-    row carries a ``scope``: 'dataset' (a property of the images/captions, true
-    wherever the job runs) or 'machine' (a read of THIS box — its GPU, its
-    ai-toolkit venv). A cloud lane drops the 'machine' rows and their warning
-    lines: that hardware will not run the job, and on a machine with no local
-    training environment at all they would fire on every single cloud launch —
-    which is exactly how users learn to click through warnings without reading
-    them. Default 'local' keeps the historical payload byte-for-byte.
-
-    ``masked`` says whether the caller intends MASKED training (person masks). It
-    is a client-side preference the server cannot read, so it is passed in; None
-    (the default) means "not stated" and the person-mask row is omitted entirely —
-    warning about a mask nobody asked for is exactly the noise that teaches people
-    to click through preflights."""
-    from .face_variations import caption_has_identity_leak
-    stored_ds = fds.get_dataset(user_id, dataset_id)
-    if not stored_ds:
-        raise ValueError('dataset not found')
-    ttype = _train_type(stored_ds, train_type)
-    mode = normalize_training_mode(
-        training_mode if training_mode is not None
-        else getattr(stored_ds, 'training_mode', None))
-    ds = _train_context_view(
-        stored_ds, ttype, variant, base_model=base_model,
-        training_mode=mode)
-    label = _FAMILY_LABEL.get(ttype, ttype)
-    blockers, warnings = [], []
-    checks = []
-    hf_cloud_token_status = None
-    # `warnings` is a flat list of strings (the modal renders it verbatim), so the
-    # lane filter cannot recognise a machine-scope line by reading it. Record the
-    # indices as they are appended instead — the only reliable pairing.
-    machine_warning_ix = set()
-
-    def _machine_warn(msg):
-        machine_warning_ix.add(len(warnings))
-        warnings.append(msg)
-
-    def _check(cid, clabel, status, detail, target=None, bypassable=None, hint=None,
-               scope='dataset'):
-        # `bypassable` (fail rows only): True = a QUALITY guard-rail the explicit
-        # "Continue anyway" ack can waive; False = a physical impossibility the ack
-        # never covers. `hint` = the honest one-line risk shown next to the ack.
-        # `scope`: 'dataset' = a property of the images/captions (true on any lane);
-        # 'machine' = a read of THIS box, meaningless when the job runs elsewhere;
-        # 'cloud' = a remote-lane prerequisite such as the dedicated HF token.
-        entry = {'id': cid, 'label': clabel, 'status': status,
-                 'detail': detail, 'target': target, 'scope': scope}
-        if bypassable is not None:
-            entry['bypassable'] = bool(bypassable)
-        if hint:
-            entry['hint'] = hint
-        checks.append(entry)
-
-    rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
-    kept = [r for r in rows if r.status == 'keep' and r.filename]
-    n = len(kept)
+def _pf_automagic3(ds, lane, _machine_warn, _check):
+    """Automagic3 selected but this ai-toolkit checkout lacks it (machine scope)."""
     if (_optimizer_eff(ds) == 'automagic3'
             and (lane or 'local') != 'cloud'
             and not _aitoolkit_supports_automagic3()):
@@ -7335,18 +7263,12 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
         _machine_warn(message)
         _check('automagic3', 'Automagic3 available', 'fail', message,
                'gf-training', bypassable=False, scope='machine')
-    # CONCEPT / STYLE : plusieurs dimensions ci-dessous (équilibre de composition,
-    # fuite d'identité) sont des heuristiques de LoRA PERSONNAGE sans objet quand
-    # l'invariant du set n'est pas une identité — on les saute pour ne pas générer
-    # de faux avertissements.
-    concept = fds.is_conceptual(ds)
-    style = fds.is_style(ds)
-    # SLIDER mode (Beta) : les images ne sont qu'un SUBSTRAT de débruitage et les
-    # captions sont ignorées par la loss slider → plancher d'images réduit, gardes
-    # caption/composition/identité sans objet ; la vraie exigence est la paire de
-    # prompts qui définit la direction du slider.
-    slider = slider_mode_enabled(ds)
 
+
+def _pf_dense_mode(ds, ttype, mode, lane, slider, blockers, _check):
+    """Dense/full-transformer compatibility + the dedicated HF cloud token.
+    Returns hf_cloud_token_status (None outside full_transformer mode)."""
+    hf_cloud_token_status = None
     # Dense Krea is intentionally a separate, cloud-only lane. Surface every
     # physical incompatibility in the normal structured preflight instead of
     # letting a paid pod discover it after provisioning.
@@ -7433,7 +7355,12 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
                       'fine-grained token is recommended; global write is '
                       'accepted with a warning.'),
                 scope='cloud')
+    return hf_cloud_token_status
 
+
+def _pf_image_floor(n, slider, ttype, label, blockers, warnings, _check):
+    """1) family image floor / recommendation. Returns (floor, reco) — the
+    payload echoes both."""
     # 1) minimum d'images par famille (slider : plancher substrat réduit)
     floor, reco = (TRAIN_MIN_IMAGES_SLIDER if slider
                    else TRAIN_MIN_IMAGES.get(ttype, (12, 20)))
@@ -7469,7 +7396,11 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
         _check('images', 'Enough images', 'ok',
                f'{n} kept ({reco}+ recommended)' + (' — substrate only in slider mode'
                                                     if slider else ''))
+    return floor, reco
 
+
+def _pf_slider_prompts(ds, slider, blockers, _check):
+    """1bis) slider prompt pair — THE slider prerequisite."""
     # 1bis) SLIDER : la paire de prompts est LE prérequis (assert_trainable refuse
     # le launch sans elle) + rappel honnête que les captions ne s'entraînent pas.
     if slider:
@@ -7492,6 +7423,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
         _check('captioned', 'Captions', 'ok',
                'captions are ignored by the slider loss (images are substrate only)')
 
+
+def _pf_composition(ds, kept, n, concept, slider, warnings, _check):
+    """2) framing balance — a CHARACTER heuristic, skipped for concept/slider."""
     # 2) équilibre de composition — heuristique PERSONNAGE (viser un mix face/bust/body/
     # back pour rendre un visage à toutes les distances). Sans objet pour un CONCEPT (il
     # s'apprend sur les cadrages tels quels), et un dataset non classé (framing=None) y
@@ -7519,6 +7453,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
             _check('composition', 'Framing balance', 'ok',
                    f"face {comp['face']} · bust {comp['bust']} · body {comp['body']} · back {comp['back']}")
 
+
+def _pf_captioned(kept, n, slider, style, warnings, _check):
+    """3bis) every kept image captioned — a warn, the launch modal owns refusal."""
     # 3bis) toutes les gardées ont une caption — WARN, plus un mur : le launch
     # demande un confirm (« train anyway ») au lieu de refuser (UNCAPTIONED:
     # dans assert_trainable). Les captions restent fortement recommandées.
@@ -7535,6 +7472,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
         else:
             _check('captioned', 'Every kept image captioned', 'ok', f'{n}/{n} captioned')
 
+
+def _pf_dual_captions(ds, ttype, label, slider, warnings, _check):
+    """3ter) dual captions vs cached text embeddings (issue #22)."""
     # 3ter) DUAL CAPTIONS vs effective recipe. A family default or a selected preset
     # may pre-cache text embeddings and unload the encoder: the short caption then
     # has no encoder to read it, and emitting it used to crash at step 1 (issue #22).
@@ -7555,6 +7495,10 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
             _check('dual_captions', 'Dual captions', 'ok',
                    f'{label} trains each image on both its long and its short caption')
 
+
+def _pf_caption_quality(ds, kept, style, slider, warnings, _check):
+    """3) suspect captions (short / duplicated). Returns `caps` — the identity-
+    leak section's ok-row condition reads it."""
     # 3) captions suspectes (trop courtes / dupliquées) — sans objet en slider mode
     caps = [(r.caption or '').strip() for r in kept if (r.caption or '').strip()]
     if caps and not slider:
@@ -7584,7 +7528,13 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
         if _cap_ok:
             _check('caption_quality', 'Caption quality', 'ok',
                    'varied, ≥8 words')
+    return caps
 
+
+def _pf_identity_leaks(ds, kept, caps, concept, slider, warnings, _check):
+    """4) identity leaks in captions — keeps the OFFENDING images for the UI.
+    Returns leak_images."""
+    from .face_variations import caption_has_identity_leak
     # 4) fuite d'identité — on RETIENT les images fautives (pas juste le compte) pour
     # que l'UI liste lesquelles au moment du preflight, éditables sur place.
     # CONCEPT : décrire l'identité (visage/cheveux/corps) est VOULU — c'est le concept,
@@ -7608,7 +7558,11 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
                'to those words, not the trigger', 'gf-images')
     elif caps and not concept and not slider:
         _check('leaks', 'No identity leaks', 'ok', '0 leaking caption')
+    return leak_images
 
+
+def _pf_duplicates(kept, n, slider, warnings, _check):
+    """5) near-duplicate pairs among kept (pairwise dHash). Returns dup_pairs."""
     # 5) quasi-doublons parmi les kept (dHash pairwise, n<=~60 -> négligeable). On
     # retient les PAIRES (leurs deux images) pour que l'UI montre lesquelles rejeter.
     # Slider : sans objet (le substrat n'est pas mémorisé) → on saute le scan.
@@ -7636,7 +7590,11 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
                 _check('duplicates', 'No near-duplicates', 'ok', '0 pair')
         except Exception:
             pass   # best-effort: an unreadable file must not block the preflight
+    return dup_pairs
 
+
+def _pf_triage(rows, warnings, _check):
+    """11) untriaged images — they will NOT train."""
     # 11) images encore en attente de tri (elles ne s'entraînent PAS)
     untriaged = sum(1 for r in rows if r.status == 'pending' and r.filename)
     if untriaged:
@@ -7647,6 +7605,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
     elif rows:
         _check('triage', 'Everything triaged', 'ok', 'no image awaiting ✓/✕')
 
+
+def _pf_memory_savers(ds, ttype, label, lane, warnings, _check):
+    """6bis) memory savers off under a family whose recipe needs them."""
     # 6bis) MEMORY SAVERS switched off under a family whose recipe needs them.
     #
     # This is the row that did not exist while quantize/quantize_te/low_vram were
@@ -7690,6 +7651,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
                    f'{_off} off — {label} needs ~{_need} GB without them, {_seen}',
                    'gf-training')
 
+
+def _pf_vram(ds, ttype, label, _machine_warn, _check):
+    """7) VRAM floor for the 24 GB families (machine scope, never blocking)."""
     # 7) VRAM (Krea 2 mesuré à 24 GB ; None = inconnu, jamais bloquant)
     try:
         from .. import capabilities
@@ -7712,6 +7676,9 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
     except Exception:
         pass
 
+
+def _pf_torch_arch(_machine_warn, _check):
+    """8) torch wheels vs GPU architecture — the RTX 50 / sm_120 trap."""
     # 8) torch build vs GPU architecture — the RTX 50 (Blackwell) trap. Stable
     # PyTorch wheels stop at sm_90; `torch.cuda.is_available()` stays True, the
     # run builds its buckets, then dies at the first real computation. Catching
@@ -7734,6 +7701,10 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
     except Exception:
         pass   # a probe failure must never block or fake a diagnosis
 
+
+def _pf_face_mask(ds, slider, warnings, _check):
+    """9) face masking asked for but InsightFace absent (dataset-scoped: the
+    masks are exported locally and uploaded, so a cloud run pays too)."""
     # 9) Face masking asked for, but the detector isn't installed.
     #
     # InsightFace is an OPTIONAL extra by decision (a few hundred MB nobody should
@@ -7768,6 +7739,10 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
             _check('face_mask', 'Face masking ready', 'ok',
                    'InsightFace found — the faces will be weighted down')
 
+
+def _pf_person_mask(ds, masked, slider, concept, style, warnings, _check):
+    """9bis) masked training set but rembg absent (issue #24: the probe's
+    timeout collapses to False on a slow machine — warn, never block)."""
     # 9bis) Person masking set to ON, but rembg isn't installed.
     # Retenu de la premiere ecriture de cette ligne (issue #24) : la sonde derriere
     # rembg est un import en sous-processus dont le TIMEOUT s'effondre en False
@@ -7819,6 +7794,126 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
         elif person_mask_ok:
             _check('person_mask', 'Masked training ready', 'ok',
                    'rembg found — the background will be weighted down to 10%')
+
+
+def training_preflight(user_id, dataset_id, train_type=None, variant=None,
+                       lane=None, masked=None, training_mode=None,
+                       base_model=_PERSISTED) -> dict:
+    """Pre-launch sanity report: {'blockers': [...], 'warnings': [...]}. Blockers
+    stop the launch (too few images for the family); warnings ask for one explicit
+    confirm in the UI. Pure reads — never mutates, never raises on probe failures
+    (an unknown GPU must not block a run).
+
+    Émet AUSSI `checks` (liste structurée {id,label,status,detail,target}) +
+    `verdict` ('ready'|'warnings'|'blocked') pour la pastille de préparation du
+    workspace — construits DANS LA MÊME PASSE que blockers/warnings (une seule
+    source de vérité, aucune règle dupliquée). `target` = id de section du
+    workspace (gf-generate/gf-images) où corriger — None quand rien à cibler.
+    NB : le check 'captioned' (images gardées sans caption) est un fail dans
+    `checks` (assert_trainable refusera le launch) mais volontairement PAS un
+    blocker ici — le flux modal existant (launch → erreur explicite) est conservé.
+
+    ``lane`` ('local' default, or 'cloud') says WHERE the run will execute. Every
+    row carries a ``scope``: 'dataset' (a property of the images/captions, true
+    wherever the job runs) or 'machine' (a read of THIS box — its GPU, its
+    ai-toolkit venv). A cloud lane drops the 'machine' rows and their warning
+    lines: that hardware will not run the job, and on a machine with no local
+    training environment at all they would fire on every single cloud launch —
+    which is exactly how users learn to click through warnings without reading
+    them. Default 'local' keeps the historical payload byte-for-byte.
+
+    ``masked`` says whether the caller intends MASKED training (person masks). It
+    is a client-side preference the server cannot read, so it is passed in; None
+    (the default) means "not stated" and the person-mask row is omitted entirely —
+    warning about a mask nobody asked for is exactly the noise that teaches people
+    to click through preflights."""
+    stored_ds = fds.get_dataset(user_id, dataset_id)
+    if not stored_ds:
+        raise ValueError('dataset not found')
+    ttype = _train_type(stored_ds, train_type)
+    mode = normalize_training_mode(
+        training_mode if training_mode is not None
+        else getattr(stored_ds, 'training_mode', None))
+    ds = _train_context_view(
+        stored_ds, ttype, variant, base_model=base_model,
+        training_mode=mode)
+    label = _FAMILY_LABEL.get(ttype, ttype)
+    blockers, warnings = [], []
+    checks = []
+    hf_cloud_token_status = None
+    # `warnings` is a flat list of strings (the modal renders it verbatim), so the
+    # lane filter cannot recognise a machine-scope line by reading it. Record the
+    # indices as they are appended instead — the only reliable pairing.
+    machine_warning_ix = set()
+
+    def _machine_warn(msg):
+        machine_warning_ix.add(len(warnings))
+        warnings.append(msg)
+
+    def _check(cid, clabel, status, detail, target=None, bypassable=None, hint=None,
+               scope='dataset'):
+        # `bypassable` (fail rows only): True = a QUALITY guard-rail the explicit
+        # "Continue anyway" ack can waive; False = a physical impossibility the ack
+        # never covers. `hint` = the honest one-line risk shown next to the ack.
+        # `scope`: 'dataset' = a property of the images/captions (true on any lane);
+        # 'machine' = a read of THIS box, meaningless when the job runs elsewhere;
+        # 'cloud' = a remote-lane prerequisite such as the dedicated HF token.
+        entry = {'id': cid, 'label': clabel, 'status': status,
+                 'detail': detail, 'target': target, 'scope': scope}
+        if bypassable is not None:
+            entry['bypassable'] = bool(bypassable)
+        if hint:
+            entry['hint'] = hint
+        checks.append(entry)
+
+    rows = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
+    kept = [r for r in rows if r.status == 'keep' and r.filename]
+    n = len(kept)
+    _pf_automagic3(ds, lane, _machine_warn, _check)
+    # CONCEPT / STYLE : plusieurs dimensions ci-dessous (équilibre de composition,
+    # fuite d'identité) sont des heuristiques de LoRA PERSONNAGE sans objet quand
+    # l'invariant du set n'est pas une identité — on les saute pour ne pas générer
+    # de faux avertissements.
+    concept = fds.is_conceptual(ds)
+    style = fds.is_style(ds)
+    # SLIDER mode (Beta) : les images ne sont qu'un SUBSTRAT de débruitage et les
+    # captions sont ignorées par la loss slider → plancher d'images réduit, gardes
+    # caption/composition/identité sans objet ; la vraie exigence est la paire de
+    # prompts qui définit la direction du slider.
+    slider = slider_mode_enabled(ds)
+
+    hf_cloud_token_status = _pf_dense_mode(ds, ttype, mode, lane, slider,
+                                          blockers, _check)
+
+    floor, reco = _pf_image_floor(n, slider, ttype, label, blockers,
+                                  warnings, _check)
+
+    _pf_slider_prompts(ds, slider, blockers, _check)
+
+    _pf_composition(ds, kept, n, concept, slider, warnings, _check)
+
+    _pf_captioned(kept, n, slider, style, warnings, _check)
+
+    _pf_dual_captions(ds, ttype, label, slider, warnings, _check)
+
+    caps = _pf_caption_quality(ds, kept, style, slider, warnings, _check)
+
+    leak_images = _pf_identity_leaks(ds, kept, caps, concept, slider,
+                                     warnings, _check)
+
+    dup_pairs = _pf_duplicates(kept, n, slider, warnings, _check)
+
+    _pf_triage(rows, warnings, _check)
+
+    _pf_memory_savers(ds, ttype, label, lane, warnings, _check)
+
+    _pf_vram(ds, ttype, label, _machine_warn, _check)
+
+    _pf_torch_arch(_machine_warn, _check)
+
+    _pf_face_mask(ds, slider, warnings, _check)
+
+    _pf_person_mask(ds, masked, slider, concept, style, warnings, _check)
 
     # Lane filter — BEFORE the verdict, so a cloud launch whose only complaint was
     # this machine's GPU comes back a clean 🟢 instead of a warning nobody can act
