@@ -194,7 +194,11 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
               pills ticked on the board, so it hands in its own recap here and
               the picker stays out of the way. */}
           {checkpointSlot ?? (
-            <CheckpointPicker checkpoints={d.checkpoints} chosen={form.chosenCps} onToggle={form.toggleCp} />
+            <CheckpointPicker checkpoints={d.checkpoints} chosen={form.chosenCps}
+              onToggle={form.toggleCp}
+              guests={form.guestCps} onToggleGuest={form.toggleGuest}
+              onAddGuest={form.addGuest} onRemoveGuest={form.removeGuest}
+              family={d.family || 'zimage'} />
           )}
 
           {showStrengths && (
