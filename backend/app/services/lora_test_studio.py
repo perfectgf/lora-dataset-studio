@@ -2663,41 +2663,11 @@ def _combine_weights(sel) -> list:
     return out or [_combine_weight(sel)]
 
 
-def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None,
-                          z_model=None, z_models=None, aspects=None, cfgs=None,
-                          steps_list=None, steps2_list=None,
-                          count=1, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None,
-                          negative=None, sampler=None, scheduler=None, weight_dtype=None,
-                          enhancer=None, enhancer_strength=None, detail_amount=None,
-                          resolution_tier=None, resolution_multiplier=None,
-                          init_image=None, denoise=None, combine=None,
-                          prompts=None, external_loras=None) -> dict:
-    """Lance UN run de comparaison sur plusieurs LoRA. `selections` =
-    [{dataset_id, checkpoint}] — chaque entrée peut aussi porter `record_id`/`step`
-    (le LoRA Canvas les connaît : ce sont l'identité de la pastille cliquée), ce qui
-    est alors stampé tel quel sur les cellules ; sinon l'origine est relue du tag de
-    déploiement (cf. checkpoint_origins). Toutes les cellules partagent un run_id + le seed
-    (équité). Le prompt : `prompt` commun si fourni, sinon l'identity_prompt du
-    dataset de CHAQUE cellule (chaque LoRA a son trigger). 1 selection => run mono-LoRA.
-
-    Parité Generate (2026-07-01) : always-on LoRA, rebalance Krea, steps2 SDXL et les
-    réglages globaux (négatif/sampler/scheduler/precision/enhancer/detail/tier) sont
-    partagés par TOUTES les cellules du run (gatés + validés par famille via _sanitize_gen_knobs).
-
-    `combine=True` (≥2 sélections) bascule du mode COMPARAISON (1 cellule par LoRA,
-    chacun seul) au mode PILE : les LoRA sélectionnés sont chargés ENSEMBLE dans la
-    MÊME génération, chacun au `weight` porté par sa sélection, et les triggers des
-    datasets correspondants sont TOUS injectés dans le prompt. L'axe `strengths`
-    n'a alors plus de sens (chaque LoRA a son poids) : il est remplacé par le poids
-    du 1er LoRA de la pile. La règle « un run = une seule famille » vaut aussi ici —
-    combiner un LoRA Krea et un LoRA SDXL est impossible (bases et workflows
-    différents), et c'est refusé avec un message nommant les familles.
-
-    `external_loras` (Canvas plugin nodes) : `[{filename, strength}]` de N'IMPORTE
-    QUEL fichier models/loras, stacké sur CHAQUE cellule via le même canal
-    `extra_loras` que les always-on — mais sans restriction au pool de la famille :
-    un nom introuvable est une erreur dure (jamais un skip silencieux), et l'arch
-    preflight le couvre comme un checkpoint normal."""
+def _cmp_resolve_run_family(selections):
+    """Les refus d'entrée d'un run de comparaison, déplacés tels quels
+    (2026-08-23) : sélection vide, GPU occupé, run déjà actif, familles
+    mélangées — puis la famille du run et la liste des bases qu'elle
+    autorise. Retourne (run_type, models)."""
     if not selections:
         raise ValueError('no LoRA selected')
     reason = gpu_busy_reason()
@@ -2730,6 +2700,15 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         models = get_zimage_models()
         if not models:
             raise ValueError('no Z-Image model available')
+    return run_type, models
+
+
+def _cmp_seed_and_prompts(models, z_model, z_models, seed, count, prompt,
+                          prompts):
+    """Les axes seed / base / prompt, déplacés tels quels : bases valides
+    demandées (liste prioritaire, scalaire en rétrocompat), seed fourni ou
+    tiré, count borné, la suite de seeds, et le lot de prompts. Retourne
+    (valid_models, seed, count, seeds, prompt_axis)."""
     # Modèle(s) de base — AXE de balayage, exactement comme dans `create_run` :
     # le Canvas offre « BASE MODEL (MULTI) » et n'en lançait qu'UN, en silence.
     # z_models (liste) prioritaire ; sinon z_model unique (rétrocompat) ; sinon le 1er.
@@ -2751,6 +2730,16 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     # donc [None] quand aucun prompt commun n'est fourni : chaque cellule retombe
     # sur le prompt d'identité de SON dataset, exactement comme avant.
     prompt_axis = _prompt_axis(prompts, common_prompt)
+    return valid_models, seed, count, seeds, prompt_axis
+
+
+def _cmp_collect_extra_loras(run_type, permanent_loras, external_loras):
+    """Les LoRA empilés sur chaque cellule, déplacés tels quels : les
+    always-on validés contre le pool de la famille (skip silencieux), puis
+    les externes du Canvas en fail-closed (garde anti-traversal AVANT toute
+    résolution, introuvable = erreur dure, cap à 16). Retourne
+    (extra_loras, externals) — la liste des externes seule sert encore au
+    preflight d'architecture."""
     # LoRA « always-on » (style/utilitaire) validés contre la famille (anti path-injection),
     # appliqués à CHAQUE cellule - même mécanique que create_run.
     perm_allowed = {c['filename'] for c in permanent_lora_candidates(run_type)}
@@ -2793,6 +2782,16 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         if len(externals) >= 16:   # same cap as the PUT route + the board's UI
             break
     extra_loras.extend(externals)
+    return extra_loras, externals
+
+
+def _cmp_cell_knobs(run_type, batch_loras, rebalance, rebalance_strength,
+                    negative, sampler, scheduler, weight_dtype, enhancer,
+                    enhancer_strength, detail_amount, resolution_tier,
+                    resolution_multiplier, init_image, denoise):
+    """Les réglages portés par chaque cellule, déplacés tels quels : l'axe
+    ⚖ batch, l'encodage du rebalance Krea, et les réglages globaux validés
+    et gatés par famille. Retourne (batch_axis, cell_rebalance, knobs)."""
     # Axe « ⚖ batch » : chaque config tourne une fois SANS puis une fois AVEC
     # chaque LoRA coché batch (même mécanique que create_run).
     batch_axis = _batch_lora_axis(batch_loras, run_type)
@@ -2813,7 +2812,17 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         resolution_multiplier=resolution_multiplier,
         init_image=init_image, denoise=denoise)
+    return batch_axis, cell_rebalance, knobs
 
+
+def _cmp_preflight(user_id, run_type, selections, externals, valid_models,
+                   prompt_axis, seeds):
+    """Les preflights du run, déplacés tels quels : l'arch réelle de chaque
+    checkpoint (externes compris) contre la famille, puis le workflow de la
+    famille essayé sur la première sélection valable — un seul 409
+    actionnable AVANT toute ligne. Retourne la closure mémoïsée
+    ``_dataset_and_checkpoints`` que la pile et la boucle de cellules
+    réutilisent (un dataset = UN scan de LoRA pour tout l'appel)."""
     # Arch guard (même contrat que create_run) : l'arch RÉELLE de chaque
     # checkpoint sélectionné, lue dans son en-tête, doit correspondre à la famille
     # du run — sinon ComfyUI le droppe en silence (grille no-op). Vérifié AVANT
@@ -2850,19 +2859,16 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                            prompt_axis[0] or identity_prompt(_pf_ds), seeds[0],
                            _sel.get('dataset_id'), getattr(_pf_ds, 'trigger_word', None))
             break
+    return _dataset_and_checkpoints
 
-    # Classes du ComfyUI cible, lues UNE fois pour tout le run (cf. create_run) →
-    # réécriture des nodes à variantes (node 30 Krea) vers le nom réellement enregistré.
-    available_classes = _target_node_classes()
-    # Origine (run + step) de chaque LoRA sélectionné : explicite quand l'appelant
-    # la connaît (canvas), sinon relue du tag de déploiement. Une seule résolution
-    # par nom de fichier distinct.
-    origin_of = checkpoint_origins(
-        [s.get('checkpoint') for s in selections if s.get('checkpoint')],
-        {s['checkpoint']: s for s in selections
-         if s.get('checkpoint') and s.get('record_id') is not None
-         and s.get('step') is not None})
 
+def _cmp_expand_stack(combine, selections, origin_of,
+                      _dataset_and_checkpoints):
+    """Le mode PILE, déplacé tel quel : membres revalidés contre les
+    checkpoints déployés de LEUR dataset, provenance stampée, triggers
+    collectés, produit cartésien des poids, et la sélection réduite au LoRA
+    de tête. Retourne (combine, selections, stack_triggers, combos,
+    members) — en comparaison simple, les valeurs passent inchangées."""
     # --- Mode PILE (combine) ---------------------------------------------------
     # En comparaison, chaque sélection produit ses PROPRES cellules (un LoRA seul par
     # image). En combine, la sélection décrit UNE pile : le 1er LoRA reste le
@@ -2915,7 +2921,15 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
         combos = [tuple(c) for c in itertools.product(
             head_weights, *[m['weights'] for m in members])]
         selections = selections[:1]
+    return combine, selections, stack_triggers, combos, members
 
+
+def _cmp_build_cell_plan(valid_models, selections, combos, strengths,
+                         aspects, cfgs, steps_list, steps2_list, run_type):
+    """Le plan de cellules, déplacé tel quel : run_id, produit base-major
+    des axes (bases × sélections × combinaisons × matrice), puis la
+    partition stable Krea qui sert les contrôles LoRA-off d'abord.
+    Retourne (run_id, cell_plan)."""
     run_id = uuid.uuid4().hex
     # Materialize the original selection-major plan, then stable-partition it
     # once for Krea. Zero tested-LoRA-off controls across *all* selected
@@ -2937,7 +2951,18 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                     cell_plan.append((sel, cell, combo, zm))
     cell_plan = _krea_zero_strength_first(
         cell_plan, run_type, lambda planned: planned[1][1])
+    return run_id, cell_plan
 
+
+def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
+                       knobs, run_type, batch_axis, prompt_axis, seeds, seed,
+                       run_id, extra_loras, cell_rebalance, origin_of,
+                       combine, stack_triggers, available_classes):
+    """La matérialisation du plan, déplacée telle quelle : pour chaque
+    cellule planifiée, la pile persistée avec son identité, les dimensions
+    de l'aspect, les axes batch/prompt/seed, la ligne LoraTestImage et la
+    mise en file avec son constructeur de workflow (base liée par défaut,
+    jamais capturée tard). Retourne les ids créés."""
     ids = []
     for sel, cell, combo, zm in cell_plan:
         # Les poids des MEMBRES de cette combinaison. `stack_extra` (monté dans le
@@ -3004,6 +3029,83 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
                                                    if combine else ds.trigger_word),
                                      available_classes=available_classes))
             ids.append(img.id)
+    return ids
+
+
+def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None,
+                          z_model=None, z_models=None, aspects=None, cfgs=None,
+                          steps_list=None, steps2_list=None,
+                          count=1, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None,
+                          negative=None, sampler=None, scheduler=None, weight_dtype=None,
+                          enhancer=None, enhancer_strength=None, detail_amount=None,
+                          resolution_tier=None, resolution_multiplier=None,
+                          init_image=None, denoise=None, combine=None,
+                          prompts=None, external_loras=None) -> dict:
+    """Lance UN run de comparaison sur plusieurs LoRA. `selections` =
+    [{dataset_id, checkpoint}] — chaque entrée peut aussi porter `record_id`/`step`
+    (le LoRA Canvas les connaît : ce sont l'identité de la pastille cliquée), ce qui
+    est alors stampé tel quel sur les cellules ; sinon l'origine est relue du tag de
+    déploiement (cf. checkpoint_origins). Toutes les cellules partagent un run_id + le seed
+    (équité). Le prompt : `prompt` commun si fourni, sinon l'identity_prompt du
+    dataset de CHAQUE cellule (chaque LoRA a son trigger). 1 selection => run mono-LoRA.
+
+    Parité Generate (2026-07-01) : always-on LoRA, rebalance Krea, steps2 SDXL et les
+    réglages globaux (négatif/sampler/scheduler/precision/enhancer/detail/tier) sont
+    partagés par TOUTES les cellules du run (gatés + validés par famille via _sanitize_gen_knobs).
+
+    `combine=True` (≥2 sélections) bascule du mode COMPARAISON (1 cellule par LoRA,
+    chacun seul) au mode PILE : les LoRA sélectionnés sont chargés ENSEMBLE dans la
+    MÊME génération, chacun au `weight` porté par sa sélection, et les triggers des
+    datasets correspondants sont TOUS injectés dans le prompt. L'axe `strengths`
+    n'a alors plus de sens (chaque LoRA a son poids) : il est remplacé par le poids
+    du 1er LoRA de la pile. La règle « un run = une seule famille » vaut aussi ici —
+    combiner un LoRA Krea et un LoRA SDXL est impossible (bases et workflows
+    différents), et c'est refusé avec un message nommant les familles.
+
+    `external_loras` (Canvas plugin nodes) : `[{filename, strength}]` de N'IMPORTE
+    QUEL fichier models/loras, stacké sur CHAQUE cellule via le même canal
+    `extra_loras` que les always-on — mais sans restriction au pool de la famille :
+    un nom introuvable est une erreur dure (jamais un skip silencieux), et l'arch
+    preflight le couvre comme un checkpoint normal."""
+    run_type, models = _cmp_resolve_run_family(selections)
+    valid_models, seed, count, seeds, prompt_axis = _cmp_seed_and_prompts(
+        models, z_model, z_models, seed, count, prompt, prompts)
+    extra_loras, externals = _cmp_collect_extra_loras(
+        run_type, permanent_loras, external_loras)
+    batch_axis, cell_rebalance, knobs = _cmp_cell_knobs(
+        run_type, batch_loras, rebalance, rebalance_strength, negative,
+        sampler, scheduler, weight_dtype, enhancer, enhancer_strength,
+        detail_amount, resolution_tier, resolution_multiplier, init_image,
+        denoise)
+
+    _dataset_and_checkpoints = _cmp_preflight(
+        user_id, run_type, selections, externals, valid_models,
+        prompt_axis, seeds)
+
+    # Classes du ComfyUI cible, lues UNE fois pour tout le run (cf. create_run) →
+    # réécriture des nodes à variantes (node 30 Krea) vers le nom réellement enregistré.
+    available_classes = _target_node_classes()
+    # Origine (run + step) de chaque LoRA sélectionné : explicite quand l'appelant
+    # la connaît (canvas), sinon relue du tag de déploiement. Une seule résolution
+    # par nom de fichier distinct.
+    origin_of = checkpoint_origins(
+        [s.get('checkpoint') for s in selections if s.get('checkpoint')],
+        {s['checkpoint']: s for s in selections
+         if s.get('checkpoint') and s.get('record_id') is not None
+         and s.get('step') is not None})
+
+    combine, selections, stack_triggers, combos, members = _cmp_expand_stack(
+        combine, selections, origin_of, _dataset_and_checkpoints)
+
+    run_id, cell_plan = _cmp_build_cell_plan(
+        valid_models, selections, combos, strengths, aspects, cfgs,
+        steps_list, steps2_list, run_type)
+
+    ids = _cmp_enqueue_cells(
+        user_id, cell_plan, members, _dataset_and_checkpoints, knobs,
+        run_type, batch_axis, prompt_axis, seeds, seed, run_id,
+        extra_loras, cell_rebalance, origin_of, combine, stack_triggers,
+        available_classes)
     # `len(members)`, pas `len(stack_extra)` : celui-ci vit maintenant DANS la boucle
     # et vaudrait la dernière combinaison — ou n'existerait pas du tout sur un plan
     # vide. Le nombre de combinaisons est journalisé : c'est le premier chiffre
