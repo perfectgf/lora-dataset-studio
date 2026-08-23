@@ -3234,34 +3234,10 @@ def _training_selection_candidate(ds, patch: dict, requested_mode) -> dict:
             'train_slider': candidate_slider}
 
 
-def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -> dict:
-    """Valide + fusionne un patch {rank?, resolution?, save_every?, sample_every?,
-    sample_prompts?} dans train_settings. Une clé à None/'auto'/vide est RETIRÉE
-    (retour au défaut). Retourne les réglages effectifs pour la famille courante."""
-    ds = fds.get_dataset(user_id, dataset_id)
-    if not ds:
-        raise ValueError('dataset not found')
-    # `training_mode` is a first-class dataset column, not an ai-toolkit expert
-    # knob and not part of presets. It shares this endpoint so the TrainingPanel
-    # can persist the selector atomically with any advanced-options patch.
-    requested_training_mode = None
-    selection = None
-    if _settings is None:
-        if 'training_mode' in patch:
-            requested_training_mode = normalize_training_mode(patch['training_mode'])
-        if any(key in patch for key in
-               ('training_mode', 'train_type', 'base_model', 'variant',
-                'disable_slider_for_full_transformer')):
-            selection = _training_selection_candidate(
-                ds, patch, requested_training_mode)
-            if (selection['family_changed']
-                    and any(key in patch for key in TRAIN_SETTING_KEYS)):
-                raise ValueError(
-                    'change train_type separately from advanced training settings')
-    # ``_settings`` is the preset path's private, unpersisted candidate.  Reusing
-    # this validator keeps every acceptance/rejection rule identical while a
-    # preset validates its complete replacement before making one DB write.
-    cur = _train_settings(ds) if _settings is None else _settings
+def _ts_apply_sampling_and_saves(patch, cur):
+    """rank / resolution / save cadence / preview sampling knobs, moved
+    verbatim from update_train_settings (2026-08-24). Mutates cur in
+    place; every refusal raises exactly as inline."""
     if 'rank' in patch:
         r = patch['rank']
         if r in (None, 'auto'):
@@ -3332,6 +3308,11 @@ def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -
                 cur.pop('sample_prompts', None)
         else:
             raise ValueError('sample_prompts must be a list of strings (or empty to reset)')
+
+
+def _ts_apply_dense_recipe(patch, cur):
+    """The unlocked half of the dense (full-transformer) recipe — bounded,
+    never free-form. Moved verbatim; mutates cur in place."""
     # --- the unlocked half of the dense recipe --------------------------------
     # Bounded, never free-form: the bounds are what keep "editable" from meaning
     # "able to burn 80 GB of rented GPU on a value that cannot converge".
@@ -3437,6 +3418,12 @@ def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -
                 cur[_flag] = v
             else:
                 raise ValueError(f'{_flag} must be true or false')
+
+
+def _ts_apply_network_and_optim(patch, cur):
+    """LoRA architecture and optimisation levers (dropout, alpha, LoKr,
+    optimizer, schedules, guidance). Moved verbatim; mutates cur in
+    place, including the automagic3/grad_accum cross-check."""
     if 'dropout' in patch:
         v = patch['dropout']
         if v in (None, 0, 0.0, 'off', ''):
@@ -3575,6 +3562,11 @@ def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -
         else:
             raise ValueError(
                 f'differential_guidance_scale must be between {lo:g} and {hi:g} (or auto)')
+
+
+def _ts_apply_levers_memory_quality(patch, cur):
+    """Boolean/tri-state levers, memory-saver keys, quality knobs and the
+    preset step bounds. Moved verbatim; mutates cur in place."""
     if 'dual_captions' in patch:
         # Plain boolean lever: truthy stores True, anything falsy drops the key so OFF is
         # byte-identical to a dataset that never touched it.
@@ -3697,6 +3689,41 @@ def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -
             cur[key] = v
         else:
             raise ValueError(f'{key} must be a positive integer (or auto)')
+
+
+
+def update_train_settings(user_id, dataset_id, patch: dict, *, _settings=None) -> dict:
+    """Valide + fusionne un patch {rank?, resolution?, save_every?, sample_every?,
+    sample_prompts?} dans train_settings. Une clé à None/'auto'/vide est RETIRÉE
+    (retour au défaut). Retourne les réglages effectifs pour la famille courante."""
+    ds = fds.get_dataset(user_id, dataset_id)
+    if not ds:
+        raise ValueError('dataset not found')
+    # `training_mode` is a first-class dataset column, not an ai-toolkit expert
+    # knob and not part of presets. It shares this endpoint so the TrainingPanel
+    # can persist the selector atomically with any advanced-options patch.
+    requested_training_mode = None
+    selection = None
+    if _settings is None:
+        if 'training_mode' in patch:
+            requested_training_mode = normalize_training_mode(patch['training_mode'])
+        if any(key in patch for key in
+               ('training_mode', 'train_type', 'base_model', 'variant',
+                'disable_slider_for_full_transformer')):
+            selection = _training_selection_candidate(
+                ds, patch, requested_training_mode)
+            if (selection['family_changed']
+                    and any(key in patch for key in TRAIN_SETTING_KEYS)):
+                raise ValueError(
+                    'change train_type separately from advanced training settings')
+    # ``_settings`` is the preset path's private, unpersisted candidate.  Reusing
+    # this validator keeps every acceptance/rejection rule identical while a
+    # preset validates its complete replacement before making one DB write.
+    cur = _train_settings(ds) if _settings is None else _settings
+    _ts_apply_sampling_and_saves(patch, cur)
+    _ts_apply_dense_recipe(patch, cur)
+    _ts_apply_network_and_optim(patch, cur)
+    _ts_apply_levers_memory_quality(patch, cur)
     if _settings is not None:
         return cur
     if selection and selection['family_changed']:
