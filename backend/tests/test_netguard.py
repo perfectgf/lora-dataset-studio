@@ -66,3 +66,47 @@ def test_escape_hatch_env(app, monkeypatch):
     c = app.test_client()
     c.put('/api/settings', json={'config': {'server': {'require_token': True}}})
     assert c.get('/api/health', environ_base=REMOTE).status_code == 200
+
+
+def test_public_runtime_forces_token_gate(app, monkeypatch):
+    """LDS_PUBLIC=1: server.require_token stays OFF in config, but a non-loopback
+    client is still refused. A public URL must never serve the unauthenticated UI,
+    and toggling the setting off in Settings must not be able to open it."""
+    monkeypatch.setenv('LDS_PUBLIC', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'sekret')
+    c = app.test_client()
+    assert c.get('/api/health', environ_base=REMOTE).status_code == 403
+    ok = c.get('/api/health', environ_base=REMOTE,
+               headers={'Authorization': 'Bearer sekret'})
+    assert ok.status_code == 200
+
+
+def test_public_runtime_still_allows_loopback(app, monkeypatch):
+    """The container healthcheck hits 127.0.0.1:5050/api/health with no token."""
+    monkeypatch.setenv('LDS_PUBLIC', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'sekret')
+    assert app.test_client().get('/api/health').status_code == 200
+
+
+def test_public_runtime_without_token_fails_closed(app, monkeypatch):
+    """No token configured at all -> refuse, with the actionable message."""
+    monkeypatch.setenv('LDS_PUBLIC', '1')
+    monkeypatch.delenv('LDS_ACCESS_TOKEN', raising=False)
+    r = app.test_client().get('/api/health', environ_base=REMOTE)
+    assert r.status_code == 403
+    assert 'LDS_ACCESS_TOKEN' in r.get_json()['error']
+
+
+def test_public_runtime_escape_hatch_still_wins(app, monkeypatch):
+    """LDS_ALLOW_UNAUTHENTICATED stays the documented opt-out for setups with
+    their own auth (VPN, authenticating reverse proxy)."""
+    monkeypatch.setenv('LDS_PUBLIC', '1')
+    monkeypatch.setenv('LDS_ALLOW_UNAUTHENTICATED', '1')
+    assert app.test_client().get('/api/health', environ_base=REMOTE).status_code == 200
+
+
+def test_public_flag_is_not_truthy_for_arbitrary_values(app, monkeypatch):
+    """Only the documented truthy set counts; '0' or a typo must not silently
+    harden (or silently fail to harden) the app."""
+    monkeypatch.setenv('LDS_PUBLIC', '0')
+    assert app.test_client().get('/api/health', environ_base=REMOTE).status_code == 200

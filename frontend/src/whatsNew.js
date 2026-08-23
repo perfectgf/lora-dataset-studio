@@ -70,6 +70,29 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-23-runpod-pod',
+    date: '2026-08-23',
+    title: 'Run the whole studio on a rented RunPod GPU',
+    blurb:
+      'Point a RunPod pod at the GPU image and reach the studio, the Image Bank and ComfyUI generation '
+      + 'from any browser, with your datasets on a network volume that survives restarts. Training still '
+      + 'runs on vast.ai, and the guide is honest about what has not been measured on real hardware yet — '
+      + 'it also turns a proxy 404 into the exact log line that explains it. Along the way the studio '
+      + 'learned to create its data folder instead of only checking it, which fixes any install pointing '
+      + 'LDS_DATA_DIR at a location that does not exist yet. (Contributed by @Cyberschorsch.)',
+  },
+  {
+    id: '2026-08-23-public-bind-token',
+    date: '2026-08-23',
+    title: 'Reaching the studio over the internet now always asks for a token',
+    blurb:
+      'Running the studio on a public address — a rented GPU box, a tunnel — used to be open to anyone '
+      + 'who found the URL, because the token gate is off by default for trusted home networks. Set '
+      + 'LDS_PUBLIC=1 and the gate is forced on, a token is generated for you, and Settings shows it '
+      + 'instead of a switch that does nothing. (Contributed by @Cyberschorsch.)',
+    to: '/settings/server',
+  },
+  {
     id: '2026-08-23-studio-guest-checkpoints',
     date: '2026-08-23',
     title: 'Test their LoRA next to yours, same prompt and seed',
