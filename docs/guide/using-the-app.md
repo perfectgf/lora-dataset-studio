@@ -3409,7 +3409,8 @@ actions — Download, Deploy, Details, Delete — and **▶ Continue from here**
 opens the *same* launch dialog the Checkpoints panel and the Runs page open, on
 *that exact save*: pick where it runs (**💻 Local** or **☁ Cloud**), how many
 extra steps, and — folded under *Adjust settings* — the checkpoint cadence, the
-preview prompts, the timestep weighting and the learning rate. Rank, base and
+preview prompts, the preview steps and CFG, the timestep weighting and the
+learning rate. Rank, base and
 optimizer are locked to the checkpoint being continued; they are not things a
 resume can change.
 
@@ -3422,9 +3423,11 @@ The dialog also names **what “resume” means**; it never silently guesses:
   bytes, and the exact next step. Exported image, caption and mask contents,
   dataset topology, base, network shape, training recipe, ai-toolkit revision,
   GPU identity and the complete installed Python-package map must still match.
-  In this mode only the preview prompts can change. Save/preview cadence,
-  learning rate and timestep weighting stay locked because changing any of them
-  would change the trajectory the state belongs to.
+  In this mode only the preview settings can change — the prompts, and the
+  preview **steps and CFG**: those decide how a test image is rendered once the
+  sampler is already running, and touch neither the loop nor the weights.
+  Save/preview cadence, learning rate and timestep weighting stay locked because
+  changing any of them would change the trajectory the state belongs to.
 - **LoRA weights only** is the explicit fallback and is available for legacy
   checkpoints. The chosen `.safetensors` is copied into a clean run folder;
   optimizer, scheduler, scaler, RNG and dataloader progress restart. The source

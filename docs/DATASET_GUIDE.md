@@ -410,8 +410,9 @@ dialog:
 - **Extra steps** — how many *more* steps to train; the dialog shows the target
   step you'll land on.
 - **Adjust settings (optional)** — a resume can only safely change a handful of
-  things: the **checkpoint/preview cadence**, the **preview prompts** (test images
-  only — never the weights), and the **timestep weighting**. Everything structural
+  things: the **checkpoint/preview cadence**, the **preview prompts** and the
+  **preview steps and CFG** (test images only — never the weights), and the
+  **timestep weighting**. Everything structural
   (rank, base model, optimizer) is locked to the checkpoint you're continuing.
   The timestep knob enables a known **two-phase recipe**: train balanced first,
   then continue with a low-noise-leaning emphasis to polish fine texture.
@@ -984,6 +985,36 @@ The check reads a few kilobytes of file header — the quantization markers and 
 tensor dtypes — so it costs nothing and fires the moment you pick the file, not
 an hour into a paid run. A file whose header cannot be read is let through: the
 app refuses what it can prove, never what it merely suspects.
+
+## 11. Preview quality — steps and CFG
+
+The preview images a run writes every few hundred steps are the only thing you
+can judge it by while it is still running, so they have to be *readable*. How
+they are rendered is two numbers — how many **steps** each preview gets, and at
+what **guidance (CFG)** — and both live in ⚙️ **Advanced options** under
+*Preview quality*, next to the cadence and the prompts.
+
+**Leave them empty and nothing changes.** The boxes show, as a placeholder, the
+default your base resolves to; that default follows the model you picked, because
+the right answer is a property of the base and not a preference:
+
+| Base | Preview default | Why |
+| --- | --- | --- |
+| A **distilled** one (Krea 2 Turbo, Z-Image Turbo) | 8 steps, CFG 1 | Distillation is what buys the few-step sampling. Asking for 25 steps at CFG 4 wastes minutes per preview and does not look better. |
+| An **undistilled** one (Krea 2 Raw, Z-Image, FLUX, SDXL) | 20-35 steps, CFG 4-6 | At a distilled model's 8 steps these come back as unfinished sketches — muddy, half-formed — and you cannot tell a bad run from a bad preview. |
+
+You need the boxes when you train on a base the studio does not ship — a merge of
+your own, a converted checkpoint — because then the default is a guess about a
+model nobody measured. Symptoms worth acting on: previews that look like
+sketches (raise the steps), or a preview that visibly costs more time than the
+training it interrupts (lower them).
+
+These are **preview settings only**: they change the picture, never the weights.
+That is also why a **▶ Continue** can change them even in *full training state*
+mode, where the cadence and the learning rate are locked — a resume is exactly
+when you have already seen the previews and know they are unreadable.
+
+*Suggested by charlesangus (GitHub #46).*
 
 ---
 

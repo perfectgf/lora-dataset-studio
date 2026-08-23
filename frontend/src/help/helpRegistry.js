@@ -1701,6 +1701,18 @@ const TOPICS = [
   // full-model section. Grouped as one topic on purpose: they are one card, and
   // the question a user actually has ("what can I change here?") is answered by
   // the card, not by four separate entries.
+  // Preview steps / CFG (GitHub #46). Its own topic rather than keywords on the
+  // recipe above: the question is not "what may I change?" but "why do my
+  // previews look like sketches?", and the answer is a property of the BASE —
+  // which is also why the searched words are symptoms, not setting names.
+  { id: 'training.preview_quality', kind: 'setting',
+    title: 'Preview quality — steps and CFG',
+    keywords: ['preview', 'previews', 'sample', 'samples', 'sample steps', 'steps',
+      'cfg', 'guidance', 'guidance scale', 'sketch', 'sketchy', 'blurry preview',
+      'unfinished', 'ugly previews', 'slow preview', 'distilled', 'turbo', 'raw',
+      'sample_steps', 'sample_guidance', 'preview quality', 'test images'],
+    guide: { chapter: 'dataset-guide', anchor: '11-preview-quality-steps-and-cfg' },
+    app: { route: '/datasets?section=training' } },
   { id: 'training.full_model_recipe', kind: 'setting',
     title: 'Full-model recipe (prompts, LR, resolution, checkpoints)',
     keywords: ['full model', 'full-model', 'dense', 'krea', 'raw', 'recipe', 'locked',

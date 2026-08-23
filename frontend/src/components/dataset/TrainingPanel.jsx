@@ -803,6 +803,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // number input cannot be edited naturally if every partial keystroke writes
   // through to the server ("" / "3." are not valid saved scales).
   const [differentialGuidanceScaleDraft, setDifferentialGuidanceScaleDraft] = useState('3');
+  // Preview steps / CFG (#46). Drafts for the same reason as the scale above,
+  // plus one of their own: EMPTY is a meaningful value here — it means "follow
+  // the family default" — so the box must be allowed to hold '' while the
+  // placeholder shows the number that default resolves to.
+  const [sampleStepsDraft, setSampleStepsDraft] = useState('');
+  const [sampleGuidanceDraft, setSampleGuidanceDraft] = useState('');
   // Presets de réglages avancés : snapshots nommés, partageables (fichier JSON).
   // Stockés bruts côté serveur ; la validation se fait à l'APPLICATION (clés
   // inconnues ignorées, valeurs invalides signalées) → tolérant aux versions.
@@ -1202,6 +1208,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const advSave = adv?.save_every ?? 250;
   const advSampleEvery = adv?.sample_every ?? 250;
   const advSampleEveryChoices = adv?.sample_every_choices ?? [100, 250, 500, 1000];
+  // Preview steps / CFG (#46). The DEFAULTS come from the server because they
+  // depend on the family AND the variant (8/CFG 1 on a distilled base, 25/CFG 4
+  // on an undistilled one) — hardcoding them here is how a placeholder starts
+  // announcing a number the job never sends.
+  const advSampleStepsDefault = adv?.sample_steps_default ?? 25;
+  const advSampleGuidanceDefault = adv?.sample_guidance_default ?? 4;
+  const advSampleStepsRange = adv?.sample_steps_range ?? [1, 60];
+  const advSampleGuidanceRange = adv?.sample_guidance_range ?? [1, 20];
+  const advSampleQualityOverridden = (adv?.sample_steps_stored != null
+                                      || adv?.sample_guidance_stored != null);
+  const advFamilyLabel = adv?.family_label ?? 'this model';
   const advSampleDefault = adv?.sample_prompts_default ?? [];
   const advMaxPrompts = adv?.max_sample_prompts ?? 8;
   const saveAdv = async (patch) => {
@@ -1216,6 +1233,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   useEffect(() => {
     setDifferentialGuidanceScaleDraft(String(adv?.differential_guidance_scale ?? 3));
   }, [adv?.differential_guidance_scale]);
+  // Seed from the STORED override, never from the effective value: seeding with
+  // the effective one would fill the box with the family default and turn
+  // "following the default" into a frozen copy of today's number.
+  useEffect(() => {
+    setSampleStepsDraft(adv?.sample_steps_stored == null ? '' : String(adv.sample_steps_stored));
+  }, [adv?.sample_steps_stored]);
+  useEffect(() => {
+    setSampleGuidanceDraft(
+      adv?.sample_guidance_stored == null ? '' : String(adv.sample_guidance_stored));
+  }, [adv?.sample_guidance_stored]);
   // Persist an EXPLICIT text. The blur handler below reads the state; the 🎲
   // draw cannot — it has just called setSamplePromptsText, and the state it
   // would read back is the previous render's, so it would save the old lines.
@@ -1243,6 +1270,34 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     }
     saveAdv({ differential_guidance_scale: value });
   };
+
+  // Preview steps / CFG. One helper for both: same contract (blank = auto),
+  // same bounds source (the server ships them in the payload, so the box and
+  // the validator can never disagree about what is accepted).
+  const savePreviewSampleValue = (key, draft, setDraft, { integer }) => {
+    const stored = adv?.[`${key}_stored`];
+    const storedText = stored == null ? '' : String(stored);
+    if (draft.trim() === storedText) return;               // no-op → no round-trip
+    if (!draft.trim()) {
+      saveAdv({ [key]: null });                            // blank = back to the family default
+      return;
+    }
+    const [lo, hi] = adv?.[`${key}_range`] ?? (integer ? [1, 60] : [1, 20]);
+    const value = Number(draft);
+    if (!Number.isFinite(value) || value < lo || value > hi
+        || (integer && !Number.isInteger(value))) {
+      setDraft(storedText);
+      toast.warning(integer
+        ? `Preview steps must be a whole number between ${lo} and ${hi}.`
+        : `Preview CFG must be between ${lo} and ${hi}.`);
+      return;
+    }
+    saveAdv({ [key]: value });
+  };
+  const saveSampleSteps = () => savePreviewSampleValue(
+    'sample_steps', sampleStepsDraft, setSampleStepsDraft, { integer: true });
+  const saveSampleGuidance = () => savePreviewSampleValue(
+    'sample_guidance', sampleGuidanceDraft, setSampleGuidanceDraft, { integer: false });
 
   // --- Slider LoRA mode (Beta) ------------------------------------------------
   const sliderOn = !!slider?.enabled;
@@ -3391,6 +3446,49 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     <option key={n} value={String(n)}>every {n} steps</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="flex flex-col gap-0.5 mt-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0">Preview quality</span>
+                  <label className="flex items-center gap-1.5">
+                    <input type="number" min={advSampleStepsRange[0]} max={advSampleStepsRange[1]} step="1"
+                      value={sampleStepsDraft}
+                      onChange={(e) => setSampleStepsDraft(e.target.value)}
+                      onBlur={saveSampleSteps}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      placeholder={String(advSampleStepsDefault)}
+                      aria-label="Preview steps"
+                      className="w-16 px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+                    <span className="text-content-muted text-[0.6875rem]">steps</span>
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="number" min={advSampleGuidanceRange[0]} max={advSampleGuidanceRange[1]} step="0.5"
+                      value={sampleGuidanceDraft}
+                      onChange={(e) => setSampleGuidanceDraft(e.target.value)}
+                      onBlur={saveSampleGuidance}
+                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      placeholder={String(advSampleGuidanceDefault)}
+                      aria-label="Preview guidance scale"
+                      className="w-16 px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]" />
+                    <span className="text-content-muted text-[0.6875rem]">CFG</span>
+                  </label>
+                  {advSampleQualityOverridden && (
+                    <button type="button"
+                      onClick={() => saveAdv({ sample_steps: null, sample_guidance: null })}
+                      className="px-2 py-1 rounded-lg border border-border bg-surface text-content-muted text-[0.6875rem] hover:text-content">
+                      Auto
+                    </button>
+                  )}
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> previews only — this never touches the
+                  weights. Leave both empty to follow {advFamilyLabel} ({advSampleStepsDefault} steps, CFG{' '}
+                  {advSampleGuidanceDefault}); the default follows the base you picked, and a distilled one wants
+                  far fewer steps than an undistilled one.
+                  <b className="text-content-muted font-medium"> How:</b> raise the steps if your previews look
+                  like unfinished sketches, lower them if a preview costs more time than the training it pauses.
+                </span>
               </div>
               <label className="flex flex-col gap-1 mt-1">
                 <span className="text-content text-[0.75rem]">Preview prompts</span>
