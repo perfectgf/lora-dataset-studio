@@ -40,7 +40,7 @@
 -r requirements.txt
 
 # Pinned, not floated: CI and a contributor must run the SAME collector.
-pytest==9.0.3
+pytest==9.1.1
 
 # The suite is ~7150 tests whose cost is FLAT: measured 2026-08-08, the ten
 # slowest tests are 7.5% of the time and the 5286-test tail is 74% of it, at
@@ -62,7 +62,7 @@ pytest==9.0.3
 # than on a result (test_bank_scan_no_db_lock gives a concurrent writer a 400 ms
 # budget), so saturating every core on a big machine makes them report on the
 # load instead of on the code. CI pins 4; 8 is the local default.
-pytest-xdist==3.6.1
+pytest-xdist==3.8.0
 
 # The backend's lint gate (`ruff check .` from the repo root, rules in ruff.toml).
 # Pinned exactly for the same reason pytest is: CI's lint job reads THIS pin and a
