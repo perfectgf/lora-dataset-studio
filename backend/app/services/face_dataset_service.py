@@ -3839,7 +3839,15 @@ def import_backup_zip(user_id: int, archive: bytes | BinaryIO):
             owned.close()
 
 
-def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
+def _bkp_validate_archive(z: zipfile.ZipFile):
+    """The whole security battery of a backup import, moved verbatim
+    (2026-08-24): central-directory limits, manifest/version checks, image
+    metadata normalisation and provenance rules, archive-entry filtering
+    with the traversal/collision refusals, the v2 archive<->metadata
+    pairing, and the analysis-cache binding (CRC/SHA validated BEFORE any
+    staging folder or transaction exists). Pure reads: nothing on disk or
+    in the database changes here. Returns (manifest, images_meta,
+    restored_training_mode, infos, validated_cache_payloads)."""
     # Validate the central directory BEFORE inflating JSON.  Previously a tiny
     # compressed manifest/images.json could bypass the image-only size total and
     # consume unbounded RAM during z.read/json.loads.
@@ -4075,6 +4083,19 @@ def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
             raise ValueError(
                 'analysis cache sidecar is malformed or has a digest mismatch')
         validated_cache_payloads[cache_ref] = raw
+    return (manifest, images_meta, restored_training_mode, infos,
+            validated_cache_payloads)
+
+
+def _bkp_restore_validated(user_id: int, z: zipfile.ZipFile, manifest,
+                           images_meta, restored_training_mode, infos,
+                           validated_cache_payloads):
+    """The atomic restore of an already-validated backup, moved verbatim:
+    staging-directory extraction (bytes re-validated on the way), dataset
+    row + image rows in one transaction, the within-backup provenance
+    graph, reference rebinding from actual archive files, and the single
+    rename promotion — with the except/finally that can never leave a
+    partial restore behind. Returns the new dataset."""
     name = (manifest.get('name') or 'Restored dataset')[:100]
     trigger = (manifest.get('trigger_word') or 'restored')[:60]
     # Extract first into a sibling directory: it is on the same volume as the final
@@ -4241,6 +4262,14 @@ def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
         shutil.rmtree(staging_dir, ignore_errors=True)
     logger.info(f"dataset backup restored: '{name}' -> #{ds.id} ({n_rows} image rows)")
     return ds
+
+
+def _import_backup_zipfile(user_id: int, z: zipfile.ZipFile):
+    (manifest, images_meta, restored_training_mode, infos,
+     validated_cache_payloads) = _bkp_validate_archive(z)
+    return _bkp_restore_validated(
+        user_id, z, manifest, images_meta, restored_training_mode,
+        infos, validated_cache_payloads)
 
 
 @_serialize_dataset_ingest
