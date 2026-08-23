@@ -192,6 +192,30 @@ class ReleaseArtifactPolicyTests(unittest.TestCase):
                 errors = policy.check_artifact(path)
         self.assertEqual(errors, [])
 
+    def test_an_archive_carrying_backend_extensions_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory) / 'bundle.zip'
+            with zipfile.ZipFile(bundle, 'w') as zf:
+                zf.writestr('backend/run.py', 'print("ok")\n')
+                zf.writestr('backend/extensions/something/__init__.py',
+                             'def register(app, csrf):\n    pass\n')
+            with self._no_name_list():
+                errors = policy.check_artifact(bundle)
+        self.assertTrue(any('backend/extensions' in e for e in errors), errors)
+
+    def test_a_directory_carrying_backend_extensions_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bundle = Path(directory) / 'bundle'
+            ext_dir = bundle / 'backend' / 'extensions' / 'something'
+            ext_dir.mkdir(parents=True)
+            (bundle / 'backend' / 'run.py').write_text('print("ok")\n', encoding='utf-8')
+            (ext_dir / '__init__.py').write_text(
+                'def register(app, csrf):\n    pass\n', encoding='utf-8'
+            )
+            with self._no_name_list():
+                errors = policy.check_artifact(bundle)
+        self.assertTrue(any('backend/extensions' in e for e in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -49,6 +49,11 @@ DIST_GLOB = re.compile(r"(?i)(?:packaging[\\/])?dist[\\/][^\r\n\"'`]*\*")
 # indistinguishable from a scan that passed.
 MAX_SCANNED_MEMBER_BYTES = 32 * 1024 * 1024
 
+# Local-only directories that must never reach a published archive, whatever
+# the packaging script's exclusion list forgot. Matched on normalized member
+# paths, at any depth (a bundle may nest the repo under a top-level folder).
+FORBIDDEN_MEMBER_DIRS = ("backend/extensions/",)
+
 # THE EXCEPTION LIST — read this before adding to it.
 #
 # Each entry is (member glob, pattern label, exact matched text). All three
@@ -111,6 +116,13 @@ def check_artifact(path: Path) -> list[str]:
         for candidate in path.rglob("*"):
             if candidate.is_file() and candidate.suffix.casefold() == ".exe":
                 errors.append(f"Forbidden executable in release directory: {candidate}")
+            rel = candidate.relative_to(path).as_posix()
+            normalized = rel + "/" if candidate.is_dir() else rel
+            if any(d in normalized for d in FORBIDDEN_MEMBER_DIRS):
+                errors.append(
+                    f"Local-only directory in {path}: {rel} — "
+                    f"backend/extensions/ must never ship"
+                )
         return errors
 
     if path.is_file() and zipfile.is_zipfile(path):
@@ -118,6 +130,12 @@ def check_artifact(path: Path) -> list[str]:
             for member in archive.namelist():
                 if Path(member).suffix.casefold() == ".exe":
                     errors.append(f"Forbidden executable in {path}: {member}")
+                normalized = member.replace("\\", "/")
+                if any(f"{d}" in normalized for d in FORBIDDEN_MEMBER_DIRS):
+                    errors.append(
+                        f"Local-only directory in {path}: {member} — "
+                        f"backend/extensions/ must never ship"
+                    )
             errors.extend(scan_archive_privacy(archive, path))
     return errors
 

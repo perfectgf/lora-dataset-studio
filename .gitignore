@@ -72,3 +72,9 @@ docs/superpowers/
 # find in tracked files. Kept OUT of the repo — writing them down here would
 # publish exactly what they forbid.
 .privacy-names
+
+# Local-only extension drop-in dir (optional packages loaded at boot by
+# backend/app/extension_loader.py). Never tracked, never shipped: also
+# excluded by packaging/build_release_zip.ps1 (/XD) and refused by
+# scripts/check_release_artifacts.py if it ever reaches an archive.
+/backend/extensions/
