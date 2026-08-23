@@ -4,8 +4,6 @@ The dir is gitignored and never shipped; with it absent the loader is a no-op.
 """
 import textwrap
 
-import pytest
-
 
 def _write_ext(base, name, body):
     pkg = base / name
