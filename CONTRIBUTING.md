@@ -99,7 +99,17 @@ tests pass locally and fail on the release tag.
 
 This is exactly what CI runs on a release tag, so run it locally before you open a PR. If you add or change behavior, add or update a test for it. The suite mocks external tools (ComfyUI, ai-toolkit, Ollama), so it runs without a GPU or any of those installed.
 
-For the frontend, a successful `npm run build` is the check.
+For the frontend, run `node --test` from `frontend/` (about a minute — it
+carries the help-registry, What's-new and layout contracts) and finish with a
+successful `npm run build`. Tests live in two places, on purpose:
+
+- `src/**/<module>.test.js` — the module's own tests, colocated with the file
+  they cover. Put a new test here when it is about one module (these often read
+  their sibling's source to pin a contract, so they stay next to it).
+- `frontend/tests/*.test.mjs` — cross-cutting feature contracts that span
+  several modules (render-mounting a component tree, repo-wide censuses like
+  the fp8 or direct-fetch disciplines). Only a contract that genuinely spans
+  modules belongs here.
 
 ## Before you start: see what is already in flight
 
