@@ -41,6 +41,7 @@ import {
   trainingPresetOwnsSteps,
 } from '../../utils/trainingPresets';
 import { useTrainingPresets } from './useTrainingPresets';
+import { useSliderTraining } from './useSliderTraining';
 import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
 import { continueAttemptOutcome } from '../../utils/continueOutcome';
 import { HelpBadge } from '../../help/HelpMode';
@@ -160,6 +161,31 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const isConceptual = isConcept || isStyle;
   const { caps } = useCapabilities();
   const toast = useToast();
+  // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
+  // 409 {'error','hint'} the training routes return when ai-toolkit isn't
+  // configured, or a 400 for a refused enqueue) must surface as `ok: false`
+  // — previously this just returned the raw body, so callers checking
+  // `d.ok === false` never saw the error (d.ok stayed undefined) and it was
+  // silently dropped instead of reaching the confirm/toast below.
+  const postTrain = async (path, body) => {
+    try {
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+        credentials: 'include',
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let d = null;
+      try { d = await r.json(); } catch { /* non-JSON body */ }
+      if (!r.ok) return { ok: false, error: (d && d.error) || `Server error (${r.status})`, hint: d && d.hint };
+      return d || { ok: true };
+    } catch { return { ok: false, error: 'Network error' }; }
+  };
+  // 409 {'error','hint'} (or any other refusal) → toast, hint appended when present.
+  const toastTrainError = (d, fallback) => {
+    const msg = (d && d.error) || fallback;
+    toast.error(d && d.hint ? `${msg} — ${d.hint}` : msg);
+  };
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
   const [statusLoaded, setStatusLoaded] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -247,11 +273,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // sample_every / sample_prompts), chargés depuis base-info ; persistés par POST
   // /train/settings via ds.setTrainSettings.
   const [adv, setAdv] = useState(null);
-  // Slider LoRA mode (Beta) : état serveur (colonne dédiée train_slider) + brouillon
-  // local des champs texte (édition libre, sauvés au blur comme les sample prompts).
-  const [slider, setSlider] = useState(null);
-  const [sliderBusy, setSliderBusy] = useState(false);
-  const [sliderDraft, setSliderDraft] = useState({ positive: '', negative: '', target_class: '', anchor: '' });
+  const {
+    slider, setSlider, sliderBusy, sliderDraft, setSliderDraft, sliderOn,
+    sliderPromptsMissing, saveSlider, toggleSliderMode, saveSliderField,
+  } = useSliderTraining({
+    ds, postTrain, toastTrainError, base, trainType, variant,
+    setBaseInfo, setAdv, setStepsInfo,
+  });
   // Textarea des prompts de preview : état local (édition libre), sauvé au blur —
   // resynchronisé sur la valeur stockée canonique chaque fois que `adv` arrive/change.
   const [samplePromptsText, setSamplePromptsText] = useState('');
@@ -371,16 +399,6 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     return () => { alive = false; };
   }, [ds.currentId, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-seed the slider text drafts from the canonical stored values whenever the
-  // server state (re)loads — saves happen on blur, so no mid-typing overwrite.
-  useEffect(() => {
-    setSliderDraft({
-      positive: slider?.positive ?? '',
-      negative: slider?.negative ?? '',
-      target_class: slider?.target_class ?? '',
-      anchor: slider?.anchor ?? '',
-    });
-  }, [slider?.positive, slider?.negative, slider?.target_class, slider?.anchor]);
 
   // Pendant une conversion, poll le statut toutes les 4 s. Dépend de la fonction
   // STABLE (useCallback sur currentId), pas de l'objet `ds` entier — sinon
@@ -748,21 +766,6 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const saveSampleGuidance = () => savePreviewSampleValue(
     'sample_guidance', sampleGuidanceDraft, setSampleGuidanceDraft, { integer: false });
 
-  // --- Slider LoRA mode (Beta) ------------------------------------------------
-  const sliderOn = !!slider?.enabled;
-  const sliderPromptsMissing = sliderOn
-    && (!(slider?.positive || '').trim() || !(slider?.negative || '').trim());
-  const saveSlider = async (patch) => {
-    setSliderBusy(true);
-    try {
-      const d = await postTrain(`/api/dataset/${ds.currentId}/train/slider`, patch);
-      if (d.ok === false) { toastTrainError(d, 'Slider settings save failed'); return null; }
-      setSlider(d.slider);
-      return d.slider;
-    } finally {
-      setSliderBusy(false);
-    }
-  };
   const fullTransformerSelection = { trainType, variant, baseModel: base, customBase };
   const fullTransformerEligible = isFullTransformerEligible(fullTransformerSelection);
   const fullTransformerReason = fullTransformerUnavailableReason(fullTransformerSelection);
@@ -903,51 +906,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   }, [baseInfo, fullMode, fullTransformerEligible, fullTransformerReason,
     trainType, variant, base, ds.setDatasetTrainingMode]);
 
-  const toggleSliderMode = async () => {
-    const next = !sliderOn;
-    const saved = await saveSlider({ enabled: next });
-    if (!saved) return;
-    // Rank default (8 in slider mode) and the step policy both live server-side —
-    // refresh base-info + the checkpoint/steps panel so labels stay truthful.
-    try {
-      const info = await ds.trainBaseInfo?.();
-      if (info) { setBaseInfo(info); setAdv(info.train_settings || null); }
-      const checkpointData = await ds.listCheckpoints?.(base, trainType, variant);
-      if (checkpointData) setStepsInfo(checkpointData.recommended_steps_info || null);
-    } catch { /* labels refresh is best-effort */ }
-  };
-  const saveSliderField = (key) => () => {
-    const stored = slider?.[key] ?? '';
-    if ((sliderDraft[key] ?? '') === stored) return;   // no-op → skip round-trip
-    saveSlider({ [key]: sliderDraft[key] });
-  };
 
 
-  // Normalizes like useDataset's own postJson: a non-2xx response (e.g. the
-  // 409 {'error','hint'} the training routes return when ai-toolkit isn't
-  // configured, or a 400 for a refused enqueue) must surface as `ok: false`
-  // — previously this just returned the raw body, so callers checking
-  // `d.ok === false` never saw the error (d.ok stayed undefined) and it was
-  // silently dropped instead of reaching the confirm/toast below.
-  const postTrain = async (path, body) => {
-    try {
-      const r = await fetch(path, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
-        credentials: 'include',
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      let d = null;
-      try { d = await r.json(); } catch { /* non-JSON body */ }
-      if (!r.ok) return { ok: false, error: (d && d.error) || `Server error (${r.status})`, hint: d && d.hint };
-      return d || { ok: true };
-    } catch { return { ok: false, error: 'Network error' }; }
-  };
-  // 409 {'error','hint'} (or any other refusal) → toast, hint appended when present.
-  const toastTrainError = (d, fallback) => {
-    const msg = (d && d.error) || fallback;
-    toast.error(d && d.hint ? `${msg} — ${d.hint}` : msg);
-  };
   const {
     presetSel, setPresetSel, presetBusy, presetFileRef, visiblePresets,
     researchedBuiltins, communityBuiltins, selPreset, savePreset,
