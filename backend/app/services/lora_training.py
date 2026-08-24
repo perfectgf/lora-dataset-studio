@@ -3421,10 +3421,8 @@ def _ts_apply_dense_recipe(patch, cur):
                 raise ValueError(f'{_flag} must be true or false')
 
 
-def _ts_apply_network_and_optim(patch, cur):
-    """LoRA architecture and optimisation levers (dropout, alpha, LoKr,
-    optimizer, schedules, guidance). Moved verbatim; mutates cur in
-    place, including the automagic3/grad_accum cross-check."""
+def _ts_apply_regularisation(patch, cur):
+    """Dropout / alpha / timestep levers. Moved verbatim; mutates cur in place."""
     if 'dropout' in patch:
         v = patch['dropout']
         if v in (None, 0, 0.0, 'off', ''):
@@ -3449,6 +3447,12 @@ def _ts_apply_network_and_optim(patch, cur):
             cur['timestep_type'] = v
         else:
             raise ValueError(f'timestep_type must be one of {_TIMESTEP_TYPE_CHOICES} (or auto)')
+
+
+def _ts_apply_optim(patch, cur):
+    """Optimizer, schedule, warmup and grad_accum levers - the automagic3/
+    grad_accum cross-check lives here, so this pair must never be split.
+    Moved verbatim; mutates cur in place."""
     if 'optimizer' in patch:
         v = patch['optimizer']
         if v in (None, 'auto', '', 'adamw8bit'):
@@ -3491,6 +3495,11 @@ def _ts_apply_network_and_optim(patch, cur):
             cur['grad_accum'] = v
         else:
             raise ValueError(f'grad_accum must be one of {_GRAD_ACCUM_CHOICES} (or auto)')
+
+
+def _ts_apply_network_arch(patch, cur):
+    """Network architecture (LoKr, conv ranks), EMA, content/style and
+    differential guidance levers. Moved verbatim; mutates cur in place."""
     if 'network_type' in patch:
         v = patch['network_type']
         if v in (None, 'auto', '', 'lora'):
@@ -3565,9 +3574,18 @@ def _ts_apply_network_and_optim(patch, cur):
                 f'differential_guidance_scale must be between {lo:g} and {hi:g} (or auto)')
 
 
-def _ts_apply_levers_memory_quality(patch, cur):
-    """Boolean/tri-state levers, memory-saver keys, quality knobs and the
-    preset step bounds. Moved verbatim; mutates cur in place."""
+def _ts_apply_network_and_optim(patch, cur):
+    """LoRA architecture and optimisation levers (dropout, alpha, LoKr,
+    optimizer, schedules, guidance). Moved verbatim; mutates cur in
+    place, including the automagic3/grad_accum cross-check."""
+    _ts_apply_regularisation(patch, cur)
+    _ts_apply_optim(patch, cur)
+    _ts_apply_network_arch(patch, cur)
+
+
+def _ts_apply_data_and_memory(patch, cur):
+    """Caption/mask data levers plus the boolean memory-setting keys.
+    Moved verbatim; mutates cur in place."""
     if 'dual_captions' in patch:
         # Plain boolean lever: truthy stores True, anything falsy drops the key so OFF is
         # byte-identical to a dataset that never touched it.
@@ -3610,6 +3628,11 @@ def _ts_apply_levers_memory_quality(patch, cur):
             cur.pop(_mk, None)
         else:
             raise ValueError(f'{_mk} must be true, false or auto')
+
+
+def _ts_apply_quality_and_precision(patch, cur):
+    """Learning-rate/decay/loss quality levers plus quantisation, offloading,
+    save dtype and preset-step keys. Moved verbatim; mutates cur in place."""
     if 'learning_rate' in patch:
         # Not a general Advanced-options control: the family-fixed 1e-4 (or the
         # Prodigy lr=1 convention) is the default, and only the ▶ Continue dialog's
@@ -3690,6 +3713,13 @@ def _ts_apply_levers_memory_quality(patch, cur):
             cur[key] = v
         else:
             raise ValueError(f'{key} must be a positive integer (or auto)')
+
+
+def _ts_apply_levers_memory_quality(patch, cur):
+    """Boolean/tri-state levers, memory-saver keys, quality knobs and the
+    preset step bounds. Moved verbatim; mutates cur in place."""
+    _ts_apply_data_and_memory(patch, cur)
+    _ts_apply_quality_and_precision(patch, cur)
 
 
 
