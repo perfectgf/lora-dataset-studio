@@ -1,4 +1,6 @@
 import { INPUT_CLASS, Card } from './primitives'
+import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './SettingsGroupsView'
+import { CAPTIONING_GROUPS } from './settingsGroups'
 import ResetToDefault from './ResetToDefault'
 import { defaultValueAt } from './settingDefaults.js'
 import { importInputLimitLine, IMPORT_INPUT_UNLIMITED_NOTE } from '../dataset/importPolicy.js'
@@ -61,8 +63,15 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
   const inputLimit = importInputLimitLine(
     { input_max_side: inputMaxSide, input_max_pixels: inputMaxPixels })
   const inputUnlimited = !inputMaxSide || !inputMaxPixels
+  // Summary + collapsible groups — same shells as Image engines; a collapsed
+  // group opens itself under any ?focus= deep-link or search hit.
+  const [importGroup, captionGroup, watermarkGroup, qualityGroup] = CAPTIONING_GROUPS
+  const groupProps = useSettingsGroupProps('captioning')
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <SettingsGroupsToc sectionId="captioning" groups={CAPTIONING_GROUPS} />
+
+      <SettingsGroup {...groupProps(importGroup)}>
       <Card
         title="Dataset import"
         help={`What happens to a photo the moment it enters a dataset. Preserve originals keeps the master file; training makes a temporary working copy only when a run starts. Every import must fit within ${inputLimit}; convert or resize a larger source before importing.`}
@@ -189,6 +198,9 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
         </p>
       </Card>
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(captionGroup)}>
       <Card
         title="Captioning"
         help="Who writes the captions. Auto prefers JoyCaption (via ai-toolkit) and falls back to the Ollama vision model."
@@ -208,6 +220,9 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
         </div>
       </Card>
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(watermarkGroup)}>
       <Card
         title="Watermark inpainting"
         help="Choose where LaMa removes small off-center watermarks. Auto uses CUDA when the configured ML Python supports it and otherwise falls back to CPU."
@@ -239,6 +254,9 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
         </label>
       </Card>
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(qualityGroup)}>
       <Card
         title="Face similarity"
         help="Every image is scored against the reference face (InsightFace). These thresholds set where the badges flip."
@@ -499,6 +517,7 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
           </div>
         </div>
       </Card>
+      </SettingsGroup>
     </div>
   )
 }

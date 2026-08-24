@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { INPUT_CLASS, Card, SecretField } from './primitives'
-import { SettingsGroup, SettingsGroupsToc } from './SettingsGroupsView'
-import { ENGINES_GROUPS, readOpenGroups } from './settingsGroups'
+import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './SettingsGroupsView'
+import { ENGINES_GROUPS } from './settingsGroups'
 import KleinLoraCombobox, { useKleinGenerationLoras } from './KleinLoraCombobox'
 import ModelFilePicker, { useModelFiles } from './ModelFilePicker'
 import ChatgptSubscriptionConnect from '../common/ChatgptSubscriptionConnect'
@@ -1451,11 +1451,7 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast, c
 export default function EnginesSection(props) {
   const { config, setField, toggleEngine, caps, refreshCaps, toast, configDefaults } = props
   const [group1, group2, group3, group4, group5, group6] = ENGINES_GROUPS
-  const [initiallyOpen] = useState(() => readOpenGroups(
-    typeof localStorage === 'undefined' ? null : localStorage, 'engines'))
-  const groupProps = (g) => ({
-    sectionId: 'engines', group: g, defaultOpen: initiallyOpen.has(g.id),
-  })
+  const groupProps = useSettingsGroupProps('engines')
   return (
     <div className="space-y-4">
       <SettingsGroupsToc sectionId="engines" groups={ENGINES_GROUPS} />

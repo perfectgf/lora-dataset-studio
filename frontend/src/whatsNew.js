@@ -110,6 +110,21 @@ export const WHATS_NEW = [
     to: '/gallery',
   },
   {
+    id: '2026-08-24-settings-groups-everywhere',
+    date: '2026-08-24',
+    title: 'The rest of Settings gets the same organised layout',
+    blurb:
+      'Local tools, Captioning & quality, Training and Storage now open on the '
+      + 'same clickable summary of collapsible groups Image engines got — the '
+      + 'vast.ai key finally sits WITH the cloud-training guardrails, the '
+      + 'movable folders stand apart from the cleanup tools, and which groups '
+      + 'you keep open is remembered per section. Every Settings link and '
+      + 'search result still lands on its field: a collapsed group opens '
+      + 'itself on the way. Scraping, Server and Maintenance keep their one '
+      + 'or two cards flat — a summary there would just be noise.',
+    to: '/settings/local-tools',
+  },
+  {
     id: '2026-08-24-use-these-improve-settings',
     date: '2026-08-24',
     title: 'Like a ✨ result? Make the next improves run the same way',

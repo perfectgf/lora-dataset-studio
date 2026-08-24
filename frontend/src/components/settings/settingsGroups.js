@@ -34,6 +34,61 @@ export const ENGINES_GROUPS = [
     blurb: 'Identity prompts per subject type, the improve instruction and its strength knobs.' },
 ]
 
+/** 🖥️ Local tools — three tools, three long cards; the group is the tool. */
+export const LOCAL_TOOLS_GROUPS = [
+  { id: 'comfyui', title: 'ComfyUI', icon: '🧩',
+    blurb: 'The local generation backend — API URL, install folder, model paths.' },
+  { id: 'ollama', title: 'Ollama', icon: '🦙',
+    blurb: 'Local vision & text models — captions, descriptions, prompt help.' },
+  { id: 'aitoolkit', title: 'ai-toolkit', icon: '🏋️',
+    blurb: 'The local trainer — install folder and its Python.' },
+]
+
+/** ✍️ Captioning & quality. */
+export const CAPTIONING_GROUPS = [
+  { id: 'import', title: 'Import & image size', icon: '📥',
+    blurb: 'What happens to a photo as it enters — stored format, resolution budgets.' },
+  { id: 'captioning', title: 'Captioning', icon: '✍️',
+    blurb: 'Which captioner writes the training captions, and how.' },
+  { id: 'watermarks', title: 'Watermark inpainting', icon: '🧽',
+    blurb: 'The clean-watermarks pass — engine and behaviour.' },
+  { id: 'quality', title: 'Quality scoring & triage', icon: '📊',
+    blurb: 'Face similarity and the bank triage thresholds.' },
+]
+
+/** 🏋️ Training. */
+export const TRAINING_GROUPS = [
+  { id: 'defaults', title: 'Defaults', icon: '🎛️',
+    blurb: 'The model family new runs start on.' },
+  { id: 'cloud', title: 'Cloud training (vast.ai)', icon: '☁️',
+    blurb: 'The API key that unlocks cloud runs, and every guardrail on spend and stalls.' },
+  { id: 'masking', title: 'Concept face masking', icon: '🎭',
+    blurb: 'Masking faces out of concept training.' },
+]
+
+/** 💾 Storage. */
+export const STORAGE_GROUPS = [
+  { id: 'overview', title: 'What lives where', icon: '🗺️',
+    blurb: 'Every folder the app writes to, with sizes on demand.' },
+  { id: 'locations', title: 'Movable folders', icon: '📦',
+    blurb: 'The three relocatable roots — dataset images, cloud staging, checkpoints.' },
+  { id: 'housekeeping', title: 'Cleanup & trash', icon: '🧹',
+    blurb: 'Cloud-run housekeeping, the trash, and the run image archive.' },
+  { id: 'models', title: 'Model files', icon: '🧊',
+    blurb: 'fp8 quantization and the Hugging Face cache.' },
+]
+
+/** Which sections carry groups at all. Scraping, Server, Maintenance and the
+ *  Overview keep their flat handful of cards ON PURPOSE: a summary over one
+ *  or two cards is navigation for a hallway with one door. */
+export const SECTION_GROUPS = {
+  engines: ENGINES_GROUPS,
+  'local-tools': LOCAL_TOOLS_GROUPS,
+  captioning: CAPTIONING_GROUPS,
+  training: TRAINING_GROUPS,
+  storage: STORAGE_GROUPS,
+}
+
 /** The DOM id a group's <details> carries — the TOC and tests address it. */
 export function groupDomId(sectionId, groupId) {
   return `settings-group-${sectionId}-${groupId}`

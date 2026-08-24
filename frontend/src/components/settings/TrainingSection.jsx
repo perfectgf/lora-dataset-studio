@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { INPUT_CLASS, Card, SecretField } from './primitives'
+import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './SettingsGroupsView'
+import { TRAINING_GROUPS } from './settingsGroups'
 import ResetToDefault from './ResetToDefault'
 import { defaultValueAt } from './settingDefaults.js'
 
@@ -396,8 +398,17 @@ function ConceptFaceMaskCard({ config, setField, configDefaults }) {
 
 export default function TrainingSection(props) {
   const { config, setField, configDefaults } = props
+  // Summary + collapsible groups — same shells as Image engines. The vast.ai
+  // KEY and the cloud GUARDRAILS live in ONE group on purpose: they are the
+  // two halves of "training on a rented GPU", and they used to sit with the
+  // masking card between them.
+  const [defaultsGroup, cloudGroup, maskingGroup] = TRAINING_GROUPS
+  const groupProps = useSettingsGroupProps('training')
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <SettingsGroupsToc sectionId="training" groups={TRAINING_GROUPS} />
+
+      <SettingsGroup {...groupProps(defaultsGroup)}>
       <Card title="Defaults" help="Preselected model family for new training runs — each dataset can still override it.">
         <div>
           <label htmlFor="training-default-family" className="block text-sm font-medium text-content">Default training family</label>
@@ -411,14 +422,19 @@ export default function TrainingSection(props) {
           </select>
         </div>
       </Card>
+      </SettingsGroup>
 
+      <SettingsGroup {...groupProps(cloudGroup)}>
       <Card title="Cloud GPU (vast.ai)" help="No local GPU? The app can rent one per run — the key below unlocks the ☁️ Train in cloud button.">
         <SecretField field={VAST_SECRET} {...props} />
       </Card>
 
-      <ConceptFaceMaskCard config={config} setField={setField} configDefaults={configDefaults} />
-
       <CloudTrainingCard config={config} setField={setField} configDefaults={configDefaults} />
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(maskingGroup)}>
+      <ConceptFaceMaskCard config={config} setField={setField} configDefaults={configDefaults} />
+      </SettingsGroup>
     </div>
   )
 }

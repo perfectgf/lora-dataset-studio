@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { INPUT_CLASS, Card, TextField, TestResult, TestButton, SecretField } from './primitives'
+import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './SettingsGroupsView'
+import { LOCAL_TOOLS_GROUPS } from './settingsGroups'
 import { postJson, apiFetch } from '../../api/fetchClient'
 import {
   COMFY_FOLDER_FIELDS, comfyFolderField, folderPlaceholder, folderEffective,
@@ -243,8 +245,16 @@ export default function LocalToolsSection(props) {
   // Shipped values come from the server payload, never retyped here.
   const ollamaDefault = (key) => defaultValueAt(configDefaults, 'ollama', key)
   const comfyDefault = (key) => defaultValueAt(configDefaults, 'comfyui', key)
+  // Summary + collapsible groups, one per tool — same shells as Image engines
+  // (SettingsGroupsView), and the ?focus= reveal opens a collapsed group on
+  // its own, so every deep-link and search result keeps landing.
+  const [comfyGroup, ollamaGroup, aitkGroup] = LOCAL_TOOLS_GROUPS
+  const groupProps = useSettingsGroupProps('local-tools')
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <SettingsGroupsToc sectionId="local-tools" groups={LOCAL_TOOLS_GROUPS} />
+
+      <SettingsGroup {...groupProps(comfyGroup)}>
       <Card
         title="ComfyUI"
         help="Local (Klein) generation and the Test Studio. The API URL is where a running ComfyUI answers; the install directory is scanned for checkpoints and LoRAs."
@@ -306,6 +316,9 @@ export default function LocalToolsSection(props) {
         </div>
       </Card>
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(ollamaGroup)}>
       <Card
         title="Ollama"
         help="Lightweight local vision backend — captioning, framing auto-classify and head-crop."
@@ -388,6 +401,9 @@ export default function LocalToolsSection(props) {
         </div>
       </Card>
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(aitkGroup)}>
       <Card
         title="ai-toolkit"
         help="The training engine. Point at the folder containing run.py — its venv/ or .venv/ is detected automatically."
@@ -444,6 +460,7 @@ export default function LocalToolsSection(props) {
           </div>
         </details>
       </Card>
+      </SettingsGroup>
     </div>
   )
 }

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { Card, INPUT_CLASS } from './primitives'
+import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './SettingsGroupsView'
+import { STORAGE_GROUPS } from './settingsGroups'
 import ResetToDefault from './ResetToDefault'
 import HfStorageCard from './HfStorageCard'
 import Fp8QuantizeTool from '../dataset/Fp8QuantizeTool'
@@ -410,8 +412,15 @@ export default function StorageSection({
     config, setField, configDefaults, saveConfigPatch, toast, onChanged: changed,
   })
 
+  // Summary + collapsible groups — same shells as Image engines; deep-links
+  // and search open a collapsed group on their own.
+  const [overviewGroup, locationsGroup, housekeepingGroup, modelsGroup] = STORAGE_GROUPS
+  const groupProps = useSettingsGroupProps('storage')
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <SettingsGroupsToc sectionId="storage" groups={STORAGE_GROUPS} />
+
+      <SettingsGroup {...groupProps(overviewGroup)}>
       <Card title="What lives where"
         help="Every folder this app writes to, with the drive it sits on. Sizes are measured only when you ask — walking a hundred gigabytes of datasets is not something a page should do while you read it.">
         <div className="flex flex-wrap items-center gap-3">
@@ -453,6 +462,9 @@ export default function StorageSection({
         </div>
       </Card>
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(locationsGroup)}>
       <LocationEditor id="dataset-images-root" storageKey="datasets"
         label="Dataset images root" section="paths" field="dataset_images_root"
         help="Where dataset images live on disk — usually the biggest folder of all."
@@ -468,9 +480,15 @@ export default function StorageSection({
         help="Where the .safetensors your cloud runs produce are kept for good. No cleanup in the app ever removes a file from here — only you can, from the Checkpoints panel or by emptying the trash."
         {...shared('checkpoints')} />
 
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(housekeepingGroup)}>
       <CloudRunHousekeeping toast={toast} onChanged={changed} />
       <TrashCard reloadKey={reloadKey} />
       <RunArchiveCard />
+      </SettingsGroup>
+
+      <SettingsGroup {...groupProps(modelsGroup)}>
 
       {/* The SAME component the full-model recipe card renders — imported, not
           copied, so the refusals (already quantized, LoRA, overwriting the
@@ -486,6 +504,7 @@ export default function StorageSection({
       </Card>
 
       <HfStorageCard config={config} setField={setField} configDefaults={configDefaults} />
+      </SettingsGroup>
     </div>
   )
 }

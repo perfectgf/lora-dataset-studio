@@ -4,7 +4,17 @@
  * the other long sections when they adopt the same layout.
  */
 import { useState } from 'react'
-import { groupDomId, storeGroupToggle } from './settingsGroups'
+import { groupDomId, readOpenGroups, storeGroupToggle } from './settingsGroups'
+
+/** The three lines every grouped section repeats, once: freeze the open set at
+ *  mount and hand back the props one SettingsGroup takes. Frozen on purpose —
+ *  the uncontrolled <details> contract (below) hangs on `defaultOpen` never
+ *  changing across renders. */
+export function useSettingsGroupProps(sectionId) {
+  const [initiallyOpen] = useState(() => readOpenGroups(
+    typeof localStorage === 'undefined' ? null : localStorage, sectionId))
+  return (group) => ({ sectionId, group, defaultOpen: initiallyOpen.has(group.id) })
+}
 
 /** The clickable map at the top of the section: one row per group. Clicking
  *  opens the group (DOM-driven, same channel revealTarget uses) and scrolls

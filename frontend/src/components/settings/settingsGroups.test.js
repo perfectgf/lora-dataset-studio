@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ENGINES_GROUPS, groupDomId, readOpenGroups, storeGroupToggle,
+  ENGINES_GROUPS, SECTION_GROUPS, groupDomId, readOpenGroups, storeGroupToggle,
 } from './settingsGroups.js';
 
 /** A localStorage double that can also be told to fail — private windows and
@@ -26,6 +26,26 @@ test('the Image engines groups carry stable ids — they live in localStorage an
 
 test('the DOM anchor is section-scoped, so two sections can reuse a group id', () => {
   assert.equal(groupDomId('engines', 'klein'), 'settings-group-engines-klein');
+});
+
+test('every grouped section carries stable ids and complete display fields', () => {
+  // Ids live in localStorage and DOM anchors — renaming one strands the
+  // remembered open set and every TOC/test that addresses the anchor.
+  assert.deepEqual(Object.keys(SECTION_GROUPS),
+    ['engines', 'local-tools', 'captioning', 'training', 'storage']);
+  for (const [sectionId, groups] of Object.entries(SECTION_GROUPS)) {
+    const ids = groups.map((g) => g.id);
+    assert.equal(new Set(ids).size, ids.length, `${sectionId} repeats a group id`);
+    assert.ok(groups.length >= 3, `${sectionId} has too few groups to earn a summary`);
+    for (const g of groups) {
+      assert.ok(g.title && g.blurb && g.icon, `${sectionId}/${g.id} missing display fields`);
+    }
+  }
+  // The sections deliberately left FLAT (one or two cards): a summary over a
+  // hallway with one door is noise, not navigation.
+  for (const flat of ['scraping', 'server', 'maintenance', 'overview']) {
+    assert.equal(SECTION_GROUPS[flat], undefined, `${flat} should stay flat`);
+  }
 });
 
 test('toggles round-trip through storage, per section', () => {
