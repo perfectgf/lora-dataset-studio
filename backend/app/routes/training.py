@@ -3033,6 +3033,56 @@ def app_gallery_images():
         liked=request.args.get('liked', default=0, type=int) == 1))
 
 
+@bp.post('/gallery/images/delete')
+def app_gallery_images_delete():
+    """🗑 Delete generated images from the Gallery page. Body: {image_ids: […]}.
+
+    The checkpoint delete with its scope removed (services.cloud_training.
+    delete_gallery_images): same recoverable disposal, same refusals — a cell
+    still generating is skipped, never cancelled."""
+    ids = (request.get_json(silent=True) or {}).get('image_ids') or []
+    if not isinstance(ids, list):
+        return jsonify({'error': 'image_ids must be a list'}), 400
+    try:
+        out = ct.delete_gallery_images(ids)
+    except OSError as e:
+        current_app.logger.warning('gallery delete failed: %s', e)
+        return jsonify({'error': 'Could not delete these images — a file is '
+                                 'locked or unreachable. Try again.'}), 500
+    return jsonify({'ok': True, **out})
+
+
+@bp.get('/gallery/images/zip')
+def app_gallery_images_zip():
+    """⬇ A Gallery SELECTION as one ZIP — `?ids=` is required: the feed spans
+    every run, so "the whole scope" would be an accidental everything."""
+    from ..services import gallery_download as gdl
+    from .datasets import _zip_download
+    ids = _zip_ids_arg()
+    if ids is None:
+        return jsonify({'error': 'ids is required — pick the images first'}), 400
+    plan = gdl.app_gallery_download_plan(ids)
+    if not plan['ok']:
+        return jsonify({'error': plan['note']}), 404
+    response = _zip_download(lambda out: gdl.write_gallery_zip(plan['entries'], out),
+                             plan['filename'])
+    response.headers['X-Lds-Zip-Images'] = str(plan['included'])
+    response.headers['X-Lds-Zip-Total'] = str(plan['total'])
+    return response
+
+
+@bp.get('/gallery/images/zip/plan')
+def app_gallery_images_zip_plan():
+    """The Gallery selection preflight — counts and cuts BEFORE any byte moves,
+    so a short archive is never a discovery."""
+    from ..services import gallery_download as gdl
+    ids = _zip_ids_arg()
+    if ids is None:
+        return jsonify({'error': 'ids is required — pick the images first'}), 400
+    plan = gdl.app_gallery_download_plan(ids)
+    return jsonify({k: v for k, v in plan.items() if k != 'entries'})
+
+
 @bp.get('/train/run/<int:record_id>/timeline')
 def train_run_timeline(record_id):
     """Render-equivalent images across checkpoints, split into safe series."""

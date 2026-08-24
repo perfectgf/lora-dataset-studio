@@ -7826,6 +7826,7 @@ def app_gallery(limit=APP_GALLERY_PAGE, before_id=None, dataset_id=None,
          for i, n in ds_counts),
         key=lambda d: d['name'].lower())
 
+    from . import trash
     return {
         'count': count,
         'has_more': has_more,
@@ -7835,7 +7836,20 @@ def app_gallery(limit=APP_GALLERY_PAGE, before_id=None, dataset_id=None,
         'next_before_id': rows[-1].id if rows and has_more else None,
         'images': [_gallery_image(r) for r in rows],
         'datasets': datasets,
+        # Where a deleted image WOULD land — same promise, same source as the
+        # checkpoint gallery, so the confirmation never promises the wrong thing.
+        'delete_mode': trash.disposal_mode(),
     }
+
+
+def delete_gallery_images(image_ids) -> dict:
+    """🗑 The Gallery page's delete — the checkpoint delete with its scope
+    removed. The feed lists rows from every run at once, so its delete has no
+    (record_id, step) to be scoped BY; what keeps it honest instead is that it
+    can only ever reach `lora_test_image` rows, and every degradation rule of
+    the narrow delete (a generating cell is skipped, a shared file survives,
+    a missing file still loses its row) applies through the same function."""
+    return delete_checkpoint_images(None, None, image_ids)
 
 
 def delete_checkpoint_images(record_id, step, image_ids) -> dict:
@@ -7861,6 +7875,11 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
     function on purpose: two delete paths over the same rows would be two places
     to keep the recycle-bin promise, the shared-file rule and the "generating is
     never cancelled" rule true, and they would drift.
+
+    ``record_id=None`` removes the scope entirely — the app-wide 🖼 Gallery
+    (``delete_gallery_images``), whose feed spans every run and therefore has
+    no record to be scoped by. The per-checkpoint ROUTES never pass None here,
+    so their "not ours to delete" refusal is unchanged.
 
     Degrades instead of failing, because the gallery of a real install is never
     tidy:
@@ -7892,8 +7911,9 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
            'skipped': []}
     if not wanted:
         return out
-    scoped = LoraTestImage.query.filter(LoraTestImage.record_id == record_id,
-                                        LoraTestImage.id.in_(wanted))
+    scoped = LoraTestImage.query.filter(LoraTestImage.id.in_(wanted))
+    if record_id is not None:
+        scoped = scoped.filter(LoraTestImage.record_id == record_id)
     if step is not None:
         scoped = scoped.filter(LoraTestImage.step == step)
     rows = scoped.all()
@@ -7936,8 +7956,10 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
             remove_ids.append(row.id)
             continue
         try:
-            mode = trash.dispose(path, context=(f'run-{record_id}' if step is None
-                                                else f'checkpoint-{record_id}-{step}'))
+            mode = trash.dispose(path, context=(
+                'gallery' if record_id is None
+                else f'run-{record_id}' if step is None
+                else f'checkpoint-{record_id}-{step}'))
         except OSError as e:
             out['skipped'].append({'id': row.id, 'reason': str(e)})
             continue
