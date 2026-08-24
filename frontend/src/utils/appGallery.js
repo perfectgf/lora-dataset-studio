@@ -54,7 +54,7 @@ export function galleryFiltered({ datasetId = '', kind = '', liked = false } = {
 export function gallerySummaryLine({ count = 0, shown = 0 } = {}) {
   if (!count) return '';
   if (shown >= count) return `${count} image${count > 1 ? 's' : ''}, newest first.`;
-  return `Showing the newest ${shown} of ${count} — Load more below.`;
+  return `Showing the newest ${shown} of ${count} — the rest load as you scroll.`;
 }
 
 /** What an empty grid says. Two different answers on purpose: "you filtered

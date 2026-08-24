@@ -268,8 +268,9 @@ I make".
 
 Narrow it from the row above the grid: one dataset, **Renders** or
 **✨ Improved** only, or **👍 Liked** — the images you rated up in the Test
-Studio. The count always names what the grid is actually showing, and **Load
-more** states how many are left.
+Studio. The count always names what the grid is actually showing. The feed
+loads itself as you scroll towards its end; the **Load more** button at the
+bottom states how many are left and still works as a plain button.
 
 Tap any image to open the viewer — the same one the Canvas uses, with
 everything the picture was made from: seed (copyable), checkpoint, base model,

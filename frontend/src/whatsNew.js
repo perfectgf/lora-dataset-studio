@@ -105,8 +105,9 @@ export const WHATS_NEW = [
       + 'keys, shows everything a picture was made from, and carries the '
       + 'actions you already know: ⬇ Download under its lineage name, ✨ '
       + 'Upscale & improve (result lands at the top of the feed), and a Select '
-      + 'mode to 🗑 delete misses or ⬇ ZIP a pick. Built for the phone as much '
-      + 'as the desktop.',
+      + 'mode to 🗑 delete misses or ⬇ ZIP a pick. The feed loads itself as '
+      + 'you scroll towards its end. Built for the phone as much as the '
+      + 'desktop.',
     to: '/gallery',
   },
   {

@@ -110,7 +110,8 @@ export default function GalleryPage() {
   useEffect(() => { load(filters); }, [filters, load]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || !feed.hasMore || feed.nextBeforeId == null) return;
+    if (status !== 'ready' || loadingMore || !feed.hasMore
+      || feed.nextBeforeId == null) return;
     setLoadingMore(true);
     apiFetch(galleryFeedUrl(filters, { beforeId: feed.nextBeforeId }))
       .then((d) => { if (alive.current) applyPage(d, { append: true }); })
@@ -120,7 +121,30 @@ export default function GalleryPage() {
         }
       })
       .finally(() => { if (alive.current) setLoadingMore(false); });
-  }, [filters, feed.hasMore, feed.nextBeforeId, loadingMore, applyPage]);
+  }, [filters, feed.hasMore, feed.nextBeforeId, loadingMore, applyPage, status]);
+
+  /* ♾ The feed loads ITSELF as the reader approaches its end — a browsing
+     page whose next screen is behind a button is a page that stalls every 60
+     images. The sentinel is the load-more ROW (small on purpose: an
+     IntersectionObserver threshold is a % of the ELEMENT, unreachable on a
+     tall one), threshold 0 with a 600 px rootMargin so the next page is
+     usually there before the reader is. The button STAYS — it is the visible
+     state ("Loading…", how many are left) and the fallback wherever
+     IntersectionObserver is not (very old WebViews).
+
+     Re-created whenever `loadMore` changes identity (each appended page):
+     that re-fires an immediately-visible sentinel, which is exactly what
+     fills a viewport taller than one page without a single scroll event. */
+  const loadMoreRef = useRef(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore();
+    }, { rootMargin: '600px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadMore]);
 
   const setFilter = (patch) => {
     setPicking(false);
@@ -322,7 +346,7 @@ export default function GalleryPage() {
       )}
 
       {feed.hasMore && status === 'ready' && (
-        <div className="flex justify-center">
+        <div ref={loadMoreRef} className="flex justify-center">
           <button type="button" data-testid="gallery-load-more"
             onClick={loadMore} disabled={loadingMore}
             className="min-h-10 rounded-md border border-border px-4 py-1.5 text-[0.8125rem] text-content-muted hover:border-indigo-400/50 hover:text-content disabled:opacity-50">

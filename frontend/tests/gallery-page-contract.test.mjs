@@ -74,6 +74,19 @@ test('improve is the ONE shared handler, gated and re-addressed for this feed', 
   assert.doesNotMatch(page, /\/improve`/, 'the page restates the improve route')
 })
 
+test('the feed loads itself near the end — small sentinel, prefetch margin, cleanup', () => {
+  // The sentinel is the load-more ROW: a threshold is a % of the ELEMENT and
+  // is unreachable on a tall one, so the small row + rootMargin is the shape
+  // that actually fires (a tall-element threshold shipped broken once).
+  assert.match(page, /new IntersectionObserver\(/)
+  assert.match(page, /rootMargin: '600px 0px'/)
+  assert.match(page, /io\.observe\(el\)/)
+  assert.match(page, /return \(\) => io\.disconnect\(\)/)
+  assert.match(page, /ref=\{loadMoreRef\}/)
+  // The button survives as the visible state and the no-observer fallback.
+  assert.match(page, /data-testid="gallery-load-more"/)
+})
+
 test('the viewer walks the feed and stops AT the ends', () => {
   assert.match(page, /onPrev=\{zoomIndex > 0/)
   assert.match(page, /zoomIndex < images\.length - 1/)

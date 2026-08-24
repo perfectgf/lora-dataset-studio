@@ -48,7 +48,7 @@ test('a page with nothing new returns the SAME array — no wasted re-render', (
 test('the summary states the cut whenever the grid shows fewer than the scope', () => {
   assert.equal(gallerySummaryLine({ count: 3, shown: 3 }), '3 images, newest first.');
   assert.equal(gallerySummaryLine({ count: 120, shown: 60 }),
-    'Showing the newest 60 of 120 — Load more below.');
+    'Showing the newest 60 of 120 — the rest load as you scroll.');
   assert.equal(gallerySummaryLine({ count: 0, shown: 0 }), '');
 });
 
