@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, patchJson, postJson } from '../../api/fetchClient'
 import { useFolderPersons } from './useFolderPersons'
 import { useReviewLightbox } from './useReviewLightbox'
+import { useCaptionOptions } from './useCaptionOptions'
 import { useToast } from '../common/Toast'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useConnectionStatus } from '../../hooks/useConnectionStatus'
@@ -48,7 +49,7 @@ import { PICKER_PROFILES } from './scoringPython.js'
 // Reuse the dataset's register list so the Bank lane never drifts from it — and the
 // same ENGINE list, so "which engine" means the same thing on both surfaces.
 import {
-  CAPTION_LENGTH_OPTIONS, ENGINE_OPTIONS, OLLAMA_RELEVANT, VOCABULARY_OPTIONS,
+  CAPTION_LENGTH_OPTIONS, ENGINE_OPTIONS, VOCABULARY_OPTIONS,
 } from '../dataset/CaptionOptionsPopover'
 // Which pile the caption pass is aimed at, and the number the button quotes (pure).
 import {
@@ -301,23 +302,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [showSelected, setShowSelected] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [tileSize, setTileSize] = useState('M')
-  // Caption register for the 🏷️ Caption pass ('' = model's own wording). Explicit is
-  // the NSFW lane — same registers as the dataset caption, passed per-run.
-  const [captionVocab, setCaptionVocab] = useState('')
-  // Caption LENGTH preset, per RUN like the vocabulary register above (a bank has no
-  // caption_options row to persist to). '' = standard: nothing appended to the prompt.
-  const [captionLength, setCaptionLength] = useState('')
-  // WHICH ENGINE and WHICH VISION MODEL write this run's captions. Per RUN, like every
-  // other dial on this row: the global Settings stay the default and are never written
-  // from here, so a user can try a different captioner on one pass without changing what
-  // every dataset does afterwards. '' on either = follow the setting, and the key is then
-  // left OUT of the request — a run that picks nothing is byte-identical to before.
-  const [captionEngine, setCaptionEngine] = useState('')
-  const [captionModel, setCaptionModel] = useState('')
-  // The pulled Ollama models, for the picker. Not in `caps` (which carries only the
-  // configured vision model), so it is its own always-200 fetch — an unreachable Ollama
-  // is an empty list, never an error.
-  const [ollamaModels, setOllamaModels] = useState([])
+  const {
+    captionVocab, setCaptionVocab, captionLength, setCaptionLength,
+    captionEngine, setCaptionEngine, captionModel, setCaptionModel,
+    captionIncludeAsserted, setCaptionIncludeAsserted,
+    visionModel, visionModelLooksUncensored, ollamaPicksApply,
+    captionModelChoices, captionRunOptions,
+  } = useCaptionOptions({ caps })
   /* WHICH PILE each pass runs on, and whether it re-does rows that already have a
      result — kept HERE, not inside the windows, so closing one does not silently
      undo a choice. Keyed by pass id; '' is the historical scope (kept + undecided,
@@ -330,10 +321,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const setPassScope = (id, v) => setPassScopes((p) => ({ ...p, [id]: v }))
   const setPassRedoFor = (id, v) => setPassRedo((p) => ({ ...p, [id]: v }))
   const captionScope = passScopes.caption || ''
-  /* The ESCAPE HATCH, and the reason it is a piece of state and not a request key: it has
-     to be visible, deliberate and re-read in the confirmation. Never persisted, so it
-     resets with the panel — an opt-out of a protection is not a preference. */
-  const [captionIncludeAsserted, setCaptionIncludeAsserted] = useState(false)
   // Coverage advice (idea by @antonp) — a collapsible read-only panel, fetched
   // on demand (and refreshed whenever it's open and the bank changes).
   const [coverageOpen, setCoverageOpen] = useState(false)
@@ -557,16 +544,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     bankId, live, filter, toast, refreshImages, refreshPayload,
   })
 
-  // 🏷️ The pulled Ollama models, for the per-run caption model picker. Fetched ONCE per
-  // mount and never blocking: the endpoint always answers 200, and an unreachable Ollama
-  // is an empty list — the picker then offers only "Use the configured model", which is
-  // exactly the truth on that machine.
-  useEffect(() => {
-    let alive = true
-    apiFetch('/api/ollama/models').catch(() => ({ models: [] }))
-      .then((d) => { if (alive) setOllamaModels(d?.models || []) })
-    return () => { alive = false }
-  }, [])
 
   const openSourceFolder = async () => {
     if (openingSourceFolder) return
@@ -901,20 +878,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     if (gated === true) return { ok: true }
     return runPass('faces', {})
   }
-  /* Every option is spread-if-set, so a run that changes nothing posts the SAME body it
-     posted before any of these controls existed — the contract the vocabulary/length
-     pair set and the two new dials join.
-
-     `statuses` is deliberately omitted while a selection is live: the server INTERSECTS
-     the two, so "kept only" plus a selection of undecided images would caption fewer
-     than the button says. The selection wins, the scope select goes inert, and the label
-     switches to the selection count. */
-  const captionRunOptions = () => ({
-    ...(captionVocab ? { vocabulary: captionVocab } : {}),
-    ...(captionLength ? { length: captionLength } : {}),
-    ...(captionEngine ? { backend: captionEngine } : {}),
-    ...(captionModel ? { ollama_model: captionModel } : {}),
-  })
   const startCaption = (run) => runPass('caption', run, captionRunOptions())
   const cancelJob = () => act(() => postJson(`/api/bank/${bankId}/cancel`, {}), null)
 
@@ -1351,18 +1314,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   // model. We can't prove abliteration, but the common builds name themselves — a soft
   // heuristic drives an honest "may soften" hint (never a hard block: a differently
   // named abliterated model still works).
-  // It reads the EFFECTIVE model — this run's override if one was picked, else the
-  // configured one. Warning about the global model while the run uses another is worse
-  // than not warning at all.
-  const visionModel = captionModel || caps.ollama?.vision_model || ''
-  const visionModelLooksUncensored = /abliterat|uncensor|huihui|nsfw/i.test(visionModel)
-  // The Ollama model choice only bites when the resolved engine can reach Ollama.
-  const ollamaPicksApply = OLLAMA_RELEVANT.has(captionEngine)
-  // A model pulled elsewhere (or configured in Settings) stays selectable even when the
-  // live list doesn't carry it — silently dropping the user's choice is worse than
-  // offering a name we can't confirm.
-  const captionModelChoices = captionModel && !ollamaModels.includes(captionModel)
-    ? [captionModel, ...ollamaModels] : ollamaModels
   // 🔄 Re-caption: inert (and why), plus the sentence that names what it destroys.
   const includeAssertedLabel = captionIncludeAssertedLabel(counts, captionScope)
   const recaptionInert = captionRecaptionDisabledReason(

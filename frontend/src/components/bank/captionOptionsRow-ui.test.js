@@ -62,10 +62,13 @@ test('the caption options live INSIDE the caption window, not spread under the p
 });
 
 test('every new option is spread-if-set, so an untouched run posts the old body', () => {
-  // The handler layer stays in BankWorkspace.jsx; only its JSX moved out.
+  // The caption request builder lives in useCaptionOptions.js since hook
+  // wave 6; positional slices must read ONE file (see bankTreeSource.js),
+  // so this one reads the hook directly. passBody below stays workspace.
+  const hookFile = fs.readFileSync(
+    new URL('./useCaptionOptions.js', import.meta.url), 'utf8');
   const wsFile = bankWorkspaceSource();
-  const opts = wsFile.slice(wsFile.indexOf('const captionRunOptions'),
-    wsFile.indexOf('const cancelJob'));
+  const opts = hookFile.slice(hookFile.indexOf('const captionRunOptions'));
   assert.match(opts, /\.\.\.\(captionEngine \? \{ backend: captionEngine \} : \{\}\)/);
   assert.match(opts, /\.\.\.\(captionModel \? \{ ollama_model: captionModel \} : \{\}\)/);
   // The scope now rides through the SHARED body builder every pass uses, and it is
@@ -163,8 +166,11 @@ test('re-caption carries the same per-run options as the normal pass', () => {
   assert.ok(call.includes('...captionRunOptions()'), 're-caption drops the run options');
   assert.ok(call.includes('statuses: captionScopeStatuses(captionScope)'),
     're-caption drops the scope');
-  const opts = ws.slice(ws.indexOf('const captionRunOptions'),
-    ws.indexOf('const startCaption'));
+  // captionRunOptions lives in useCaptionOptions.js since hook wave 6; a
+  // positional slice needs ONE file (see bankTreeSource.js), so read it.
+  const hookSrc = fs.readFileSync(
+    new URL('./useCaptionOptions.js', import.meta.url), 'utf8');
+  const opts = hookSrc.slice(hookSrc.indexOf('const captionRunOptions'));
   for (const key of ['vocabulary: captionVocab', 'length: captionLength',
     'backend: captionEngine', 'ollama_model: captionModel']) {
     assert.ok(opts.includes(key), `the shared run options drop ${key}`);

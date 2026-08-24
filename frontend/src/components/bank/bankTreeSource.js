@@ -57,7 +57,11 @@ export function bankWorkspaceSource() {
 export function bankTreeSource() {
   const parts = readdirSync(HERE, { recursive: true })
     .map(String)
-    .filter((f) => f.endsWith('.jsx'))
+    // The hook layer the decomposition creates (use*.js) is part of the
+    // tree: state and handlers moved there, and the wiring contract is
+    // 'somewhere a user can reach it', not 'in which file'. Pure-logic
+    // helpers (bankSync.js, bankReview.js...) stay excluded on purpose.
+    .filter((f) => f.endsWith('.jsx') || /use[A-Z]\w*\.js$/.test(f))
     .sort()
     .map((f) => readFileSync(resolve(HERE, f), 'utf8'))
   parts.push(readFileSync(resolve(FRONTEND, 'src/pages/BankPage.jsx'), 'utf8'))
