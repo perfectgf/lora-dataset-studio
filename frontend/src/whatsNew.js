@@ -110,6 +110,20 @@ export const WHATS_NEW = [
     to: '/gallery',
   },
   {
+    id: '2026-08-24-use-these-improve-settings',
+    date: '2026-08-24',
+    title: 'Like a ✨ result? Make the next improves run the same way',
+    blurb:
+      'Open any Upscale & improve result (Gallery, checkpoint gallery, or '
+      + 'pinned on the Canvas) and press ↩ Use these improve settings: the '
+      + 'instruction this image was made with becomes the app-wide improve '
+      + 'instruction again, and its chained LoRAs are matched back to your '
+      + 'preset and selected. A preset renamed or deleted since is said out '
+      + 'loud instead of silently dropped. SeedVR2 results have no settings '
+      + 'to restore and show no button.',
+    to: '/gallery',
+  },
+  {
     id: '2026-08-24-engines-settings-groups',
     date: '2026-08-24',
     title: 'Image engines settings, organised into groups',

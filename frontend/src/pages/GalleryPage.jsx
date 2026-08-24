@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../api/fetchClient';
 import GeneratedImageLightbox from '../components/shared/GeneratedImageLightbox';
 import { useCanvasImageImprove } from '../hooks/useCanvasImageImprove';
+import { useRestoreImproveSettings } from '../hooks/useRestoreImproveSettings';
 import { canImproveCanvasImage } from '../utils/canvasImprove';
 import { imageFactsLine } from '../utils/generatedImageFacts';
 import {
@@ -71,6 +72,7 @@ export default function GalleryPage() {
     // shared wording would send the user to a checkpoint gallery to find it.
     launchMessage: galleryImproveLaunchMessage,
   });
+  const restoreImproveSettings = useRestoreImproveSettings();
 
   const applyPage = useCallback((d, { append }) => {
     setFeed((cur) => ({
@@ -412,6 +414,7 @@ export default function GalleryPage() {
         img={zoom} alt={zoom ? imageFactsLine(zoom) || 'Generated image' : undefined}
         onClose={() => setZoomIndex(null)}
         onImprove={canImproveCanvasImage(zoom) ? improveImage : undefined}
+        onUseImproveSettings={restoreImproveSettings}
         datasetId={zoom?.dataset_id ?? null}
         onPrev={zoomIndex > 0 ? () => setZoomIndex(zoomIndex - 1) : null}
         onNext={zoomIndex != null && zoomIndex < images.length - 1

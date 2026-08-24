@@ -41,6 +41,7 @@ import GeneratedImageLightbox from '../shared/GeneratedImageLightbox';
 import { clampPopoverToViewport, POPOVER_H, POPOVER_W } from '../dataset/checkpointPopover.js';
 import { useCheckpointActions } from '../../hooks/useCheckpointActions';
 import { useCanvasImageImprove } from '../../hooks/useCanvasImageImprove';
+import { useRestoreImproveSettings } from '../../hooks/useRestoreImproveSettings';
 import { useCanvasRun } from '../../hooks/useCanvasRun';
 import {
   canvasRunDatasetIds, describeCanvasRun, readyImageCount, runPinCandidates,
@@ -1719,6 +1720,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
      resolves a `face_dataset_image`, so a second copy that reached for the wrong
      one would improve an unrelated picture and report success. */
   const handleImproveCanvasImage = useCanvasImageImprove();
+  const restoreImproveSettings = useRestoreImproveSettings();
 
   /* 📌 Pin ALL of a finished run's images, in one click.
      A lot spanning four checkpoints used to mean opening four galleries and
@@ -2632,6 +2634,9 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
         /* ✨ only where it means something: a picture with a library row that is
            not itself an improvement (canvasImprove.js states both reasons). */
         onImprove={canImproveCanvasImage(pinnedZoom) ? handleImproveCanvasImage : undefined}
+        /* ↩ A pinned ✨ result can hand its recorded settings back to the
+           global improve knobs — same ONE handler as the other hosts. */
+        onUseImproveSettings={restoreImproveSettings}
         /* ✦ Fix ONE part of a render instead of regenerating it (.samexit,
            Discord). Offered on the same pictures ✨ is: a board image with a
            library row behind it — that row's id is what the route addresses. */

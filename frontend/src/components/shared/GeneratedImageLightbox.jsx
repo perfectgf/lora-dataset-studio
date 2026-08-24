@@ -5,6 +5,7 @@ import RepairDialog from './RepairDialog';
 import { useImageDownload } from '../../hooks/useImageDownload';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
+import { canRestoreImproveSettings } from '../../utils/improveSettingsRestore';
 import KleinImproveNote from '../dataset/KleinImproveNote';
 import {
   imageHeadlineFacts, imagePromptBlocks, imageSettingFacts, promptFold,
@@ -196,7 +197,12 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
      they always did. The host passes null AT the ends rather than a disabled
      flag, for the same reason — a chevron that cannot go anywhere is not
      drawn, never greyed. */
-  onPrev = null, onNext = null }) {
+  onPrev = null, onNext = null,
+  /* ↩ Make future improves run like THIS ✨ result did (hooks/
+     useRestoreImproveSettings). Only meaningful on a Klein improve row —
+     utils/improveSettingsRestore gates it — and only where the host has a
+     toast to answer with, hence the usual explicit opt-in. */
+  onUseImproveSettings = null }) {
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   /* ONE reading of "are the facts on screen", used by the panel, the pane and
@@ -447,6 +453,20 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
               <ImproveActions img={img} onImprove={onImprove}
                 improvePending={improvePending} improveReady={improveReady}
                 busy={busy} subjectType={subjectType} datasetId={datasetId} />
+            )}
+            {/* ↩ On a ✨ result you LIKE: make every next improve run the way
+                this one did — the recorded instruction back into the global
+                setting, the chained LoRAs mapped back to their preset. The
+                gate lives in improveSettingsRestore: a pure-restoration
+                result recorded no instruction and offers nothing. */}
+            {onUseImproveSettings && canRestoreImproveSettings(img) && (
+              <button type="button" data-testid="lightbox-use-improve-settings"
+                onClick={(e) => { e.stopPropagation(); onUseImproveSettings(img); }}
+                disabled={busy}
+                title="Make the next ✨ improves use what THIS image was made with — its instruction and LoRA preset become the app-wide improve settings"
+                className="rounded-md border border-emerald-400/50 bg-emerald-500/15 px-3 py-1.5 text-[0.75rem] font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-40">
+                <span aria-hidden>↩</span> Use these improve settings
+              </button>
             )}
             {/* ✦ Repair sits with them because it answers the third thing you do
                 with a render: keep it, improve it — or fix the ONE part that is

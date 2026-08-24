@@ -75,8 +75,13 @@ function loadSettings() {
 
 /** Hand a freshly saved settings payload to the cache AND to every mounted note.
  *  Invalidating alone would only fix the NEXT mount; the copies already on
- *  screen are the ones showing the replaced text. */
-function publishSettings(payload) {
+ *  screen are the ones showing the replaced text.
+ *
+ *  Exported (as publishKleinImproveSettings) for the OTHER writer of these
+ *  values: ↩ "Use these improve settings" saves through its own PUT, and a
+ *  note left quoting the replaced instruction for 15 s is the exact staleness
+ *  this publish exists to prevent. */
+export function publishSettings(payload) {
   if (!payload || typeof payload !== 'object') return;
   cache = { at: Date.now(), promise: Promise.resolve(payload), value: payload };
   // A listener that throws must not stop the ones after it — the whole point is
