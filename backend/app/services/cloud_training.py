@@ -7663,7 +7663,21 @@ def _gallery_image(r) -> dict:
         # the click rather than through a 400 after it.
         'derivation_kind': r.derivation_kind,
         'parent_image_id': r.parent_image_id,
+        # ✨ The knobs the improve pass ran with, parsed here so every viewer
+        # gets a dict or null — never raw JSON to re-parse, never a crash on a
+        # hand-edited database (bad JSON reads as "nothing recorded").
+        'improve_profile': _parsed_improve_profile(r.improve_profile),
     }
+
+
+def _parsed_improve_profile(raw):
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 # How many images ONE step contributes to a run gallery, and how many the whole

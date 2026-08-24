@@ -277,6 +277,10 @@ _SCHEMA_ADDITIONS = (
     # behaving exactly as it did.
     ('lora_test_image', 'parent_image_id', 'INTEGER'),
     ('lora_test_image', 'derivation_kind', 'VARCHAR(32)'),
+    # ✨ What the improve pass RAN WITH (JSON) — written at enqueue time so the
+    # ↩ "Use these improve settings" restore never has to guess. Nullable:
+    # rows that predate it restore what they do record (prompt, extra_loras).
+    ('lora_test_image', 'improve_profile', 'TEXT'),
     # Bank V2 scoring pass — the image_bank/bank_image tables shipped in the Beta,
     # so these columns need the additive path (db.create_all never ALTERs an
     # existing table).

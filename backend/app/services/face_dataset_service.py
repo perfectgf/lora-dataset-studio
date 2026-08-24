@@ -10411,7 +10411,7 @@ def _improve_preflight(engine):
 
 
 def _enqueue_improve(engine, *, user_id, source, source_path, prompt, label,
-                     dataset, extra_metadata=None):
+                     dataset, extra_metadata=None, profile=None):
     """Hand ONE improve off to the chosen engine and return its job id.
 
     The two engines take deliberately different arguments — Klein needs a prompt,
@@ -10443,10 +10443,14 @@ def _enqueue_improve(engine, *, user_id, source, source_path, prompt, label,
             user_id=str(user_id), source_filename=source_filename,
             source_path=source_path, extra_metadata=meta)
     from . import klein_edit_helper as keh
+    # `profile` lets a caller that RECORDS what ran (improve_canvas_image
+    # stores it on the candidate) hand over the very dict it stored — computed
+    # twice, the two could disagree the moment a setting is saved in between.
     return keh.enqueue_klein_edit(
         user_id=str(user_id), source_filename=source_filename,
         source_path=source_path, edit_prompt=prompt,
-        **_improve_enqueue_profile(dataset), extra_metadata=meta)
+        **(profile if profile is not None else _improve_enqueue_profile(dataset)),
+        extra_metadata=meta)
 
 
 def improve_existing_image(user_id, image_id, engine=None):

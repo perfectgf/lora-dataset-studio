@@ -3635,10 +3635,16 @@ def improve_canvas_image(user_id, image_id, engine=None):
     engine = fds.resolve_improve_engine(engine)
     fds._improve_preflight(engine)          # same refusals, same actionable 409s
     prompt = fds._improve_prompt() if engine == 'klein' else ''
-    # The preset the pass will chain (klein.improve_lora_preset) — read through
-    # the SAME resolver the enqueue profile uses, so what is stored below is
-    # what actually runs. [] for SeedVR2 and for "none picked".
-    preset_rows = fds.improve_lora_preset_rows() if engine == 'klein' else []
+    # The knobs this pass will run with, computed ONCE: the same dict is stored
+    # on the candidate (improve_profile) and handed to the engine, so stored
+    # can never drift from executed. SeedVR2 has no knobs to record.
+    profile = fds._improve_enqueue_profile(ds) if engine == 'klein' else None
+    preset_rows = (profile or {}).get('generation_loras') or []
+    # The preset NAME the rows came from — recorded only when it actually
+    # resolved: a stale name ran as "none", and storing it would restore a
+    # pick that did not decide this picture.
+    preset_name = ((cfg.get('klein.improve_lora_preset') or '')
+                   if preset_rows else '')
 
     candidate = LoraTestImage(
         dataset_id=row.dataset_id,
@@ -3669,6 +3675,17 @@ def improve_canvas_image(user_id, image_id, engine=None):
         extra_loras=(json.dumps(
             [{'filename': r['file'], 'strength': r['strength']}
              for r in preset_rows]) if preset_rows else None),
+        # Everything else the pass ran with, for ↩ "Use these improve
+        # settings" — keys are a frontend contract (improveSettingsRestore.js).
+        improve_profile=(json.dumps({
+            'engine': 'klein',
+            'klein_model': profile['klein_model'],          # None = the auto pin
+            'consistency_strength': profile['lora_strength'],
+            'steps': profile['sampler_steps'],
+            'base_lora_strength': profile['base_lora_strength'],
+            'megapixels': profile['output_megapixels'],
+            'lora_preset': preset_name,
+        }) if profile is not None else None),
     )
     db.session.add(candidate)
     db.session.commit()                      # row BEFORE enqueue: no orphan job
@@ -3677,7 +3694,7 @@ def improve_canvas_image(user_id, image_id, engine=None):
     try:
         job_id = fds._enqueue_improve(
             engine, user_id=user_id, source=row, source_path=source_path,
-            prompt=prompt, label='', dataset=ds,
+            prompt=prompt, label='', dataset=ds, profile=profile,
             # `is_lora_test` is what routes the finished job back to
             # link_completed_test_image (job_queue._dispatch_completion checks it
             # FIRST, before the model_name branch), so the result lands in THIS

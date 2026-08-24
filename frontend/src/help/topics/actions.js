@@ -140,6 +140,14 @@ export const ACTION_TOPICS = [
      // (klein.improve_lora_preset) — one panel, all three improve knobs.
      'lora preset', 'improve preset', 'chain lora', 'preset', 'extra loras'],
     '/datasets?section=images', 'settings-reference', 'image-engines'),
+  // ↩ On a ✨ result in the generated-image viewer (Gallery, checkpoint
+  // galleries, Canvas): make future improves run the way THIS one did.
+  action('action-use-improve-settings', 'Reuse the settings a ✨ result was made with',
+    ['use these improve settings', 'reuse settings', 'restore settings', 'same settings',
+     'copy settings', 'apply settings', 'like this result', 'run again like this',
+     'improve settings back', 'previous settings', 'settings from image',
+     'which settings made this', 'recorded settings', 'improve profile'],
+    '/gallery', 'using-the-app', 'the-gallery-every-image-you-generated'),
   action('action-reimprove-tile', 'Re-run Upscale & improve after changing its settings',
     ['improve', 'upscale', 'reimprove', 're-improve', 'rerun', 're-run', 'redo', 'again',
      'regenerate', 'no regenerate button', 'missing button', 'klein improve', 'candidate',

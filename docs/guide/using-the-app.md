@@ -285,8 +285,15 @@ From the viewer you can also:
   shift) or SeedVR2 (upscales and keeps the look). The result arrives at the
   top of this gallery as its own ✨ image; the original is untouched. The
   amber note under the buttons is where the Klein instruction is edited in
-  place, the Klein model is chosen, and a **LoRA preset** can be chained into
-  every improve — all app-wide, the same values Settings shows.
+  place, the Klein model is chosen, a **LoRA preset** can be chained into
+  every improve and the **output size (MP)** picked — all app-wide, the same
+  values Settings shows.
+- **↩ Use these improve settings** — on a ✨ result you like: the
+  instruction, LoRA preset, strength, steps, output size and model that made
+  THIS image become the app-wide improve settings again, so the next
+  improves run the same way. Every new improvement records what it ran
+  with; older images restore what they carry, and the toast names exactly
+  which parts were applied.
 
 **Select** at the bottom turns on selection mode: tap the misses, then
 **🗑 Delete** (files go to the recycle bin or the app Trash — and the rows

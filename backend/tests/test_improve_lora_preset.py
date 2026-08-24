@@ -159,3 +159,103 @@ def test_candidates_never_claim_a_preset_that_did_not_run(app, monkeypatch,
         out = lts.improve_canvas_image('local', row.id, engine=engine)
         candidate = db.session.get(LoraTestImage, out['candidate_id'])
         assert candidate.extra_loras is None
+
+
+# --- the recorded profile ----------------------------------------------------
+
+def test_a_klein_candidate_records_the_knobs_it_ran_with(app, monkeypatch):
+    """Stored == executed: the profile handed to the engine is the dict the
+    candidate stores, so ↩ 'Use these improve settings' never guesses."""
+    import json as _json
+    from app import config as _cfg
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import face_dataset_service as svc
+    from app.services import lora_test_studio as lts
+    handed = {}
+
+    def fake_enqueue(engine, **kw):
+        handed.update(kw)
+        return 'job-1'
+
+    monkeypatch.setattr(svc, '_enqueue_improve', fake_enqueue)
+    monkeypatch.setattr(svc, '_improve_preflight', lambda engine: None)
+    with app.app_context():
+        _set_improve_preset('Detail')
+        _cfg.save_config({'klein': {'improve_steps': 6, 'improve_megapixels': 4.0,
+                                    'improve_consistency_strength': 0.8,
+                                    'improve_base_lora_strength': 0.5,
+                                    'unet': 'klein/pinned.safetensors'}})
+        ds, row = _board_image(svc)
+        out = lts.improve_canvas_image('local', row.id, engine='klein')
+        candidate = db.session.get(LoraTestImage, out['candidate_id'])
+        stored = _json.loads(candidate.improve_profile)
+        assert stored == {
+            'engine': 'klein',
+            'klein_model': 'klein/pinned.safetensors',
+            'consistency_strength': 0.8,
+            'steps': 6,
+            'base_lora_strength': 0.5,
+            'megapixels': 4.0,
+            'lora_preset': 'Detail',
+        }
+        # …and the engine was handed the SAME dict the candidate stored.
+        assert handed['profile']['sampler_steps'] == 6
+        assert handed['profile']['output_megapixels'] == 4.0
+        assert handed['profile']['generation_loras'] == PRESETS[0]['loras']
+
+
+def test_a_stale_preset_name_is_not_recorded_as_having_run(app, monkeypatch):
+    import json as _json
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import face_dataset_service as svc
+    from app.services import lora_test_studio as lts
+    monkeypatch.setattr(svc, '_enqueue_improve', lambda *a, **k: 'job-1')
+    monkeypatch.setattr(svc, '_improve_preflight', lambda engine: None)
+    with app.app_context():
+        _set_improve_preset('Renamed-away')
+        ds, row = _board_image(svc)
+        out = lts.improve_canvas_image('local', row.id, engine='klein')
+        candidate = db.session.get(LoraTestImage, out['candidate_id'])
+        assert _json.loads(candidate.improve_profile)['lora_preset'] == ''
+
+
+def test_a_restoration_candidate_records_no_profile(app, monkeypatch):
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import face_dataset_service as svc
+    from app.services import lora_test_studio as lts
+    monkeypatch.setattr(svc, '_enqueue_improve', lambda *a, **k: 'job-1')
+    monkeypatch.setattr(svc, '_improve_preflight', lambda engine: None)
+    with app.app_context():
+        _set_improve_preset('Detail')
+        ds, row = _board_image(svc)
+        out = lts.improve_canvas_image('local', row.id, engine='seedvr2')
+        candidate = db.session.get(LoraTestImage, out['candidate_id'])
+        assert candidate.improve_profile is None
+
+
+def test_the_gallery_publishes_the_profile_parsed_and_junk_as_nothing(app, monkeypatch):
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import cloud_training as ct
+    from app.services import face_dataset_service as svc
+    monkeypatch.setattr(svc, '_enqueue_improve', lambda *a, **k: 'job-1')
+    monkeypatch.setattr(svc, '_improve_preflight', lambda engine: None)
+    with app.app_context():
+        _set_improve_preset('Detail')
+        from app.services import lora_test_studio as lts
+        ds, row = _board_image(svc)
+        out = lts.improve_canvas_image('local', row.id, engine='klein')
+        candidate = db.session.get(LoraTestImage, out['candidate_id'])
+        candidate.status = 'done'
+        candidate.filename = 'x.png'
+        db.session.commit()
+        img = ct.app_gallery()['images'][0]
+        assert img['improve_profile']['steps'] == 4          # shipped default
+        assert img['improve_profile']['lora_preset'] == 'Detail'
+        # A hand-edited database must read as "nothing recorded", never crash.
+        candidate.improve_profile = '{not json'
+        db.session.commit()
+        assert ct.app_gallery()['images'][0]['improve_profile'] is None

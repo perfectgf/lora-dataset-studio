@@ -116,11 +116,13 @@ export const WHATS_NEW = [
     blurb:
       'Open any Upscale & improve result (Gallery, checkpoint gallery, or '
       + 'pinned on the Canvas) and press ↩ Use these improve settings: the '
-      + 'instruction this image was made with becomes the app-wide improve '
-      + 'instruction again, and its chained LoRAs are matched back to your '
-      + 'preset and selected. A preset renamed or deleted since is said out '
-      + 'loud instead of silently dropped. SeedVR2 results have no settings '
-      + 'to restore and show no button.',
+      + 'instruction, LoRA preset, strength, steps, output size and Klein '
+      + 'model this image was made with become the app-wide improve settings '
+      + 'again. New improvements record all of it from now on; older images '
+      + 'restore what they carry (instruction + preset), and the toast names '
+      + 'exactly which halves happened — a preset renamed or deleted since '
+      + 'is said out loud instead of silently dropped. SeedVR2 results have '
+      + 'no settings to restore and show no button.',
     to: '/gallery',
   },
   {

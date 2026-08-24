@@ -83,6 +83,62 @@ test('matched rows restore the preset BY NAME', () => {
   assert.match(restoreImproveMessage(report), /“Detail”/);
 });
 
+test('a recorded profile restores every knob, and the model pin (null = auto)', () => {
+  const { patch, report } = restoreImprovePatch({
+    img: {
+      prompt: 'add grain',
+      extra_loras: '[{"filename":"klein/d.safetensors","strength":0.7}]',
+      improve_profile: { engine: 'klein', klein_model: null,
+        consistency_strength: 0.8, steps: 6, base_lora_strength: 0.5,
+        megapixels: 4, lora_preset: 'Detail' },
+    },
+    shipped: SHIPPED, presets: PRESETS,
+  });
+  assert.deepEqual(patch.config.klein, {
+    improve_lora_preset: 'Detail',
+    improve_consistency_strength: 0.8,
+    improve_steps: 6,
+    improve_base_lora_strength: 0.5,
+    improve_megapixels: 4,
+    unet: '',                                  // ran on auto → the auto pin
+  });
+  assert.equal(report.knobs, true);
+  assert.match(restoreImproveMessage(report), /strength, steps, output size and model/);
+});
+
+test('the recorded preset NAME wins over content matching when it still exists', () => {
+  // The preset's strength was tweaked since the render: the rows no longer
+  // match by content, but the name still names the user's intent.
+  const { patch } = restoreImprovePatch({
+    img: { prompt: 'add grain',
+      extra_loras: '[{"filename":"klein/d.safetensors","strength":0.9}]',
+      improve_profile: { lora_preset: 'Detail', steps: 4 } },
+    shipped: SHIPPED, presets: PRESETS,
+  });
+  assert.equal(patch.config.klein.improve_lora_preset, 'Detail');
+});
+
+test('junk profile values degrade knob by knob, never to a default silently written', () => {
+  const { patch } = restoreImprovePatch({
+    img: { prompt: 'add grain', extra_loras: null,
+      improve_profile: { steps: 'many', megapixels: 4, klein_model: 'klein/x.safetensors' } },
+    shipped: SHIPPED, presets: PRESETS,
+  });
+  assert.equal(patch.config.klein.improve_steps, undefined);
+  assert.equal(patch.config.klein.improve_megapixels, 4);
+  assert.equal(patch.config.klein.unet, 'klein/x.safetensors');
+});
+
+test('a row from before the profile column restores less, and the toast says so', () => {
+  const { patch, report } = restoreImprovePatch({
+    img: { prompt: 'add grain', extra_loras: null },
+    shipped: SHIPPED, presets: PRESETS,
+  });
+  assert.deepEqual(patch.config.klein, { improve_lora_preset: '' });
+  assert.equal(report.knobs, false);
+  assert.match(restoreImproveMessage(report), /were not recorded on this image/);
+});
+
 test('unmatched rows leave the preset knob ALONE and say so out loud', () => {
   const { patch, report } = restoreImprovePatch({
     img: { prompt: 'add grain',

@@ -757,6 +757,15 @@ class LoraTestImage(db.Model):
     # their rows and read NULL everywhere (see _SCHEMA_ADDITIONS).
     parent_image_id = db.Column(Integer, nullable=True, index=True)
     derivation_kind = db.Column(String(32), nullable=True)
+    # ✨ The knobs the improve pass ACTUALLY ran with, as JSON — written by
+    # improve_canvas_image from the very dict handed to the engine, so what is
+    # stored can never drift from what executed. Klein only (a restoration
+    # pass has no knobs to record); NULL on every row that is not an improve
+    # result and on rows that predate the column. Read by ↩ "Use these
+    # improve settings"; keys are published as-is by _gallery_image, so they
+    # are part of the frontend contract (improveSettingsRestore.js) — never
+    # rename one without an alias. Additive column (see _SCHEMA_ADDITIONS).
+    improve_profile = db.Column(Text, nullable=True)
 
     def __repr__(self):
         return f'<LoraTestImage {self.id} ds={self.dataset_id} {self.checkpoint}@{self.strength} {self.status}>'
