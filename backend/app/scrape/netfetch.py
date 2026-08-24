@@ -124,12 +124,6 @@ def _resolve_public_ips(host, port):
     return frozenset(ips), None
 
 
-def _url_host_port(url):
-    parsed = urlparse(url)
-    port = parsed.port or (443 if parsed.scheme == 'https' else 80)
-    return parsed.hostname, port
-
-
 def _validate_public_http_url(url):
     """Valide qu'`url` est une URL http(s) publique (anti-SSRF).
 

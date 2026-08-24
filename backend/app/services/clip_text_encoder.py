@@ -453,16 +453,6 @@ def cached_queries(engine='clip') -> int:
         return len(_siglip2_memory)
 
 
-def is_cached(text: str, engine='clip') -> bool:
-    with _lock:
-        selected = _semantic_engine(engine)
-        if selected == 'clip':
-            _load_disk_cache()
-            return normalize_query(text) in _memory
-        _load_siglip2_disk_cache()
-        return normalize_query(text) in _siglip2_memory
-
-
 # --- availability -------------------------------------------------------------
 def unavailable_reason(engine='clip'):
     """None when a text query CAN be encoded here, else a sentence explaining why

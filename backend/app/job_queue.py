@@ -82,11 +82,6 @@ class _ComfySubmitUnknown(RuntimeError):
 GPU_ARBITER_LOCK = threading.RLock()
 
 
-def gpu_arbiter_lock():
-    """Shared in-process lock for the two local GPU consumers."""
-    return GPU_ARBITER_LOCK
-
-
 def require_comfyui_enqueue_ready() -> None:
     """Refuse new ComfyUI work while an unresolved remote owner is recorded.
 
@@ -1489,18 +1484,6 @@ class JobQueueManager:
         """Compatibility boolean: only a proven cancellation is ``True``."""
         return self.cancel_job_outcome(
             job_id, user_id, job_type, commit=commit) == 'cancelled'
-
-    def interrupt_comfyui_job(self, prompt_id, job_id) -> bool:
-        """Compatibility helper: exact pending delete only; never /interrupt."""
-        if not prompt_id or not job_id:
-            return False
-        try:
-            from .utils.comfyui import ComfyPromptState, cancel_comfyui_prompt_state
-            return (cancel_comfyui_prompt_state(prompt_id, job_id)
-                    is ComfyPromptState.DELETED)
-        except Exception:
-            logger.exception('job_queue: could not target-cancel ComfyUI prompt %s', prompt_id)
-            return False
 
     # -- system-state KV (underscore names required verbatim) -------------
     def _set_system_state(self, key, value, ttl_seconds=None):

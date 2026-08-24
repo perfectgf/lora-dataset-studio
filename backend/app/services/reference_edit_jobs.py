@@ -612,33 +612,6 @@ def peek(dataset_id):
         return _public(entry) if entry else None
 
 
-def pending_jobs(dataset_id):
-    """Every currently running local queue job in the batch."""
-    with _lock:
-        entry = _jobs.get(dataset_id)
-        if not entry:
-            return []
-        return [
-            {
-                'job_id': candidate.get('_job_id'),
-                'act_token': entry.get('_act_token'),
-                'engine': candidate['engine'],
-            }
-            for candidate in entry['candidates'].values()
-            if candidate['status'] == 'running' and candidate.get('_job_id')
-        ]
-
-
-def pending_job(dataset_id):
-    """(queue job_id, activity token) of the edit currently registered, both None
-    when there is none or it is an API edit. Read WITHOUT dropping the entry, so
-    a caller about to supersede can cancel the outgoing render first."""
-    jobs = pending_jobs(dataset_id)
-    if not jobs:
-        return None, None
-    return jobs[0]['job_id'], jobs[0]['act_token']
-
-
 def claim_ready(dataset_id, engine=None, batch_id=None):
     """Atomically validate and reserve one current ready candidate for Keep."""
     requested = str(engine).strip().lower() if engine is not None else None

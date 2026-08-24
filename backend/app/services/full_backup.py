@@ -1009,12 +1009,6 @@ def status(kind: str) -> dict:
         return copy.deepcopy(st)
 
 
-def is_running(kind: str) -> bool:
-    with _lock:
-        st = _runs.get(kind)
-        return bool(st and st['state'] == 'running')
-
-
 def start_backup(app, user_id, *, include_loras: bool = False) -> None:
     with _lock:
         st = _runs.get('backup')

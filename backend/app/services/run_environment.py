@@ -471,11 +471,6 @@ def pinned_hf_artifact_signature(
         return None
 
 
-def file_signature(path):
-    """Backward-compatible name for a complete regular-file SHA-256."""
-    return artifact_signature(path)
-
-
 def _resolve_base_path(base_model):
     """Absolute path of the base weights a launch will actually load, or None.
 

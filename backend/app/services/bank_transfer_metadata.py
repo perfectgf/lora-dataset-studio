@@ -822,11 +822,6 @@ def compatible_snapshot(value, path: str | os.PathLike | None) -> dict | None:
     return snapshot
 
 
-def compatible_analysis(value, path: str | os.PathLike | None) -> dict | None:
-    snapshot = compatible_snapshot(value, path)
-    return dict(snapshot['analysis']) if snapshot is not None else None
-
-
 def _normalized_vector(value, dimension):
     try:
         arr = tuple(float(item) for item in value)

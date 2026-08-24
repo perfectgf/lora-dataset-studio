@@ -126,46 +126,6 @@ def api_address() -> str:
     return cfg.get('comfyui.api_url')
 
 
-# --- Circuit breaker for ComfyUI history polling ---
-# Exponential backoff: each time 3 consecutive failures trip the circuit,
-# the open window doubles (30s -> 60s -> 120s -> 240s cap). A successful call
-# (counter reset) also resets the backoff window to 30s.
-_COMFYUI_CIRCUIT_INITIAL_S = 30
-_COMFYUI_CIRCUIT_MAX_S = 240
-_COMFYUI_CIRCUIT_FAIL_THRESHOLD = 3
-
-_comfyui_consecutive_failures = 0
-_comfyui_circuit_open_until = 0
-_comfyui_circuit_next_window_s = _COMFYUI_CIRCUIT_INITIAL_S
-
-
-def _check_comfyui_circuit():
-    """Check if the ComfyUI circuit breaker allows a request."""
-    if time.time() < _comfyui_circuit_open_until:
-        return False  # Circuit is open, skip call
-    return True
-
-
-def _record_comfyui_failure():
-    """Record a ComfyUI call failure; open the circuit with exponential backoff if threshold reached."""
-    global _comfyui_consecutive_failures, _comfyui_circuit_open_until, _comfyui_circuit_next_window_s
-    _comfyui_consecutive_failures += 1
-    if _comfyui_consecutive_failures >= _COMFYUI_CIRCUIT_FAIL_THRESHOLD:
-        window = _comfyui_circuit_next_window_s
-        _comfyui_circuit_open_until = time.time() + window
-        logger.warning(
-            f"ComfyUI circuit breaker opened for {window}s "
-            f"after {_comfyui_consecutive_failures} consecutive failures"
-        )
-        # Double the next window for the *next* open, capped.
-        _comfyui_circuit_next_window_s = min(window * 2, _COMFYUI_CIRCUIT_MAX_S)
-
-
-def _record_comfyui_success():
-    """Reset failure counter and backoff window after a successful call."""
-    global _comfyui_consecutive_failures, _comfyui_circuit_next_window_s
-    _comfyui_consecutive_failures = 0
-    _comfyui_circuit_next_window_s = _COMFYUI_CIRCUIT_INITIAL_S
 
 
 # --- Per-model optimal sampler/scheduler parameters (SDXL dropdown only) ---
@@ -275,19 +235,6 @@ def _load_sampler_params_overrides() -> dict:
     except (ValueError, OSError) as e:
         logger.warning(f"sampler_params.json invalid or unreadable: {e}; using code defaults")
         return {}
-
-
-def save_sampler_params_overrides(overrides: dict) -> None:
-    """Persist admin overrides to `sampler_params.json` (atomic write).
-
-    Raises OSError on disk failure. The admin endpoint should let those
-    propagate as a 500 so the operator sees the real cause.
-    """
-    import json
-    tmp_path = _SAMPLER_PARAMS_JSON_PATH + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(overrides, f, indent=2, ensure_ascii=False)
-    os.replace(tmp_path, _SAMPLER_PARAMS_JSON_PATH)
 
 
 def get_effective_sampler_params() -> dict:
@@ -668,12 +615,6 @@ def get_comfyui_history_probe(prompt_id, worker_url=None) -> ComfyHistoryProbe:
                                  detail=str(exc)[:200])
 
 
-def get_comfyui_history(prompt_id, worker_url=None):
-    """Backward-compatible untyped accessor for existing callers."""
-    probe = get_comfyui_history_probe(prompt_id, worker_url)
-    return probe.history if probe.health is ComfyHistoryHealth.READY else None
-
-
 def _queue_entry_identity(entry):
     """Return ``(prompt_id, client_id)`` from a ComfyUI ``/queue`` entry.
 
@@ -782,35 +723,6 @@ def cancel_comfyui_prompt(prompt_id, client_id=None, worker_url=None) -> bool:
     """Compatibility bool: only an exact pending-delete reports success."""
     return (cancel_comfyui_prompt_state(prompt_id, client_id, worker_url)
             is ComfyPromptState.DELETED)
-
-
-def download_image_from_worker(filename, worker_url, output_dir):
-    """Télécharge une image générée depuis un worker distant via l'API ComfyUI.
-
-    Args:
-        filename: Nom du fichier image (ex: "123_GeneratedImage_00001_.png").
-        worker_url: URL de l'API du worker (ex: "http://192.168.1.100:8188/").
-        output_dir: Répertoire local où sauvegarder l'image.
-
-    Returns:
-        True si succès, False sinon.
-    """
-    try:
-        url = urljoin(worker_url, f"/view?filename={filename}&type=output")
-        response = requests.get(url, timeout=60, stream=True)
-        response.raise_for_status()
-
-        os.makedirs(output_dir, exist_ok=True)
-        filepath = os.path.join(output_dir, filename)
-        with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-
-        logger.info(f"Image téléchargée depuis worker : {filename} -> {output_dir}")
-        return True
-    except Exception as e:
-        logger.error(f"Erreur téléchargement image {filename} depuis {worker_url} : {e}")
-        return False
 
 
 def fetch_output_image_bytes(filename, subfolder='', timeout=30):

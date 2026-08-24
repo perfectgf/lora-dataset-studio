@@ -353,17 +353,6 @@ def dequantize_weight(payload, scale):
 
 # --- streaming writer -----------------------------------------------------------
 
-def _torch_dtype_name(dtype) -> str:
-    import torch
-    return {
-        torch.float8_e4m3fn: 'F8_E4M3', torch.float8_e5m2: 'F8_E5M2',
-        torch.bfloat16: 'BF16', torch.float16: 'F16', torch.float32: 'F32',
-        torch.float64: 'F64', torch.int64: 'I64', torch.int32: 'I32',
-        torch.int16: 'I16', torch.int8: 'I8', torch.uint8: 'U8',
-        torch.bool: 'BOOL',
-    }.get(dtype, 'F32')
-
-
 def _raw_bytes(tensor) -> bytes:
     """Contiguous little-endian payload of any tensor, fp8 and bf16 included.
 

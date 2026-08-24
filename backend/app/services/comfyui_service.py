@@ -25,7 +25,7 @@ import threading
 import logging
 import requests
 from urllib.parse import urljoin
-from typing import Optional, Tuple
+from typing import Tuple
 
 from .. import config as cfg
 
@@ -65,10 +65,6 @@ class ComfyUIService:
             return False
 
     # ---------------- PID (DEPRECATED) ----------------
-    def _read_pid(self) -> Optional[int]:
-        """Lecture PID désactivée"""
-        return None
-
     # ---------------- Lifecycle ----------------
     def start_comfyui(self) -> Tuple[bool, str]:
         """
@@ -89,13 +85,6 @@ class ComfyUIService:
             return True, "Running"
         return False, "ComfyUI not running (Please start external supervisor)"
 
-    def restart_comfyui_async(self, delay: int = 5):
-        """
-        DEPRECATED: Le redémarrage est géré par le superviseur externe ou le watchdog.
-        """
-        logger.warning("⚠️ Demande de redémarrage ignorée (gestion externe).")
-        pass
-
     # ✅ API publique unifiée utilisée par queue_manager
     def stop_comfyui_process(self):
         """Arrêt désactivé."""
@@ -112,9 +101,3 @@ comfyui_service = ComfyUIService()
 
 def ensure_comfyui_before_generation():
     return comfyui_service.ensure_comfyui_running()
-
-def check_comfyui_status():
-    return {
-        "running": comfyui_service.check_connection(),
-        "pid": None
-    }

@@ -4030,12 +4030,6 @@ def _semantic_embedding_fingerprint(bank: ImageBank, path) -> str | None:
     return bank_semantic_engine.embedding_fingerprint(path, engine)
 
 
-def _semantic_total(bank_id, engine=None) -> int:
-    """Rows currently eligible for semantic consumers, in either space."""
-    return (BankImage.query.filter_by(bank_id=bank_id)
-            .filter(BankImage.status != 'reject').count())
-
-
 def _semantic_eligible_paths(bank: ImageBank) -> tuple[int, tuple[str, ...]]:
     """Return non-reject cache-path candidates without touching image bytes.
 
@@ -4930,15 +4924,6 @@ def apply_flags(user_id, bank_id, flags, snapshot=None, *,
 
 # --- ↩ undo the last bulk decision ------------------------------------------
 _UNDO_NAME_SAMPLE = 8        # conflicting files quoted back so the user can find them
-
-
-def undo_offer(user_id, bank_id) -> dict | None:
-    """{label, count, at} for the workspace's ↩ bar, or None. Rides in the bank
-    payload the workspace already polls, which is what makes the offer survive a
-    reload — the decision it takes back lives in the database, not in a tab."""
-    if not get_bank(user_id, bank_id):
-        return None
-    return bank_undo.peek(bank_id)
 
 
 @_serialized_bank_mutation('undo')
@@ -10574,19 +10559,6 @@ def _stage_import_bank(user_id, name) -> ImageBank:
         raise
 
 
-def _create_import_bank(user_id, name) -> ImageBank:
-    """Reserve a private folder and persist its Bank row as one unit."""
-    bank = _stage_import_bank(user_id, name)
-    folder = bank.source_path
-    try:
-        db.session.commit()
-        return bank
-    except Exception:
-        db.session.rollback()
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-
-
 def _discard_unlaunched_import_bank(user_id, bank_id, folder, *,
                                     _bank_lease=None):
     """Remove a staged/committed destination whose worker never took ownership."""
@@ -11733,11 +11705,6 @@ def _captured_asserted_face_analysis(row: BankImage, payload: bytes, *,
         analysis, payload, assurance='exact', group_scope=group_scope)
 
 
-def _row_matches_current_bytes(row: BankImage, path, payload, *, cache_bundle=None) -> bool:
-    return _analysis_transfer_assurance(
-        row, path, payload, cache_bundle=cache_bundle) is not None
-
-
 def _cache_bundle_matches_row(bundle, row: BankImage) -> dict:
     """Keep only cache lanes whose scalar results agree with the DB row."""
     bank = db.session.get(ImageBank, row.bank_id)
@@ -11774,7 +11741,7 @@ def _bank_portable_capture(row: BankImage, bank: ImageBank | None) -> dict:
     return values
 
 
-def _bank_copy_values(row: BankImage, copied_path, copied_size, *,
+def _bank_copy_values(row: BankImage, copied_path, *,
                       preserve_analysis_candidate: bool,
                       source_fingerprint: str | None = None,
                       source_payload: bytes | None = None,
@@ -11984,7 +11951,7 @@ def _bank_promote_job(user_id, src_bank_id, dest_bank_id, ids):
             bundle = _cache_bundle_matches_row(bundle, r)
             try:
                 values, preserved, assurance = _bank_copy_values(
-                    r, target, size,
+                    r, target,
                     preserve_analysis_candidate=preserve_analysis_candidate,
                     source_fingerprint=source_fingerprint,
                     source_payload=payload, cache_bundle=bundle)

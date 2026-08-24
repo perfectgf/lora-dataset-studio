@@ -1253,13 +1253,6 @@ def _record_caption_skips(outcome, pending, errors) -> None:
         outcome['skipped_reason'] = reason
 
 
-def _resolve_caption_backend(ds) -> str:
-    """The engine a caption run uses: the dataset override when set, else the global
-    captioning.backend (default 'auto')."""
-    return (caption_options(ds).get('backend')
-            or cfg.get('captioning.backend') or 'auto').lower()
-
-
 def _with_caption_instructions(prompt: str, instructions: str) -> str:
     """Append the user's extra instructions to a built caption prompt. The base prompt
     (with its kind omission rules) stays first so the model still reads them; the extras
@@ -4993,11 +4986,6 @@ def _resolve_comfy_output(filename):
     return name, candidate, True
 
 
-def _comfy_output_path(filename):
-    _name, candidate, allowed = _resolve_comfy_output(filename)
-    return candidate if allowed else None
-
-
 def _is_reparse_stat(st):
     attrs = getattr(st, 'st_file_attributes', 0)
     reparse_flag = getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)
@@ -5788,17 +5776,6 @@ def import_store_image(image_bytes: bytes) -> tuple[bytes, str]:
     return (normalize_to_webp(image_bytes, size=p['max_side'],
                               quality=p['quality'], lossless=p['lossless']),
             '.webp')
-
-
-def import_encode(image_bytes: bytes) -> bytes:
-    """Backward-compatible bytes-only view of :func:`import_store_image`.
-
-    New ingest lanes need the true extension as well and use
-    :func:`import_store_image` directly. Generated images and API transport
-    copies deliberately keep their own fixed sizes: this policy is about what the
-    user hands in, not about what the app produces.
-    """
-    return import_store_image(image_bytes)[0]
 
 
 def detect_head_bbox(image_bytes):
@@ -11876,39 +11853,6 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
 
 
 # --- Migration helper (run once manually after deploy) ---------------------
-def migrate_existing_images_to_per_dataset():
-    """Migration helper - run once manually after deploy. Not called automatically."""
-    counts = {'moved': 0, 'skipped': 0, 'missing': 0}
-    output_dir = _comfy_output_dir()
-    if output_dir is None:
-        return counts
-    datasets = FaceDataset.query.all()
-    for ds in datasets:
-        if ds.ref_filename:
-            src = os.path.join(output_dir, ds.ref_filename)
-            dst = os.path.join(_dataset_dir(ds.id), ds.ref_filename)
-            if os.path.exists(src) and not os.path.exists(dst):
-                shutil.move(src, dst)
-                counts['moved'] += 1
-            elif os.path.exists(dst):
-                counts['skipped'] += 1
-            else:
-                counts['missing'] += 1
-        for img in FaceDatasetImage.query.filter_by(dataset_id=ds.id).all():
-            if not img.filename:  # pending/failed rows without a file
-                continue
-            src = os.path.join(output_dir, img.filename)
-            dst = os.path.join(_dataset_dir(img.dataset_id), img.filename)
-            if os.path.exists(src) and not os.path.exists(dst):
-                shutil.move(src, dst)
-                counts['moved'] += 1
-            elif os.path.exists(dst):
-                counts['skipped'] += 1
-            else:
-                counts['missing'] += 1
-    return counts
-
-
 # --- Export ----------------------------------------------------------------
 _TRAIN_FAMILY_LABELS = {
     'zimage': 'Z-Image',

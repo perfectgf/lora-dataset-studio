@@ -1,6 +1,5 @@
 import json
 from .utils.timestamps import naive_utcnow
-from datetime import timedelta
 from .extensions import db
 from sqlalchemy import Integer, String, Text, DateTime, Float
 
@@ -800,15 +799,6 @@ class JobQueueMixin:
             self.completed_at = naive_utcnow()
 
         self.last_heartbeat = naive_utcnow()
-
-    def is_stuck(self, timeout_minutes=10):
-        """True if the job is in-progress but heartbeat is missing/stale."""
-        if self.status not in ('processing', 'sent_to_comfy'):
-            return False
-        if not self.last_heartbeat:
-            return True
-        return naive_utcnow() - self.last_heartbeat > timedelta(minutes=timeout_minutes)
-
 
 class ImageGenerationQueue(JobQueueMixin, db.Model):
     """Modèle pour la file d'attente de génération d'images"""
