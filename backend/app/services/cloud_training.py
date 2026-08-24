@@ -7759,6 +7759,85 @@ def run_gallery(record_id, limit=RUN_GALLERY_LIMIT,
     }
 
 
+# One page of the app-wide 🖼 Gallery, and the most it will ever answer at
+# once. Sized like the checkpoint gallery's default: big enough that a phone
+# scroll does not stall every screenful, small enough that the first paint is
+# not a thousand thumbnails.
+APP_GALLERY_PAGE = 60
+APP_GALLERY_PAGE_MAX = 200
+
+
+def app_gallery(limit=APP_GALLERY_PAGE, before_id=None, dataset_id=None,
+                kind=None, liked=False) -> dict:
+    """Every image the app ever generated, newest first — the 🖼 Gallery page.
+
+    The checkpoint and run galleries answer "what did THIS training produce";
+    this one answers "what did I make", across every dataset and every surface
+    at once (Test Studio cells, inline canvas previews, comparison runs, and
+    the ✨ Upscale & improve results derived from them). Same rows, same
+    serializer (`_gallery_image`) — a third shape here would be a third chance
+    for the viewers to disagree about what an image row carries.
+
+    Pagination is a cursor, not an offset: `before_id` returns rows strictly
+    older than that id. Ids are monotonic and the feed is id-descending, so a
+    page boundary cannot skip or duplicate an image when new renders land
+    between two requests — the exact failure OFFSET pagination has on a feed
+    that grows at its head.
+
+    Filters (`dataset_id`, `kind` 'renders'|'improved', `liked`) narrow both
+    the page and `count`, so the header's number always names what the grid is
+    actually showing. `datasets` lists every dataset holding at least one
+    generated image — UNfiltered on purpose: it feeds the filter control, and a
+    picker that only offered the current pick could never be changed."""
+    from ..models import FaceDataset, LoraTestImage
+    q = LoraTestImage.query.filter(
+        LoraTestImage.status == 'done',
+        LoraTestImage.filename.isnot(None))
+    if dataset_id is not None:
+        q = q.filter(LoraTestImage.dataset_id == dataset_id)
+    if kind == 'improved':
+        q = q.filter(LoraTestImage.derivation_kind.isnot(None))
+    elif kind == 'renders':
+        q = q.filter(LoraTestImage.derivation_kind.is_(None))
+    if liked:
+        q = q.filter(LoraTestImage.rating == 1)
+    count = q.count()
+
+    page = q
+    if before_id is not None:
+        page = page.filter(LoraTestImage.id < before_id)
+    cap = max(1, min(int(limit or APP_GALLERY_PAGE), APP_GALLERY_PAGE_MAX))
+    # cap+1 answers "is there another page" with the same query that fetches
+    # this one — a second count per scroll would be paid on every page.
+    rows = page.order_by(LoraTestImage.id.desc()).limit(cap + 1).all()
+    has_more = len(rows) > cap
+    rows = rows[:cap]
+
+    ds_counts = (db.session.query(LoraTestImage.dataset_id,
+                                  func.count(LoraTestImage.id))
+                 .filter(LoraTestImage.status == 'done',
+                         LoraTestImage.filename.isnot(None))
+                 .group_by(LoraTestImage.dataset_id).all())
+    names = ({d.id: d.name for d in FaceDataset.query.filter(
+                 FaceDataset.id.in_([i for i, _ in ds_counts])).all()}
+             if ds_counts else {})
+    datasets = sorted(
+        ({'id': i, 'name': names.get(i) or f'Dataset {i}', 'count': n}
+         for i, n in ds_counts),
+        key=lambda d: d['name'].lower())
+
+    return {
+        'count': count,
+        'has_more': has_more,
+        # The cursor for the next page — the OLDEST id on this one. null when
+        # the feed is exhausted, so the client never asks for a page that can
+        # only be empty.
+        'next_before_id': rows[-1].id if rows and has_more else None,
+        'images': [_gallery_image(r) for r in rows],
+        'datasets': datasets,
+    }
+
+
 def delete_checkpoint_images(record_id, step, image_ids) -> dict:
     """🗑 Delete generated images from a checkpoint's gallery — file AND row.
 

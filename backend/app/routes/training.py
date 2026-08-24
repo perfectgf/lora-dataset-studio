@@ -3014,6 +3014,25 @@ def train_checkpoint_images_delete(record_id, step):
     return jsonify({'ok': True, **out})
 
 
+@bp.get('/gallery/images')
+def app_gallery_images():
+    """🖼 Every generated image in the app, newest first — the Gallery page.
+
+    Cursor-paginated (`before_id` = "older than this id"), optionally narrowed
+    by `dataset_id`, `kind` ('renders' | 'improved') and `liked=1`. Open like
+    the other gallery reads; an install that never generated anything answers
+    an empty page, never an error."""
+    kind = (request.args.get('kind') or '').strip() or None
+    if kind not in (None, 'renders', 'improved'):
+        return jsonify({'error': "kind must be 'renders' or 'improved'"}), 400
+    return jsonify(ct.app_gallery(
+        limit=request.args.get('limit', default=ct.APP_GALLERY_PAGE, type=int),
+        before_id=request.args.get('before_id', type=int),
+        dataset_id=request.args.get('dataset_id', type=int),
+        kind=kind,
+        liked=request.args.get('liked', default=0, type=int) == 1))
+
+
 @bp.get('/train/run/<int:record_id>/timeline')
 def train_run_timeline(record_id):
     """Render-equivalent images across checkpoints, split into safe series."""
