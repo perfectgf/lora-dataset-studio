@@ -6,6 +6,7 @@ import {
 } from '../../hooks/useSetupSteps'
 import { HelpBadge } from '../../help/HelpMode'
 import { ceilingLine, tilingStatus, TTP_PACK, TTP_URL } from './seedvr2Tiling.js'
+import { fmtSize } from './fmtSize'
 
 const POLL_MS = 1200
 
@@ -17,11 +18,6 @@ const ROW_META = {
   error: { glyph: '✗', cls: 'text-rose-400', word: 'needs attention' },
 }
 
-function fmtSize(b) {
-  if (b >= 1e9) return `${(b / 1e9).toFixed(2)} GB`
-  if (b >= 1e6) return `${(b / 1e6).toFixed(0)} MB`
-  return `${Math.max(0, Math.round(b / 1e3))} KB`
-}
 
 /* The three places this feature actually comes from. Verified 2026-08-02 (HTTP
    200 on each), and worth linking rather than naming: the pack URL is what

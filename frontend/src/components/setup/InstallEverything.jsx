@@ -6,14 +6,10 @@ import InstallRunner from './InstallRunner'
 import KreaInstallCard from './KreaInstallCard'
 import SeedVr2InstallCard from './SeedVr2InstallCard'
 import { HelpBadge } from '../../help/HelpMode'
+import { fmtSize } from './fmtSize'
 
 const POLL_MS = 1200
 
-function fmtSize(b) {
-  if (b >= 1e9) return `${(b / 1e9).toFixed(2)} GB`
-  if (b >= 1e6) return `${(b / 1e6).toFixed(0)} MB`
-  return `${Math.max(0, Math.round(b / 1e3))} KB`
-}
 
 const label = (action) => INSTALL_ALL_ACTION_LABELS[action] || action
 

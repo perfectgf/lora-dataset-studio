@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { postJson } from '../../hooks/useDataset';
+import { fmtGB } from './loraMerge.js';
 
 /** Turn a full-precision model into the fp8 file ComfyUI loads — in one click.
  *
@@ -34,9 +35,6 @@ import { postJson } from '../../hooks/useDataset';
  * the disk guard, the overwrite guard and the read-back verification exist once,
  * so the two doors cannot drift.
  */
-const fmtGB = (bytes) => (
-  typeof bytes === 'number' && bytes > 0 ? `${(bytes / 1e9).toFixed(1)} GB` : '—'
-);
 
 const pct = (done, total) => (
   total > 0 ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0
