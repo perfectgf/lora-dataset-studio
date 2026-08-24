@@ -80,7 +80,11 @@ export const MAX_EDIT_REFS = 3;
  *                      angles of the same face — is the wrong source for it.
  *                      Per-edit composition, not persistent identity.
  */
-const EDIT_REF_SUPPORT = {
+// Exported for the BACKEND contract, not for a JS import:
+// backend/tests/test_engine_lists_contract.py reads this file's text and
+// regexes `export const EDIT_REF_SUPPORT` to pin the two languages'
+// engine tables together. A dead-export sweep must spare it.
+export const EDIT_REF_SUPPORT = {
   klein: 'dataset_only',
   krea: 'modal_one',
 };
