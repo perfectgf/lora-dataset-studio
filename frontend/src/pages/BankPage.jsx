@@ -11,6 +11,7 @@ import { datasetFolderNotice } from '../utils/pathRelation'
 import FolderSyncNote from '../components/bank/FolderSyncNote'
 import FolderCheckLine from '../components/bank/FolderCheckLine'
 import RelocateBankDialog from '../components/bank/RelocateBankDialog'
+import ForgetMissingDialog from '../components/bank/ForgetMissingDialog'
 import BankScrapePanel from '../components/bank/BankScrapePanel'
 import BankLaneTabs from '../components/videobank/BankLaneTabs'
 import { bankListOverview } from '../components/bank/bankOverview.js'
@@ -98,6 +99,7 @@ export default function BankPage() {
   const [folder, setFolder] = useState('')
   const [creating, setCreating] = useState(false)
   const [relocating, setRelocating] = useState(null)   // the bank being repointed
+  const [forgetting, setForgetting] = useState(null)   // the bank forgetting its missing rows
   // Dataset storage folders, so a folder that belongs to a dataset can be named
   // as such WHILE it is typed. The server refuses it either way — this only
   // spares the round-trip and the "why not?" (see utils/pathRelation.js).
@@ -279,7 +281,8 @@ export default function BankPage() {
               <BankPreviewStrip bank={b} onOpen={() => open(b.id)} />
               <BankListSummary bank={b} />
               <FolderSyncNote sync={b.folder_sync}
-                onRelocate={() => setRelocating(b)} />
+                onRelocate={() => setRelocating(b)}
+                onForget={() => setForgetting(b)} />
               <button type="button" onClick={() => open(b.id)}
                 className="self-start rounded-md border border-border bg-surface-raised px-3 py-1 text-xs font-semibold text-content hover:bg-surface">
                 Open →
@@ -293,6 +296,11 @@ export default function BankPage() {
         <RelocateBankDialog bankId={relocating.id} bankName={relocating.name}
           sourcePath={relocating.source_path}
           onClose={() => setRelocating(null)} onDone={() => refresh()} />
+      )}
+
+      {forgetting && (
+        <ForgetMissingDialog bankId={forgetting.id} bankName={forgetting.name}
+          onClose={() => setForgetting(null)} onDone={() => refresh()} />
       )}
     </div>
   )

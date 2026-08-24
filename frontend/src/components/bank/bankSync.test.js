@@ -98,6 +98,24 @@ test('folderSyncNote: unavailable wins over a stale missing count', () => {
     /unavailable/);
 });
 
+test('folderSyncNote: missing files also offer to FORGET them, count attached', () => {
+  // The warning's second honest cause — the files were really deleted (a
+  // downloader cleaning up its own intermediates, a by-hand tidy) — gets its
+  // own remedy, and the button needs the number to say what it would drop.
+  const n = folderSyncNote({ ...clean, missing: 8175 });
+  assert.equal(n.canForget, true);
+  assert.equal(n.missing, 8175);
+  assert.match(n.text, /really gone/);
+});
+
+test('folderSyncNote: an unavailable folder never offers to forget', () => {
+  // There the walk itself failed: EVERY file reads as missing, and a forget
+  // trusting that verdict would erase the whole triage. The server refuses the
+  // call too — this pins that the UI does not even dangle the button.
+  const n = folderSyncNote({ ...clean, unavailable: true, missing: 900 });
+  assert.ok(!n.canForget);
+});
+
 // --- folderCheckNote: the price of not walking on every page load ------------
 // The bank list stopped re-inventorying every source folder before rendering
 // (690-1 190 ms on a real 86 493-image library, on a page people pass through).

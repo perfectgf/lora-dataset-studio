@@ -34,6 +34,7 @@ import ScoringPythonDialog from './ScoringPythonDialog'
 import PipelineReport from './PipelineReport'
 import FolderSyncNote from './FolderSyncNote'
 import RelocateBankDialog from './RelocateBankDialog'
+import ForgetMissingDialog from './ForgetMissingDialog'
 import BankReviewLightbox from './BankReviewLightbox'
 import PersonPreflightDialog from './PersonPreflightDialog'
 import { preflightNeeded, preflightWillSample } from './personPreflight.js'
@@ -222,6 +223,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const [pythonPickerFor, setPythonPickerFor] = useState('')
   const [dismissedReportAt, setDismissedReportAt] = useState(null)
   const [relocating, setRelocating] = useState(false)
+  const [forgettingMissing, setForgettingMissing] = useState(false)
   const [openingSourceFolder, setOpeningSourceFolder] = useState(false)
   const [rejectFlags, setRejectFlags] = useState(() => new Set(['blur', 'uniform']))
   const [showAutoReject, setShowAutoReject] = useState(false)
@@ -1685,7 +1687,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         </div>
       )}
       <FolderSyncNote sync={payload?.folder_sync}
-        onRelocate={() => setRelocating(true)} />
+        onRelocate={() => setRelocating(true)}
+        onForget={() => setForgettingMissing(true)} />
 
       <ProgressBar activity={payload?.activity} onCancel={cancelJob} offline={!connection.online} />
 
@@ -2405,6 +2408,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       {relocating && (
         <RelocateBankDialog bankId={bankId} bankName={payload?.name || `Bank #${bankId}`}
           sourcePath={payload?.source_path} onClose={() => setRelocating(false)}
+          onDone={() => { refreshPayload({ force: true }); refreshImages() }} />
+      )}
+
+      {forgettingMissing && (
+        <ForgetMissingDialog bankId={bankId} bankName={payload?.name || `Bank #${bankId}`}
+          onClose={() => setForgettingMissing(false)}
           onDone={() => { refreshPayload({ force: true }); refreshImages() }} />
       )}
     </div>

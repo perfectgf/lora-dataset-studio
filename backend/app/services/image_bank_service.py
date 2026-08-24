@@ -1101,6 +1101,93 @@ def relocate_bank(user_id, bank_id, folder, confirm=False, *,
     return out
 
 
+class BankFolderUnavailable(RuntimeError):
+    """The bank's source folder cannot be walked at all right now — so nothing
+    may be forgotten: an unplugged drive reads as "every file is missing"."""
+
+
+def _rows_missing_on_disk(bank):
+    """A FRESH walk's verdict: ([(id, relpath)] whose file is not in the folder,
+    how many rows' files are). Sorted by relpath so samples read naturally.
+
+    Fail closed, unlike refresh_bank's walk: refresh is additive and can afford
+    to shrug at an unreadable subfolder, but the caller HERE is about to delete
+    rows for every file the walk did not find — a directory it could not read
+    must abort the whole verdict, never read as "those files are gone"."""
+    folder = bank.source_path
+    if not folder or not os.path.isdir(folder):
+        raise BankFolderUnavailable(
+            'the source folder is unavailable (moved, renamed or on a '
+            'disconnected drive) — nothing was forgotten. Reconnect it, or use '
+            'Move folder… if it lives somewhere else now.')
+
+    def _abort(err):
+        raise err
+    try:
+        seen = {os.path.normcase(rel)
+                for rel in _walk_image_relpaths(folder, onerror=_abort)}
+    except OSError as e:
+        raise BankFolderUnavailable(
+            'part of the source folder could not be read '
+            f'({e}) — nothing was forgotten.') from e
+    rows = (db.session.query(BankImage.id, BankImage.relpath)
+            .filter_by(bank_id=bank.id).all())
+    gone = sorted(((rid, rel) for rid, rel in rows
+                   if os.path.normcase(rel) not in seen), key=lambda t: t[1])
+    return gone, len(rows) - len(gone)
+
+
+def forget_missing_preview(user_id, bank_id) -> dict:
+    """What 🧹 Forget missing would drop, counted by a walk done NOW — the
+    folder-sync banner's number can be a cooldown old, and the confirmation
+    dialog must show the count the delete would actually use. Read-only.
+    Raises BankFolderUnavailable when the folder cannot be walked, ValueError
+    on an unknown bank. Returns {'missing', 'present', 'missing_sample'}."""
+    bank = get_bank(user_id, bank_id)
+    if bank is None:
+        raise ValueError('bank not found')
+    gone, present = _rows_missing_on_disk(bank)
+    return {'missing': len(gone), 'present': present,
+            'missing_sample': [rel for _rid, rel in gone[:_MISSING_SAMPLE]]}
+
+
+@_serialized_bank_mutation('forget_missing')
+def forget_missing(user_id, bank_id, *, _bank_lease=None) -> dict:
+    """Drop the rows whose source file is no longer in the folder.
+
+    The folder-sync warning's OTHER remedy. 📦 Move folder… answers "the folder
+    moved"; this answers "the files are really gone" — a downloader that cleans
+    up its own intermediates, a sync client, a by-hand tidy of the folder. Those
+    rows fail to load for ever and keep counting against the bank's ceiling.
+
+    Only database rows are touched — the whole premise is that the files are
+    already gone, so there is nothing on disk to delete. The dropped rows take
+    their decisions and analyses with them, which is what the confirmation
+    dialog says out loud. Rows whose file IS on disk are never touched.
+
+    The verdict comes from a fresh fail-closed walk (see _rows_missing_on_disk):
+    an unavailable folder or a read error refuses the whole operation, because
+    an unplugged drive must never be able to erase a triage. Deletion commits
+    chunk by chunk like delete_rejected, so an interruption leaves a consistent
+    bank that has simply forgotten fewer rows. Returns {'removed', 'remaining'}."""
+    bank = get_bank(user_id, bank_id)
+    if bank is None:
+        raise ValueError('bank not found')
+    gone, present = _rows_missing_on_disk(bank)
+    ids = [rid for rid, _rel in gone]
+    for i0 in range(0, len(ids), _SQL_IN_CHUNK):
+        BankImage.query.filter(
+            BankImage.id.in_(ids[i0:i0 + _SQL_IN_CHUNK])
+        ).delete(synchronize_session=False)
+        db.session.commit()
+    if ids:
+        # The pending ↩ offer may point at rows this run just dropped —
+        # withdraw it rather than advertise a restore that would find nothing.
+        bank_undo.clear(bank_id)
+        _folder_sync.pop(bank_id, None)   # next poll re-walks; the banner clears
+    return {'removed': len(ids), 'remaining': present}
+
+
 def _is_imported_source(path) -> bool:
     """True when the bank's folder is one WE made ("Import to bank"), i.e. it sits
     under bank_sources_root — as opposed to a folder of the user's own that a bank

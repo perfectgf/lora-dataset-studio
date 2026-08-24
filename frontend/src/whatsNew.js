@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-24-bank-forgets-missing-images',
+    date: '2026-08-24',
+    title: 'A bank can now let go of images that are really gone',
+    blurb:
+      'The "no longer in the folder" warning used to have one remedy — Move '
+      + 'folder… — which did not help when the files were really deleted (a '
+      + 'downloader that cleans up after itself, a by-hand tidy): the ghost rows '
+      + 'failed to load for ever and kept counting against the bank\'s ceiling. '
+      + 'The warning now also offers 🧹 Forget missing: after a fresh check and '
+      + 'a confirmation with the exact count, the bank drops just those rows. '
+      + 'Files on disk are never touched, and a disconnected drive is refused '
+      + 'outright — it can never erase your triage.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-23-the-app-opens-lighter',
     date: '2026-08-23',
     title: 'The app opens on a bundle seven times lighter',
