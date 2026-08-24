@@ -16,7 +16,10 @@ const hook = read('../../hooks/useDataset.js');
 const workspace = read('./DatasetWorkspace.jsx');
 const lightbox = read('./DatasetLightbox.jsx');
 const gridItem = read('./DatasetGridItem.jsx');
-const bankWorkspace = read('../bank/BankWorkspace.jsx');
+// The review handlers moved to useReviewLightbox (hook wave 5); the
+// contract spans both sources, so it reads them as one text.
+const bankWorkspace = read('../bank/BankWorkspace.jsx')
+  + read('../bank/useReviewLightbox.js');
 // The thumbnail cache-buster lives on the TILE now (the Encre redesign
 // split the workspace); the rotate handlers stay in the workspace.
 const bankTile = read('../bank/BankTile.jsx');

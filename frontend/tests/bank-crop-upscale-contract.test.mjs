@@ -48,7 +48,9 @@ const frontend = path.resolve(here, '..')
 const read = (rel) => fs.readFileSync(path.join(frontend, rel), 'utf8')
 const tile = read('src/components/bank/BankTile.jsx')
 const lightbox = read('src/components/bank/BankReviewLightbox.jsx')
+// Review handlers live in useReviewLightbox since hook wave 5.
 const workspace = read('src/components/bank/BankWorkspace.jsx')
+  + read('src/components/bank/useReviewLightbox.js')
 const passes = read('src/components/bank/BankPassesPanel.jsx')
 
 /** The panel probes capabilities, toasts, and carries a ❓ HelpBadge that

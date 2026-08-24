@@ -24,7 +24,10 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const frontend = path.resolve(here, '..')
 const read = (rel) => fs.readFileSync(path.join(frontend, rel), 'utf8')
 const lightbox = read('src/components/bank/BankReviewLightbox.jsx')
+// The review cluster moved to useReviewLightbox (hook wave 5); the
+// contract is about the behaviour, so it reads both sources as one text.
 const workspace = read('src/components/bank/BankWorkspace.jsx')
+  + read('src/components/bank/useReviewLightbox.js')
 // The tile is its own component since the Encre redesign; the review WIRING
 // (which ids, which start) stays in the workspace.
 const tile = read('src/components/bank/BankTile.jsx')
