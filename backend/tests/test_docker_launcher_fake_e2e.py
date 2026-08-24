@@ -698,9 +698,13 @@ def test_test_mode_bounds_the_wait_for_a_choice_no_browser_can_deliver(
     elapsed = time.monotonic() - started
 
     assert result.returncode == 0, result.stderr + result.stdout
-    output = result.stdout + result.stderr
-    assert "Test mode waits 10 seconds for that choice" in output
-    assert "wait up to 15 minutes" not in output
-    assert "not completed within 10 seconds" in output
+    # PowerShell wraps to the console width, and a narrow console breaks these
+    # sentences across lines — the same false red
+    # test_update_rebuild_returns_nonzero_when_health_is_unhealthy documents.
+    # Assert the message, not the spelling of the wrap.
+    output = re.sub(r"\s+", "", result.stdout + result.stderr)
+    assert "Testmodewaits10secondsforthatchoice" in output
+    assert "waitupto15minutes" not in output
+    assert "notcompletedwithin10seconds" in output
     # The interactive timeout is 900 s; anything near it means the bound is gone.
     assert elapsed < 60, f"the bounded wait took {elapsed:.1f}s"
