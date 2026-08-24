@@ -139,8 +139,8 @@ def test_dataset_payload_below_threshold_not_flagged(app):
 
 
 # --- the warning did NOT go silent when crops stopped enlarging ---------------
-def test_a_small_manual_crop_still_reaches_the_composition_warning(app):
-    """The arbitration, pinned end to end.
+def test_a_small_manual_crop_still_reaches_the_composition_warning(app, monkeypatch):
+    """The arbitration, re-pinned end to end after crop-clears-framing (PR #50).
 
     Capping the crop resize could have retired this warning by accident: if the
     stored ratio had been capped along with the pixels it would never again cross
@@ -149,8 +149,18 @@ def test_a_small_manual_crop_still_reaches_the_composition_warning(app):
     training resolution — and because its remedy is unchanged: shoot/import native
     shots for that framing instead of cropping in.
 
-    So: a small manual crop keeps its own pixels AND still lights the bucket."""
+    A crop now also CLEARS the stored shot type (those pixels are gone), so the
+    warning cannot know its bucket until 📐 Classify re-reads the cut image. That
+    is a deferral, not a retirement: the tile lands on the classify pool instead
+    of keeping a stale bucket, the stored ratio survives the crop, and one
+    classify later the warning fires in the TRUE bucket. This test walks that
+    whole path so neither half can regress — losing the clear brings back stale
+    buckets, and capping the stored ratio silences a warning that is still true."""
     import os
+    from app.services import vision_ollama
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama',
+                        lambda *a, **k: '{"framing": "face"}')
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda *a, **k: None)
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'Fay', 'zchar_fay')
         d = svc._dataset_dir(ds.id)
@@ -164,5 +174,11 @@ def test_a_small_manual_crop_still_reaches_the_composition_warning(app):
         assert svc.crop_image(LOCAL_USER, img.id, 0, 0, 240, 180) is True
         with Image.open(os.path.join(d, 'w.webp')) as im:
             assert im.size == (240, 180), 'the crop was enlarged again'
+        # Deferred, never lost: out of Composition, ON the classify pool.
+        payload = svc.dataset_payload(LOCAL_USER, ds.id)
+        assert payload['composition_upscaled']['face'] == 0
+        assert svc._classify_pool(ds.id).count() == 1
+
+        assert svc.classify_images(LOCAL_USER, ds.id) == 1
         payload = svc.dataset_payload(LOCAL_USER, ds.id)
         assert payload['composition_upscaled']['face'] == 1
