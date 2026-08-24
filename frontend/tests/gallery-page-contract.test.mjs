@@ -92,10 +92,8 @@ test('the route exists and the nav gates it like the other generation surfaces',
 // ---- the probe can see it ---------------------------------------------------
 
 test('the responsive probe finds the page by attribute, never by class', () => {
-  assert.match(page, /data-probe-panel="gallery-filters"/)
+  // The full marker contract (chrome, layers, the probe's own page entry)
+  // lives beside the page in galleryProbeMarkers.test.js, like its siblings.
+  assert.match(page, /data-probe-chrome="gallery-filters"/)
   assert.match(page, /data-probe-chrome="gallery-bar"/)
-  assert.match(page, /data-probe-layer/, 'the delete confirmation is a layer')
-  const lightbox = fs.readFileSync(
-    new URL('../src/components/shared/GeneratedImageLightbox.jsx', import.meta.url), 'utf8')
-  assert.match(lightbox, /data-probe-layer/, 'the shared viewer is a layer')
 })

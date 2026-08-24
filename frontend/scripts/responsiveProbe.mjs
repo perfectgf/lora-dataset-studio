@@ -182,6 +182,22 @@ const PAGES = {
         '[aria-label^="Inspect"]'] },
     ],
   },
+  '#/gallery': {
+    label: 'Gallery',
+    // The filter rail paints immediately, so the chrome wait alone would
+    // measure the feed mid-fetch; a tile is the proof the data arrived. An
+    // instance with nothing generated times out here and degrades to the
+    // painted-root fallback — measured at rest, its states reported skipped.
+    ready: '[data-testid="gallery-zoom"]',
+    states: [
+      { name: 'resting', open: [] },
+      // The viewer, on the first tile — the browsing loop this page owns. It
+      // is a data-probe-layer: covers the page by design, budgeted as nothing.
+      { name: 'lightbox', open: ['[data-testid="gallery-zoom"]'] },
+      // Select mode: the sticky bar grows its count / select-all / delete half.
+      { name: 'select', open: ['[data-testid="gallery-select-toggle"]'] },
+    ],
+  },
   '#/dataset/studio': {
     label: 'Test Studio',
     states: [
@@ -584,6 +600,12 @@ async function main() {
           // either too short on a cold load or wasted on a warm one, and this
           // now runs thirty times instead of six.
           await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          // A page whose chrome paints BEFORE its data (the Gallery's filter
+          // rail) names the element that proves the data arrived; without it
+          // the 900 ms settle below is a race against the fetch.
+          if (pageSpec.ready) {
+            await page.waitForSelector(pageSpec.ready, { timeout: 15000 });
+          }
           await page.waitForTimeout(900);
         } catch (e) {
           // A page with NO probe markers (anything outside PAGES — Settings,

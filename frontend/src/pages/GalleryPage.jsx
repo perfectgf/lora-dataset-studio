@@ -57,7 +57,14 @@ export default function GalleryPage() {
   const [notice, setNotice] = useState(null);
   const [zipping, setZipping] = useState(false);
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  // Set true INSIDE the effect, not only at ref creation: StrictMode runs the
+  // cleanup once at mount (false) and re-runs the effect — a ref left false
+  // there silently discards every response for the life of the page. Same
+  // shape KleinImproveNote uses, for the same reason.
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   const improveImage = useCanvasImageImprove({
     // Its own address: the result lands at the head of THIS feed, and the
@@ -201,8 +208,13 @@ export default function GalleryPage() {
       </header>
 
       {/* The filter rail. One row that wraps: on a phone the selects stack,
-          nothing overflows sideways. */}
-      <div data-probe-panel="gallery-filters"
+          nothing overflows sideways. Deliberately NOT data-probe-panel: the
+          fill check reads a panel's DIRECT CHILDREN as rows against the full
+          panel width, which is the right question for a vertical shelf and a
+          structurally failing one for a one-line toolbar on the 1800-px
+          measure. It IS chrome: it costs the fold at rest, like the dataset
+          grid-toolbar, and it is what proves to the probe the page painted. */}
+      <div data-probe-chrome="gallery-filters"
         className="flex flex-wrap items-center gap-2">
         <label className="flex min-w-0 items-center gap-1.5 text-[0.75rem] text-content-muted">
           <span className="sr-only">Dataset</span>
