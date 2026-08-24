@@ -75,6 +75,7 @@ test('the set of files allowed to raw-fetch is closed', () => {
     'components/dataset/CloudLaunchDialog.jsx',
     'components/dataset/PublishHfModal.jsx',
     'components/dataset/TrainingPanel.jsx',
+    'components/dataset/useTrainingPresets.js',          // inherited the panel's best-effort preset-list GET (hook wave 1)
     'components/dataset/TrainingProgress.jsx',
     'components/dataset/TrainingReadiness.jsx',
     'components/dataset/VariationCatalog.jsx',
