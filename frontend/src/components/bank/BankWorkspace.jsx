@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiFetch, del, patchJson, postJson } from '../../api/fetchClient'
+import { apiFetch, patchJson, postJson } from '../../api/fetchClient'
+import { useFolderPersons } from './useFolderPersons'
 import { useToast } from '../common/Toast'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useConnectionStatus } from '../../hooks/useConnectionStatus'
@@ -191,12 +192,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   // so without this the row would compute the answer and then delete the question.
   const [tagFreeze, setTagFreeze] = useState(null)
   const [subfolders, setSubfolders] = useState([])
-  // 👤 Folder-level person assertions ("this subfolder is one person").
-  const [folderPersons, setFolderPersons] = useState([])
-  // The whole folder-person payload: assertions PLUS the suggestions the app
-  // probed by itself, and what a scan would cost.
-  const [folderPersonInfo, setFolderPersonInfo] = useState(null)
-  const [folderPersonBusy, setFolderPersonBusy] = useState(false)
   // 👤 The preflight of the person pass: { plan, probing, run } — `run` is the
   // pass (or the whole 🚀 Launch all) the user actually asked for, held until
   // they have answered the folder question.
@@ -557,15 +552,13 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
       payload?.counts?.captioned, payload?.counts?.scored,
       payload?.counts?.semantic_indexed, payload?.semantic?.engine])
 
-  // 👤 "Single person here" — the folder-level person assertions. Reloaded when
-  // a job LANDS too: the sample check writes its verdict from the background.
-  const loadFolderPersons = useCallback(() => {
-    apiFetch(`/api/bank/${bankId}/folder-persons`)
-      .then((d) => { setFolderPersons(d.assertions || []); setFolderPersonInfo(d) })
-      .catch(() => { setFolderPersons([]); setFolderPersonInfo(null) })
-  }, [bankId])
-
-  useEffect(() => { loadFolderPersons() }, [loadFolderPersons, live])
+  const {
+    folderPersons, folderPersonInfo, folderPersonBusy, loadFolderPersons,
+    assertFolderPerson, revokeFolderPerson, checkFolderPerson,
+    scanFolderPersons,
+  } = useFolderPersons({
+    bankId, live, filter, toast, refreshImages, refreshPayload,
+  })
 
   // 🏷️ The pulled Ollama models, for the per-run caption model picker. Fetched ONCE per
   // mount and never blocking: the endpoint always answers 200, and an unreachable Ollama
@@ -590,42 +583,6 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     }
   }
 
-  const runFolderPerson = async (call, success) => {
-    setFolderPersonBusy(true)
-    try {
-      const d = await call()
-      if (success) toast.success(success(d))
-      // The payload too, not only the grid: an assertion creates (or dissolves)
-      // a person cluster, and the PEOPLE row above would otherwise keep showing
-      // a group that no longer exists until the next poll.
-      loadFolderPersons(); refreshImages(); refreshPayload({ force: true })
-    } catch (e) {
-      toast.error(e?.message || 'That did not work')
-    } finally { setFolderPersonBusy(false) }
-  }
-
-  const assertFolderPerson = () => runFolderPerson(
-    () => postJson(`/api/bank/${bankId}/folder-person`, { subfolder: filter.subfolder }),
-    (d) => `${d.images} image(s) grouped as person #${d.cluster_id} — the face pass `
-      + 'will skip them',
-  )
-
-  const revokeFolderPerson = () => runFolderPerson(
-    () => del(`/api/bank/${bankId}/folder-person`
-      + `?subfolder=${encodeURIComponent(filter.subfolder ?? '')}`),
-    (d) => `${d.cleared} image(s) back to normal clustering`,
-  )
-
-  const checkFolderPerson = () => runFolderPerson(
-    () => postJson(`/api/bank/${bankId}/folder-person/check`,
-      { subfolder: filter.subfolder }),
-    (d) => `Checking ${d.sample_size} images of this folder…`,
-  )
-
-  const scanFolderPersons = () => runFolderPerson(
-    () => postJson(`/api/bank/${bankId}/folder-scan`, {}),
-    () => 'Sampling the folders — nothing is grouped until you confirm',
-  )
 
   // Leaving the selection view: back to the facet grid.
   const exitSelectionView = () => { setShowSelected(false); setSelectedOrder(null) }

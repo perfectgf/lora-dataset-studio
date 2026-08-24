@@ -10,7 +10,9 @@ const workspace = read('../src/components/bank/BankWorkspace.jsx')
 test('the Bank posts only its id-scoped endpoint, never the displayed path', () => {
   const handler = workspace.slice(
     workspace.indexOf('const openSourceFolder'),
-    workspace.indexOf('const runFolderPerson'),
+    // runFolderPerson moved to useFolderPersons (hook wave 4); the next
+    // stable line after the handler is this comment.
+    workspace.indexOf('// Leaving the selection view'),
   )
   assert.match(handler,
     /postJson\(`\/api\/bank\/\$\{bankId\}\/open-source-folder`, \{\}\)/)
@@ -33,7 +35,9 @@ test('the source-path row carries a clear, request-busy button', () => {
 test('a failed native-folder launch is visible and always clears busy state', () => {
   const handler = workspace.slice(
     workspace.indexOf('const openSourceFolder'),
-    workspace.indexOf('const runFolderPerson'),
+    // runFolderPerson moved to useFolderPersons (hook wave 4); the next
+    // stable line after the handler is this comment.
+    workspace.indexOf('// Leaving the selection view'),
   )
   assert.match(handler, /catch \(e\) \{[\s\S]*?toast\.error/)
   assert.match(handler, /finally \{[\s\S]*?setOpeningSourceFolder\(false\)/)
