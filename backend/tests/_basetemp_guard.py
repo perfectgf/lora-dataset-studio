@@ -113,3 +113,53 @@ def release(basetemp, pid=None) -> bool:
     except OSError:
         return False
     return True
+
+def sweep_stale_siblings(basetemp, pid=None, now=None) -> list[str]:
+    """Collect the basetemps dead runs left behind, next to ours.
+
+    A killed pytest never reaches ``release()``: its claim file survives, and
+    its basetemp keeps the gigabytes the suite wrote (images, exports, one
+    copy per worker). Measured 2026-08-23: ~45 of them had accumulated on one
+    machine - 105 GB - and under 10 GB of free disk the training preflight
+    starts refusing launches, which reads as a merge regression five tests
+    wide (nothing in the diff explains it).
+
+    Scoped to what THIS guard provably owns: only a sibling whose
+    ``.pytest-owner`` claim is stale (same ``STALE_AFTER_SECONDS`` the
+    takeover in ``claim()`` uses) is deleted - directory and claim together -
+    and an orphan claim whose directory is already gone is dropped too. A
+    directory with NO claim is never touched: this scratch parent is shared,
+    and everything here errs on the side of leaving foreign data alone.
+    Best-effort like the rest of the guard: never blocks or fails a run.
+    Returns the names it removed (for the tests).
+    """
+    import shutil
+    pid = os.getpid() if pid is None else pid
+    now = time.time() if now is None else now
+    basetemp = Path(str(basetemp))
+    removed = []
+    try:
+        entries = list(basetemp.parent.iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        if entry.name == basetemp.name + '.pytest-owner':
+            continue                       # ours, freshly written by claim()
+        if not entry.name.endswith('.pytest-owner'):
+            continue
+        other_pid, started = _read(entry)
+        if other_pid == pid:
+            continue
+        if started is not None and (now - started) <= STALE_AFTER_SECONDS:
+            continue                       # a LIVE run - leave it alone
+        target = entry.parent / entry.name[:-len('.pytest-owner')]
+        if target == basetemp:
+            continue
+        try:
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            entry.unlink()
+            removed.append(target.name)
+        except OSError:
+            continue
+    return removed

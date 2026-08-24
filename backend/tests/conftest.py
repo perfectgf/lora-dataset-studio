@@ -21,6 +21,10 @@ def pytest_configure(config):
     conflict = _basetemp_guard.claim(basetemp)
     if conflict:
         pytest.exit(conflict, returncode=pytest.ExitCode.USAGE_ERROR)
+    # Ours is claimed - now collect what dead runs left next to it. A
+    # killed pytest never releases: ~45 stale basetemps once held 105 GB
+    # and made the training preflight refuse launches like a regression.
+    _basetemp_guard.sweep_stale_siblings(basetemp)
 
 
 def pytest_unconfigure(config):
