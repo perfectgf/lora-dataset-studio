@@ -12,13 +12,13 @@
  *     until it ends.
  */
 import test from 'node:test';
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
-const workspace = read('../src/components/dataset/DatasetWorkspace.jsx');
-const hook = read('../src/hooks/useDataset.js');
-const settings = read('../src/components/settings/CaptioningSection.jsx');
+const read = readSource
+const workspace = read('src/components/dataset/DatasetWorkspace.jsx');
+const hook = read('src/hooks/useDataset.js');
+const settings = read('src/components/settings/CaptioningSection.jsx');
 
 test('the bulk-reject button counts what it will really reject', () => {
   assert.match(workspace, /id="ds-curation-reject-flagged"/);

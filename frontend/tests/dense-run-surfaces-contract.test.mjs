@@ -6,15 +6,15 @@
  * shared chip vocabulary. A badge added to one and forgotten in the other is the
  * exact drift lineageChrome.jsx was created to prevent. */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
-const chrome = read('../src/components/dataset/lineageChrome.jsx')
-const graph = read('../src/components/dataset/lineageNodes.jsx')
-const list = read('../src/components/dataset/RunLineageTree.jsx')
-const panel = read('../src/components/dataset/DenseModelsPanel.jsx')
+const chrome = read('src/components/dataset/lineageChrome.jsx')
+const graph = read('src/components/dataset/lineageNodes.jsx')
+const list = read('src/components/dataset/RunLineageTree.jsx')
+const panel = read('src/components/dataset/DenseModelsPanel.jsx')
 
 test('the "full model" badge is declared ONCE, in the shared vocabulary', () => {
   assert.ok(chrome.includes('export function ModeChip'))
@@ -65,10 +65,10 @@ test('the Studio deep-link carries dataset, family AND base', () => {
    localStorage once, clear the persisted cfg/steps, wait for the base to be in
    the payload) lives in useStudioForm and is asserted on its source below. */
 test('?base= reaches the form through every file in the chain', () => {
-  const page = read('../src/pages/StudioPage.jsx')
-  const shell = read('../src/components/dataset/studio/StudioShell.jsx')
-  const legacy = read('../src/components/dataset/studio/LegacyDatasetStudio.jsx')
-  const form = read('../src/hooks/useStudioForm.js')
+  const page = read('src/pages/StudioPage.jsx')
+  const shell = read('src/components/dataset/studio/StudioShell.jsx')
+  const legacy = read('src/components/dataset/studio/LegacyDatasetStudio.jsx')
+  const form = read('src/hooks/useStudioForm.js')
 
   assert.match(page, /sp\.get\('base'\)/)
   assert.match(page, /preselectBase=\{preselectBase\}/)
@@ -80,7 +80,7 @@ test('?base= reaches the form through every file in the chain', () => {
 })
 
 test('the base preselection wins once, re-seeds the axes, and never guesses', () => {
-  const form = read('../src/hooks/useStudioForm.js')
+  const form = read('src/hooks/useStudioForm.js')
   // once
   assert.match(form, /preselectedBaseRef\.current = true/)
   assert.match(form, /if \(preselectedBaseRef\.current \|\| !preselectBase\) return/)
@@ -94,7 +94,7 @@ test('the base preselection wins once, re-seeds the axes, and never guesses', ()
 })
 
 test('the comparison screen reads per-base settings, and the base is declared first', () => {
-  const comp = read('../src/components/dataset/studio/ComparisonStudio.jsx')
+  const comp = read('src/components/dataset/studio/ComparisonStudio.jsx')
   assert.match(comp, /modelDefaults = null/)
   assert.match(comp, /const defaultCfg = baseDefaults\?\.cfg \?\? axes\?\.default_cfg/)
   // TDZ: `baseDefaults` reads `selectedBase`, so the state must be declared

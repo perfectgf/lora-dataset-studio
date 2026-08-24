@@ -6,10 +6,8 @@
  * mask being drawn in a coordinate space the cleaner does not use.
  */
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
 import { WHATS_NEW } from '../src/whatsNew.js'
 import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
 
@@ -18,9 +16,7 @@ import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
 const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
-const frontend = path.resolve(here, '..')
-const read = (rel) => fs.readFileSync(path.join(frontend, rel), 'utf8')
+const read = readSource
 const dialog = read('src/components/bank/BankWatermarkMaskDialog.jsx')
 const lightbox = read('src/components/bank/BankReviewLightbox.jsx')
 

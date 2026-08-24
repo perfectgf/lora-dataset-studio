@@ -18,14 +18,14 @@
  *     and 📌 Pin all cannot create the overlap on their own.
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
 
 import { layoutBoxes, layoutImageNodes, occupiedBox } from '../src/utils/canvasImageGroups.js'
 import { groupBarHeight, groupBarMaxHeight, isNodeControlTarget, nodePointerIntent }
   from '../src/utils/canvasNodeChrome.js'
 
-const read = (rel) => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
+const read = (rel) => readSource(`src/${rel}`)
 const CANVAS = read('components/canvas/LineageCanvas.jsx')
 const BAR = read('components/canvas/CanvasGroupBar.jsx')
 const GROUP = read('components/canvas/CanvasImageGroup.jsx')

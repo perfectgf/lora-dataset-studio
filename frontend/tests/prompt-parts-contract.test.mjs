@@ -3,14 +3,13 @@
    a `break-words` — each of which is exactly the kind of thing a later rewrite
    drops without a single test going red. */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 
-const read = (p) => readFileSync(fileURLToPath(new URL(p, import.meta.url)), 'utf8')
-const preview = read('../src/components/settings/PromptPreview.jsx')
-const engines = read('../src/components/settings/EnginesSection.jsx')
-const field = read('../src/components/common/PromptOverrideField.jsx')
+const read = readSource
+const preview = read('src/components/settings/PromptPreview.jsx')
+const engines = read('src/components/settings/EnginesSection.jsx')
+const field = read('src/components/common/PromptOverrideField.jsx')
 
 const {
   GLOBAL_PROMPT_PART_FIELDS, SUBJECT_PROMPT_PART_FIELDS, FRAMING_PROMPT_PART_FIELDS,

@@ -18,18 +18,18 @@
  * source, the way the repo already pins `improveRerun`'s tile wiring.
  */
 import assert from 'node:assert/strict'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
 
-const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8')
+const read = readSource
 // Comments in these files quote the very patterns under test (one explains that
 // reads carry NO `disabled={busy}`), so a naive grep reports its own
 // documentation as a violation. Match the code only.
 const code = (src) => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
-const workspace = read('../src/components/dataset/DatasetWorkspace.jsx')
-const grid = read('../src/components/dataset/DatasetGrid.jsx')
-const tile = read('../src/components/dataset/DatasetGridItem.jsx')
-const lightbox = read('../src/components/dataset/DatasetLightbox.jsx')
+const workspace = read('src/components/dataset/DatasetWorkspace.jsx')
+const grid = read('src/components/dataset/DatasetGrid.jsx')
+const tile = read('src/components/dataset/DatasetGridItem.jsx')
+const lightbox = read('src/components/dataset/DatasetLightbox.jsx')
 
 test('the workspace hands the grid BOTH lane gates, from their own sources', () => {
   assert.match(workspace, /improveBusy=\{ds\.improveBusy\}/)

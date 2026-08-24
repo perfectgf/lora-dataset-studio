@@ -1,6 +1,6 @@
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import { deriveCapabilitySummary, capabilityDestination } from '../src/hooks/useSetupSteps.js'
 import { getHelpTopic } from '../src/help/helpRegistry.js'
@@ -15,7 +15,7 @@ import { SETTINGS_SECTIONS } from '../src/components/settings/registry.js'
    sections, the what's-new target validator), exactly the way whatsNew.test.js
    validates its own "Try it →" targets. */
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 // Three rigs that between them light up every row shape: nothing configured,
 // everything configured, and the "installed but ComfyUI isn't running" rig that
@@ -127,7 +127,7 @@ test('the accessible label says the state AND where the row leads', () => {
 })
 
 test('the Overview grid actually uses the destinations (no dead tiles)', () => {
-  const src = read('../src/components/settings/OverviewSection.jsx')
+  const src = read('src/components/settings/OverviewSection.jsx')
   assert.match(src, /capabilityDestination/,
     'OverviewSection must resolve each tile through capabilityDestination')
   assert.match(src, /<Link\b/, 'tiles must be real links, not clickable divs')

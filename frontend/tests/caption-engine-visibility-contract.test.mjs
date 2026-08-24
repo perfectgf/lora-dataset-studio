@@ -15,10 +15,10 @@
  * src/utils/captionEngines.test.js.
  */
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
 
-const read = (p) => fs.readFileSync(new URL(`../src/${p}`, import.meta.url), 'utf8')
+const read = (rel) => readSource(`src/${rel}`)
 
 test('every caption pass carries the engines from the response into the session state', () => {
   const src = read('hooks/useDataset.js')

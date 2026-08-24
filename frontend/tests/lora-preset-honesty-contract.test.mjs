@@ -10,8 +10,8 @@
  * 3. `krea.base_model` blank elects a base, and nothing named the winner.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import {
   resolveDefaultPresetName, generationLoraPresetPayload,
@@ -25,7 +25,7 @@ import {
 import { kreaBaseNote, KREA_BASE_NOTE_CLASS } from '../src/utils/kreaBaseNote.js'
 import { helpTopics, searchHelpTopics } from '../src/help/helpRegistry.js'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 const KLEIN_PRESETS = [
   { name: 'Skin', loras: [{ file: 'klein/skin.safetensors', strength: 0.6 }] },
@@ -84,7 +84,7 @@ test('a default naming an EMPTY preset still sends nothing (no dead name)', () =
 })
 
 test('the workspace initialises both pickers from the config defaults', () => {
-  const src = read('../src/components/dataset/VariationCatalog.jsx')
+  const src = read('src/components/dataset/VariationCatalog.jsx')
   assert.match(src, /resolveDefaultPresetName\(\s*\n?\s*d\.config\?\.klein\?\.default_generation_lora_preset/)
   assert.match(src, /resolveKreaDefaultPresetName\(\s*\n?\s*d\.config\?\.krea\?\.default_generation_lora_preset/)
 })
@@ -151,7 +151,7 @@ test('each engine names its own fixed slot and the setting to change instead', (
 })
 
 test('the preset editor feeds each card its OWN engine fixed slot', () => {
-  const src = read('../src/components/settings/EnginesSection.jsx')
+  const src = read('src/components/settings/EnginesSection.jsx')
   assert.match(src, /engineId="klein" fixedLora=\{config\.klein\?\.consistency_lora \|\| ''\}/)
   assert.match(src, /engineId="krea" fixedLora=\{config\.krea\?\.identity_lora \|\| ''\}/)
   // The warning is rendered on the row, not only computed.
@@ -207,14 +207,14 @@ test('every tone the note can produce has a colour', () => {
 })
 
 test('the Settings card reads the SERVER-resolved base, and ranks nothing itself', () => {
-  const src = read('../src/components/settings/EnginesSection.jsx')
+  const src = read('src/components/settings/EnginesSection.jsx')
   assert.match(src, /caps\?\.comfyui\?\.krea_base_resolved/)
   // Model resolution is a server decision: no second ranking in the browser.
   assert.doesNotMatch(src, /elect_krea_base|turboTier|rankKreaBase/)
 })
 
 test('the capabilities probe publishes the base the generation path would load', () => {
-  const py = read('../../backend/app/capabilities.py')
+  const py = read('../backend/app/capabilities.py')
   assert.match(py, /krea_base_resolved = _krh\.resolve_krea_unet\(\) or ''/)
   assert.match(py, /'krea_base_resolved': krea_base_resolved,/)
 })
@@ -222,9 +222,9 @@ test('the capabilities probe publishes the base the generation path would load',
 // ---- the new settings reach all four surfaces ------------------------------
 
 test('both default-preset keys have a control, a topic, a doc row and a shipped default', () => {
-  const card = read('../src/components/settings/EnginesSection.jsx')
-  const guide = read('../../docs/guide/settings-reference.md')
-  const defaults = read('../../backend/app/config.py')
+  const card = read('src/components/settings/EnginesSection.jsx')
+  const guide = read('../docs/guide/settings-reference.md')
+  const defaults = read('../backend/app/config.py')
   const topics = new Set(helpTopics.map((t) => t.id))
   for (const [section, domId] of [['klein', 'klein-default-lora-preset'],
                                   ['krea', 'krea-default-lora-preset']]) {
@@ -261,11 +261,11 @@ test('nothing still promises the picker resets to None on every visit', () => {
   // That sentence was true and is now false in three places at once; a doc that
   // still says it is worse than no doc.
   const sources = [
-    read('../src/components/settings/EnginesSection.jsx'),
-    read('../src/components/dataset/VariationCatalog.jsx'),
-    read('../src/utils/generationLoras.js'),
-    read('../src/utils/kreaGenerationLoras.js'),
-    read('../../docs/guide/settings-reference.md'),
+    read('src/components/settings/EnginesSection.jsx'),
+    read('src/components/dataset/VariationCatalog.jsx'),
+    read('src/utils/generationLoras.js'),
+    read('src/utils/kreaGenerationLoras.js'),
+    read('../docs/guide/settings-reference.md'),
   ]
   for (const src of sources) {
     assert.doesNotMatch(src, /"None" by default\)/)

@@ -17,6 +17,7 @@
    section, but never by accident. Section-only links are listed here WITH their
    reason, so a new targetless link fails until someone writes down why. */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 import { settingsLinkHref } from '../src/components/common/settingsLinkHref.js'
 import { SETTINGS_SECTIONS } from '../src/components/settings/registry.js'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 // ---- source inventory ------------------------------------------------------
 
@@ -46,7 +47,7 @@ const SOURCES = walk(new URL('../src/', import.meta.url))
 const settingsDomIds = () => {
   const dir = new URL('../src/components/settings/', import.meta.url)
   let src = ''
-  for (const f of readdirSync(dir)) if (f.endsWith('.jsx')) src += read(`../src/components/settings/${f}`) + '\n'
+  for (const f of readdirSync(dir)) if (f.endsWith('.jsx')) src += read(`src/components/settings/${f}`) + '\n'
   const ids = new Set()
   for (const m of src.matchAll(/id="([^"]+)"/g)) ids.add(m[1])
   for (const m of src.matchAll(/\bkey:\s*'([^']+)'/g)) ids.add(m[1])
@@ -121,14 +122,14 @@ test('every target a SettingsLink uses is a DOM id the Settings really render', 
 
 test('a target computed at runtime still resolves — the setup verdict case', () => {
   const ids = settingsDomIds()
-  const steps = read('../src/hooks/useSetupSteps.js')
+  const steps = read('src/hooks/useSetupSteps.js')
   const targets = [...steps.matchAll(/settingsFocus:\s*'([^']+)'/g)].map((m) => m[1])
   assert.ok(targets.length >= 1, 'no verdict carries a settingsFocus')
   for (const t of targets) {
     assert.ok(ids.has(t), `useSetupSteps verdict focus "${t}" is not a Settings DOM id`)
   }
   // and the page must actually forward it, or the verdict target is dead weight
-  assert.match(read('../src/pages/SetupPage.jsx'), /focus=\{verdict\.settingsFocus\}/)
+  assert.match(read('src/pages/SetupPage.jsx'), /focus=\{verdict\.settingsFocus\}/)
 })
 
 // ---- the reported link -----------------------------------------------------
@@ -137,14 +138,14 @@ test('the two improve pointers land on the two things they name', () => {
   // Both live in KleinImproveNote now (rendered by the lightbox AND the grid's
   // bulk toolbar) instead of a lone link in the lightbox: the strength knobs
   // never answered "why did my anime turn realistic" — the instruction did.
-  const note = read('../src/components/dataset/KleinImproveNote.jsx')
+  const note = read('src/components/dataset/KleinImproveNote.jsx')
   const tags = [...note.matchAll(/<SettingsLink\b[\s\S]*?>/g)].map((m) => m[0])
   assert.equal(tags.length, 2, 'the note must offer the instruction AND the strength')
   for (const tag of tags) assert.match(tag, /section="engines"/)
   assert.ok(tags.some((t) => /focus="identity-prompt-klein-improve"/.test(t)))
   assert.ok(tags.some((t) => /focus="klein-improve-strength"/.test(t)))
   // Each target is the thing its label names, not a section that contains it.
-  const engines = read('../src/components/settings/EnginesSection.jsx')
+  const engines = read('src/components/settings/EnginesSection.jsx')
   assert.match(engines, /id="klein-improve-strength"/)
   assert.match(engines, /id="klein-improve-strength"[^>]*>\s*[\s\S]{0,200}?Upscale &amp; improve — strength/)
   assert.match(engines, /id="identity-prompt-klein-improve"/)
@@ -168,6 +169,6 @@ test('a link without a target is one we decided to leave section-wide', () => {
 test('the focus mechanism owns the scroll — no second scroll is added alongside', () => {
   // settingsDeepLink already steps aside when a focus is present; targeting more
   // links makes that path hotter, so the rule is asserted here too.
-  const decide = read('../src/pages/settingsDeepLink.js')
+  const decide = read('src/pages/settingsDeepLink.js')
   assert.match(decide, /if \(hasFocus\) return false/)
 })

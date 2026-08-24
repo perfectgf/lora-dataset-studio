@@ -11,7 +11,7 @@
  * What only the sources can say is asserted here.
  */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
 
 import { getHelpTopic } from '../src/help/helpRegistry.js'
@@ -22,7 +22,7 @@ import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
 // (see whatsNew.js, rule "Keep the list tidy") — search the union.
 const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 
-const read = (rel) => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
+const read = (rel) => readSource(`src/${rel}`)
 const SHELL = read('components/dataset/studio/StudioShell.jsx')
 const COMPARISON = read('components/dataset/studio/ComparisonStudio.jsx')
 const SETUP = read('components/dataset/studio/StudioRunSetup.jsx')

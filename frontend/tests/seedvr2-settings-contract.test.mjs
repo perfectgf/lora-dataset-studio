@@ -10,15 +10,15 @@
  * granularity that matters here: the ids, the config keys and the reset targets.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import { helpTopics } from '../src/help/helpRegistry.js'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
-const CARD = read('../src/components/settings/EnginesSection.jsx')
-const GUIDE = read('../../docs/guide/settings-reference.md')
-const DEFAULTS = read('../../backend/app/config.py')
+const read = readSource
+const CARD = read('src/components/settings/EnginesSection.jsx')
+const GUIDE = read('../docs/guide/settings-reference.md')
+const DEFAULTS = read('../backend/app/config.py')
 
 // field → the DOM id of its control in the card.
 const FIELDS = {
@@ -66,7 +66,7 @@ test('the new dials are documented and findable in Help', () => {
 })
 
 test('the tile bounds mirrored in the card match the backend clamps', () => {
-  const helper = read('../../backend/app/services/seedvr2_helper.py')
+  const helper = read('../backend/app/services/seedvr2_helper.py')
   assert.match(helper, /TILE_PX_MIN, TILE_PX_MAX = 512, 2048/)
   assert.match(helper, /TILE_ABOVE_FACTOR = 1\.5/)
   assert.match(CARD, /const SEEDVR2_TILE_MIN = 512/)

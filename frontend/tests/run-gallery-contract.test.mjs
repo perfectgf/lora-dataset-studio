@@ -12,11 +12,12 @@
        it is not showing.
 */
 import assert from 'node:assert/strict';
+import { readSource } from './support/readSource.mjs'
 import fs from 'node:fs';
 import test from 'node:test';
 
 const root = new URL('../src/', import.meta.url);
-const read = (p) => fs.readFileSync(new URL(p, root), 'utf8');
+const read = (rel) => readSource(`src/${rel}`)
 
 const canvas = read('components/canvas/LineageCanvas.jsx');
 const panel = read('components/shared/CheckpointGalleryPanel.jsx');

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test';
 
-const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
-const singleHook = read('../src/hooks/useLoraTestStudio.js');
-const comparisonHook = read('../src/hooks/useStudioRun.js');
-const singleStudio = read('../src/components/dataset/studio/RunSetupPanel.jsx');
-const comparisonStudio = read('../src/components/dataset/studio/ComparisonStudio.jsx');
+const read = readSource
+const singleHook = read('src/hooks/useLoraTestStudio.js');
+const comparisonHook = read('src/hooks/useStudioRun.js');
+const singleStudio = read('src/components/dataset/studio/RunSetupPanel.jsx');
+const comparisonStudio = read('src/components/dataset/studio/ComparisonStudio.jsx');
 
 test('both Studio hooks confirm a restarted ComfyUI, then refresh status for Resume', () => {
   assert.match(singleHook, /lora-test\/confirm-comfyui-restart/);

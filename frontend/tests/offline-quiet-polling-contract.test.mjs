@@ -9,13 +9,10 @@
  * test and re-ship the ten stacked banners.
  */
 import test from 'node:test';
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const read = (p) => readFileSync(join(SRC, p), 'utf8');
+const read = (rel) => readSource(`src/${rel}`)
 
 test('apiFetch accepts a background flag and strips it from the fetch init', () => {
   const s = read('api/fetchClient.js');

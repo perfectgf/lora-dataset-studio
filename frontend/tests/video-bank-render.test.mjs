@@ -29,8 +29,8 @@
  * is a missing dependency rather than a regression.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import { createElement, render, renderToStaticMarkup } from './support/mountJsx.mjs'
 
@@ -58,7 +58,7 @@ const { ToastProvider } = await import('../src/components/common/Toast.jsx')
 const renderLightbox = (props) => renderToStaticMarkup(
   createElement(ToastProvider, null, createElement(VideoClipLightbox, props)))
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 const countTag = (html, tag) => (html.match(new RegExp(`<${tag}[\\s>]`, 'g')) || []).length
 
 const CLIPS = [
@@ -109,7 +109,7 @@ test('the grid source file declares no video element in any branch', () => {
   // the source is checked too, comments stripped: the file's own docstring
   // quotes the `<video preload="none">` version precisely to rule it out, and
   // that sentence must stay allowed to exist.
-  const src = read('../src/components/videobank/VideoClipGrid.jsx')
+  const src = read('src/components/videobank/VideoClipGrid.jsx')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '')
   assert.ok(!/<video[\s>]/.test(src), 'VideoClipGrid.jsx must not render a <video> tag')
@@ -335,12 +335,12 @@ test('nothing in this lane can scroll the page sideways at 400 px', () => {
   //    stretches it past the viewport and `truncate` never fires;
   //  · anything holding a path needs min-w-0 + truncate, because a flex child's
   //    default min-width is auto, not 0.
-  const grid = read('../src/components/videobank/VideoClipGrid.jsx')
+  const grid = read('src/components/videobank/VideoClipGrid.jsx')
   assert.match(grid, /grid-cols-2/, 'the clip grid must declare its narrow column count')
   for (const rel of [
-    '../src/pages/VideoBankPage.jsx',
-    '../src/components/videobank/VideoSourceList.jsx',
-    '../src/components/videobank/VideoBankWorkspace.jsx',
+    'src/pages/VideoBankPage.jsx',
+    'src/components/videobank/VideoSourceList.jsx',
+    'src/components/videobank/VideoBankWorkspace.jsx',
   ]) {
     const src = read(rel)
     assert.match(src, /min-w-0/, `${rel}: a path container needs min-w-0`)
@@ -348,7 +348,7 @@ test('nothing in this lane can scroll the page sideways at 400 px', () => {
     assert.ok(!/grid gap-\d+ sm:grid-cols/.test(src),
       `${rel}: a grid must declare grid-cols-1 before its sm: breakpoint`)
   }
-  const page = read('../src/pages/VideoBankPage.jsx')
+  const page = read('src/pages/VideoBankPage.jsx')
   assert.match(page, /grid-cols-1 sm:grid-cols-2/)
 })
 

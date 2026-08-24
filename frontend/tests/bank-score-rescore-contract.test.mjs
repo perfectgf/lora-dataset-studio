@@ -16,20 +16,20 @@
  *     "already scored" filter anywhere near it.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { BANK_PASSES } from '../src/components/bank/bankPasses.js'
 
 // CRLF-normalised: these files are checked out with native line endings on
 // Windows and every pattern below spans lines.
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n')
-const workspace = read('../src/components/bank/BankWorkspace.jsx')
+const read = readSource
+const workspace = read('src/components/bank/BankWorkspace.jsx')
 // ✨ Score is a button of the PASSES PANEL since the Encre redesign; the
 // workspace still owns the state the panel is handed.
-const passPanel = read('../src/components/bank/BankPassesPanel.jsx')
-const route = read('../../backend/app/routes/bank.py')
-const service = read('../../backend/app/services/image_bank_service.py')
-const passes = read('../src/components/bank/bankPasses.js')
+const passPanel = read('src/components/bank/BankPassesPanel.jsx')
+const route = read('../backend/app/routes/bank.py')
+const service = read('../backend/app/services/image_bank_service.py')
+const passes = read('src/components/bank/bankPasses.js')
 
 test('the ✨ Score button posts nothing extra — its meaning is unchanged', () => {
   // The body is built by the SHARED builder now: `rescore` is spread in only when

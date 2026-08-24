@@ -5,20 +5,20 @@
  * "quick tidy" silently drops, leaving a menu that renders but sorts nothing.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import { BANK_SORTS } from '../src/utils/gridSort.js'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
-const BANK = read('../src/components/bank/BankWorkspace.jsx')
-const BANK_TILE = read('../src/components/bank/BankTile.jsx')
+const read = readSource
+const BANK = read('src/components/bank/BankWorkspace.jsx')
+const BANK_TILE = read('src/components/bank/BankTile.jsx')
 // The Sort menu and the text filters live in the RAIL now — beside the grid
 // they order, which is the whole point of the Encre restructure.
-const BANK_RAIL = read('../src/components/bank/BankFilterRail.jsx')
-const BANK_PANEL = read('../src/components/bank/SelectionTagsPanel.jsx')
-const WORKSPACE = read('../src/components/dataset/DatasetWorkspace.jsx')
-const CSS = read('../src/index.css')
+const BANK_RAIL = read('src/components/bank/BankFilterRail.jsx')
+const BANK_PANEL = read('src/components/bank/SelectionTagsPanel.jsx')
+const WORKSPACE = read('src/components/dataset/DatasetWorkspace.jsx')
+const CSS = read('src/index.css')
 
 test('the bank Sort menu is built from the registry, not hard-coded options', () => {
   assert.match(BANK, /import \{ bankSortGroups, loadBankSort, saveBankSort \} from '\.\.\/\.\.\/utils\/gridSort\.js'/)
@@ -110,12 +110,12 @@ test('the 🏷️ tag chips are wired to the gallery filters', () => {
   // The badge is a real button, so the gesture is reachable without a mouse.
   assert.match(BANK_TILE, /aria-label=\{`Use the tags of \$\{img\.name\} as a filter`\}/)
   // AND is written out for the user, not left to be inferred from the chips.
-  assert.match(read('../src/components/bank/SelectionTagsPanel.jsx'),
+  assert.match(read('src/components/bank/SelectionTagsPanel.jsx'),
     /\{tagFilterSummary\(tagPicked\)\}/)
   // The row stays with the filter/gallery surface (filter zone on phones,
   // right-hand gallery inspector on desktop), never inside the review lightbox:
   // that one walks a frozen snapshot a filter change could not honestly alter.
-  const LIGHTBOX = read('../src/components/bank/BankReviewLightbox.jsx')
+  const LIGHTBOX = read('src/components/bank/BankReviewLightbox.jsx')
   assert.doesNotMatch(LIGHTBOX, /captionChips|tagsParam/,
     'filtering is a grid gesture; the review lightbox is a frozen decision run')
 })

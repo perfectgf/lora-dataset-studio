@@ -19,10 +19,8 @@
  * file reaches becomes a failed test rather than a white screen on a bank.
  */
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
@@ -43,9 +41,7 @@ const { CapabilitiesProvider } = await import('../src/context/CapabilitiesContex
 const { ToastProvider } = await import('../src/components/common/Toast.jsx')
 const { MemoryRouter } = await import('react-router')
 
-const here = path.dirname(fileURLToPath(import.meta.url))
-const frontend = path.resolve(here, '..')
-const read = (rel) => fs.readFileSync(path.join(frontend, rel), 'utf8')
+const read = readSource
 const tile = read('src/components/bank/BankTile.jsx')
 const lightbox = read('src/components/bank/BankReviewLightbox.jsx')
 // Review handlers live in useReviewLightbox since hook wave 5.

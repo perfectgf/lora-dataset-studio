@@ -21,6 +21,7 @@
  * precisely so a test can render each one.
  */
 import assert from 'node:assert/strict'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -35,7 +36,7 @@ const { denseQuantizeTarget, fullTransformerArtifactFiles } =
 const { getHelpTopic, searchHelpTopics } = await import('../src/help/helpRegistry.js')
 
 const render = (Component, props) => renderToStaticMarkup(createElement(Component, props))
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 const walk = (dirUrl) => {
   const out = []
@@ -129,8 +130,8 @@ test('nothing to aim at when there is no master, or an fp8 twin already exists',
 test('the recipe card is the ONE surface, and it is handed that target', () => {
   // The recipe card moved to FullTransformerRecipe.jsx (slice 1); the
   // hand-off props stay in the panel body, so the contract reads both.
-  const panel = read('../src/components/dataset/TrainingPanel.jsx')
-    + read('../src/components/dataset/FullTransformerRecipe.jsx')
+  const panel = read('src/components/dataset/TrainingPanel.jsx')
+    + read('src/components/dataset/FullTransformerRecipe.jsx')
   assert.match(panel, /<Fp8QuantizeTool disabled=\{disabled\} target=\{quantizeTarget\}/)
   assert.match(panel, /quantizeTarget=\{denseQuantizeTarget\(cloudLastHere \|\| \{\}\)\}/)
   // The custom base already on screen pre-fills the manual field instead of

@@ -20,6 +20,7 @@
  * of that; rendering the whole tab does.
  */
 import assert from 'node:assert/strict'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -36,7 +37,7 @@ const { ToastProvider } = await import('../src/components/common/Toast.jsx')
 const { helpTopics, getHelpTopic, searchHelpTopics } =
   await import('../src/help/helpRegistry.js')
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 // Every .js/.jsx under src/, with its path — the endpoint census needs names.
 const walk = (dirUrl) => {
@@ -74,8 +75,8 @@ test('exactly one component talks to the quantize endpoints', () => {
 test('both hosts render the shared component instead of their own controls', () => {
   // The training-side host is the extracted recipe card since slice 1 —
   // the panel renders it, the recipe file imports and mounts the tool.
-  for (const rel of ['../src/components/dataset/FullTransformerRecipe.jsx',
-    '../src/components/settings/StorageSection.jsx']) {
+  for (const rel of ['src/components/dataset/FullTransformerRecipe.jsx',
+    'src/components/settings/StorageSection.jsx']) {
     const src = read(rel)
     assert.match(src, /import Fp8QuantizeTool from '[^']*Fp8QuantizeTool'/, `${rel}: no import`)
     assert.match(src, /<Fp8QuantizeTool\b/, `${rel}: imported but never rendered`)

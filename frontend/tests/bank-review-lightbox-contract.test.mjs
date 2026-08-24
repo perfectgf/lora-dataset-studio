@@ -7,10 +7,8 @@
  * POST at a time, and a failed POST must not advance.
  */
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
 import { WHATS_NEW } from '../src/whatsNew.js'
 import { WHATS_NEW_ARCHIVE } from '../src/whatsNewArchive.js'
 
@@ -20,9 +18,7 @@ const ALL_WHATS_NEW = [...WHATS_NEW, ...WHATS_NEW_ARCHIVE]
 import { getHelpTopic } from '../src/help/helpRegistry.js'
 import { REVIEW_SHORTCUT_HINT, ownsTypedKeys } from '../src/components/shared/reviewShortcuts.js'
 
-const here = path.dirname(fileURLToPath(import.meta.url))
-const frontend = path.resolve(here, '..')
-const read = (rel) => fs.readFileSync(path.join(frontend, rel), 'utf8')
+const read = readSource
 const lightbox = read('src/components/bank/BankReviewLightbox.jsx')
 // The review cluster moved to useReviewLightbox (hook wave 5); the
 // contract is about the behaviour, so it reads both sources as one text.

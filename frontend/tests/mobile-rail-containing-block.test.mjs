@@ -25,16 +25,16 @@
  * symptom appears nowhere near the code that caused it.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 // Every horizontally scrolling chip rail: the file, and the rail's aria-label.
 const RAILS = [
-  ['../src/components/dataset/DatasetWorkspace.jsx', 'Dataset sections'],
-  ['../src/pages/SettingsPage.jsx', 'Settings sections'],
-  ['../src/pages/GuidePage.jsx', 'Guide chapters'],
+  ['src/components/dataset/DatasetWorkspace.jsx', 'Dataset sections'],
+  ['src/pages/SettingsPage.jsx', 'Settings sections'],
+  ['src/pages/GuidePage.jsx', 'Guide chapters'],
 ]
 
 for (const [file, label] of RAILS) {
@@ -59,14 +59,14 @@ test('the destinations rail under the dataset sections is covered too', () => {
   // (The rail also folds on a phone held sideways — ≤ 500 px of fold — which is
   // the responsive probe's finding, not this test's: here only `relative` and
   // the rail's existence are the contract.)
-  const src = read('../src/components/dataset/DatasetWorkspace.jsx')
+  const src = read('src/components/dataset/DatasetWorkspace.jsx')
   assert.match(src, /className="relative -mx-4 overflow-x-auto px-4 pb-1 lg:hidden \[@media\(max-height:500px\)\]:hidden"/)
 })
 
 test('the reason is written down where the class is', () => {
   // A bare `relative` reads as noise and gets tidied away. The explanation is
   // the only thing that makes it survive the next pass over this markup.
-  const src = read('../src/components/dataset/DatasetWorkspace.jsx')
+  const src = read('src/components/dataset/DatasetWorkspace.jsx')
   assert.match(src, /containing block/,
     'the dataset rail must keep the note explaining why `relative` is load-bearing')
 })

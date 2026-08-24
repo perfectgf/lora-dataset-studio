@@ -12,8 +12,8 @@
  *     never without its price.
  */
 import test from 'node:test'
+import { readSource } from './support/readSource.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 
 import {
   ANGLE_BUCKETS, ANGLE_FRONTAL_MAX, ANGLE_PROFILE_MIN, MEDIUM_BUCKETS,
@@ -22,7 +22,7 @@ import {
 } from '../src/components/bank/bankMedium.js'
 import { BANK_SORTS, bankSortOptions } from '../src/utils/gridSort.js'
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+const read = readSource
 
 test('bucket ids are the stored contract with the server', () => {
   // These exact strings are query-string values AND, for medium, a database
@@ -32,7 +32,7 @@ test('bucket ids are the stored contract with the server', () => {
   assert.deepEqual(ANGLE_BUCKETS.map((b) => b.id),
     ['frontal', 'three_quarter', 'profile', 'behind'])
   // …and the SERVER agrees, read from its own source rather than restated here.
-  const svc = read('../../backend/app/services/image_bank_service.py')
+  const svc = read('../backend/app/services/image_bank_service.py')
   assert.match(svc, /^MEDIUMS = \('photo', 'anime', 'render3d', 'illustration'\)$/m)
   assert.match(svc, /^ANGLES = \('frontal', 'three_quarter', 'profile', 'behind'\)$/m)
   assert.match(svc, /^ANGLE_FRONTAL_MAX = 20\.0$/m)
@@ -165,10 +165,10 @@ test('both measures are sortable, and gated on their OWN readiness count', () =>
 test('the two facets travel under their OWN payload keys', () => {
   // The regression this guards: a facet folded into `q`/`exclude`/`flag` silently
   // narrows the other thing that key already meant.
-  const src = read('../../frontend/src/components/bank/BankWorkspace.jsx')
+  const src = read('../frontend/src/components/bank/BankWorkspace.jsx')
   assert.match(src, /if \(f\.medium\) params\.medium = f\.medium/)
   assert.match(src, /if \(f\.angle\) params\.angle = f\.angle/)
-  const routes = read('../../backend/app/routes/bank.py')
+  const routes = read('../backend/app/routes/bank.py')
   assert.match(routes, /medium=args\.get\('medium'\) or None/)
   assert.match(routes, /angle=args\.get\('angle'\) or None/)
   // …and the curation selectors read the SAME two keys, so a pick matches the

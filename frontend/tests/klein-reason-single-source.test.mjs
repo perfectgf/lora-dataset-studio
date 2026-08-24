@@ -19,11 +19,10 @@
  * quietly grows its own sentence again.
  */
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import { readSource } from './support/readSource.mjs'
 import test from 'node:test';
 
-const root = new URL('../src/', import.meta.url);
-const read = (p) => fs.readFileSync(new URL(p, root), 'utf8');
+const read = (rel) => readSource(`src/${rel}`)
 
 const SURFACES = [
   ['bank/BankWatermarkPanel.jsx', 'the bank cleaner\'s Level-3 engine toggle'],
