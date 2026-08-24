@@ -11,6 +11,7 @@ licence metadata are verified; only then may completion destroy it. The local
 training path is untouched: a cloud run never sets 'training_in_progress', so
 local generation/captioning stay available."""
 import json
+from ..utils.timestamps import naive_utcnow
 import logging
 import os
 import re
@@ -1108,7 +1109,7 @@ def _verify_full_transformer_artifact(run, _api=None) -> str:
                 and Path(path).name.startswith(expected_prefix)):
             matching.append((path, _full_transformer_weight_proof(sibling)))
     valid = sorted((path, proof) for path, proof in matching if proof is not None)
-    checked_at = datetime.utcnow().isoformat()
+    checked_at = naive_utcnow().isoformat()
     # Which of them is "the model" is dense_weights' single rule, shared with
     # every lane that acts on this file. Sorting and taking the last one used to
     # land on `…_000002750.safetensors` (`.` sorts before `_`), i.e. a step
@@ -1147,7 +1148,7 @@ def _verify_full_transformer_artifact(run, _api=None) -> str:
                 'could not be reapplied and verified'),
             delivery_last_checked_at=checked_at)
         return 'verification_pending'
-    verified_at = datetime.utcnow().isoformat()
+    verified_at = naive_utcnow().isoformat()
     _persist_artifact_state(
         run, 'available', hf_weight_filename=weight_path,
         hf_artifact_proof=proof,
@@ -1560,7 +1561,7 @@ def _set(run, **fields):
     for attempt in range(_COMMIT_RETRIES):
         for k, v in fields.items():
             setattr(run, k, v)
-        run.updated_at = datetime.utcnow()
+        run.updated_at = naive_utcnow()
         try:
             db.session.commit()
             return
@@ -3001,7 +3002,7 @@ def _lct_arm_and_start(run, ds, user_id, dataset_id, steps, masked, fam,
         _start_monitor(run.id)
     except Exception as e:
         _set(run, status='error', error=f'launch failed: {e}',
-             finished_at=datetime.utcnow())
+             finished_at=naive_utcnow())
         raise
     return n_steps, params
 
@@ -3881,7 +3882,7 @@ def _idle_seconds(run, now=None) -> float:
     stop?" — and the WRONG one for "is the run getting anywhere?", which is
     what _silent_seconds answers: a monitor happily re-writing the same
     sentence every 10 s keeps this at zero forever. Do not merge the two."""
-    now = now or datetime.utcnow()
+    now = now or naive_utcnow()
     ref = run.updated_at or run.created_at or now
     return max(0.0, (now - ref).total_seconds())
 
@@ -4063,7 +4064,7 @@ def note_progress(run, now=None) -> datetime:
     last thing the previous process wrote is a much better estimate of "last
     seen alive" than the instant the new process happened to start — seeding
     with `now` would re-create the very reset this exists to remove."""
-    now = now or datetime.utcnow()
+    now = now or naive_utcnow()
     fp = _progress_fingerprint(run)
     prev = _read_progress_watch(run)
     if prev and prev[0] == fp:
@@ -4098,7 +4099,7 @@ def _silent_seconds(run, now=None) -> float:
     """How long the run has made no OBSERVABLE progress. Read-only: falls back
     to _idle_seconds when nothing has been recorded yet (a run younger than the
     first supervisor tick), so this is never worse than what it replaces."""
-    now = now or datetime.utcnow()
+    now = now or naive_utcnow()
     prev = _read_progress_watch(run)
     if not prev:
         return _idle_seconds(run, now)
@@ -4133,7 +4134,7 @@ def _force_stop(run, detail, error=None) -> dict:
     _clear_progress_watch(run.id)   # every path below closes the run
     if not iid:
         _set(run, status='stopped', phase_detail=detail,
-             error=error, finished_at=datetime.utcnow())
+             error=error, finished_at=naive_utcnow())
         return {'ok': True, 'run_id': run.id, 'mode': 'forced',
                 'message': detail, 'instance_id': None}
     gone = False
@@ -4148,7 +4149,7 @@ def _force_stop(run, detail, error=None) -> dict:
                        run.id, iid, failure)
     if gone:
         _set(run, status='stopped', phase_detail=detail,
-             error=error, finished_at=datetime.utcnow())
+             error=error, finished_at=naive_utcnow())
         logger.warning('forced stop of run %s: pod %s terminated (%s)',
                        run.id, iid, error or detail)
         return {'ok': True, 'run_id': run.id, 'mode': 'forced',
@@ -4156,7 +4157,7 @@ def _force_stop(run, detail, error=None) -> dict:
     message = (f'Could not terminate instance {iid} ({failure}). It may still '
                f'be running and billing — destroy it in the vast.ai console.')
     _set(run, status='error_pod_kept', phase_detail=detail[:500],
-         error=message, finished_at=datetime.utcnow())
+         error=message, finished_at=naive_utcnow())
     return {'ok': False, 'run_id': run.id, 'mode': 'failed',
             'error': message, 'instance_id': iid}
 
@@ -4176,7 +4177,7 @@ def _stop_one(run, ban_host=False) -> dict:
         # is the only one who knows. (Asked for by mr.arrow on Discord.)
         _blacklist_run_host(run, 'you asked not to rent this machine again')
     if not run.stop_requested_at:
-        _set(run, stop_requested_at=datetime.utcnow())
+        _set(run, stop_requested_at=naive_utcnow())
     if responsive:
         # Graceful: the monitor stops the remote job and rescues the latest
         # checkpoint before terminating. The stamped stop_requested_at arms the
@@ -4207,7 +4208,7 @@ def request_stop(run_id=None, ban_host=False) -> dict:
     (incident 2026-07-25). A stop now either terminates the pod or says it
     could not, naming the instance."""
     if run_id is not None:
-        run = CloudTrainingRun.query.get(int(run_id))
+        run = db.session.get(CloudTrainingRun, int(run_id))
         runs = [run] if run and run.status in ACTIVE_STATES else []
     else:
         runs = get_active_runs()
@@ -4245,7 +4246,7 @@ def supervise_active_runs() -> list:
     try:
         c = cfg.get('cloud') or {}
         max_seconds = int(c.get('max_runtime_minutes') or 480) * 60
-        now = datetime.utcnow()
+        now = naive_utcnow()
         for run in get_active_runs():
             try:
                 age = (now - (run.created_at or now)).total_seconds()
@@ -4462,7 +4463,7 @@ def reconcile_orphans(app) -> int:
             keep = {str(r.vast_instance_id) for r in get_active_runs() if r.vast_instance_id}
             c = cfg.get('cloud') or {}
             max_seconds = int(c.get('max_runtime_minutes') or 480) * 60
-            now = datetime.utcnow()
+            now = naive_utcnow()
             kept_by_instance = {
                 str(r.vast_instance_id): r
                 for r in CloudTrainingRun.query.filter_by(status='error_pod_kept').all()
@@ -4571,7 +4572,7 @@ def boot_recover(app):
                                 run.id, run.vast_instance_id)
                     _start_monitor_for_app(app, run.id)
                 else:
-                    _set(run, status='error', finished_at=datetime.utcnow(),
+                    _set(run, status='error', finished_at=naive_utcnow(),
                          error='app restarted before the pod was created')
             _recover_pending_auto_retries()
     except Exception:
@@ -4758,7 +4759,7 @@ def _finish(run, status, detail='', error=None, destroy=True):
             pod_gone = False
             logger.warning('terminate %s failed: %s', run.vast_instance_id, e)
     _set(run, status=status, phase_detail=detail, error=error,
-         finished_at=datetime.utcnow())
+         finished_at=naive_utcnow())
     _clear_progress_watch(run.id)
     return pod_gone
 
@@ -4882,7 +4883,7 @@ def _mark_verified_full_transformer_cleanup_complete(
             'termination confirmed'))
     _set(
         run, status='done', phase_detail=phase_detail, error=None,
-        finished_at=datetime.utcnow(), train_params=json.dumps(params))
+        finished_at=naive_utcnow(), train_params=json.dumps(params))
 
 
 def _destroy_dense_pod(run) -> bool:
@@ -4952,7 +4953,7 @@ def _finalize_verified_full_transformer(run, *, require_open=False) -> bool:
             'automatically; the pod may still be billing.'),
         # The first failure starts the bounded recovery window; retries must not
         # extend it indefinitely.
-        finished_at=run.finished_at or datetime.utcnow(),
+        finished_at=run.finished_at or naive_utcnow(),
         train_params=json.dumps(params))
     return False
 
@@ -5083,7 +5084,7 @@ def _harvest_dense_artifacts(run, remote, should_cancel=None) -> dict:
         local_weight_bytes=(master or {}).get('size_bytes'),
         local_fp8_filename=(fp8 or {}).get('name'),
         local_fp8_bytes=(fp8 or {}).get('size_bytes'),
-        local_verified_at=datetime.utcnow().isoformat(),
+        local_verified_at=naive_utcnow().isoformat(),
         local_artifact_detail=('Downloaded from the pod and verified '
                                '(byte count and safetensors header).'))
     out['ok'] = True
@@ -5164,7 +5165,7 @@ def _finalize_dense_local_delivery(run, *, require_open=False) -> bool:
             run, _run_param(run, 'artifact_status') or 'not_requested',
             artifact_cleanup_status='complete',
             artifact_cleanup_detail='vast.ai pod termination confirmed')
-        _set(run, status='done', error=None, finished_at=datetime.utcnow(),
+        _set(run, status='done', error=None, finished_at=naive_utcnow(),
              phase_detail=('Training complete — full model on this computer '
                            f'({_run_param(run, "local_weight_filename") or "verified"})')[:500],
              train_params=json.dumps(params))
@@ -5183,7 +5184,7 @@ def _finalize_dense_local_delivery(run, *, require_open=False) -> bool:
          error=(f'The full model is on this computer, but termination of '
                 f'instance {instance_id} was not confirmed. Cleanup will retry '
                 'automatically; the pod may still be billing.'),
-         finished_at=run.finished_at or datetime.utcnow(),
+         finished_at=run.finished_at or naive_utcnow(),
          train_params=json.dumps(params))
     return False
 
@@ -5319,7 +5320,7 @@ def _full_transformer_recovery_open(run, now=None) -> bool:
     """Whether a kept dense pod remains inside its bounded recovery window."""
     if not run.finished_at:
         return False
-    now = now or datetime.utcnow()
+    now = now or naive_utcnow()
     max_seconds = int((cfg.get('cloud.max_runtime_minutes') or 480)) * 60
     return (now - run.finished_at).total_seconds() <= max_seconds
 
@@ -5387,7 +5388,7 @@ def reconcile_full_transformer_deliveries(_api=None, now=None) -> list:
     the only path that marks done and destroys the pod.
     """
     acted = []
-    now = now or datetime.utcnow()
+    now = now or naive_utcnow()
     try:
         runs = CloudTrainingRun.query.filter_by(status='error_pod_kept').all()
         for run in runs:
@@ -5784,7 +5785,7 @@ def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
                 _set(run, status='error_pod_kept',
                      error='checkpoint download failed — pod kept, '
                            f'recover manually at {run.base_url}',
-                     finished_at=datetime.utcnow())
+                     finished_at=naive_utcnow())
                 return
             _download_intermediates(run, remote)
             _import_result(run)
@@ -5905,7 +5906,7 @@ def _monitor(app, run_id):
     is recoverable; only verified Hugging Face delivery permits destruction.
     """
     with app.app_context():
-        run = CloudTrainingRun.query.get(run_id)
+        run = db.session.get(CloudTrainingRun, run_id)
         if not run:
             _stop_events.pop(int(run_id), None)
             _monitor_threads.pop(int(run_id), None)
@@ -5916,7 +5917,7 @@ def _monitor(app, run_id):
         # The runtime cap must survive restarts: anchor it to the run's durable
         # created_at (backdate the local clock by the run's age), not to this
         # thread's start.
-        run_age = max(0.0, (datetime.utcnow() - (run.created_at or datetime.utcnow())).total_seconds())
+        run_age = max(0.0, (naive_utcnow() - (run.created_at or naive_utcnow())).total_seconds())
         cap_anchor = _now() - run_age
         # Whether we ENTER the monitor already owning a pod (app restarted while
         # it was still booting) — captured BEFORE _provision, which sets
@@ -6700,7 +6701,7 @@ def _mirror_one(run, run_dir, base, src_path):
 def _cost_estimate(run) -> float:
     if not run.price_per_hour:
         return 0.0
-    end = run.finished_at or datetime.utcnow()
+    end = run.finished_at or naive_utcnow()
     hours = max(0.0, (end - run.created_at).total_seconds() / 3600.0)
     return round(run.price_per_hour * hours, 2)
 
@@ -6709,7 +6710,7 @@ def month_spend_usd() -> float:
     """Total cost of the runs STARTED since the 1st of the current month
     (UTC). A run's cost = price_per_hour x (finished_at or now - created_at);
     runs that never got a priced pod (price_per_hour NULL) count for $0."""
-    now = datetime.utcnow()
+    now = naive_utcnow()
     month_start = datetime(now.year, now.month, 1)
     total = 0.0
     for r in (CloudTrainingRun.query
@@ -6726,7 +6727,7 @@ def _dataset_name(dataset_id):
     dataset_id. Best-effort: a since-deleted dataset yields None, never a crash."""
     try:
         from ..models import FaceDataset
-        ds = FaceDataset.query.get(dataset_id)
+        ds = db.session.get(FaceDataset, dataset_id)
         return ds.name if ds is not None else None
     except Exception:
         return None
@@ -6865,8 +6866,8 @@ def launch_view(run, *, now=None, cloud_cfg=None):
     active = _active_launch_step(run.status, run.phase_detail)
     order = [k for k, _ in _LAUNCH_STEPS]
     idx = order.index(active)
-    started = run.created_at or datetime.utcnow()
-    elapsed = ((now if now is not None else datetime.utcnow()) - started).total_seconds()
+    started = run.created_at or naive_utcnow()
+    elapsed = ((now if now is not None else naive_utcnow()) - started).total_seconds()
     raw_budget = c.get('boot_budget_minutes')
     return {
         'active_step': active,
@@ -7279,7 +7280,7 @@ def set_run_note(record_id, text):
     """Save the free-form Lab note on a run. False (no-op) if the record is gone."""
     from ..models import TrainingRunRecord
     from ..extensions import db
-    rec = TrainingRunRecord.query.get(record_id)
+    rec = db.session.get(TrainingRunRecord, record_id)
     if rec is None:
         return False
     rec.note = text or ''
@@ -7292,7 +7293,7 @@ def set_checkpoint_note(record_id, step, text):
     the owning run is gone."""
     from ..models import TrainingRunRecord, CheckpointNote
     from ..extensions import db
-    if TrainingRunRecord.query.get(record_id) is None:
+    if db.session.get(TrainingRunRecord, record_id) is None:
         return False
     row = CheckpointNote.query.filter_by(record_id=record_id, step=step).first()
     if row is None:
@@ -9233,7 +9234,7 @@ def delete_cloud_checkpoint(dataset_id, run_id, filename,
     Ownership is (id, table): the id alone stopped being a complete test the
     moment two dataset tables shared one integer space, and this one authorises
     a DELETE."""
-    run = CloudTrainingRun.query.get(int(run_id))
+    run = db.session.get(CloudTrainingRun, int(run_id))
     if not run or not crd.owns(run, dataset_id, dataset_table):
         raise ValueError('unknown cloud run')
     if run.status in ACTIVE_STATES:
@@ -9377,7 +9378,7 @@ def purge_run_staging(run_id) -> dict:
     sparing rule as the global purge (staging_spare_reason), so the two can't
     disagree; the DB row stays (history). Raises ValueError on an unknown or
     spared run — the caller turns it into a 400 with the reason."""
-    run = CloudTrainingRun.query.get(int(run_id))
+    run = db.session.get(CloudTrainingRun, int(run_id))
     if not run:
         raise ValueError('unknown cloud run')
     reason = staging_spare_reason(run)

@@ -10,6 +10,7 @@ Reported by the owner on a Krea 2 run: 12 saves on disk, 250…2750 numbered plu
 the unnumbered final, run declared 3000 steps, pill "3k" not resumable.
 """
 import datetime
+from app.utils.timestamps import naive_utcnow
 import os
 
 
@@ -52,7 +53,7 @@ def _seed(lt, svc, LOCAL_USER, tmp_path, numbered, target_steps, final=True):
         dataset_id=ds.id, family='krea', source='local',
         base_model='', variant='base', steps=target_steps, version=1,
         fingerprint='fp', manifest='[]',
-        created_at=datetime.datetime.utcnow() - datetime.timedelta(days=1)))
+        created_at=naive_utcnow() - datetime.timedelta(days=1)))
     db.session.commit()
     return ds, run_dir
 

@@ -14,6 +14,7 @@ holding a model that cost eight hours of GPU.
 Three states, three answers, and the LoRA lane must not move a millimetre.
 """
 import json
+from app.extensions import db
 
 
 
@@ -119,7 +120,7 @@ def test_removing_a_hub_only_full_model_run_is_refused(app, tmp_path):
         assert ct.delete_run_record(rec.id) == 'has_model'
         # and the record is still there
         from app.models import TrainingRunRecord
-        assert TrainingRunRecord.query.get(rec.id) is not None
+        assert db.session.get(TrainingRunRecord, rec.id) is not None
 
 
 def test_the_route_answers_409_with_a_sentence_naming_the_repository(app, client, tmp_path):

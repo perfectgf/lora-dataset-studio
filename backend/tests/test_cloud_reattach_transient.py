@@ -23,7 +23,9 @@ up (without a stop it cannot receive, and without banning a host that was
 training fine minutes ago).
 """
 import json
-from datetime import datetime, timedelta
+from app.extensions import db
+from app.utils.timestamps import naive_utcnow
+from datetime import timedelta
 
 from test_cloud_training_monitor import ct, FakeRemote, _launch    # noqa: F401
 
@@ -38,11 +40,11 @@ def _resumed_training_run(ct, app, run_id, *, age_minutes=180):
     """The row exactly as boot_recover finds it: pod owned, job started, the
     run alive for hours."""
     with app.app_context():
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         ct._set(run, vast_instance_id='777', remote_job_id='j-live',
                 status='training', base_url='http://1.2.3.4:40123',
                 auth_token='tok',
-                created_at=datetime.utcnow() - timedelta(minutes=age_minutes))
+                created_at=naive_utcnow() - timedelta(minutes=age_minutes))
 
 
 def test_a_vast_listing_gap_never_condemns_a_pod_that_answers(
@@ -64,7 +66,7 @@ def test_a_vast_listing_gap_never_condemns_a_pod_that_answers(
     monkeypatch.setattr(ct.vast_client, 'get_instance', with_a_gap)
     with app.app_context():
         ct._monitor(app, run_id)
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         assert run.status == 'done'
         # It never even needed the listing to come back: the pod's own answer
         # is the evidence, so the boot wait broke out on the first poll.
@@ -98,7 +100,7 @@ def test_a_pod_silent_for_two_polls_is_not_a_dead_pod(
     monkeypatch.setattr(ct.vast_client, 'get_instance', with_a_gap)
     with app.app_context():
         ct._monitor(app, run_id)
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         assert run.status == 'done'
         assert probes['n'] == 3                 # it kept asking, then got in
 
@@ -187,12 +189,12 @@ def test_a_resume_whose_job_never_started_keeps_the_durable_boot_anchor(
     ds_id, run_id = _launch(ct, app, client, monkeypatch, remote, destroyed)
     monkeypatch.setattr(ct, '_now', lambda: 0.0)
     with app.app_context():
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         ct._set(run, vast_instance_id='777', staging_dir='/tmp/x',
                 base_url='http://1.2.3.4:40123',        # never any remote_job_id
-                created_at=datetime.utcnow() - timedelta(minutes=30))
+                created_at=naive_utcnow() - timedelta(minutes=30))
         ct._monitor(app, run_id)
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         assert run.status == 'error'
         assert 'become ready' in (run.error or '').lower()
         assert destroyed == ['777']

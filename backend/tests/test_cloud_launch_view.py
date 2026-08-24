@@ -9,7 +9,8 @@ and clocked.
 
 Everything here is offline: no pod, no vast API, no thread.
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
+from app.utils.timestamps import naive_utcnow
 
 import pytest
 
@@ -24,7 +25,7 @@ def ct(app, monkeypatch):
 
 def _mkrun(ct, **kw):
     fields = dict(dataset_id=1, status='preparing', job_name='j1',
-                  created_at=datetime.utcnow())
+                  created_at=naive_utcnow())
     fields.update(kw)
     run = ct.CloudTrainingRun(**fields)
     ct.db.session.add(run)
@@ -85,7 +86,7 @@ def test_elapsed_is_counted_from_the_click_not_from_the_last_write(ct):
     # updated_at is re-stamped on every monitor poll; only created_at answers
     # "how long have I been waiting since I pressed the button?".
     run = _mkrun(ct, status='provisioning',
-                 created_at=datetime.utcnow() - timedelta(minutes=7, seconds=30))
+                 created_at=naive_utcnow() - timedelta(minutes=7, seconds=30))
     assert 440 <= ct.launch_view(run)['elapsed_seconds'] <= 460
 
 

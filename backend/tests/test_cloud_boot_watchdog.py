@@ -12,6 +12,7 @@ absolute ceiling evaluated BEFORE the rearm, and a failure message that says
 what was MEASURED.
 """
 import pytest
+from app.extensions import db
 
 from test_cloud_training_monitor import ct, FakeRemote, _launch    # noqa: F401
 
@@ -81,7 +82,7 @@ def test_a_pod_whose_boot_advances_is_never_killed_at_the_deadline(
         # The ceiling has its own test below; this one is about the rearm.
         ct.cfg.save_config({'cloud': {'boot_budget_minutes': 0}})
         ct._monitor(app, run_id)
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         assert 'become ready' not in (run.error or '').lower()
         assert remote.job_config is not None       # boot finished, job submitted
         assert ct._load_bad_hosts() == {}          # and nobody got exiled
@@ -108,7 +109,7 @@ def test_a_pod_that_shows_nothing_still_dies_on_the_idle_budget(
     _coarse_clock(ct, monkeypatch)
     with app.app_context():
         ct._monitor(app, run_id)
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         assert run.status == 'error'
         assert 'become ready' in (run.error or '').lower()
         assert destroyed == ['777']
@@ -144,7 +145,7 @@ def test_the_boot_budget_caps_a_pod_that_would_never_finish(
     clock = _coarse_clock(ct, monkeypatch)
     with app.app_context():
         ct._monitor(app, run_id)
-        run = ct.CloudTrainingRun.query.get(run_id)
+        run = db.session.get(ct.CloudTrainingRun, run_id)
         assert run.status == 'error'
         assert 'still booting after 90 min' in (run.error or '')
         assert destroyed == ['777']

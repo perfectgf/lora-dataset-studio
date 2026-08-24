@@ -21,6 +21,7 @@ No torch, no PyAV, no ffmpeg: the detector is a seam, and the probabilities are
 synthetic vectors.
 """
 import pytest
+from app.extensions import db
 
 from app.config import LOCAL_USER
 from app.models import VideoClip, VideoDataset, VideoSource
@@ -104,7 +105,7 @@ def test_detection_persists_the_probabilities_it_measured(app, bank):
         cached = shot_probs.load_probs(bank_id, source_id)
         assert cached is not None
         assert len(cached['single']) == 100
-        assert VideoSource.query.get(source_id).probs_state == 'ok'
+        assert db.session.get(VideoSource, source_id).probs_state == 'ok'
 
 
 def test_a_source_with_no_cache_says_so_rather_than_pretending(app, bank,
@@ -198,7 +199,7 @@ def test_a_recut_spares_a_promoted_clip(app, bank):
 
         svc.recut_source(LOCAL_USER, bank_id, source_id, threshold=0.8)
 
-        assert VideoClip.query.get(kept.id) is not None
+        assert db.session.get(VideoClip, kept.id) is not None
 
 
 def test_a_bank_wide_recut_spares_hand_made_cuts(app, bank):
@@ -211,7 +212,7 @@ def test_a_bank_wide_recut_spares_hand_made_cuts(app, bank):
 
         svc.recut_bank(LOCAL_USER, bank_id, threshold=0.8)
 
-        survivor = VideoClip.query.get(hand.id)
+        survivor = db.session.get(VideoClip, hand.id)
         assert survivor is not None and survivor.detector == 'manual'
 
 
@@ -436,7 +437,7 @@ def test_a_source_file_that_changed_on_disk_is_decoded_again(app, bank,
     file's boundaries and report a clean run."""
     with app.app_context():
         bank_id, source_id = bank
-        source = VideoSource.query.get(source_id)
+        source = db.session.get(VideoSource, source_id)
         source.file_size = (source.file_size or 32) + 1024   # as if re-exported
         svc.db.session.commit()
         seen = []
@@ -477,7 +478,7 @@ def test_a_cached_re_detection_still_spares_hand_made_cuts(app, bank):
 
         svc.start_detect(app, LOCAL_USER, bank_id, redetect=True)
 
-        assert VideoClip.query.get(hand.id) is not None
+        assert db.session.get(VideoClip, hand.id) is not None
 
 
 def test_an_explicit_re_detection_of_that_one_file_undoes_it(app, bank):
@@ -497,7 +498,7 @@ def test_an_explicit_re_detection_of_that_one_file_undoes_it(app, bank):
 def test_single_shot_needs_a_probed_duration_and_says_so(app, bank):
     with app.app_context():
         bank_id, source_id = bank
-        source = VideoSource.query.get(source_id)
+        source = db.session.get(VideoSource, source_id)
         source.duration_s = None
         svc.db.session.commit()
 
@@ -513,7 +514,7 @@ def test_single_shot_spares_a_promoted_clip_like_everything_else(app, bank):
 
         svc.mark_single_shot(LOCAL_USER, bank_id, source_id)
 
-        assert VideoClip.query.get(kept.id) is not None
+        assert db.session.get(VideoClip, kept.id) is not None
 
 
 # --- what the payload carries ---------------------------------------------------

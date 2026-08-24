@@ -26,6 +26,7 @@ on MiniMax H3 — which saves ONE file per step, verified against ai-toolkit's o
 writes a single safetensors) — would pass against every one of those bugs.
 """
 import json
+from app.extensions import db
 import os
 
 import pytest
@@ -435,7 +436,7 @@ def test_the_parent_run_id_is_stamped_on_the_child_row(app, tmp_path, monkeypatc
             'local', vid.id, steps=300, parent_run_id=41,
             _provision=lambda run: None)
         from app.models import CloudTrainingRun
-        child = CloudTrainingRun.query.get(out['run_id'])
+        child = db.session.get(CloudTrainingRun, out['run_id'])
         assert json.loads(child.train_params)['parent_run_id'] == 41
 
 

@@ -21,6 +21,7 @@ from sqlalchemy import and_, or_
 
 from ..extensions import db
 from ..models import FaceDatasetImage, TrainingRunRecord
+from ..utils.timestamps import naive_utcfromtimestamp
 from . import face_dataset_service as fds
 from . import run_archive, run_snapshot
 
@@ -424,7 +425,6 @@ def record_for_mtime(dataset_id, family, mtime_ts, *, base_model=_ANY,
     newest (live sighting: yesterday's local checkpoints wore a ☁ chip
     because a cloud launch happened to be the latest record). None when
     nothing is registered."""
-    from datetime import datetime
     query = TrainingRunRecord.query.filter_by(
         dataset_id=dataset_id, family=family)
     # A local lane is scoped by base + variant + source. Without these filters,
@@ -462,7 +462,7 @@ def record_for_mtime(dataset_id, family, mtime_ts, *, base_model=_ANY,
     if not recs:
         return None
     try:
-        ts = datetime.utcfromtimestamp(float(mtime_ts))
+        ts = naive_utcfromtimestamp(float(mtime_ts))
         for r in recs:
             if r.created_at and r.created_at <= ts:
                 return r

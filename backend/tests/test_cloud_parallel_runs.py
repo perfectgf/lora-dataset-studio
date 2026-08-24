@@ -3,6 +3,7 @@ CONFIRMABLE refusal (PARALLEL_RUN: marker + allow_parallel_run), while the
 fleet ceiling and the monthly budget stay hard blocks. vast_client and the
 monitor thread are always mocked -- no network."""
 import json
+from app.extensions import db
 
 import pytest
 
@@ -303,7 +304,7 @@ def test_continue_cloud_run_forwards_allow_parallel_run(ct, app, seeded_dataset,
     ct.cfg.save_config({'cloud': {'max_concurrent_runs': 2}})
     with app.app_context():
         first = ct.launch_cloud_training('local', seeded_dataset)
-        run = ct.CloudTrainingRun.query.get(first['run_id'])
+        run = db.session.get(ct.CloudTrainingRun, first['run_id'])
         run.status = 'done'
         ct.db.session.commit()
         monkeypatch.setattr(ct, '_run_staging_checkpoints', lambda r: [
@@ -392,7 +393,7 @@ def test_auto_retry_of_a_run_with_a_live_confirmed_sibling_still_launches(
     with app.app_context():
         first = ct.launch_cloud_training('local', seeded_dataset)
         ct.launch_cloud_training('local', seeded_dataset, allow_parallel_run=True)
-        run_a = ct.CloudTrainingRun.query.get(first['run_id'])
+        run_a = db.session.get(ct.CloudTrainingRun, first['run_id'])
         params = json.loads(run_a.train_params)
         assert params['allow_parallel_run'] is False   # A never confirmed
         run_a.status = 'error'
@@ -405,7 +406,7 @@ def test_auto_retry_of_a_run_with_a_live_confirmed_sibling_still_launches(
         assert result is not None
         assert not str(run_a.error or '').startswith(
             "PARALLEL_RUN") and 'PARALLEL_RUN' not in str(run_a.error or '')
-        child = ct.CloudTrainingRun.query.get(result['run_id'])
+        child = db.session.get(ct.CloudTrainingRun, result['run_id'])
         assert child is not None and child.id != run_a.id
         child_params = json.loads(child.train_params)
         assert child_params['allow_parallel_run'] is True

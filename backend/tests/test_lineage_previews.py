@@ -73,7 +73,7 @@ def test_final_stepless_deploy_is_joined_to_its_own_run(client, monkeypatch, app
                             lambda rec, crun: [{'step': 2000, 'filename': 'a', 'present': True},
                                                {'step': 3500, 'filename': 'b', 'present': True,
                                                 'final': True}])
-        node = ct._lineage_node(TrainingRunRecord.query.get(rid), None, rid, None)
+        node = ct._lineage_node(db.session.get(TrainingRunRecord, rid), None, rid, None)
         by_step = {c['step']: c for c in node['checkpoints']}
         assert by_step[2000]['testable'] is True
         assert by_step[3500]['testable'] is True   # the bug: used to be False
@@ -92,7 +92,7 @@ def test_final_stepless_deploy_is_joined_to_its_own_run(client, monkeypatch, app
         # step 2500 of one run turned every run's 2500 green, and that run's
         # Undeploy would have deleted a file it does not own. Both are withheld
         # now, for the same reason: the tag names rid.
-        other_node = ct._lineage_node(TrainingRunRecord.query.get(oid), None, oid, None)
+        other_node = ct._lineage_node(db.session.get(TrainingRunRecord, oid), None, oid, None)
         assert {c['step']: c['testable']
                 for c in other_node['checkpoints']} == {2000: False, 3500: False}
 
@@ -112,7 +112,7 @@ def test_untagged_stepless_deploy_marks_nothing(client, monkeypatch, app):
         monkeypatch.setattr(ct, '_node_checkpoints',
                             lambda rec, crun: [{'step': 1000, 'filename': 'b',
                                                 'present': True, 'final': True}])
-        node = ct._lineage_node(TrainingRunRecord.query.get(rid), None, rid, None)
+        node = ct._lineage_node(db.session.get(TrainingRunRecord, rid), None, rid, None)
     assert node['checkpoints'][0]['testable'] is False
 
 
@@ -160,8 +160,8 @@ def test_cloud_stepless_deploy_joins_by_pod_run_id(client, monkeypatch, app):
         monkeypatch.setattr(ct, '_node_checkpoints',
                             lambda rec, crun: [{'step': 3500, 'filename': 'b',
                                                 'present': True, 'final': True}])
-        node = ct._lineage_node(TrainingRunRecord.query.get(rid),
-                                CloudTrainingRun.query.get(cid), rid, None)
+        node = ct._lineage_node(db.session.get(TrainingRunRecord, rid),
+                                db.session.get(CloudTrainingRun, cid), rid, None)
     assert node['checkpoints'][0]['testable'] is True
 
 
@@ -259,7 +259,7 @@ def test_lineage_node_pills_gain_testable_and_preview(client, monkeypatch, app):
         monkeypatch.setattr(ct, '_node_checkpoints',
                             lambda rec, crun: [{'step': 500, 'filename': 'a', 'present': True},
                                                {'step': 1000, 'filename': 'b', 'present': True}])
-        node = ct._lineage_node(TrainingRunRecord.query.get(rid), None, rid, None)
+        node = ct._lineage_node(db.session.get(TrainingRunRecord, rid), None, rid, None)
     by_step = {c['step']: c for c in node['checkpoints']}
     assert by_step[500]['testable'] is True and by_step[1000]['testable'] is False
     assert by_step[500]['preview_url'] == f'/api/dataset/{ds}/img/p.png'

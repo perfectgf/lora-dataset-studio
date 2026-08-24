@@ -478,7 +478,7 @@ def run_ai_check(bank_id, rescan=False, *, on_clip=None, should_stop=None):
     come back.
     """
     out = {'measured': 0, 'too_short': 0, 'unreadable': 0, 'error': None}
-    bank = VideoBank.query.get(bank_id)
+    bank = db.session.get(VideoBank, bank_id)
     if bank is None:
         return out
     rows = pending_clips(bank_id, rescan)

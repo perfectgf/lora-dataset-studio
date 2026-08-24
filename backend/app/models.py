@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timedelta
+from .utils.timestamps import naive_utcnow
+from datetime import timedelta
 from .extensions import db
 from sqlalchemy import Integer, String, Text, DateTime, Float
 
@@ -785,11 +786,11 @@ class JobQueueMixin:
             self.comfyui_prompt_id = comfyui_prompt_id
 
         if new_status == 'processing':
-            self.started_at = datetime.utcnow()
+            self.started_at = naive_utcnow()
         elif new_status in ('completed', 'failed', 'cancelled'):
-            self.completed_at = datetime.utcnow()
+            self.completed_at = naive_utcnow()
 
-        self.last_heartbeat = datetime.utcnow()
+        self.last_heartbeat = naive_utcnow()
 
     def is_stuck(self, timeout_minutes=10):
         """True if the job is in-progress but heartbeat is missing/stale."""
@@ -797,7 +798,7 @@ class JobQueueMixin:
             return False
         if not self.last_heartbeat:
             return True
-        return datetime.utcnow() - self.last_heartbeat > timedelta(minutes=timeout_minutes)
+        return naive_utcnow() - self.last_heartbeat > timedelta(minutes=timeout_minutes)
 
 
 class ImageGenerationQueue(JobQueueMixin, db.Model):
@@ -888,7 +889,7 @@ class SystemState(db.Model):
     __tablename__ = 'system_state'
     key = db.Column(db.String(64), primary_key=True)
     value = db.Column(db.Text)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow, onupdate=naive_utcnow)
 
 
 class CloudTrainingRun(db.Model):
@@ -920,8 +921,8 @@ class CloudTrainingRun(db.Model):
     checkpoint_local_path = db.Column(db.Text)
     train_params = db.Column(db.Text)             # JSON: steps/variant/train_type/masked
     error = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow, onupdate=naive_utcnow)
     # When the user asked this run to stop. Durable on purpose: an in-memory
     # threading.Event does not survive a restart and cannot be enforced by
     # anything but the monitor thread — which is exactly what may be dead.
@@ -980,7 +981,7 @@ class TrainingRunRecord(db.Model):
     # Kept distinct so a reconstructed edge stays auditable and reversible.
     lineage_origin = db.Column(db.String(16))
     note = db.Column(db.Text)                                # free-form run note (Lab)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
 
 
 class CheckpointNote(db.Model):
@@ -1026,7 +1027,7 @@ class CheckpointPreview(db.Model):
     lora_test_image_id = db.Column(db.Integer, nullable=True)
     prompt = db.Column(db.Text, nullable=False, default='')
     seed = db.Column(db.BigInteger, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
     # No UniqueConstraint on (record_id, step) — see the class docstring. The
     # composite index replaces it: the reads are all "every preview of this
     # checkpoint", which is exactly what the old unique index used to serve.
@@ -1053,7 +1054,7 @@ class TrainingPreset(db.Model):
     dataset_kind = db.Column(db.String(16), nullable=True)
     variants = db.Column(db.Text, nullable=True)
     settings = db.Column(db.Text, nullable=False, default='{}')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
 
 
 class CanvasNodePosition(db.Model):
@@ -1091,8 +1092,8 @@ class CanvasNodePosition(db.Model):
     record_id = db.Column(db.Integer, nullable=False, index=True)
     x = db.Column(Float, nullable=False, default=0.0)
     y = db.Column(Float, nullable=False, default=0.0)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
-                           onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow,
+                           onupdate=naive_utcnow)
     dataset = db.relationship('FaceDataset')
     __table_args__ = (db.UniqueConstraint('dataset_id', 'record_id',
                                           name='uq_canvas_node_position'),)
@@ -1170,8 +1171,8 @@ class CanvasImageNode(db.Model):
     # predates them reads NULL everywhere and draws the board it always drew.
     group_id = db.Column(db.String(40), nullable=True)
     group_pos = db.Column(db.Integer, nullable=True)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
-                           onupdate=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow,
+                           onupdate=naive_utcnow)
     dataset = db.relationship('FaceDataset')
     __table_args__ = (db.UniqueConstraint('dataset_id', 'image_id',
                                           name='uq_canvas_image_node'),)
@@ -1211,9 +1212,9 @@ class CanvasLayoutPreset(db.Model):
     user_id = db.Column(String(36), nullable=False, index=True, default='local')
     name = db.Column(db.String(80), nullable=False)
     payload = db.Column(db.Text, nullable=False, default='{}')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow,
-                           onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow,
+                           onupdate=naive_utcnow)
     __table_args__ = (db.UniqueConstraint('user_id', 'name',
                                           name='uq_canvas_layout_preset'),)
 

@@ -17,6 +17,6 @@ def test_run_and_checkpoint_notes_roundtrip(client, app):
                       json={'note': 'best face'}).status_code == 200
     with app.app_context():
         assert ct.set_run_note(9_999_999, 'x') is False           # missing record
-        node = ct._lineage_node(TrainingRunRecord.query.get(rid), None, rid, None)
+        node = ct._lineage_node(db.session.get(TrainingRunRecord, rid), None, rid, None)
         assert node['has_note'] is True
         assert ct.checkpoint_notes_for(rid) == {1500: 'best face'}

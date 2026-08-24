@@ -24,6 +24,7 @@ nothing to look up.
 The values are stored in user databases. Per the repo's rule on stored
 identifiers, renaming either one later needs an alias path.
 """
+from ..extensions import db
 
 FACE = 'face_dataset'
 VIDEO = 'video_dataset'
@@ -76,7 +77,7 @@ def dataset_row(run):
     from ..models import FaceDataset, VideoDataset
     model = VideoDataset if is_video(run) else FaceDataset
     try:
-        return model.query.get(int(run.dataset_id))
+        return db.session.get(model, int(run.dataset_id))
     except Exception:
         return None
 

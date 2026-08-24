@@ -7,6 +7,7 @@ No login - single local user (`cfg.LOCAL_USER`). Every route except
 ai-toolkit isn't configured, so it degrades to `{'available': False}` instead.
 """
 import os
+from ..extensions import db
 import re
 import time
 from datetime import datetime
@@ -1867,7 +1868,7 @@ def dataset_train_import(dataset_id):
     if body.get('cloud_run_id'):
         from ..models import CloudTrainingRun
         from ..services import cloud_run_dataset as crd
-        crun = CloudTrainingRun.query.get(int(body['cloud_run_id']))
+        crun = db.session.get(CloudTrainingRun, int(body['cloud_run_id']))
         # (id, table), not id alone: this route is reached from a FACE dataset,
         # and a video run of the same id would otherwise pass the check and get
         # deployed into this dataset's ComfyUI folder.
@@ -2850,7 +2851,7 @@ def dataset_train_cloud_checkpoint(dataset_id):
     if rid is not None:
         from ..models import CloudTrainingRun
         from ..services import cloud_run_dataset as crd
-        run = CloudTrainingRun.query.get(rid)
+        run = db.session.get(CloudTrainingRun, rid)
         # Same (id, table) ownership test: this endpoint SERVES the run's
         # checkpoint file, so an id-only match would hand a face dataset's caller
         # the weights of a video run that shares its id.

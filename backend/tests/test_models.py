@@ -33,7 +33,7 @@ def test_system_state_upsert(app):
     from app.models import SystemState
     with app.app_context():
         db.session.merge(SystemState(key='k', value='"v"')); db.session.commit()
-        assert SystemState.query.get('k').value == '"v"'
+        assert db.session.get(SystemState, 'k').value == '"v"'
 
 def test_image_generation_queue_to_dict_with_metadata(app):
     """Regression test: to_dict() and to_status_dict() require module-level json import."""

@@ -23,6 +23,7 @@ No request ever leaves this process: ``_http_get`` is the single seam and every
 test replaces it.
 """
 import pytest
+from app.extensions import db
 
 from app.services import hub_presence as hp
 
@@ -286,7 +287,7 @@ def test_the_endpoint_never_rewrites_the_delivery_record(app, client, monkeypatc
                        json={'run_ids': [run_id]}).status_code == 200
     with app.app_context():
         from app.models import CloudTrainingRun
-        run = CloudTrainingRun.query.get(run_id)
+        run = db.session.get(CloudTrainingRun, run_id)
         assert ct._run_param(run, 'artifact_status') == 'available'
 
 

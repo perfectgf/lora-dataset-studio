@@ -8,7 +8,8 @@ set an in-process threading.Event that nobody was listening to any more.
 Everything here is offline: vast_client is fully stubbed, no thread is
 started, no dollar is spent.
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
+from app.utils.timestamps import naive_utcnow
 
 import pytest
 
@@ -54,7 +55,7 @@ def test_stop_without_a_live_monitor_destroys_the_pod(ct, app, monkeypatch):
     thread is alive to observe the stop event, the user clicks Stop. The pod
     must be terminated for real and the run closed — never a complacent ok."""
     with app.app_context():
-        stale = datetime.utcnow() - timedelta(hours=2)
+        stale = naive_utcnow() - timedelta(hours=2)
         run = _mkrun(ct, updated_at=stale,
                      phase_detail='running: Generating images - 3/8')
         destroyed = _stub_destroy(ct, monkeypatch)
@@ -74,7 +75,7 @@ def test_stop_reports_failure_naming_the_instance(ct, app, monkeypatch):
     to destroy by hand. The run is parked in error_pod_kept so boot/launch
     reconciliation reaps the pod later instead of forgetting it."""
     with app.app_context():
-        run = _mkrun(ct, updated_at=datetime.utcnow() - timedelta(hours=2))
+        run = _mkrun(ct, updated_at=naive_utcnow() - timedelta(hours=2))
         _stub_destroy(ct, monkeypatch, ok=RuntimeError('vast 500'))
 
         res = ct.request_stop(run.id)
@@ -89,7 +90,7 @@ def test_stop_reports_failure_naming_the_instance(ct, app, monkeypatch):
 def test_stop_returns_false_when_destroy_returns_false(ct, app, monkeypatch):
     """destroy_instance answering False (not raising) is a failure too."""
     with app.app_context():
-        run = _mkrun(ct, updated_at=datetime.utcnow() - timedelta(hours=2))
+        run = _mkrun(ct, updated_at=naive_utcnow() - timedelta(hours=2))
         _stub_destroy(ct, monkeypatch, ok=False)
         res = ct.request_stop(run.id)
         assert res['ok'] is False and '90001' in res['error']
@@ -99,7 +100,7 @@ def test_stop_hands_over_to_a_responsive_monitor(ct, app, monkeypatch):
     """A monitor that is alive AND writing keeps its graceful path: it stops
     the remote job and rescues the last checkpoint before terminating."""
     with app.app_context():
-        run = _mkrun(ct, updated_at=datetime.utcnow())
+        run = _mkrun(ct, updated_at=naive_utcnow())
         destroyed = _stub_destroy(ct, monkeypatch)
         ct._monitor_threads[run.id] = _FakeThread(alive=True)
 
@@ -149,7 +150,7 @@ def test_supervisor_cuts_a_frozen_training_run(ct, app, monkeypatch):
     without asking the (possibly dead) monitor thread."""
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 45}})
-        run = _mkrun(ct, updated_at=datetime.utcnow() - timedelta(minutes=50))
+        run = _mkrun(ct, updated_at=naive_utcnow() - timedelta(minutes=50))
         destroyed = _stub_destroy(ct, monkeypatch)
 
         acted = ct.supervise_active_runs()
@@ -174,7 +175,7 @@ def test_supervisor_spares_a_legitimately_slow_phase(ct, app, monkeypatch):
         destroyed = _stub_destroy(ct, monkeypatch)
         for status in ('preparing', 'provisioning', 'downloading'):
             _mkrun(ct, status=status,
-                   updated_at=datetime.utcnow() - timedelta(minutes=90))
+                   updated_at=naive_utcnow() - timedelta(minutes=90))
         assert ct.supervise_active_runs() == []
         assert destroyed == []
 
@@ -203,7 +204,7 @@ def test_the_final_checkpoint_download_is_never_judged_frozen(ct, app,
         def slow_fetch(r, remote, ckpt, **kw):
             # 50 minutes into a big transfer over a slow pod proxy: legitimate,
             # and nothing has written to the row since it started.
-            r.updated_at = datetime.utcnow() - timedelta(minutes=50)
+            r.updated_at = naive_utcnow() - timedelta(minutes=50)
             ct.db.session.commit()
             seen['status'] = r.status
             seen['acted'] = ct.supervise_active_runs()
@@ -229,8 +230,8 @@ def test_a_stop_is_not_deadlined_while_the_checkpoint_is_being_rescued(
     the moment it goes quiet (see the next test)."""
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 45}})
-        _mkrun(ct, status='downloading', updated_at=datetime.utcnow(),
-               stop_requested_at=datetime.utcnow() - timedelta(minutes=40))
+        _mkrun(ct, status='downloading', updated_at=naive_utcnow(),
+               stop_requested_at=naive_utcnow() - timedelta(minutes=40))
         destroyed = _stub_destroy(ct, monkeypatch)
 
         assert ct.supervise_active_runs() == []
@@ -243,8 +244,8 @@ def test_a_download_that_goes_silent_is_still_deadlined(ct, app, monkeypatch):
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 45}})
         run = _mkrun(ct, status='downloading',
-                     updated_at=datetime.utcnow() - timedelta(minutes=10),
-                     stop_requested_at=datetime.utcnow() - timedelta(minutes=40))
+                     updated_at=naive_utcnow() - timedelta(minutes=10),
+                     stop_requested_at=naive_utcnow() - timedelta(minutes=40))
         destroyed = _stub_destroy(ct, monkeypatch)
 
         acted = ct.supervise_active_runs()
@@ -268,7 +269,7 @@ def test_a_long_transfer_keeps_beating_the_progress_clock(ct, app, monkeypatch,
         beats = []
 
         def fetch_with_progress(r, remote, ckpt, on_progress=None, **kw):
-            r.updated_at = datetime.utcnow() - timedelta(minutes=50)
+            r.updated_at = naive_utcnow() - timedelta(minutes=50)
             ct.db.session.commit()
             assert on_progress is not None, 'no progress callback was passed'
             silent_since = r.updated_at
@@ -290,7 +291,7 @@ def test_supervisor_spares_a_progressing_run(ct, app, monkeypatch):
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 45}})
         destroyed = _stub_destroy(ct, monkeypatch)
-        _mkrun(ct, updated_at=datetime.utcnow() - timedelta(minutes=5))
+        _mkrun(ct, updated_at=naive_utcnow() - timedelta(minutes=5))
         assert ct.supervise_active_runs() == []
         assert destroyed == []
 
@@ -299,7 +300,7 @@ def test_freeze_watchdog_can_be_turned_off(ct, app, monkeypatch):
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 0}})
         destroyed = _stub_destroy(ct, monkeypatch)
-        _mkrun(ct, updated_at=datetime.utcnow() - timedelta(hours=6))
+        _mkrun(ct, updated_at=naive_utcnow() - timedelta(hours=6))
         assert ct.supervise_active_runs() == []
         assert destroyed == []
 
@@ -310,8 +311,8 @@ def test_supervisor_enforces_the_runtime_cap(ct, app, monkeypatch):
     with app.app_context():
         ct.cfg.save_config({'cloud': {'max_runtime_minutes': 60,
                                       'freeze_watchdog_minutes': 0}})
-        run = _mkrun(ct, created_at=datetime.utcnow() - timedelta(minutes=200),
-                     updated_at=datetime.utcnow())
+        run = _mkrun(ct, created_at=naive_utcnow() - timedelta(minutes=200),
+                     updated_at=naive_utcnow())
         destroyed = _stub_destroy(ct, monkeypatch)
 
         acted = ct.supervise_active_runs()
@@ -327,8 +328,8 @@ def test_supervisor_enforces_the_stop_deadline(ct, app, monkeypatch):
     past the grace window the supervisor terminates the pod itself."""
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 0}})
-        run = _mkrun(ct, updated_at=datetime.utcnow(),
-                     stop_requested_at=datetime.utcnow() - timedelta(minutes=20))
+        run = _mkrun(ct, updated_at=naive_utcnow(),
+                     stop_requested_at=naive_utcnow() - timedelta(minutes=20))
         destroyed = _stub_destroy(ct, monkeypatch)
 
         acted = ct.supervise_active_runs()
@@ -344,7 +345,7 @@ def test_supervisor_never_raises(ct, app, monkeypatch):
     everything."""
     with app.app_context():
         ct.cfg.save_config({'cloud': {'freeze_watchdog_minutes': 45}})
-        _mkrun(ct, updated_at=datetime.utcnow() - timedelta(hours=3))
+        _mkrun(ct, updated_at=naive_utcnow() - timedelta(hours=3))
         monkeypatch.setattr(ct.vast_client, 'destroy_instance',
                             lambda iid: (_ for _ in ()).throw(RuntimeError('boom')))
         ct.supervise_active_runs()      # must not raise
@@ -352,7 +353,7 @@ def test_supervisor_never_raises(ct, app, monkeypatch):
 
 def test_run_payload_exposes_the_idle_clock(ct, app):
     with app.app_context():
-        run = _mkrun(ct, updated_at=datetime.utcnow() - timedelta(minutes=30))
+        run = _mkrun(ct, updated_at=naive_utcnow() - timedelta(minutes=30))
         payload = ct._run_payload(run)
         assert payload['idle_seconds'] >= 29 * 60
 
@@ -363,7 +364,7 @@ def test_stop_route_surfaces_the_failure(app, client, monkeypatch):
     from app.services import cloud_training as ct
     monkeypatch.setenv('VAST_API_KEY', 'k-test')
     with app.app_context():
-        run = _mkrun(ct, updated_at=datetime.utcnow() - timedelta(hours=2))
+        run = _mkrun(ct, updated_at=naive_utcnow() - timedelta(hours=2))
         run_id = run.id
         monkeypatch.setattr(ct.vast_client, 'destroy_instance',
                             lambda iid: False)
@@ -386,7 +387,7 @@ def test_stopping_can_ban_the_host_but_only_when_the_user_says_so(ct, app, monke
     """
     banned = []
     with app.app_context():
-        run = _mkrun(ct, updated_at=datetime.utcnow())
+        run = _mkrun(ct, updated_at=naive_utcnow())
         _stub_destroy(ct, monkeypatch)
         ct._monitor_threads[run.id] = _FakeThread(alive=True)
         monkeypatch.setattr(ct, '_blacklist_run_host',
@@ -396,7 +397,7 @@ def test_stopping_can_ban_the_host_but_only_when_the_user_says_so(ct, app, monke
         assert banned == [], 'a plain stop must never exile the machine'
 
     with app.app_context():
-        run2 = _mkrun(ct, updated_at=datetime.utcnow())
+        run2 = _mkrun(ct, updated_at=naive_utcnow())
         ct._monitor_threads[run2.id] = _FakeThread(alive=True)
         ct.request_stop(run2.id, ban_host=True)
         assert len(banned) == 1

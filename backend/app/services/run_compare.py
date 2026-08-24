@@ -32,6 +32,7 @@ Older run is always A. Comparing "v2 with v3" and "v3 with v2" must not produce
 opposite added/removed lists depending on which card was clicked first.
 """
 from __future__ import annotations
+from ..extensions import db
 
 import json
 import logging
@@ -127,8 +128,8 @@ def _cap(items):
 
 def compare(a_id, b_id) -> dict:
     """The full two-run comparison, or `{'error': ...}` when a record is gone."""
-    a = TrainingRunRecord.query.get(a_id)
-    b = TrainingRunRecord.query.get(b_id)
+    a = db.session.get(TrainingRunRecord, a_id)
+    b = db.session.get(TrainingRunRecord, b_id)
     if a is None or b is None:
         return {'error': 'run not found'}
     # Chronological, always: A is the older run, so "removed" means "gone by B".
@@ -225,7 +226,7 @@ def compare(a_id, b_id) -> dict:
 
 
 def _side(rec, snap) -> dict:
-    ds = FaceDataset.query.get(rec.dataset_id)
+    ds = db.session.get(FaceDataset, rec.dataset_id)
     out = {
         'record_id': rec.id,
         'version': rec.version,

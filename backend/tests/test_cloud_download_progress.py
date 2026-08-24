@@ -10,7 +10,9 @@
 
 Everything here is offline: no pod, no network, no thread.
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
+from app.extensions import db
+from app.utils.timestamps import naive_utcnow
 
 import pytest
 
@@ -183,8 +185,8 @@ def test_silence_is_measured_from_progress_not_from_updated_at(ct, app, tmp_path
     the writer."""
     with app.app_context():
         run = _mkrun(ct, tmp_path, log=RUN121_TAIL,
-                     updated_at=datetime.utcnow() - timedelta(hours=1))
-        started = datetime.utcnow() - timedelta(hours=1)
+                     updated_at=naive_utcnow() - timedelta(hours=1))
+        started = naive_utcnow() - timedelta(hours=1)
         ct.note_progress(run, started)                 # first observation
         # ... an hour of the monitor re-writing the same sentence ...
         ct._set(run, phase_detail='running:   - fetching transformer weights')
@@ -199,13 +201,13 @@ def test_a_restart_does_not_reset_the_silence_counter(ct, app, tmp_path):
     count as progress."""
     with app.app_context():
         run = _mkrun(ct, tmp_path, log=RUN121_TAIL,
-                     updated_at=datetime.utcnow() - timedelta(minutes=50))
-        ct.note_progress(run, datetime.utcnow() - timedelta(minutes=50))
+                     updated_at=naive_utcnow() - timedelta(minutes=50))
+        ct.note_progress(run, naive_utcnow() - timedelta(minutes=50))
 
         # --- simulated restart: the app re-adopts the run ------------------
         ct._set(run, phase_detail='Resuming — reattaching to running job')
         ct.db.session.expire_all()
-        readopted = ct.CloudTrainingRun.query.get(run.id)
+        readopted = db.session.get(ct.CloudTrainingRun, run.id)
         ct.note_progress(readopted)
 
         assert ct._silent_seconds(readopted) > 45 * 60
@@ -217,8 +219,8 @@ def test_real_progress_restarts_the_counter(ct, app, tmp_path):
     count: tqdm re-printing the same bar with a bumped elapsed does not."""
     with app.app_context():
         run = _mkrun(ct, tmp_path, log=RUN121_TAIL,
-                     updated_at=datetime.utcnow() - timedelta(minutes=50))
-        ct.note_progress(run, datetime.utcnow() - timedelta(minutes=50))
+                     updated_at=naive_utcnow() - timedelta(minutes=50))
+        ct.note_progress(run, naive_utcnow() - timedelta(minutes=50))
 
         same_text_new_elapsed = RUN121_TAIL + (
             'raw.safetensors:   7%|x| 1.95G/26.3G [40:02<2:37:06, 2.58MB/s]\n')
@@ -242,8 +244,8 @@ def test_the_freeze_watchdog_now_fires_across_a_restart(ct, app, tmp_path, monke
                         lambda iid: destroyed.append(str(iid)) or True)
     with app.app_context():
         run = _mkrun(ct, tmp_path, log=RUN121_TAIL,
-                     updated_at=datetime.utcnow() - timedelta(minutes=90))
-        ct.note_progress(run, datetime.utcnow() - timedelta(minutes=90))
+                     updated_at=naive_utcnow() - timedelta(minutes=90))
+        ct.note_progress(run, naive_utcnow() - timedelta(minutes=90))
         ct._set(run, phase_detail='Resuming — reattaching to running job')
 
         acted = ct.supervise_active_runs()
@@ -260,10 +262,10 @@ def test_a_run_with_no_recorded_clock_falls_back_to_updated_at(ct, app, tmp_path
     stored clock. They must be judged exactly as before, never as instantly
     frozen and never as eternally fresh."""
     with app.app_context():
-        fresh = _mkrun(ct, tmp_path, updated_at=datetime.utcnow())
+        fresh = _mkrun(ct, tmp_path, updated_at=naive_utcnow())
         assert ct._silent_seconds(fresh) < 5
         stale = _mkrun(ct, tmp_path, job_name='j5',
-                       updated_at=datetime.utcnow() - timedelta(hours=3))
+                       updated_at=naive_utcnow() - timedelta(hours=3))
         assert ct._silent_seconds(stale) > 2 * 3600
 
 
@@ -281,14 +283,14 @@ def test_monitor_responsiveness_still_reads_updated_at(ct, app, tmp_path):
             return True
 
     with app.app_context():
-        run = _mkrun(ct, tmp_path, log=RUN121_TAIL, updated_at=datetime.utcnow())
-        ct.note_progress(run, datetime.utcnow() - timedelta(hours=2))
+        run = _mkrun(ct, tmp_path, log=RUN121_TAIL, updated_at=naive_utcnow())
+        ct.note_progress(run, naive_utcnow() - timedelta(hours=2))
         ct._monitor_threads[int(run.id)] = _Alive()
         try:
             # silent for two hours, yet the monitor is writing -> graceful path
             assert ct._silent_seconds(run) > 2 * 3600
             assert ct._monitor_is_responsive(run) is True
-            run.updated_at = datetime.utcnow() - timedelta(minutes=10)
+            run.updated_at = naive_utcnow() - timedelta(minutes=10)
             ct.db.session.commit()
             assert ct._monitor_is_responsive(run) is False
         finally:
@@ -310,8 +312,8 @@ def test_two_frozen_files_are_not_mistaken_for_progress(ct, app, tmp_path):
             'vae.safetensors:      20%|x| 100M/500M [10:00<40:00, 170kB/s]\n'
         )
         run = _mkrun(ct, tmp_path, log=two_files,
-                     updated_at=datetime.utcnow() - timedelta(minutes=50))
-        ct.note_progress(run, datetime.utcnow() - timedelta(minutes=50))
+                     updated_at=naive_utcnow() - timedelta(minutes=50))
+        ct.note_progress(run, naive_utcnow() - timedelta(minutes=50))
 
         # Same two frozen files, the tail now ending on the OTHER bar and with
         # a bumped elapsed — the shape that used to read as progress.

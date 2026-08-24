@@ -22,6 +22,7 @@ What this file pins:
   the two can never drift apart).
 """
 import io
+from app.extensions import db
 import os
 import struct
 
@@ -91,7 +92,7 @@ def lanes(app, monkeypatch):
             if stored is not None:
                 svc.set_dataset_klein_model(LOCAL_USER, ds.id, stored)
             res = svc.improve_existing_image(LOCAL_USER, src.id)
-            candidate = FaceDatasetImage.query.get(res['candidate_id'])
+            candidate = db.session.get(FaceDatasetImage, res['candidate_id'])
             # A re-improve only runs on a FINISHED candidate.
             candidate.filename = 'improved.png'
             with open(os.path.join(svc._dataset_dir(ds.id), 'improved.png'), 'wb') as fh:

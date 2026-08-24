@@ -38,6 +38,7 @@ log to save into or hide from (`saved_to_gallery` isn't a column on our
 `LoraTestImage`).
 """
 from __future__ import annotations
+from ..utils.timestamps import naive_utcnow
 
 import itertools
 import json
@@ -48,7 +49,6 @@ import random
 import re
 import shutil
 import uuid
-from datetime import datetime
 
 from .. import config as cfg
 from ..extensions import db
@@ -428,7 +428,7 @@ def _filter_rows_by_family(rows, family, default='zimage'):
         if r_fam is None:
             dsid = getattr(r, 'dataset_id', None)
             if dsid not in known_by_ds:
-                ds = FaceDataset.query.get(dsid) if dsid else None
+                ds = db.session.get(FaceDataset, dsid) if dsid else None
                 known_by_ds[dsid] = _known_checkpoints(ds)
             if getattr(r, 'checkpoint', None) not in known_by_ds[dsid]:
                 out.append(r)
@@ -2304,7 +2304,7 @@ def stack_of_row(row) -> list | None:
     combined = _combined_lora_labels(row)
     if not combined:
         return None
-    ds = FaceDataset.query.get(row.dataset_id)
+    ds = db.session.get(FaceDataset, row.dataset_id)
     head = {'label': (format_trained_lora_label(row.checkpoint)
                       or _basename(row.checkpoint or '').rsplit('.', 1)[0]),
             'weight': row.strength, 'filename': row.checkpoint,
@@ -3852,7 +3852,7 @@ def checkpoint_model_breakdown(dataset_id, scores=None) -> list[dict]:
 
     `scores` partageable (cf. best_cell)."""
     scores = cell_scores(dataset_id) if scores is None else scores
-    known = _known_checkpoints(FaceDataset.query.get(dataset_id))
+    known = _known_checkpoints(db.session.get(FaceDataset, dataset_id))
     acc = {}
     for e in scores:
         key = (e['checkpoint'], e['z_model'])
@@ -3917,7 +3917,7 @@ def best_preset(dataset_id, scores=None) -> dict | None:
         **bc,
         'label': _checkpoint_display_label(bc['checkpoint'],
                                            _known_checkpoints(
-                                               FaceDataset.query.get(dataset_id))),
+                                               db.session.get(FaceDataset, dataset_id))),
         'prompt': getattr(img, 'prompt', None) if img else None,
         'seed': img.seed if img else None,
         'filename': img.filename if img else None,
@@ -3956,7 +3956,7 @@ def best_per_checkpoint(dataset_id, scores=None) -> list[dict]:
         out.append({**bc,
                     'label': _checkpoint_display_label(bc['checkpoint'],
                                                        _known_checkpoints(
-                                                           FaceDataset.query.get(dataset_id))),
+                                                           db.session.get(FaceDataset, dataset_id))),
                     'prompt': getattr(img, 'prompt', None) if img else None,
                     'seed': img.seed if img else None,
                     'filename': img.filename if img else None})
@@ -4091,7 +4091,7 @@ def set_best_settings(user_id, dataset_id, checkpoint, strength,
         'steps2': steps2,
         'aspect': aspect,
         'family': family,
-        'decided_at': datetime.utcnow().isoformat(),
+        'decided_at': naive_utcnow().isoformat(),
         # Absent (et non `[]`) quand ce n'est pas une pile : un réglage mono-LoRA
         # d'avant cette vue et un réglage mono-LoRA d'aujourd'hui restent identiques.
         **({'stack': stack_out} if stack_out else {}),
@@ -4186,7 +4186,7 @@ def face_ranking(dataset_id, family) -> list:
         a = agg.setdefault(r.checkpoint, [0.0, 0])
         a[0] += float(r.face_score)
         a[1] += 1
-    known = _known_checkpoints(FaceDataset.query.get(dataset_id), family)
+    known = _known_checkpoints(db.session.get(FaceDataset, dataset_id), family)
     out = [{'checkpoint': cp,
             'label': _checkpoint_display_label(cp, known),
             'avg': round(s / n, 4), 'n': n}
@@ -4398,7 +4398,7 @@ def lora_net_scores(run_id) -> list[dict]:
     for a in agg.values():
         a['net'] = a['likes'] - a['dislikes']
         a['wilson'] = _wilson_lower_bound(a['likes'], a['voted'])
-        ds = FaceDataset.query.get(a['dataset_id'])
+        ds = db.session.get(FaceDataset, a['dataset_id'])
         a['dataset_name'] = ds.name if ds else f"#{a['dataset_id']}"
     return sorted(agg.values(), key=lambda a: (a['net'], a['likes']), reverse=True)
 
@@ -4419,7 +4419,7 @@ def studio_payload_run(user_id, run_id) -> dict | None:
     def _lbl(d):
         return next((_basename(r.checkpoint).rsplit('.', 1)[0] for r in rows if r.dataset_id == d), str(d))
     def _name(d):
-        ds = FaceDataset.query.get(d); return ds.name if ds else str(d)
+        ds = db.session.get(FaceDataset, d); return ds.name if ds else str(d)
     return {
         'run_id': run_id,
         'loras': [{'dataset_id': d, 'lora_label': _lbl(d), 'dataset_name': _name(d)}

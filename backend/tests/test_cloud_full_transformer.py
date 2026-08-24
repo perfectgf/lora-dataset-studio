@@ -684,7 +684,7 @@ def test_late_hf_propagation_is_reconciled_and_releases_pod(
         run = ct.CloudTrainingRun(
             dataset_id=dataset_id, status='error_pod_kept',
             run_name='late', job_name='Krea_late',
-            vast_instance_id='pod-late', finished_at=ct.datetime.utcnow(),
+            vast_instance_id='pod-late', finished_at=ct.naive_utcnow(),
             train_params=json.dumps({
                 'training_mode': 'full_transformer',
                 'artifact_status': 'verification_pending',
@@ -737,7 +737,7 @@ def test_verified_delivery_stays_visible_and_retries_cleanup_until_confirmed(
             dataset_id=dataset_id, status='error_pod_kept',
             run_name='cleanup-retry', job_name='Krea_cleanup_retry',
             vast_instance_id='pod-cleanup-retry',
-            finished_at=ct.datetime.utcnow(),
+            finished_at=ct.naive_utcnow(),
             train_params=json.dumps({
                 'training_mode': 'full_transformer',
                 'artifact_kind': 'full_transformer',
@@ -812,7 +812,7 @@ def test_supervisor_periodically_reaps_expired_verified_cleanup_and_retries(
         run = ct.CloudTrainingRun(
             dataset_id=dataset_id, status='error_pod_kept',
             run_name='expired', job_name='Krea_expired',
-            vast_instance_id='pod-expired', finished_at=ct.datetime.utcnow(),
+            vast_instance_id='pod-expired', finished_at=ct.naive_utcnow(),
             train_params=json.dumps({
                 'training_mode': 'full_transformer',
                 'artifact_kind': 'full_transformer',
@@ -831,7 +831,7 @@ def test_supervisor_periodically_reaps_expired_verified_cleanup_and_retries(
 
     with app.app_context():
         run = ct.db.session.get(ct.CloudTrainingRun, run_id)
-        run.finished_at = ct.datetime.utcnow() - timedelta(minutes=481)
+        run.finished_at = ct.naive_utcnow() - timedelta(minutes=481)
         ct.db.session.commit()
 
     # First expired pass cannot confirm destruction, so the row stays
@@ -868,7 +868,7 @@ def test_reconcile_marks_legacy_verified_cleanup_done_when_listing_proves_absenc
             dataset_id=dataset_id, status='error_pod_kept',
             run_name='already-absent', job_name='Krea_already_absent',
             vast_instance_id='pod-already-absent',
-            finished_at=ct.datetime.utcnow(),
+            finished_at=ct.naive_utcnow(),
             train_params=json.dumps({
                 'training_mode': 'full_transformer',
                 'artifact_kind': 'full_transformer',
@@ -902,7 +902,7 @@ def test_reconcile_listing_failure_never_claims_verified_cleanup_complete(
             dataset_id=dataset_id, status='error_pod_kept',
             run_name='unknown-presence', job_name='Krea_unknown_presence',
             vast_instance_id='pod-unknown-presence',
-            finished_at=ct.datetime.utcnow(),
+            finished_at=ct.naive_utcnow(),
             train_params=json.dumps({
                 'training_mode': 'full_transformer',
                 'artifact_kind': 'full_transformer',

@@ -16,6 +16,7 @@ What matters here:
   preset (which REPLACES train_settings) can never wipe a slider setup.
 """
 import json
+from app.extensions import db
 
 import pytest
 
@@ -493,7 +494,7 @@ def test_cloud_launch_accepts_slider_and_snapshots_settings(app, monkeypatch):
         ds = _mk(app, n_keep=6)
         _enable_slider(ds)
         res = ct.launch_cloud_training(LOCAL_USER, ds.id)
-        run = ct.CloudTrainingRun.query.get(res['run_id'])
+        run = db.session.get(ct.CloudTrainingRun, res['run_id'])
         params = json.loads(run.train_params)
         snap = json.loads(params['train_slider_snapshot'])
         assert snap['enabled'] is True

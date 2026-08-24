@@ -95,7 +95,7 @@ def test_a_pinned_image_that_was_deleted_leaves_the_board_instead_of_a_ghost(cli
         {'image_id': img_id, 'x': 10, 'y': 10, 'w': 200, 'h': 200}]})
 
     with app.app_context():
-        db.session.delete(LoraTestImage.query.get(img_id))
+        db.session.delete(db.session.get(LoraTestImage, img_id))
         db.session.commit()
 
     body = client.get('/api/train/canvas/images').get_json()

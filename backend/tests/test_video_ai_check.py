@@ -23,6 +23,7 @@ user:
     only configuration anyone has measured.
 """
 import json
+from app.extensions import db
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -258,7 +259,7 @@ def _stub_model(monkeypatch, steps_for):
 def _metrics(app, clip_id):
     from app.models import VideoClip
     with app.app_context():
-        raw = VideoClip.query.get(clip_id).metrics_json
+        raw = db.session.get(VideoClip, clip_id).metrics_json
     return json.loads(raw) if raw else {}
 
 
@@ -345,7 +346,7 @@ def test_the_pass_merges_into_the_blob_and_never_erases_another_passs_verdict(ap
     from app.models import VideoClip
     bank_id, ids = _bank_with_clips(app, _long(1))
     with app.app_context():
-        clip = VideoClip.query.get(ids[0])
+        clip = db.session.get(VideoClip, ids[0])
         clip.metrics_json = json.dumps({'sharpness_p90': 312.5,
                                         'watermark_score': 0.98,
                                         ac.SCORE_KEY: 99.0,
@@ -369,7 +370,7 @@ def test_a_recheck_that_now_finds_a_shot_too_short_leaves_no_stale_score(app, mo
     from app.models import VideoClip
     bank_id, ids = _bank_with_clips(app, [(0.0, 1.0)])
     with app.app_context():
-        clip = VideoClip.query.get(ids[0])
+        clip = db.session.get(VideoClip, ids[0])
         clip.metrics_json = json.dumps({ac.STATE_KEY: 'ok', ac.SCORE_KEY: 1.23,
                                         ac.FRAMES_KEY: 16})
         db.session.commit()

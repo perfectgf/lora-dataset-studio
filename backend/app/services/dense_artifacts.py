@@ -42,6 +42,7 @@ with the delivery verifier and the quantizer, so this panel can never name a
 different file from the button underneath it.
 """
 from __future__ import annotations
+from ..extensions import db
 
 import logging
 import os
@@ -332,7 +333,7 @@ def _run_of(dataset_id, run_id):
     from ..models import CloudTrainingRun
     from . import cloud_training as ct
 
-    run = CloudTrainingRun.query.get(int(run_id))
+    run = db.session.get(CloudTrainingRun, int(run_id))
     if not run or run.dataset_id != int(dataset_id):
         raise DenseArtifactError('unknown cloud run')
     if not ct._is_full_transformer_run(run):

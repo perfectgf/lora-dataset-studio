@@ -6536,7 +6536,7 @@ def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
                 # overwritten — an import cannot silently rewrite curated work.
                 if stats is not None:
                     stats['duplicates'] = stats.get('duplicates', 0) + 1
-                row = FaceDatasetImage.query.get(match) if incoming else None
+                row = db.session.get(FaceDatasetImage, match) if incoming else None
                 if row is not None:
                     if (row.caption or '').strip():
                         if stats is not None:
@@ -6736,7 +6736,10 @@ def _dhash(im: Image.Image) -> int:
     au resize/re-encodage, donc stable entre un scrape original et sa version
     normalisée webp déjà importée."""
     g = im.convert('L').resize((9, 8), Image.LANCZOS)
-    px = list(g.getdata())
+    # tobytes(), not getdata(): identical values for mode 'L' (row-major,
+    # no padding) and getdata() is deprecated for removal in Pillow 14 -
+    # same swap video_safe_zone already carries.
+    px = g.tobytes()
     bits = 0
     for row in range(8):
         for col in range(8):

@@ -1,4 +1,5 @@
 import uuid
+from app.extensions import db
 
 import pytest
 
@@ -84,7 +85,7 @@ def _assert_still_stalled(app, cell_id, job_id, *, prompt_id=None):
     from app.models import ImageGenerationQueue, LoraTestImage
 
     with app.app_context():
-        cell = LoraTestImage.query.get(cell_id)
+        cell = db.session.get(LoraTestImage, cell_id)
         queue = ImageGenerationQueue.query.filter_by(job_id=job_id).one()
         assert cell.status == 'pending'
         assert cell.job_id == job_id
@@ -114,7 +115,7 @@ def test_unknown_submit_confirmation_cancels_exact_cell_barrier_and_job(app):
             LOCAL_USER, dataset_id=dataset_id, restart_confirmed=True) == 1
 
         queue = ImageGenerationQueue.query.filter_by(job_id=job_id).one()
-        cell = LoraTestImage.query.get(cell_id)
+        cell = db.session.get(LoraTestImage, cell_id)
         assert queue.status == 'cancelled'
         assert queue.comfyui_prompt_id is None
         assert cell.status == 'cancelled'
@@ -135,7 +136,7 @@ def test_dataset_stop_names_unknown_submit_and_confirm_route_recovers(
         'retry_pending': 0, 'restart_required': 1, 'recovery_error': 0,
     }
     with client.application.app_context():
-        assert FaceDatasetImage.query.get(card_id).job_id == job_id
+        assert db.session.get(FaceDatasetImage, card_id).job_id == job_id
         assert queue_manager.get_comfyui_stalled_barrier() is not None
 
     missing = client.post(
@@ -150,7 +151,7 @@ def test_dataset_stop_names_unknown_submit_and_confirm_route_recovers(
     assert recovered.status_code == 200
     assert recovered.get_json() == {'ok': True, 'cancelled': 1}
     with client.application.app_context():
-        assert FaceDatasetImage.query.get(card_id) is None
+        assert db.session.get(FaceDatasetImage, card_id) is None
         assert ImageGenerationQueue.query.filter_by(job_id=job_id).one().status == 'cancelled'
         assert queue_manager.get_comfyui_stalled_barrier() is None
 
@@ -237,7 +238,7 @@ def test_run_recovery_route_requires_confirmed_fresh_comfyui_and_clears_only_aft
     from app.models import ImageGenerationQueue, LoraTestImage
     with client.application.app_context():
         assert ImageGenerationQueue.query.filter_by(job_id=job_id).one().status == 'cancelled'
-        cell = LoraTestImage.query.get(cell_id)
+        cell = db.session.get(LoraTestImage, cell_id)
         assert cell.status == 'cancelled' and cell.job_id is None
         assert queue_manager.get_comfyui_stalled_barrier() is None
         assert dataset_id == cell.dataset_id

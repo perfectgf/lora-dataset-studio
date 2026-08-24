@@ -162,6 +162,14 @@ def app(tmp_path, monkeypatch):
     application = create_app({'TESTING': True, 'WTF_CSRF_ENABLED': False,
                               'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:'})
     yield application
+    # Hand every pooled sqlite connection back. Without this each test
+    # leaked its in-memory engine, and the suite drowned in ~27 900
+    # ResourceWarnings (~93 % of all warnings) - unable to signal a NEW
+    # warning over the noise.
+    from app.extensions import db as _db
+    with application.app_context():
+        _db.session.remove()
+        _db.engine.dispose()
 
 @pytest.fixture()
 def client(app):

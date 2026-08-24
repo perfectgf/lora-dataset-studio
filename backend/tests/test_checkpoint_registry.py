@@ -1,6 +1,7 @@
 """Provenance registry: dataset fingerprint -> human version (v1/v2/...),
 manifest diffs, and the version suffix on deployed checkpoint names."""
 import json
+from app.extensions import db
 import os
 
 import pytest
@@ -41,9 +42,8 @@ def test_register_allocates_versions_by_fingerprint(app, ds_with_images):
         assert r2.version == 1
         # edit a caption -> new fingerprint -> v2
         from app.models import FaceDatasetImage
-        img = FaceDatasetImage.query.get(ids[0])
+        img = db.session.get(FaceDatasetImage, ids[0])
         img.caption = 'edited caption'
-        from app.extensions import db
         db.session.commit()
         r3 = reg.register_launch(LOCAL_USER, ds_id, 'zimage', 'local', steps=1000)
         assert r3.version == 2
@@ -100,7 +100,7 @@ def test_dataset_state_flags_drift(app, ds_with_images):
         assert st['registered'] is True and st['version'] == 1
         assert st['changed'] is False and st['diff'] is None
         # remove an image -> drift with a readable diff
-        FaceDatasetImage.query.get(ids[1]).status = 'reject'
+        db.session.get(FaceDatasetImage, ids[1]).status = 'reject'
         db.session.commit()
         st = reg.dataset_state(LOCAL_USER, ds_id, 'zimage')
         assert st['changed'] is True

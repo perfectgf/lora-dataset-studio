@@ -4,6 +4,7 @@ ComfyUI is never contacted: `queue_manager.add_job`/`_build_cell_workflow` are
 monkeypatched for the enqueue-path tests, and the workflow-build test loads
 the real copied workflow JSON but stops short of a network call."""
 import struct
+from app.extensions import db
 import threading
 import pytest
 
@@ -1807,7 +1808,7 @@ def test_a_blend_weight_above_two_survives_the_whole_launch_path(app, monkeypatc
              {'dataset_id': ds_b.id, 'checkpoint': cks_b[0], 'weight': 5.0}],
             [1.0], prompt='p', count=1, combine=True)
         assert out['created'] == 1
-        cell = LoraTestImage.query.get(out['ids'][0])
+        cell = db.session.get(LoraTestImage, out['ids'][0])
         assert cell.strength == 4.5, 'the head weight reaches the cell unclamped'
 
 

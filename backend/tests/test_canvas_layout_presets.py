@@ -136,7 +136,7 @@ def test_a_picture_deleted_since_is_simply_not_put_back(client, app):
                                       'w': 260.0, 'h': 260.0, 'visible': True}]}
                 ).get_json()['preset']['id']
     with app.app_context():
-        db.session.delete(LoraTestImage.query.get(img_id))
+        db.session.delete(db.session.get(LoraTestImage, img_id))
         db.session.commit()
 
     r = client.post(f'/api/train/canvas/layouts/{pid}/apply')

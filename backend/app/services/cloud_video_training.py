@@ -86,7 +86,7 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     continuation carries every file of the chosen step, and `_seed_resume_checkpoint`
     ships all of them.
     """
-    ds = VideoDataset.query.get(int(video_dataset_id))
+    ds = db.session.get(VideoDataset, int(video_dataset_id))
     if ds is None or str(ds.user_id) != str(user_id):
         raise ValueError('video dataset not found')
 

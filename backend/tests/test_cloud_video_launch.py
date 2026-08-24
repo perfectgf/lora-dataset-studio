@@ -24,6 +24,7 @@ rows have always had. A default that only applies to newly-inserted rows would
 leave every historical run unroutable.
 """
 import json
+from app.extensions import db
 import os
 
 import pytest
@@ -232,7 +233,7 @@ def test_a_video_run_has_no_local_run_directory_to_mirror_into(
 
 
 def test_the_shared_run_config_does_not_invent_a_face_dataset(app, tmp_path):
-    """run_share resolves `FaceDataset.query.get(dataset_id)` to describe the run
+    """run_share resolves `db.session.get(FaceDataset, dataset_id)` to describe the run
     it exports. On a video run that returns the colliding FACE row, and the
     exported config would describe someone else's dataset."""
     from app.services import run_share
@@ -255,7 +256,7 @@ def test_the_video_launcher_stamps_the_table_on_the_run(app, tmp_path):
         vid = _video_dataset(tmp_path)
         res = cvt.launch_cloud_video_training('local', vid.id, steps=500,
                                               _provision=lambda run: None)
-        run = CloudTrainingRun.query.get(res['run_id'])
+        run = db.session.get(CloudTrainingRun, res['run_id'])
         assert run.dataset_table == crd.VIDEO
         assert crd.is_video(run) is True
         assert run.dataset_id == vid.id
@@ -296,7 +297,7 @@ def test_the_clips_are_uploaded_from_the_dataset_folder_itself(app, tmp_path):
         res = cvt.launch_cloud_video_training('local', vid.id, steps=500,
                                               _provision=lambda run: None)
         from app.models import CloudTrainingRun
-        run = CloudTrainingRun.query.get(res['run_id'])
+        run = db.session.get(CloudTrainingRun, res['run_id'])
         assert ct._staging_dataset_dir(run) == str(out)
 
 
@@ -312,7 +313,7 @@ def test_the_pod_job_is_built_by_the_video_branch(app, tmp_path):
         res = cvt.launch_cloud_video_training('local', vid.id, steps=500,
                                               _provision=lambda run: None)
         from app.models import CloudTrainingRun
-        run = CloudTrainingRun.query.get(res['run_id'])
+        run = db.session.get(CloudTrainingRun, res['run_id'])
         cfg = ct._build_pod_job_config(run, '/staged/vid',
                                        {'DATASETS_FOLDER': '/workspace/datasets',
                                         'TRAINING_FOLDER': '/workspace/out'})
@@ -409,7 +410,7 @@ def test_the_launch_route_starts_a_video_run(app, client, tmp_path, monkeypatch)
     assert body['steps'] == 700 and body['clips'] == 1
     with app.app_context():
         from app.models import CloudTrainingRun
-        run = CloudTrainingRun.query.get(body['run_id'])
+        run = db.session.get(CloudTrainingRun, body['run_id'])
         assert crd.is_video(run) is True
 
 

@@ -57,7 +57,7 @@ def test_boot_recover_fails_instanceless_active_run(app, monkeypatch):
         db.session.add(run)
         db.session.commit()
         ct.boot_recover(app)
-        assert CloudTrainingRun.query.get(run.id).status == 'error'
+        assert db.session.get(CloudTrainingRun, run.id).status == 'error'
 
 
 def test_boot_recover_without_key_is_silent(app, monkeypatch):

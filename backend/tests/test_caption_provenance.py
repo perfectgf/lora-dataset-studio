@@ -7,6 +7,7 @@ changed and which did not.  A test that only asserted "force=True was forwarded"
 would pass just as happily on a pass that overwrites everything.
 """
 import os
+from app.extensions import db
 import random
 import sqlite3
 
@@ -324,7 +325,7 @@ def test_an_unknown_origin_on_the_wire_is_stored_as_nothing(app, tmp_path):
             ids, _ = datasets.import_images(
                 'local', ds.id, [fh.read()], captions=['text'],
                 caption_origins=['definitely-not-a-real-value'])
-        row = FaceDatasetImage.query.get(ids[0])
+        row = db.session.get(FaceDatasetImage, ids[0])
         assert row.caption == 'text'
         assert row.caption_origin is None
 
@@ -338,12 +339,12 @@ def test_the_caption_editor_claims_authorship_and_clearing_it_gives_it_back(
     with app.app_context():
         ds, row = _dataset_with_one_captioned_image(app, tmp_path, None, None)
         datasets.set_image_caption('local', row.id, 'my words', short='my short')
-        row = FaceDatasetImage.query.get(row.id)
+        row = db.session.get(FaceDatasetImage, row.id)
         assert (row.caption_origin, row.caption_short_origin) == ('asserted', 'asserted')
         # Emptying the box empties the stamp: an 'asserted' marker on a blank
         # caption would be a row every future pass skips, forever.
         datasets.set_image_caption('local', row.id, '', short='')
-        row = FaceDatasetImage.query.get(row.id)
+        row = db.session.get(FaceDatasetImage, row.id)
         assert (row.caption, row.caption_origin) == (None, None)
         assert (row.caption_short, row.caption_short_origin) == (None, None)
 

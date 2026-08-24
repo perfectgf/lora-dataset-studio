@@ -21,8 +21,9 @@ the second half of every test below.
 Everything here is offline: no pod, no network, no thread, no dollar.
 """
 import json
+from app.utils.timestamps import naive_utcnow
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
@@ -296,7 +297,7 @@ def test_a_stalled_upload_destroys_the_pod_with_its_own_message(
     with app.app_context():
         run = _mkrun(ct, tmp_path)
         ct._write_upload_progress(run, 8, 12422, 25_000_000, 24_000_000_000)
-        ct.note_progress(run, datetime.utcnow() - timedelta(minutes=40))
+        ct.note_progress(run, naive_utcnow() - timedelta(minutes=40))
         ct._set(run, phase_detail='Uploading the dataset — 8/12422 files')
 
         acted = ct.supervise_active_runs()
@@ -318,9 +319,9 @@ def test_a_slow_but_moving_upload_is_left_alone(ct, app, tmp_path, monkeypatch):
                         lambda iid: destroyed.append(str(iid)) or True)
     with app.app_context():
         run = _mkrun(ct, tmp_path,
-                     created_at=datetime.utcnow() - timedelta(hours=3))
+                     created_at=naive_utcnow() - timedelta(hours=3))
         ct._write_upload_progress(run, 8, 12422, 25_000_000, 24_000_000_000)
-        ct.note_progress(run, datetime.utcnow() - timedelta(hours=3))
+        ct.note_progress(run, naive_utcnow() - timedelta(hours=3))
         # ... and then a batch lands, three hours in.
         ct._write_upload_progress(run, 16, 12422, 50_000_000, 24_000_000_000)
 
@@ -341,7 +342,7 @@ def test_a_restart_does_not_kill_the_run_on_its_predecessors_byte_count(
     with app.app_context():
         run = _mkrun(ct, tmp_path)
         ct._write_upload_progress(run, 900, 12422, 2_000_000_000, 24_000_000_000)
-        ct.note_progress(run, datetime.utcnow() - timedelta(minutes=40))
+        ct.note_progress(run, naive_utcnow() - timedelta(minutes=40))
         ct._write_upload_progress(run, 0, 12422, 0, 24_000_000_000)  # restarted
 
         assert ct.supervise_active_runs() == []

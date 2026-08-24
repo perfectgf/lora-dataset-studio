@@ -14,6 +14,7 @@ all in the EU, the UK, South Korea or the USA, and the restriction reaches the
 OUTPUTS — a user must not discover that in a forum thread after building a set).
 """
 import logging
+from ..extensions import db
 
 from flask import Blueprint, jsonify, request, send_file
 
@@ -283,7 +284,7 @@ def _video_run(dataset_id, run_id):
     from ..models import CloudTrainingRun
     from ..services import cloud_run_dataset as crd
     try:
-        run = CloudTrainingRun.query.get(int(run_id))
+        run = db.session.get(CloudTrainingRun, int(run_id))
     except (TypeError, ValueError):
         return None
     return run if run and crd.owns(run, dataset_id, crd.VIDEO) else None

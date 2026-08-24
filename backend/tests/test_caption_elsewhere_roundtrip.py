@@ -9,6 +9,7 @@ was skipped and every caption went with it — silently, reported as
 "0 imported · N duplicates skipped".
 """
 import io
+from app.extensions import db
 import zipfile
 
 from PIL import Image
@@ -86,14 +87,14 @@ def test_a_caption_already_written_here_is_never_overwritten(app):
         ds = svc.create_dataset(LOCAL_USER, 'Keep', 'keep')
         raw = _photo(9)
         ids, _ = svc.import_images(LOCAL_USER, ds.id, [raw], crop=False)
-        row = FaceDatasetImage.query.get(ids[0])
+        row = db.session.get(FaceDatasetImage, ids[0])
         row.caption = 'mine, written here'
         svc.db.session.commit()
         stats = {}
         svc.import_dataset_zip(LOCAL_USER, ds.id,
                                _zip([('x.png', raw), ('x.txt', b'theirs')]),
                                stats=stats)
-        assert FaceDatasetImage.query.get(ids[0]).caption == 'mine, written here'
+        assert db.session.get(FaceDatasetImage, ids[0]).caption == 'mine, written here'
         assert stats.get('captions_applied', 0) == 0
         assert stats.get('captions_kept') == 1
 

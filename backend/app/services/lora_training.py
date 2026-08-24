@@ -15,6 +15,7 @@ web UI, unused - this app drives the CLI) and the whole ownership subsystem
 dropped - single local user, cf. plan's Global Constraints.
 """
 from __future__ import annotations
+from ..extensions import db
 import filecmp
 import functools
 import hashlib
@@ -7128,7 +7129,7 @@ def recommended_steps(dataset_id, train_type=None, variant=None) -> int:
     lancement en cours plutôt qu'un ancien choix persisté.
     """
     ds = _train_context_view(
-        FaceDataset.query.get(dataset_id), train_type, variant)
+        db.session.get(FaceDataset, dataset_id), train_type, variant)
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     if ds is not None and slider_mode_enabled(ds):
         # Slider (mode, Beta) : la direction est définie par les prompts, pas par
@@ -7166,7 +7167,7 @@ def recommended_steps_info(dataset_id, train_type=None, variant=None) -> dict:
     pourquoi, afin que l'app apprenne au débutant au lieu de décider en boîte
     noire. Ne mute rien."""
     ds = _train_context_view(
-        FaceDataset.query.get(dataset_id), train_type, variant)
+        db.session.get(FaceDataset, dataset_id), train_type, variant)
     n = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
     kind = (ds.kind or 'character') if ds is not None else 'character'
     steps = recommended_steps(dataset_id, train_type=train_type, variant=variant)
@@ -7253,7 +7254,7 @@ def _style_caption_quality_from_rows(ds, rows) -> dict:
 
 def style_caption_quality(dataset_id) -> dict:
     """Public read-only Style quality report used by routes/tests and preflight."""
-    ds = FaceDataset.query.get(dataset_id)
+    ds = db.session.get(FaceDataset, dataset_id)
     if ds is None or not fds.is_style(ds):
         return {'caption_count': 0, 'distinct_caption_count': 0,
                 'trigger_only_count': 0, 'all_identical': False, 'issues': []}
@@ -9645,7 +9646,7 @@ def stop_training(expected_dataset_id=None, expected_run_token=None,
 def _dataset_name(dataset_id):
     if dataset_id is None:
         return None
-    ds = FaceDataset.query.get(int(dataset_id))
+    ds = db.session.get(FaceDataset, int(dataset_id))
     return ds.name if ds else f'#{dataset_id}'
 
 
@@ -9681,7 +9682,7 @@ def assert_trainable(dataset_id, train_type=None, allow_caption_mismatch=False,
     levées par ce flag : 0 image gardée (rien à entraîner) et, en mode slider, la
     paire de prompts absente (aucune direction à apprendre) — ai-toolkit planterait."""
     kept = FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep').count()
-    ds_ = FaceDataset.query.get(dataset_id)
+    ds_ = db.session.get(FaceDataset, dataset_id)
     if ds_ is not None and slider_mode_enabled(ds_):
         # Slider mode (Beta): images are only a denoising substrate — a small
         # varied set is enough — and captions are encoded but IGNORED by the
@@ -9853,7 +9854,7 @@ def training_status(user_id=None) -> dict:
         # id does not name. Answering them from the colliding face row is how the
         # run ends up on the wrong page under the wrong name.
         from ..models import VideoDataset
-        vds = VideoDataset.query.get(int(cur_id))
+        vds = db.session.get(VideoDataset, int(cur_id))
         current = {
             'dataset_id': cur_id,
             'dataset_table': cur_table,
@@ -9871,7 +9872,7 @@ def training_status(user_id=None) -> dict:
             'recipe_warning': None,
         }
     elif in_progress and cur_id is not None:
-        ds = FaceDataset.query.get(int(cur_id))
+        ds = db.session.get(FaceDataset, int(cur_id))
         fam = (queue_manager._get_system_state('training_train_type', None)
                or (_train_type(ds) if ds else None))
         variant = (queue_manager._get_system_state('training_variant', None)
@@ -10910,7 +10911,7 @@ def _snapshot_final_checkpoint(dataset_id, step, base_model=_PERSISTED,
         return None
     if step <= 0 or dataset_id is None:
         return None
-    ds = FaceDataset.query.get(int(dataset_id))
+    ds = db.session.get(FaceDataset, int(dataset_id))
     if not ds:
         return None
     trigger = _safe_trigger(ds)

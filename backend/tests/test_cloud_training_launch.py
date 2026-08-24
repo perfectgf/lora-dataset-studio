@@ -2,6 +2,8 @@
 stop request, and boot reconciliation. vast_client and the monitor thread are
 always mocked -- no network, no thread started for real."""
 from concurrent.futures import ThreadPoolExecutor
+from app.extensions import db
+from app.utils.timestamps import naive_utcnow
 from datetime import datetime, timedelta
 import json
 import threading
@@ -667,7 +669,7 @@ def test_reconcile_spares_recent_error_pod_kept(ct, app, monkeypatch):
         run = ct.CloudTrainingRun(dataset_id=1, status='error_pod_kept',
                                   vast_instance_id='555', vast_label='lds-1',
                                   job_name='j', error='checkpoint download failed',
-                                  finished_at=datetime.utcnow() - timedelta(minutes=10))
+                                  finished_at=naive_utcnow() - timedelta(minutes=10))
         ct.db.session.add(run)
         ct.db.session.commit()
         monkeypatch.setattr(ct.vast_client, 'list_instances',
@@ -684,7 +686,7 @@ def test_reconcile_spares_recent_error_pod_kept(ct, app, monkeypatch):
         # snapshot so the assertions below see what was actually committed,
         # not a transaction-start-time view.
         ct.db.session.expire_all()
-        kept = ct.CloudTrainingRun.query.get(run.id)
+        kept = db.session.get(ct.CloudTrainingRun, run.id)
         assert kept.status == 'error_pod_kept'
         assert kept.error == 'checkpoint download failed'   # untouched
 
@@ -698,7 +700,7 @@ def test_reconcile_reaps_expired_error_pod_kept(ct, app, monkeypatch):
         run = ct.CloudTrainingRun(dataset_id=1, status='error_pod_kept',
                                   vast_instance_id='555', vast_label='lds-1',
                                   job_name='j', error='checkpoint download failed',
-                                  finished_at=datetime.utcnow() - timedelta(minutes=500))
+                                  finished_at=naive_utcnow() - timedelta(minutes=500))
         ct.db.session.add(run)
         ct.db.session.commit()
         monkeypatch.setattr(ct.vast_client, 'list_instances',
@@ -710,7 +712,7 @@ def test_reconcile_reaps_expired_error_pod_kept(ct, app, monkeypatch):
         assert n == 1
         # see the sibling test above for why expire_all() is needed here
         ct.db.session.expire_all()
-        kept = ct.CloudTrainingRun.query.get(run.id)
+        kept = db.session.get(ct.CloudTrainingRun, run.id)
         assert kept.status == 'error_pod_kept'               # terminal stays terminal
         assert kept.error.startswith('checkpoint download failed')
         assert kept.error.endswith('pod reaped after the recovery window')
@@ -724,7 +726,7 @@ def test_reconcile_error_pod_kept_absent_from_instances_is_noop(ct, app, monkeyp
         run = ct.CloudTrainingRun(dataset_id=1, status='error_pod_kept',
                                   vast_instance_id='555', vast_label='lds-1',
                                   job_name='j', error='checkpoint download failed',
-                                  finished_at=datetime.utcnow() - timedelta(minutes=500))
+                                  finished_at=naive_utcnow() - timedelta(minutes=500))
         ct.db.session.add(run)
         ct.db.session.commit()
         monkeypatch.setattr(ct.vast_client, 'list_instances', lambda: [])
@@ -734,7 +736,7 @@ def test_reconcile_error_pod_kept_absent_from_instances_is_noop(ct, app, monkeyp
         n = ct.reconcile_orphans(app)
         assert n == 0
         ct.db.session.expire_all()
-        kept = ct.CloudTrainingRun.query.get(run.id)
+        kept = db.session.get(ct.CloudTrainingRun, run.id)
         assert kept.error == 'checkpoint download failed'   # untouched
 
 
@@ -750,7 +752,7 @@ def test_reconcile_keeps_active_and_spares_error_pod_kept_together(ct, app, monk
         kept_run = ct.CloudTrainingRun(dataset_id=2, status='error_pod_kept',
                                        vast_instance_id='555', vast_label='lds-2',
                                        job_name='j2', error='checkpoint download failed',
-                                       finished_at=datetime.utcnow() - timedelta(minutes=10))
+                                       finished_at=naive_utcnow() - timedelta(minutes=10))
         ct.db.session.add_all([active, kept_run])
         ct.db.session.commit()
         active_id, kept_id = active.id, kept_run.id
@@ -938,7 +940,7 @@ def _seed_finished_run(ct, price, start_h, end_h, dataset_id=999):
     month_start + end_h), never to `now` — a now-relative seed run during the
     first UTC hours of the 1st would land in the PREVIOUS month and genuinely
     fail the spend assertions. cost = price x (end_h - start_h)."""
-    now = datetime.utcnow()
+    now = naive_utcnow()
     month_start = datetime(now.year, now.month, 1)
     run = ct.CloudTrainingRun(
         dataset_id=dataset_id, status='done', job_name='j', vast_label='lds-9',
@@ -975,7 +977,7 @@ def test_budget_ignores_previous_month_runs(ct, app, seeded_dataset, monkeypatch
     _fake_export(monkeypatch, ct)
     ct.cfg.save_config({'cloud': {'monthly_budget_usd': 3}})
     with app.app_context():
-        now = datetime.utcnow()
+        now = naive_utcnow()
         month_start = datetime(now.year, now.month, 1)
         run = ct.CloudTrainingRun(
             dataset_id=999, status='done', job_name='j', vast_label='lds-9',
@@ -1020,8 +1022,8 @@ def test_launch_allows_two_families_on_same_dataset(ct, app, seeded_dataset, mon
         # not from the shared (now-krea) dataset row — the root of the 2026-07-14
         # parallel multi-family incident (the audit noted this test only checked
         # ids). Build through the real config path + the monitor's config view.
-        run1 = ct.CloudTrainingRun.query.get(r1['run_id'])
-        run2 = ct.CloudTrainingRun.query.get(r2['run_id'])
+        run1 = db.session.get(ct.CloudTrainingRun, r1['run_id'])
+        run2 = db.session.get(ct.CloudTrainingRun, r2['run_id'])
         cfg1 = ct.lt.build_job_config(
             ct._run_config_dataset(ds, json.loads(run1.train_params)),
             '/staging/ds', steps=500, training_folder='__POD__')
@@ -1648,7 +1650,7 @@ def test_continue_seeds_checkpoint_in_monitor_flow(ct, app, seeded_dataset,
         src = _seed_done_run(ct, seeded_dataset, src_staging, ckpt_name=None)
         res = ct.continue_cloud_run('local', src.id, extra_steps=500)
         new_id = res['run_id']
-        new_run = ct.CloudTrainingRun.query.get(new_id)
+        new_run = db.session.get(ct.CloudTrainingRun, new_id)
         job_name = new_run.job_name
         ct._monitor(app, new_id)
     assert fake.seeded is not None

@@ -12,7 +12,9 @@ was its only copy — and emptying the trash destroyed it. So the load-bearing
 tests here are the ones that pin what SURVIVES a purge, not what it frees.
 """
 import os
-from datetime import datetime, timedelta
+from app.extensions import db
+from app.utils.timestamps import naive_utcnow
+from datetime import timedelta
 
 import pytest
 
@@ -25,7 +27,7 @@ def runs(app, tmp_path):
     from app.extensions import db
     from app.models import CloudTrainingRun
     made = {}
-    now = datetime.utcnow()
+    now = naive_utcnow()
     finished = {'kept_open': now - timedelta(minutes=5),
                 'kept_expired': now - timedelta(days=7)}
     with app.app_context():
@@ -57,7 +59,7 @@ def test_spare_reason_is_the_single_rule_both_purges_use(app, runs):
     from app.models import CloudTrainingRun
     from app.services import cloud_training as ct
     with app.app_context():
-        get = lambda s: CloudTrainingRun.query.get(runs[s])   # noqa: E731
+        get = lambda s: db.session.get(CloudTrainingRun, runs[s])   # noqa: E731
         assert ct.staging_spare_reason(get('done')) is None
         assert ct.staging_spare_reason(get('stopped')) is None
         assert 'still active' in ct.staging_spare_reason(get('training'))
@@ -79,7 +81,7 @@ def test_staging_sizes_reports_only_what_is_on_disk(app, runs):
         # a run whose staging is gone simply drops out (no misleading 0)
         _clear_size_cache()
         import shutil
-        shutil.rmtree(ct.CloudTrainingRun.query.get(runs['stopped']).staging_dir)
+        shutil.rmtree(db.session.get(ct.CloudTrainingRun, runs['stopped']).staging_dir)
         sizes = ct.staging_sizes()
         assert runs['stopped'] not in sizes
         # narrowing to the shown cards only walks those
@@ -93,9 +95,9 @@ def test_purge_keeps_the_checkpoint_and_only_frees_the_working_files(app, runs):
     from app.services import cloud_training as ct
     _clear_size_cache()
     with app.app_context():
-        target = CloudTrainingRun.query.get(runs['done'])
+        target = db.session.get(CloudTrainingRun, runs['done'])
         target_dir = target.staging_dir
-        other_dir = CloudTrainingRun.query.get(runs['stopped']).staging_dir
+        other_dir = db.session.get(CloudTrainingRun, runs['stopped']).staging_dir
         res = ct.purge_run_staging(runs['done'])
         assert res['purged'] is True
         # ONLY the samples — the 4 KB checkpoint was rescued, not freed
@@ -103,7 +105,7 @@ def test_purge_keeps_the_checkpoint_and_only_frees_the_working_files(app, runs):
         assert not os.path.isdir(os.path.join(target_dir, 'samples'))
         assert os.path.isdir(other_dir)           # the neighbour is untouched
 
-        after = CloudTrainingRun.query.get(runs['done'])
+        after = db.session.get(CloudTrainingRun, runs['done'])
         saves = ct.run_checkpoint_files(after)
         assert set(saves) == {'lora.safetensors'}
         assert os.path.isfile(saves['lora.safetensors'])
@@ -112,7 +114,7 @@ def test_purge_keeps_the_checkpoint_and_only_frees_the_working_files(app, runs):
             == ct.checkpoint_store_dir(after)
         # and the "checkpoint on disk" claim stays TRUE instead of being wiped
         assert after.checkpoint_local_path == saves['lora.safetensors']
-        assert CloudTrainingRun.query.get(runs['done']) is not None
+        assert db.session.get(CloudTrainingRun, runs['done']) is not None
 
 
 def test_purge_one_run_refuses_the_runs_the_global_purge_spares(app, runs):
@@ -121,7 +123,7 @@ def test_purge_one_run_refuses_the_runs_the_global_purge_spares(app, runs):
     with app.app_context():
         with pytest.raises(ValueError):
             ct.purge_run_staging(runs['training'])
-        assert os.path.isdir(CloudTrainingRun.query.get(runs['training']).staging_dir)
+        assert os.path.isdir(db.session.get(CloudTrainingRun, runs['training']).staging_dir)
         with pytest.raises(ValueError):
             ct.purge_run_staging(runs['kept_open'])
         # …but an EXPIRED kept pod is purgeable like any other finished run
@@ -191,7 +193,7 @@ def test_retrofit_moves_legacy_staging_checkpoints_into_the_store(app, runs):
         res = ct.migrate_checkpoints_into_store(force=True)
         assert res['ran'] is True
         assert res['moved'] == 5 and res['runs'] == 5
-        run = CloudTrainingRun.query.get(runs['done'])
+        run = db.session.get(CloudTrainingRun, runs['done'])
         assert not any(f.endswith('.safetensors')
                        for f in os.listdir(run.staging_dir))
         assert os.path.isfile(os.path.join(ct.checkpoint_store_dir(run),

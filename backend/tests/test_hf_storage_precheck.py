@@ -25,6 +25,7 @@ Contract under test:
 No HfApi is ever real here.
 """
 import json
+from app.utils.timestamps import naive_utcnow
 import struct
 import types
 
@@ -375,7 +376,6 @@ def test_an_unrelated_dense_failure_keeps_its_generic_wording():
 def test_a_kept_dense_pod_stays_recoverable_and_is_never_destroyed(app, monkeypatch):
     """The 403 path must land on error_pod_kept WITHOUT terminating the
     instance: the ~26 GB checkpoint exists nowhere else."""
-    from datetime import datetime
     from app.models import CloudTrainingRun, db
     from app.services import cloud_training as ct
     destroyed = []
@@ -396,5 +396,5 @@ def test_a_kept_dense_pod_stays_recoverable_and_is_never_destroyed(app, monkeypa
         assert run.vast_instance_id == '42'
         assert destroyed == []
         assert 'HF private storage full' in run.phase_detail
-        run.finished_at = datetime.utcnow()
+        run.finished_at = naive_utcnow()
         assert ct._full_transformer_recovery_open(run) is True

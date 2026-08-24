@@ -185,7 +185,9 @@ def test_quality_metrics_match_reference_laplacian():
     tile and blur_score is exactly the whole-interior variance."""
     from app.services.image_quality import quality_metrics
     im = photo_like(size=48).convert('L')
-    px = list(im.getdata())
+    # tobytes(), not getdata(): identical ints for mode 'L', and getdata()
+    # is deprecated for removal in Pillow 14 (same swap as the app side).
+    px = list(im.tobytes())
     w, h = im.size
 
     def at(x, y):

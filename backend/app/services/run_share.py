@@ -17,8 +17,9 @@ auth tokens) is ever emitted, and the whole text is run through the shared
 home-path redaction so no local `C:\\Users\\<name>\\…` path leaks.
 """
 import json
+from ..extensions import db
+from ..utils.timestamps import naive_utcnow
 import re
-from datetime import datetime
 
 from ..models import CloudTrainingRun, FaceDataset, TrainingRunRecord
 from ..utils.redact import redact_user_paths
@@ -42,7 +43,7 @@ def resolve_run(run_key):
         return None, None
     rid = int(sid)
     if kind == 'cloud':
-        crun = CloudTrainingRun.query.get(rid)
+        crun = db.session.get(CloudTrainingRun, rid)
         if crun is None:
             return None, None
         rec = (TrainingRunRecord.query
@@ -50,10 +51,10 @@ def resolve_run(run_key):
                .order_by(TrainingRunRecord.id.desc()).first())
         return crun, rec
     if kind == 'rec':
-        rec = TrainingRunRecord.query.get(rid)
+        rec = db.session.get(TrainingRunRecord, rid)
         if rec is None:
             return None, None
-        crun = (CloudTrainingRun.query.get(rec.cloud_run_id)
+        crun = (db.session.get(CloudTrainingRun, rec.cloud_run_id)
                 if rec.cloud_run_id else None)
         return crun, rec
     return None, None
@@ -190,7 +191,7 @@ def build_run_config_text(run_key):
             dataset = None
     else:
         dataset_name = ct._dataset_name(dataset_id)
-        dataset = FaceDataset.query.get(dataset_id)
+        dataset = db.session.get(FaceDataset, dataset_id)
 
     settings = None
     if rec is not None and rec.settings:
@@ -318,7 +319,7 @@ def build_run_config_text(run_key):
              'paste-safe, no local paths or keys.')
 
     text = redact_user_paths('\n'.join(L) + '\n')
-    date = created.strftime('%Y%m%d') if created else datetime.utcnow().strftime('%Y%m%d')
+    date = created.strftime('%Y%m%d') if created else naive_utcnow().strftime('%Y%m%d')
     filename = (f'lds-config-{_slug(dataset_name)}-{_slug(family)}'
                 f'-v{version if version is not None else "na"}-{date}.txt')
     return {'filename': filename, 'text': text}

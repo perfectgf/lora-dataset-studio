@@ -1,7 +1,7 @@
 """Checkpoint management: app-wide trash (nothing destroyed directly),
 selective delete, run cleanup, cloud staging purge, source-side save cap."""
 import os
-from datetime import datetime
+from app.utils.timestamps import naive_utcnow
 
 import pytest
 
@@ -91,7 +91,7 @@ def test_purge_finished_runs_spares_active_and_pod_kept(app, ds, tmp_path):
         # finished_at within the recovery window keeps the pod spared; without
         # one the window cannot be established and the run is fair game.
         CloudTrainingRun.query.filter_by(vast_label='lds-r_kept').first() \
-            .finished_at = datetime.utcnow()
+            .finished_at = naive_utcnow()
         db.session.commit()
         res = ct.purge_finished_runs()
         assert res['purged_runs'] == 1 and res['freed_bytes'] >= 10
