@@ -46,12 +46,16 @@ import { sanitizeGenerationLoraPresets } from '../../utils/generationLoras.js';
  *  the user unable to see, or clear, the stale pick. */
 export function improveEditorState(payload) {
   if (!payload || typeof payload !== 'object') {
+    // `megapixels: 2` (the shipped default) rather than undefined: the box is
+    // disabled while loaded:false, but a controlled input must still hold a
+    // value or React flips it to uncontrolled mid-flight.
     return { loaded: false, stored: '', shipped: '', enabled: true,
-      loraPreset: '', loraPresets: [] };
+      loraPreset: '', loraPresets: [], megapixels: 2 };
   }
   const ip = (payload.config && payload.config.identity_prompts) || {};
   const defaults = payload.identity_prompt_defaults || {};
   const klein = (payload.config && payload.config.klein) || {};
+  const mp = Number(klein.improve_megapixels);
   return {
     loaded: true,
     stored: typeof ip.klein_improve === 'string' ? ip.klein_improve : '',
@@ -61,7 +65,30 @@ export function improveEditorState(payload) {
       ? klein.improve_lora_preset : '',
     loraPresets: sanitizeGenerationLoraPresets(klein.generation_lora_presets)
       .map((p) => p.name),
+    // The pass's output budget (klein.improve_megapixels) — the third improve
+    // knob this panel answers for. The server merges shipped defaults into the
+    // payload, so a finite number is always there; junk degrades to the
+    // shipped 2, never to an empty box.
+    megapixels: Number.isFinite(mp) ? mp : 2,
   };
+}
+
+/** The Settings card's own bounds for the output budget, mirrored here so the
+ *  two editors of klein.improve_megapixels can never offer different ranges
+ *  (backend clamp: face_dataset_service._improve_float ceiling 8). */
+export const IMPROVE_MEGAPIXELS_MIN = 0.5;
+export const IMPROVE_MEGAPIXELS_MAX = 8;
+export const IMPROVE_MEGAPIXELS_STEP = 0.5;
+
+/** A typed output-size value, made storable: clamped to the same bounds the
+ *  Settings card enforces, quantised nowhere (2.5 is legal), NaN -> null so a
+ *  half-typed box never becomes a settings write. */
+export function normalizeImproveMegapixels(value) {
+  // '' first: Number('') is 0, which would turn an emptied box into a 0.5 write.
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(IMPROVE_MEGAPIXELS_MAX, Math.max(IMPROVE_MEGAPIXELS_MIN, n));
 }
 
 /** The text improve will actually send, given a {stored, shipped} pair.
@@ -95,9 +122,16 @@ export function improveSettingsPatch(patch = {}) {
   if (patch.prompt !== undefined) ip.klein_improve = String(patch.prompt ?? '');
   if (patch.enabled !== undefined) ip.klein_improve_enabled = !!patch.enabled;
   if (Object.keys(ip).length) config.identity_prompts = ip;
+  const klein = {};
   if (patch.loraPreset !== undefined) {
-    config.klein = { improve_lora_preset: String(patch.loraPreset ?? '') };
+    klein.improve_lora_preset = String(patch.loraPreset ?? '');
   }
+  if (patch.megapixels !== undefined) {
+    const mp = normalizeImproveMegapixels(patch.megapixels);
+    // null means "not a number yet" — a half-typed box is not a write.
+    if (mp !== null) klein.improve_megapixels = mp;
+  }
+  if (Object.keys(klein).length) config.klein = klein;
   return { config };
 }
 

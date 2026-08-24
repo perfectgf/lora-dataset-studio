@@ -22,8 +22,17 @@ test('a payload that has not arrived yields loaded:false, never a guess', () => 
   for (const bad of [null, undefined, 'nope', 42]) {
     assert.deepEqual(improveEditorState(bad),
       { loaded: false, stored: '', shipped: '', enabled: true,
-        loraPreset: '', loraPresets: [] });
+        loraPreset: '', loraPresets: [], megapixels: 2 });
   }
+});
+
+test('the output budget reads from the same payload, junk degrading to the shipped 2', () => {
+  const p = payload({});
+  p.config.klein = { improve_megapixels: 4.5 };
+  assert.equal(improveEditorState(p).megapixels, 4.5);
+  p.config.klein = { improve_megapixels: 'huge' };
+  assert.equal(improveEditorState(p).megapixels, 2);
+  assert.equal(improveEditorState(payload({})).megapixels, 2);
 });
 
 test('the LoRA-preset half reads from the same payload as the instruction', () => {
@@ -128,6 +137,22 @@ test('instruction and preset ride in ONE patch when both are pending', () => {
   assert.deepEqual(improveSettingsPatch({ prompt: 'x', loraPreset: 'Skin' }),
     { config: { identity_prompts: { klein_improve: 'x' },
       klein: { improve_lora_preset: 'Skin' } } });
+});
+
+test('the output budget saves clamped to the Settings bounds, half-typed never writes', () => {
+  assert.deepEqual(improveSettingsPatch({ megapixels: '4' }),
+    { config: { klein: { improve_megapixels: 4 } } });
+  // The same clamp the Settings card applies — two editors, one range.
+  assert.deepEqual(improveSettingsPatch({ megapixels: 99 }),
+    { config: { klein: { improve_megapixels: 8 } } });
+  assert.deepEqual(improveSettingsPatch({ megapixels: 0 }),
+    { config: { klein: { improve_megapixels: 0.5 } } });
+  // An emptied box mid-typing is not a settings write.
+  assert.deepEqual(improveSettingsPatch({ megapixels: '' }),
+    { config: {} });
+  // …and it shares the klein object with a pending preset pick.
+  assert.deepEqual(improveSettingsPatch({ megapixels: 2.5, loraPreset: 'Skin' }),
+    { config: { klein: { improve_lora_preset: 'Skin', improve_megapixels: 2.5 } } });
 });
 
 test('the scope note actually says the change is app-wide', () => {

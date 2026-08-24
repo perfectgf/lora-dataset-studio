@@ -110,6 +110,17 @@ export const WHATS_NEW = [
     to: '/gallery',
   },
   {
+    id: '2026-08-24-improve-output-size-in-note',
+    date: '2026-08-24',
+    title: 'Pick the improve output size right under the ✨ button',
+    blurb:
+      'The ✨ Upscale & improve note now carries the Output size (MP) box — '
+      + 'the same 0.5–8 MP value Settings edits (klein.improve_megapixels), '
+      + 'changeable without leaving your images. App-wide, like the '
+      + 'instruction and the LoRA preset beside it.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-08-24-improve-lora-preset',
     date: '2026-08-24',
     title: 'Upscale & improve can now chain your LoRA presets',
