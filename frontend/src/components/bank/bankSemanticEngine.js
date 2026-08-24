@@ -181,3 +181,11 @@ export function pipelineStepKeys(engine) {
 export function defaultPipelineStepKeys(engine, ready = {}) {
   return pipelineStepKeys(engine).filter((key) => key !== 'caption' && !!ready[key])
 }
+
+/** One request, one vector space: a payload only counts for the engine
+ *  (and model) that asked for it. Shared by the workspace's coverage
+ *  loader and the curation lanes (useCurationLanes.js). */
+export function semanticPayloadMatches(payload, engine, modelKey = null) {
+  return payload?.engine === engine
+    && (!modelKey || payload?.model_key === modelKey)
+}
