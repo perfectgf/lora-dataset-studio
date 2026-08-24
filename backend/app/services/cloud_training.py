@@ -8051,7 +8051,9 @@ def generate_checkpoint_previews(user_id, dataset_id, checkpoints, prompt=None,
     # the route maps it to the same structured error the Studio already returns.
     result = studio.create_run(
         user_id, dataset_id, checkpoints=[fn for _, _, fn in resolved],
-        strengths=[1.0], seed=seed, prompt=prompt, family=fam, count=1,
+        strengths=[1.0],
+        settings=studio.StudioGenSettings(seed=seed, prompt=prompt, count=1),
+        family=fam,
         # The caller KNOWS which lineage checkpoint each file is — it was just
         # resolved above — so every cell records it rather than the app deriving
         # it back from the filename later.

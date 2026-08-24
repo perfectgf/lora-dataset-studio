@@ -20,12 +20,13 @@ def _deployed(monkeypatch, entries):
 
 
 def _mock_engine(monkeypatch, calls):
-    def fake_create_run(user_id, dataset_id, checkpoints, strengths, **kw):
+    def fake_create_run(user_id, dataset_id, checkpoints, strengths,
+                        settings=None, **kw):
         calls['checkpoints'] = list(checkpoints)
         calls['strengths'] = list(strengths)
-        calls['count'] = kw.get('count')
-        calls['seed'] = kw.get('seed')
-        calls['prompt'] = kw.get('prompt')
+        calls['count'] = settings.count if settings else None
+        calls['seed'] = settings.seed if settings else None
+        calls['prompt'] = settings.prompt if settings else None
         calls['family'] = kw.get('family')
         return {'ids': list(range(101, 101 + len(checkpoints))),
                 'seed': 777, 'count': 1, 'created': len(checkpoints)}

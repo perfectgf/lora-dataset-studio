@@ -124,8 +124,9 @@ def test_test_studio_batch_submits_one_workflow_per_ticked_prompt(
         monkeypatch.setattr(lts, '_build_cell_workflow',
                             lambda *a, **k: {'1': {'prompt': a[3]}})
 
-        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='ignored',
-                             count=1, prompts=['on a rooftop', 'in the snow', 'at night'])
+        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                             lts.StudioGenSettings(prompt='ignored', count=1),
+                             prompts=['on a rooftop', 'in the snow', 'at night'])
 
         assert out['created'] == 3
         assert sorted(submitted) == ['at night', 'in the snow', 'on a rooftop']
@@ -152,8 +153,9 @@ def test_test_studio_batch_multiplies_the_existing_axes_not_replaces_them(
                             lambda *a, job_id=None, **k: job_id)
         monkeypatch.setattr(lts, '_build_cell_workflow', lambda *a, **k: {'1': {}})
 
-        out = lts.create_run(LOCAL_USER, ds.id, [ck], [0.8, 1.0], prompt='x',
-                             count=1, prompts=['alpha', 'beta'])
+        out = lts.create_run(LOCAL_USER, ds.id, [ck], [0.8, 1.0],
+                             lts.StudioGenSettings(prompt='x', count=1),
+                             prompts=['alpha', 'beta'])
 
         assert out['created'] == 4
         rows = LoraTestImage.query.filter_by(run_id=out['run_id']).all()
@@ -179,8 +181,8 @@ def test_test_studio_without_a_batch_is_byte_for_byte_the_old_run(
                             lambda *a, job_id=None, **k: job_id)
         monkeypatch.setattr(lts, '_build_cell_workflow', lambda *a, **k: {'1': {}})
 
-        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='only this',
-                             count=1)
+        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                             lts.StudioGenSettings(prompt='only this', count=1))
 
         assert out['created'] == 1
         row = LoraTestImage.query.filter_by(run_id=out['run_id']).one()
@@ -381,7 +383,8 @@ def test_test_studio_route_forwards_the_prompt_batch(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, dataset_id, checkpoints, strengths, **kwargs):
+    def fake(user_id, dataset_id, checkpoints, strengths, settings=None,
+             **kwargs):
         seen.update(kwargs)
         return {'created': 2, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
@@ -466,7 +469,8 @@ def test_create_run_stamps_ONE_run_id_across_the_whole_prompt_batch(app, tmp_pat
         res = lts.create_run(
             LOCAL_USER, ds.id,
             ['z image' + chr(92) + 'lora_batched_000001000.safetensors'], [1.0],
-            seed=42, prompts=['first prompt', 'second prompt', 'third prompt'])
+            lts.StudioGenSettings(seed=42),
+            prompts=['first prompt', 'second prompt', 'third prompt'])
         rows = LoraTestImage.query.filter_by(dataset_id=ds.id).all()
         assert len(rows) == 3, 'one cell per ticked prompt'
         assert len({r.prompt for r in rows}) == 3

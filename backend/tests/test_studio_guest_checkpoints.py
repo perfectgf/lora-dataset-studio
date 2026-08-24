@@ -75,7 +75,7 @@ def test_guest_is_its_own_cell_not_an_extra(app, tmp_path, monkeypatch):
         seen = {}
         _wire(monkeypatch, lts, seen)
         lts.create_run(LOCAL_USER, ds.id, [trained, 'other-char.safetensors'],
-                       [1.0], prompt='p', count=1, seed=7)
+                       [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=7))
         cps = {r.checkpoint for r in LoraTestImage.query.all()}
         assert trained in cps
         assert 'other-char.safetensors' in cps
@@ -98,7 +98,7 @@ def test_guest_only_run_is_allowed(app, tmp_path, monkeypatch):
         seen = {}
         _wire(monkeypatch, lts, seen)
         lts.create_run(LOCAL_USER, ds.id, ['solo-theirs.safetensors'],
-                       [1.0], prompt='p', count=1, seed=3)
+                       [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=3))
         rows = LoraTestImage.query.all()
         assert len(rows) == 1
         assert rows[0].checkpoint == 'solo-theirs.safetensors'
@@ -114,7 +114,7 @@ def test_guest_missing_file_is_a_hard_error(app, tmp_path, monkeypatch):
         _wire(monkeypatch, lts)
         with pytest.raises(ValueError, match='external LoRA not found'):
             lts.create_run(LOCAL_USER, ds.id, [trained, 'ghost.safetensors'],
-                           [1.0], prompt='p', count=1)
+                           [1.0], lts.StudioGenSettings(prompt='p', count=1))
         assert LoraTestImage.query.count() == 0
 
 
@@ -135,7 +135,7 @@ def test_guest_wrong_arch_409s_before_any_row(app, tmp_path, monkeypatch):
         monkeypatch.setattr(lts.lt, 'detect_lora_arch', fake_detect)
         with pytest.raises(lts.StudioArchMismatch):
             lts.create_run(LOCAL_USER, ds.id, [trained, 'wrong-arch.safetensors'],
-                           [1.0], prompt='p', count=1)
+                           [1.0], lts.StudioGenSettings(prompt='p', count=1))
         assert LoraTestImage.query.count() == 0
 
 
@@ -151,7 +151,7 @@ def test_guest_in_other_family_folder_is_refused(app, tmp_path, monkeypatch):
         krea_rel = 'krea' + chr(92) + 'krea-char.safetensors'
         with pytest.raises(ValueError, match='cannot mix multiple families'):
             lts.create_run(LOCAL_USER, ds.id, [trained, krea_rel],
-                           [1.0], prompt='p', count=1)
+                           [1.0], lts.StudioGenSettings(prompt='p', count=1))
         assert LoraTestImage.query.count() == 0
 
 
@@ -172,7 +172,7 @@ def test_guest_rejects_path_traversal_names(app, tmp_path, monkeypatch):
         for bad in _TRAVERSAL_NAMES:
             with pytest.raises(ValueError, match='invalid external LoRA name'):
                 lts.create_run(LOCAL_USER, ds.id, [trained, bad],
-                               [1.0], prompt='p', count=1)
+                               [1.0], lts.StudioGenSettings(prompt='p', count=1))
         assert LoraTestImage.query.count() == 0
 
 
@@ -186,7 +186,7 @@ def test_guest_capped_at_16(app, tmp_path, monkeypatch):
         _wire(monkeypatch, lts)
         with pytest.raises(ValueError, match='at most 16'):
             lts.create_run(LOCAL_USER, ds.id, [trained] + names,
-                           [1.0], prompt='p', count=1)
+                           [1.0], lts.StudioGenSettings(prompt='p', count=1))
         assert LoraTestImage.query.count() == 0
 
 
@@ -199,7 +199,7 @@ def test_mine_only_run_unchanged(app, tmp_path, monkeypatch):
         ds, trained = _guest_tree(tmp_path, monkeypatch, 'gst8')
         seen = {}
         _wire(monkeypatch, lts, seen)
-        lts.create_run(LOCAL_USER, ds.id, [trained], [1.0], prompt='p', count=1, seed=1)
+        lts.create_run(LOCAL_USER, ds.id, [trained], [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=1))
         rows = LoraTestImage.query.all()
         assert len(rows) == 1
         assert rows[0].checkpoint == trained
@@ -215,7 +215,7 @@ def test_guest_cell_label_is_prefixed_theirs(app, tmp_path, monkeypatch):
                                   guests=['other-char.safetensors'])
         _wire(monkeypatch, lts, {})
         lts.create_run(LOCAL_USER, ds.id, [trained, 'other-char.safetensors'],
-                       [1.0], prompt='p', count=1, seed=1)
+                       [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=1))
         payload = lts.studio_payload(LOCAL_USER, ds.id, family='zimage')
         by_cp = {c['checkpoint']: c['label'] for c in payload['cells']}
         assert 'Theirs · ' in by_cp['other-char.safetensors']
@@ -232,7 +232,7 @@ def test_root_guest_stays_on_the_same_family_grid(app, tmp_path, monkeypatch):
                                   guests=['root-guest.safetensors'])
         _wire(monkeypatch, lts, {})
         lts.create_run(LOCAL_USER, ds.id, [trained, 'root-guest.safetensors'],
-                       [1.0], prompt='p', count=1, seed=1)
+                       [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=1))
         payload = lts.studio_payload(LOCAL_USER, ds.id, family='zimage')
         cps = {c['checkpoint'] for c in payload['cells']}
         assert trained in cps
@@ -260,7 +260,7 @@ def test_guest_only_root_file_stays_on_krea_grid(app, tmp_path, monkeypatch):
         ds.train_type = 'krea'
         _wire(monkeypatch, lts, {})
         lts.create_run(LOCAL_USER, ds.id, ['only-theirs.safetensors'],
-                       [1.0], prompt='p', count=1, seed=1, family='krea')
+                       [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=1), family='krea')
         assert LoraTestImage.query.count() == 1
         payload = lts.studio_payload(LOCAL_USER, ds.id, family='krea')
         cps = {c['checkpoint'] for c in payload['cells']}

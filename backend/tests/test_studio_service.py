@@ -239,7 +239,8 @@ def test_create_run_commits_rows_before_enqueue(app, monkeypatch, tmp_path):
             return job_id
         monkeypatch.setattr(lts, '_enqueue_cell', fake_enqueue)
         monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
-        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='p', count=1)
+        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                             lts.StudioGenSettings(prompt='p', count=1))
         rows = LoraTestImage.query.filter_by(dataset_id=ds.id).all()
         assert out['created'] == len(rows) >= 1
         assert seen and all(j for j in seen)
@@ -381,8 +382,9 @@ def test_create_run_with_resolution_tier_resolves_dims_via_lifted_resolution_mod
         monkeypatch.setattr(lts, '_build_cell_workflow', fake_build)
         monkeypatch.setattr(lts, '_enqueue_cell', lambda *a, **k: 'job-tier')
         monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
-        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='p', count=1,
-                             resolution_tier='hq')
+        out = lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                             lts.StudioGenSettings(prompt='p', count=1,
+                                                   resolution_tier='hq'))
         rows = LoraTestImage.query.filter_by(dataset_id=ds.id).all()
         assert out['created'] == len(rows) == 1
         assert rows[0].resolution_tier == 'hq'
@@ -542,7 +544,7 @@ def test_create_run_krea_enqueues_all_zero_cells_before_stable_nonzero_cells(
 
         out = lts.create_run(
             LOCAL_USER, ds.id, checkpoints, [1.0, 0.0, -0.5, 0.75],
-            prompt='p', count=1, z_models=[None, alt_base])
+            lts.StudioGenSettings(prompt='p', count=1, z_models=[None, alt_base]))
 
         expected = []
         for base in (None, alt_base):
@@ -1311,7 +1313,8 @@ def test_create_run_preflights_missing_zimage_vae_and_text_encoder(app, tmp_path
         monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
         ds = svc.create_dataset(LOCAL_USER, 'PF', 'pf')
         with pytest.raises(lts.StudioAssetsMissing) as ei:
-            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], prompt='p', count=1)
+            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                             lts.StudioGenSettings(prompt='p', count=1))
         paths = ' '.join(f['path'] for f in ei.value.missing_files)
         assert 'z ae.safetensors' in paths and 'qwen_3_4b.safetensors' in paths
         assert LoraTestImage.query.filter_by(dataset_id=ds.id).count() == 0  # no rows created

@@ -249,8 +249,9 @@ def test_create_run_refuses_wrong_arch_checkpoint(app, tmp_path, monkeypatch):
         monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
         ds = svc.create_dataset(LOCAL_USER, 'Kit', 'kitty')
         with pytest.raises(lts.StudioArchMismatch) as ei:
-            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], family='krea',
-                           prompt='p', count=1)
+            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                           lts.StudioGenSettings(prompt='p', count=1),
+                           family='krea')
         assert ei.value.detected == 'zimage' and ei.value.family == 'krea'
         assert LoraTestImage.query.filter_by(dataset_id=ds.id).count() == 0
 
@@ -272,8 +273,9 @@ def test_create_run_allows_matching_checkpoint_arch(app, tmp_path, monkeypatch):
         # the arch check passed.
         ds = svc.create_dataset(LOCAL_USER, 'Kit', 'kitty')
         with pytest.raises(Exception) as ei:
-            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0], family='krea',
-                           prompt='p', count=1)
+            lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
+                           lts.StudioGenSettings(prompt='p', count=1),
+                           family='krea')
         assert not isinstance(ei.value, lts.StudioArchMismatch)
 
 

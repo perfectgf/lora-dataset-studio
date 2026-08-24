@@ -2037,27 +2037,11 @@ def lora_test_run(dataset_id):
     try:
         res = lts.create_run(LOCAL_USER, dataset_id,
                              d.get('checkpoints') or [], d.get('strengths') or [],
-                             seed=d.get('seed'), prompt=d.get('prompt'),
-                             # 📝 Lot : une passe par prompt coché dans
-                             # l'historique. Absent → le prompt du champ, seul.
-                             prompts=d.get('prompts'),
-                             z_model=d.get('z_model'), z_models=d.get('z_models'),
-                             aspects=d.get('aspects'),
-                             cfgs=d.get('cfgs'), steps_list=d.get('steps'),
-                             steps2_list=d.get('steps2'),
-                             count=d.get('count'), family=d.get('family'),
-                             permanent_loras=d.get('permanent_loras'),
-                             batch_loras=d.get('batch_loras'),
-                             rebalance=d.get('rebalance'),
-                             rebalance_strength=d.get('rebalance_strength'),
-                             # Parité Generate — réglages globaux du run.
-                             negative=d.get('negative'), sampler=d.get('sampler'),
-                             scheduler=d.get('scheduler'), weight_dtype=d.get('weight_dtype'),
-                             enhancer=d.get('enhancer'), enhancer_strength=d.get('enhancer_strength'),
-                             detail_amount=d.get('detail_amount'),
-                             resolution_tier=d.get('resolution_tier'),
-                             resolution_multiplier=d.get('resolution_multiplier'),
-                             init_image=d.get('init_image'), denoise=d.get('denoise'))
+                             # Réglages partagés (parité Generate) : un objet, lu
+                             # avec les mêmes clés wire qu'avant. 📝 Lot : une
+                             # passe par prompt coché — absent → le prompt seul.
+                             lts.StudioGenSettings.from_payload(d),
+                             family=d.get('family'), prompts=d.get('prompts'))
     except Exception as e:
         from ..services.lora_test_studio import StudioArchMismatch, StudioAssetsMissing
         if isinstance(e, StudioArchMismatch):   # wrong-arch checkpoint → actionable 409

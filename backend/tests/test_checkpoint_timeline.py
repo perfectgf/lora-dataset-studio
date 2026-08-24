@@ -227,8 +227,9 @@ def test_real_create_run_launch_id_feeds_a_checkpoint_timeline(client, app,
             checkpoints[1]: {'record_id': record.id, 'step': 200},
         }
         launched = studio.create_run(
-            LOCAL_USER, dataset_id, checkpoints, [0.8], seed=77,
-            prompt='same render across checkpoints', z_model='zmodel.safetensors',
+            LOCAL_USER, dataset_id, checkpoints, [0.8],
+            studio.StudioGenSettings(seed=77, z_model='zmodel.safetensors',
+                                     prompt='same render across checkpoints'),
             origins=origins)
         rows = (LoraTestImage.query.filter(
             LoraTestImage.id.in_(launched['ids'])).order_by(LoraTestImage.step).all())

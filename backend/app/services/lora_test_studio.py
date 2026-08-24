@@ -40,6 +40,7 @@ log to save into or hide from (`saved_to_gallery` isn't a column on our
 from __future__ import annotations
 from ..utils.timestamps import naive_utcnow
 
+from dataclasses import dataclass
 import itertools
 import json
 import logging
@@ -2406,7 +2407,79 @@ def stack_variants(run_id, rows, limit=8) -> list:
     return out
 
 
-def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=None, z_model=None, z_models=None, aspects=None, cfgs=None, steps_list=None, steps2_list=None, count=1, family=None, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None, negative=None, sampler=None, scheduler=None, weight_dtype=None, enhancer=None, enhancer_strength=None, detail_amount=None, resolution_tier=None, resolution_multiplier=None, init_image=None, denoise=None, origins=None, prompts=None) -> dict:
+@dataclass(frozen=True)
+class StudioGenSettings:
+    """The generation settings a Studio run carries, one object instead of
+    a 24-keyword tail on every signature (the audit's 31-parameter debt).
+
+    Axes (checkpoints, strengths) and per-entry-point extras (family,
+    origins, prompts, combine) stay explicit parameters on purpose: they
+    are what each call is ABOUT. Everything here is the shared "how" -
+    validated downstream by _sanitize_gen_knobs exactly as before, so a
+    None keeps meaning "the family default".
+
+    Frozen: a run's settings are decided at the door; nothing downstream
+    may quietly edit them for one cell."""
+    seed: object = None
+    prompt: object = None
+    z_model: object = None
+    z_models: object = None
+    aspects: object = None
+    cfgs: object = None
+    steps_list: object = None
+    steps2_list: object = None
+    count: object = 1
+    permanent_loras: object = None
+    batch_loras: object = None
+    rebalance: object = None
+    rebalance_strength: object = None
+    negative: object = None
+    sampler: object = None
+    scheduler: object = None
+    weight_dtype: object = None
+    enhancer: object = None
+    enhancer_strength: object = None
+    detail_amount: object = None
+    resolution_tier: object = None
+    resolution_multiplier: object = None
+    init_image: object = None
+    denoise: object = None
+
+    @classmethod
+    def from_payload(cls, d):
+        """Build from a request JSON dict, using the exact wire names the
+        routes have always read (steps/steps2 are the wire names of
+        steps_list/steps2_list). Only known keys are read - a payload
+        typo cannot smuggle a setting in."""
+        return cls(
+            seed=d.get('seed'),
+            prompt=d.get('prompt'),
+            z_model=d.get('z_model'),
+            z_models=d.get('z_models'),
+            aspects=d.get('aspects'),
+            cfgs=d.get('cfgs'),
+            steps_list=d.get('steps'),
+            steps2_list=d.get('steps2'),
+            count=d.get('count'),
+            permanent_loras=d.get('permanent_loras'),
+            batch_loras=d.get('batch_loras'),
+            rebalance=d.get('rebalance'),
+            rebalance_strength=d.get('rebalance_strength'),
+            negative=d.get('negative'),
+            sampler=d.get('sampler'),
+            scheduler=d.get('scheduler'),
+            weight_dtype=d.get('weight_dtype'),
+            enhancer=d.get('enhancer'),
+            enhancer_strength=d.get('enhancer_strength'),
+            detail_amount=d.get('detail_amount'),
+            resolution_tier=d.get('resolution_tier'),
+            resolution_multiplier=d.get('resolution_multiplier'),
+            init_image=d.get('init_image'),
+            denoise=d.get('denoise'))
+
+
+def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
+               family=None, origins=None, prompts=None) -> dict:
     """Validate + materialize the grid and enqueue every cell.
 
     `prompts` (📝 lot) est un AXE : chaque configuration est rendue une fois par
@@ -2423,6 +2496,33 @@ def create_run(user_id, dataset_id, checkpoints, strengths, seed=None, prompt=No
     an enqueue failure marks that row 'failed' and re-raises - already-enqueued cells
     keep their rows AND their jobs. Returns
     {'created', 'seed', 'count', 'run_id', 'ids'}."""
+    # One object at the door; the body below is verbatim from the flat-
+    # signature era, so it reads the same locals it always has.
+    settings = settings or StudioGenSettings()
+    seed = settings.seed
+    prompt = settings.prompt
+    z_model = settings.z_model
+    z_models = settings.z_models
+    aspects = settings.aspects
+    cfgs = settings.cfgs
+    steps_list = settings.steps_list
+    steps2_list = settings.steps2_list
+    count = settings.count
+    permanent_loras = settings.permanent_loras
+    batch_loras = settings.batch_loras
+    rebalance = settings.rebalance
+    rebalance_strength = settings.rebalance_strength
+    negative = settings.negative
+    sampler = settings.sampler
+    scheduler = settings.scheduler
+    weight_dtype = settings.weight_dtype
+    enhancer = settings.enhancer
+    enhancer_strength = settings.enhancer_strength
+    detail_amount = settings.detail_amount
+    resolution_tier = settings.resolution_tier
+    resolution_multiplier = settings.resolution_multiplier
+    init_image = settings.init_image
+    denoise = settings.denoise
     ds = fds.get_dataset(user_id, dataset_id)
     if not ds:
         raise ValueError('dataset not found')
