@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
-import { apiFetch, getCsrfToken } from '../../api/fetchClient';
+import { apiFetch, fetchWithCsrfRetry, getCsrfToken } from '../../api/fetchClient';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import { postJson } from '../../hooks/useDataset';
 import { animeFamilyNote } from './animeFamilyNote.js';
@@ -170,7 +170,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // silently dropped instead of reaching the confirm/toast below.
   const postTrain = async (path, body) => {
     try {
-      const r = await fetch(path, {
+      // The shared transport, not bare fetch: a stale CSRF token replays
+      // once with a fresh one instead of failing the launch — the exact
+      // recovery every other mutation already had. The X-CSRFToken header
+      // below is what arms that retry.
+      const r = await fetchWithCsrfRetry(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
         credentials: 'include',

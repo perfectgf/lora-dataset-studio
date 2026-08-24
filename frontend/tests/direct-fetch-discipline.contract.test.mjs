@@ -32,11 +32,14 @@ const SRC_FILES = walk(new URL('../src/', import.meta.url))
 
 const rel = (path) => path.replace(/\\/g, '/').split('/src/')[1]
 
-// Every raw fetch('/api…') call site, with enough trailing context to see the
-// options object it was called with.
+// Every raw fetch(...) call site - literal '/api' URL OR a variable/derived
+// one - with enough trailing context to see the options object it was
+// called with. The variable form used to be a blind spot: postTrain sent
+// every training POST through fetch(path) and no rule ever saw it.
+// The lookbehind keeps fetchWithCsrfRetry and method calls out of the net.
 const directCalls = (text) => {
   const out = []
-  const re = /\bfetch\((['`])\/api/g
+  const re = /(?<![.\w])fetch\(/g
   for (let m = re.exec(text); m; m = re.exec(text)) {
     out.push({
       line: text.slice(0, m.index).split('\n').length,
@@ -69,11 +72,13 @@ test('the set of files allowed to raw-fetch is closed', () => {
     'utils/extensionLoader.js',                            // isolated by design: extensions must not inherit app plumbing
     'utils/connectionStatus.js',                           // the offline indicator's own probe
     'hooks/useDataset.js',                                 // legacy raw GETs with local error handling
+    'hooks/useImageDownload.js',                           // blob download - needs the raw Response, own error copy
     'hooks/useLoraTestStudio.js',
     'hooks/useStudioRun.js',
     'pages/CloudRunsPage.jsx',
     'components/dataset/CloudLaunchDialog.jsx',
     'components/dataset/PublishHfModal.jsx',
+    'components/dataset/ConceptFaceMaskField.jsx',        // best-effort mask preview GET, null on failure
     'components/dataset/TrainingPanel.jsx',
     'components/dataset/useTrainingPresets.js',          // inherited the panel's best-effort preset-list GET (hook wave 1)
     'components/dataset/TrainingProgress.jsx',
