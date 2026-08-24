@@ -278,7 +278,8 @@ export default function CheckpointTimelinePanel({ recordId, onClose }) {
     if (!state.series.length) return null;
     return state.series.find((series) => String(series.id) === String(selectedId)) || state.series[0];
   }, [state.series, selectedId]);
-  const frames = selectedSeries?.frames || [];
+  // useMemo: un [] neuf par rendu changeait les deps du useCallback plus bas.
+  const frames = useMemo(() => selectedSeries?.frames || [], [selectedSeries]);
   const currentFrame = frames[frameIndex] || null;
   const previousFrame = previousIndex == null ? null : frames[previousIndex] || null;
 

@@ -43,7 +43,7 @@ export function useTrainingPresets({
     } catch { /* list is best-effort */ }
     return [];
   };
-  useEffect(() => { loadPresets(); }, []);
+  useEffect(() => { loadPresets(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only par construction
   const visiblePresets = filterTrainingPresets(presets, presetContext);
   // Built-ins can be evidence-backed general recipes or deliberately narrow,
   // source-labelled community starters. Keep those labels separate so a reported

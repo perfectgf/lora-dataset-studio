@@ -855,7 +855,8 @@ export default function CloudRunsPage() {
   };
 
   const configured = data?.configured;
-  const actives = data?.actives || [];
+  // useMemo: un [] neuf par rendu invalidait le useMemo plus bas a chaque frame.
+  const actives = useMemo(() => data?.actives || [], [data]);
   const recent = data?.recent || [];
   const limit = data?.limit || 1;
   const budget = data?.monthly_budget || 0;

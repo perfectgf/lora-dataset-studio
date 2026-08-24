@@ -908,6 +908,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
       } catch { /* keep the visible error and current state if refresh also fails */ }
     })().finally(() => { if (alive) setTrainingModeBusy(false); });
     return () => { alive = false; };
+    // Deps = les ENTREES de la synchro. Lister trainingModeBusy (que l'effet
+    // pose) le ferait s'auto-relancer ; ds/toast sont stables en pratique.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseInfo, fullMode, fullTransformerEligible, fullTransformerReason,
     trainType, variant, base, ds.setDatasetTrainingMode]);
 

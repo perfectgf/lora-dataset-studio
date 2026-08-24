@@ -487,6 +487,9 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     }
     const t = setInterval(tick, 2000)
     return () => { dropped = true; clearInterval(t) }
+    // Les TRANCHES de activity, jamais l'objet : son identite change a
+    // chaque poll et relancerait l'intervalle toutes les 2 s.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live, bankId, refreshPayload, refreshImages, toast,
       payload?.activity?.error, payload?.activity?.cancelled,
       payload?.activity?.detail, payload?.activity?.started_at])
@@ -649,6 +652,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     }
     // captionsSeen is the dependency that matters — the cache is a ref, so React
     // cannot see it change on its own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, captionsSeen])
 
   /* WHICH row is on screen, in priority order. A frozen selection outranks a live

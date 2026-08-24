@@ -95,6 +95,9 @@ export default function ReferenceEditModal({ datasetId, refFilename, nonce = 0,
       ? referenceEdit.engines
       : [referenceEdit?.engine].filter(Boolean);
     if (recorded.length) setEngines([...new Set(recorded)]);
+    // started_at = l'identite du LOT : re-seeder sur chaque mutation de champ
+    // ecraserait la selection en cours de l'utilisateur.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referenceEdit?.started_at]);
 
   const blocked = editBatchBlockedReason(prompt, engines, options);

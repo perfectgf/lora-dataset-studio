@@ -971,7 +971,9 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
       preset.selectedIds.forEach((id) => { const fr = framingById.get(id); if (fr) counts[fr] += 1; });
       return [preset.id, { counts, total: preset.selectedIds.length }];
     }));
-  }, [catalog, nsfwCatalog, customShots, customPresets]);
+    // userShots, pas customShots : la map lit AUSSI les shots importes, et
+    // une dep sur la moitie de la source laissait leurs framings figes.
+  }, [catalog, nsfwCatalog, userShots, customPresets]);
 
   const toggle = (id) => setSelected((s) => {
     const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;

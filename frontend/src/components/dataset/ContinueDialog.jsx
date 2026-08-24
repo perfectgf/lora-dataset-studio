@@ -116,6 +116,9 @@ export default function ContinueDialog({
   // than carrying a now-invalid full-state choice to another save/lane.
   useEffect(() => {
     setResumeMode(defaultResumeMode(selectedCheckpoint, lane));
+    // L'IDENTITE utile du checkpoint (bundle_id), pas l'objet : le poll le
+    // recree a chaque tick et ecraserait un choix en cours.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromStep, lane, selectedCheckpoint?.resume_state?.bundle_id, fullStateAvailable]);
 
   const inheritedSave = SAVE_CHOICES.includes(settings.save_every) ? settings.save_every : 250;

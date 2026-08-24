@@ -1057,6 +1057,9 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
       }
     }
     frameRef.current?.classList.add('is-grabbing');
+    // localPoint lit des refs via frameRect() : identite neuve a chaque
+    // rendu, la lister recreerait ce handler en boucle pour rien.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beginDrag, beginImage, refreshRect]);
 
   const onPointerMove = useCallback((e) => {
@@ -1152,6 +1155,8 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
     const p = localPoint(e);
     applyView(panBy({ ...viewRef.current, tx: pan.current.tx, ty: pan.current.ty },
       p.x - pan.current.x, p.y - pan.current.y));
+    // Meme raison : localPoint est volontairement hors deps (refs vivantes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyView]);
 
   const endPointer = useCallback((e) => {

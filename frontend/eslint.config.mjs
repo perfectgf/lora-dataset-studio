@@ -4,8 +4,9 @@
 // here is what cannot be intended — a variable that is assigned and never
 // read, a reference to a name that does not exist, a hook called under a
 // condition, an object literal writing the same key twice — plus the
-// exhaustive-deps rule, kept as a WARNING because a stale closure is a bug
-// only sometimes, and a fix there changes behaviour. Formatting and naming
+// exhaustive-deps rule, an ERROR since 2026-08-24: its 18-warning backlog
+// was arbitrated case by case, so at zero a warning is news again - a
+// deliberate omission carries its reason at the site in a disable comment. Formatting and naming
 // stay out: a clean `npm run build` plus `node --test` are the bar for
 // behaviour, this file only catches what those two cannot see.
 //
@@ -49,7 +50,11 @@ export default [
       "no-empty": "warn",
       "no-constant-condition": "warn",
       "react-hooks/rules-of-hooks": "error",
-      "react-hooks/exhaustive-deps": "warn",
+      // "error" since 2026-08-24: the 18-warning backlog was arbitrated case
+      // by case (5 real fixes - one latent staleness bug - and 13 deliberate
+      // omissions, each carrying its reason at the site). At zero, a warning
+      // is news again; a new omission justifies itself the same way.
+      "react-hooks/exhaustive-deps": "error",
       "react/jsx-uses-vars": "error",
       "react/jsx-uses-react": "off",
       "react/jsx-no-undef": "error",

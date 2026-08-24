@@ -141,6 +141,9 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
       if (nb.y + nb.h > H) { nb.h = H - nb.y; nb.w = nb.h * ratio; if (edges.left) nb.x = x2 - nb.w; }
     }
     setBox(clampBox(nb, W, H));
+    // scale() lit des refs vivantes : la lister recreerait le handler a
+    // chaque rendu pour la meme valeur lue au moment du drag.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nat, aspect, lockSquare]);
 
   const endDrag = useCallback(() => { dragRef.current = null; }, []);
