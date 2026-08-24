@@ -25,6 +25,7 @@ from pathlib import Path
 import secrets
 import sys
 from typing import Any
+from _harness import _pooled_features
 
 
 CACHE_EVERY = 50
@@ -306,21 +307,6 @@ def _move_to_device(inputs: Any, device: str) -> Any:
         return {key: value.to(device) if hasattr(value, 'to') else value
                 for key, value in inputs.items()}
     return inputs
-
-
-def _pooled_features(output: Any) -> Any:
-    """Tensor from old direct-return and new BaseModelOutput Transformers APIs."""
-    pooled = getattr(output, 'pooler_output', None)
-    if pooled is not None:
-        return pooled
-    if isinstance(output, (tuple, list)):
-        # BaseModelOutputWithPooling(return_dict=False) is
-        # ``(last_hidden_state, pooler_output, ...)``.
-        if len(output) > 1:
-            return output[1]
-        if output:
-            return output[0]
-    return output
 
 
 def _result_payload(contract: dict, images: list[str], cache: dict, *,

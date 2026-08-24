@@ -55,6 +55,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from _harness import _emit, _log
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import import_report  # noqa: E402
@@ -70,14 +71,6 @@ import import_report  # noqa: E402
 # resolves from the repo's own config. A different architecture fails loudly at
 # load, which is the correct outcome rather than a silent wrong answer.
 MODEL_ID = 'Qwen/Qwen3-VL-4B-Instruct'
-
-
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
-def _emit(obj):
-    print(json.dumps(obj), flush=True)
 
 
 def main() -> int:

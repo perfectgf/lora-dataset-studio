@@ -10,6 +10,7 @@ Logs -> stderr.
 Gating 3-etats + padding rescue (valide empiriquement sur test3) + zoom rescue."""
 from __future__ import annotations
 import json, sys
+from _harness import _log
 
 DET_MIN, YAW_MAX = 0.50, 40.0
 
@@ -44,9 +45,6 @@ ZOOM_RETRY_MIN_SIDE = 1280
 # reason as every constant above it: same question, same answer. Pinned by
 # test_face_score_zoom_rescue.
 DET_SIZE = (640, 640)
-
-
-def _log(m): print(m, file=sys.stderr, flush=True)
 
 
 def _verdict(det, face_px, yaw):

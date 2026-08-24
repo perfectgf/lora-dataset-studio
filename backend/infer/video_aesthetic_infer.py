@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from _harness import _emit, _log
 
 # Hidden BEFORE torch is imported — the only thing that actually keeps this off
 # a card a training run is using. Same two-locks-on-one-door reflex as the frame
@@ -56,14 +57,6 @@ STORE_ARRAYS = ('clip_ids', 'vecs')
 # Rows per forward pass. The head is tiny, but a 30 000-frame bank in one tensor
 # is a 90 MB float32 allocation plus its activations for no gain.
 BLOCK = 2048
-
-
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
-def _emit(obj):
-    print(json.dumps(obj), flush=True)
 
 
 def main() -> int:

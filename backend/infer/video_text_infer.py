@@ -54,26 +54,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+from _harness import _cancel_requested, _emit, _log
 
 # Hidden BEFORE anything heavy is imported. onnxruntime's CPU build ignores it,
 # but an install that has replaced it with onnxruntime-gpu (the app never does,
 # the user may) would otherwise quietly take a card a training run is using.
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
-
-
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
-def _emit(obj):
-    print(json.dumps(obj), flush=True)
-
-
-def _cancel_requested(cancel_file):
-    """The parent drops this sentinel file to ask for a clean stop between
-    frames, rather than killing a process holding a loaded engine — everything
-    read so far is in memory and is lost to a kill."""
-    return bool(cancel_file) and os.path.exists(cancel_file)
 
 
 def _boxes_of(result, width, height, score_min):

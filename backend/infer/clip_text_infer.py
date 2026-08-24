@@ -45,6 +45,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from _harness import _emit, _log
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import import_report  # noqa: E402
@@ -52,14 +53,6 @@ import import_report  # noqa: E402
 # MUST match bank_score_infer.py — see the contract note above.
 MODEL_NAME = 'ViT-L-14'
 PRETRAINED = 'openai'
-
-
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
-def _emit(obj):
-    print(json.dumps(obj), flush=True)
 
 
 def main() -> int:

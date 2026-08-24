@@ -802,7 +802,10 @@ def test_the_probe_imports_everything_the_worker_imports():
     # a probe that under-reports.
     imported = set(re.findall(r'^\s*(?:import|from)\s+([A-Za-z_][\w]*)', src,
                               re.M))
-    imported -= {'__future__', 'json', 'os', 'sys'}   # the stdlib is always there
+    # The stdlib is always there; _harness is the stdlib-only sibling module
+    # shipped NEXT TO the worker (same directory, same repo), so it can no more
+    # be absent from the env than json can — the probe owes it nothing.
+    imported -= {'__future__', 'json', 'os', 'sys', '_harness'}
     assert imported == {'rapidocr_onnxruntime', 'cv2'}, \
         f'the worker imports {sorted(imported)} — update the probe to match'
     for module in imported:

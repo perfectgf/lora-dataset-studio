@@ -62,6 +62,7 @@ import io
 import json
 import os
 import sys
+from _harness import _cancel_requested, _log, _write_count
 
 CACHE_EVERY = 50
 
@@ -85,10 +86,6 @@ from bank_image_guard import read_validated_bank_image  # noqa: E402
 import npz_atomic  # noqa: E402
 
 
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
 def _phase(sentence):
     """Announce a step that has NO per-image counter, in words the UI shows as-is.
 
@@ -99,27 +96,6 @@ def _phase(sentence):
     the Stop button stays offered through steps where it destroys different
     things."""
     _log(f'[phase] {sentence}')
-
-
-def _cancel_requested(cancel_file):
-    """The parent drops this sentinel file to ask for a clean stop, so the pass
-    flushes its cache and exits between images instead of being SIGKILLed
-    mid-compute (which would lose up to CACHE_EVERY images)."""
-    return bool(cancel_file) and os.path.exists(cancel_file)
-
-
-def _write_count(cache_path, n):
-    """Plain-text sidecar (``<cache>.count``) with how many images are scored so
-    far. The Flask parent has no numpy to read the .npz, so this is how a stopped
-    pass can still report an honest "N scored (M remaining)" — even in the rare
-    case it had to be hard-killed before it could print its own cancel line."""
-    if not cache_path:
-        return
-    try:
-        with open(cache_path + '.count', 'w', encoding='utf-8') as f:
-            f.write(str(int(n)))
-    except OSError:
-        pass
 
 
 def _file_sig(path):

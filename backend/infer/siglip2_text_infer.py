@@ -10,6 +10,7 @@ import json
 import os
 import sys
 from typing import Any
+from _harness import _pooled_features
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import import_report  # noqa: E402
@@ -61,19 +62,6 @@ def _move_to_cpu(inputs: Any) -> Any:
         return {key: value.to('cpu') if hasattr(value, 'to') else value
                 for key, value in inputs.items()}
     return inputs
-
-
-def _pooled_features(output: Any) -> Any:
-    """Tensor from old direct-return and new BaseModelOutput Transformers APIs."""
-    pooled = getattr(output, 'pooler_output', None)
-    if pooled is not None:
-        return pooled
-    if isinstance(output, (tuple, list)):
-        if len(output) > 1:
-            return output[1]
-        if output:
-            return output[0]
-    return output
 
 
 def main() -> int:

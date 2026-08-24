@@ -108,6 +108,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from _harness import _emit, _log
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import import_report  # noqa: E402
@@ -131,14 +132,6 @@ IMAGENET_STD = (0.229, 0.224, 0.225)
 # parent sends (16), which is why it is expressed that way rather than as a
 # round number somebody would later "tidy" to 50.
 CLIPS_PER_FORWARD = 4
-
-
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
-def _emit(obj):
-    print(json.dumps(obj), flush=True)
 
 
 def _preprocess(paths):

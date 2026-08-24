@@ -68,8 +68,8 @@ video among four hundred must cost that video and not the scan.
 """
 from __future__ import annotations
 import json
-import os
 import sys
+from _harness import _cancel_requested, _emit, _log
 
 # Persisted verbatim in VideoClip.detector by the parent
 # (services/shot_detect.DETECTOR_ID). Duplicated on purpose — the two run in
@@ -99,20 +99,6 @@ _PROB_DECIMALS = 4
 # `_input_size` attribute. Not configurable: the trained weights are for this
 # exact shape.
 _INPUT_SIZE = (27, 48, 3)
-
-
-def _log(m):
-    print(m, file=sys.stderr, flush=True)
-
-
-def _emit(obj):
-    print(json.dumps(obj), flush=True)
-
-
-def _cancel_requested(cancel_file):
-    """The parent drops this sentinel file to ask for a clean stop between
-    videos, rather than killing a process holding a loaded model."""
-    return bool(cancel_file) and os.path.exists(cancel_file)
 
 
 def _predictions_to_scenes(probs, threshold=0.5):
