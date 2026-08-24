@@ -4241,61 +4241,11 @@ def _semantic_dup_threshold(engine, threshold=None) -> float:
     return value
 
 
-def rebuild_semantic_dup_groups(bank_id, threshold=None, *,
-                                _bank_lease=None, on_phase=None) -> int | None:
-    """Stage-2 near-duplicate grouping in the Bank's selected semantic space.
-
-    CLIP preserves the historical Score-cache/style-blocking path byte for byte;
-    SigLIP2 reads its independent semantic cache and always compares globally,
-    because ``style_cluster`` remains an explicitly CLIP-owned product.
-
-    Cost: a semantic near-dup (cosine ≥ threshold) is necessarily inside one style
-    union-find component (that clustering uses style_threshold ≤ threshold), so we
-    BLOCK by style_cluster and only compare within a block — Σ block² dot-products,
-    not the full n². A config with style_threshold > threshold would break that
-    guarantee, so we fall back to a single global block then. Re-running at another
-    threshold is CPU-only and near-instant: it re-reads the cached embeddings — no
-    GPU, no re-scan."""
-    if _bank_lease is None:
-        with bank_jobs.mutation_lease(bank_id, 'semantic_dedup') as lease:
-            return rebuild_semantic_dup_groups(
-                bank_id, threshold=threshold, _bank_lease=lease, on_phase=on_phase)
-    # The pass used to announce itself once and then work in silence — on a big
-    # bank that is minutes of an empty bar, and the quietest phase is the
-    # slowest one (proving nothing moved re-hashes every file). Each phase now
-    # says what it is doing and fills the bar as it goes.
-    def _phase(done, total, detail):
-        if on_phase:
-            on_phase(done, total, detail)
-    bank_jobs.require_reservation(_bank_lease, bank_id)
-    import numpy as np
-    bank = db.session.get(ImageBank, bank_id)
-    if not bank:
-        return None
-    engine = _selected_semantic_engine(bank)
-    semantic_lane = _semantic_dup_lane(engine)
-    cache_path = (_score_cache_path(bank_id) if engine == 'clip'
-                  else _semantic_cache_path(bank_id))
-    try:
-        cache_stat = cache_path.stat()
-        cache_generation = (cache_stat.st_size, cache_stat.st_mtime_ns)
-    except OSError:
-        return None
-    emb_by_path = _load_semantic_embeddings(bank)
-    if not emb_by_path:
-        return None
-    th = thresholds()
-    t = _semantic_dup_threshold(engine, threshold)
-    block_by_style = engine == 'clip' and th['style_threshold'] <= t
-    rows = (BankImage.query.filter_by(bank_id=bank_id)
-            .order_by(BankImage.id.asc()).all())
-    path_by_id = {row.id: analysis_image_path(bank, row) for row in rows}
-    preserved_siglip2_groups = (
-        _preserved_siglip2_groups(
-            bank_id, {path: row.id for row in rows
-                      if (path := path_by_id.get(row.id)) is not None})
-        if engine == 'clip' else {})
-    # (image_id, block_key, embedding, path, fingerprint, style_cluster)
+def _sdg_collect_items(bank, rows, path_by_id, emb_by_path, engine,
+                       block_by_style, preserved_siglip2_groups):
+    """Pair every live row with its cached embedding and block key. Moved
+    verbatim from rebuild_semantic_dup_groups; skips rows whose analysis
+    write cannot be prepared and restores proven SigLIP2 groups en route."""
     items = []
     for r in rows:
         p = path_by_id.get(r.id)
@@ -4314,14 +4264,14 @@ def rebuild_semantic_dup_groups(bank_id, threshold=None, *,
         block = (r.style_cluster if r.style_cluster is not None else -1) \
             if block_by_style else 0
         items.append((r.id, block, emb, p, fingerprint, r.style_cluster))
-    if not items:
-        BankImage.query.filter_by(bank_id=bank_id).update(
-            {BankImage.semantic_dup_group: None, semantic_lane: None},
-            synchronize_session=False)
-        db.session.commit()
-        return 0
-    # Do not retain a SQLite read/write transaction across the O(n²) CPU phase.
-    _release_db_before_inference()
+    return items
+
+
+def _sdg_group_by_similarity(items, t, _phase):
+    """Union-find same-shot grouping over the style blocks (tiled exact
+    cosine, bounded memory). Moved verbatim from rebuild_semantic_dup_groups;
+    raises ValueError when the exact-pair budget is exceeded."""
+    import numpy as np
     blocks: dict = {}
     for idx, (_id, block, _emb, _path, _fp, _style) in enumerate(items):
         blocks.setdefault(block, []).append(idx)
@@ -4388,9 +4338,16 @@ def rebuild_semantic_dup_groups(bank_id, threshold=None, *,
         comps.setdefault(find(i), []).append(i)
     groups = sorted((m for m in comps.values() if len(m) >= 2),
                     key=lambda m: (-len(m), items[m[0]][0]))
-    # The cache, every effective payload, and (when used for blocking) every
-    # style id are one generation.  Refuse the whole semantic partition if any
-    # member moved while the CPU comparison ran.
+    return groups
+
+
+def _sdg_partition_still_valid(bank, bank_id, items, engine, block_by_style,
+                               cache_path, cache_generation, _phase):
+    """Re-hash every member to prove nothing moved during the CPU phase.
+    Moved verbatim from rebuild_semantic_dup_groups; repairs a stale CLIP
+    analysis fingerprint en route. Returns (partition_valid,
+    cache_still_current) - the whole partition is refused if any member
+    changed or the cache rolled a generation."""
     try:
         cache_stat = cache_path.stat()
         cache_still_current = (
@@ -4428,6 +4385,77 @@ def rebuild_semantic_dup_groups(bank_id, threshold=None, *,
                     and current_fp != expected_fp):
                 _invalidate_effective_analysis(row)
                 row.analysis_fingerprint = current_fp
+    return partition_valid, cache_still_current
+
+
+def rebuild_semantic_dup_groups(bank_id, threshold=None, *,
+                                _bank_lease=None, on_phase=None) -> int | None:
+    """Stage-2 near-duplicate grouping in the Bank's selected semantic space.
+
+    CLIP preserves the historical Score-cache/style-blocking path byte for byte;
+    SigLIP2 reads its independent semantic cache and always compares globally,
+    because ``style_cluster`` remains an explicitly CLIP-owned product.
+
+    Cost: a semantic near-dup (cosine ≥ threshold) is necessarily inside one style
+    union-find component (that clustering uses style_threshold ≤ threshold), so we
+    BLOCK by style_cluster and only compare within a block — Σ block² dot-products,
+    not the full n². A config with style_threshold > threshold would break that
+    guarantee, so we fall back to a single global block then. Re-running at another
+    threshold is CPU-only and near-instant: it re-reads the cached embeddings — no
+    GPU, no re-scan."""
+    if _bank_lease is None:
+        with bank_jobs.mutation_lease(bank_id, 'semantic_dedup') as lease:
+            return rebuild_semantic_dup_groups(
+                bank_id, threshold=threshold, _bank_lease=lease, on_phase=on_phase)
+    # The pass used to announce itself once and then work in silence — on a big
+    # bank that is minutes of an empty bar, and the quietest phase is the
+    # slowest one (proving nothing moved re-hashes every file). Each phase now
+    # says what it is doing and fills the bar as it goes.
+    def _phase(done, total, detail):
+        if on_phase:
+            on_phase(done, total, detail)
+    bank_jobs.require_reservation(_bank_lease, bank_id)
+    bank = db.session.get(ImageBank, bank_id)
+    if not bank:
+        return None
+    engine = _selected_semantic_engine(bank)
+    semantic_lane = _semantic_dup_lane(engine)
+    cache_path = (_score_cache_path(bank_id) if engine == 'clip'
+                  else _semantic_cache_path(bank_id))
+    try:
+        cache_stat = cache_path.stat()
+        cache_generation = (cache_stat.st_size, cache_stat.st_mtime_ns)
+    except OSError:
+        return None
+    emb_by_path = _load_semantic_embeddings(bank)
+    if not emb_by_path:
+        return None
+    th = thresholds()
+    t = _semantic_dup_threshold(engine, threshold)
+    block_by_style = engine == 'clip' and th['style_threshold'] <= t
+    rows = (BankImage.query.filter_by(bank_id=bank_id)
+            .order_by(BankImage.id.asc()).all())
+    path_by_id = {row.id: analysis_image_path(bank, row) for row in rows}
+    preserved_siglip2_groups = (
+        _preserved_siglip2_groups(
+            bank_id, {path: row.id for row in rows
+                      if (path := path_by_id.get(row.id)) is not None})
+        if engine == 'clip' else {})
+    # (image_id, block_key, embedding, path, fingerprint, style_cluster)
+    items = _sdg_collect_items(bank, rows, path_by_id, emb_by_path, engine,
+                               block_by_style, preserved_siglip2_groups)
+    if not items:
+        BankImage.query.filter_by(bank_id=bank_id).update(
+            {BankImage.semantic_dup_group: None, semantic_lane: None},
+            synchronize_session=False)
+        db.session.commit()
+        return 0
+    # Do not retain a SQLite read/write transaction across the O(n²) CPU phase.
+    _release_db_before_inference()
+    groups = _sdg_group_by_similarity(items, t, _phase)
+    partition_valid, cache_still_current = _sdg_partition_still_valid(
+        bank, bank_id, items, engine, block_by_style, cache_path,
+        cache_generation, _phase)
     if not partition_valid:
         BankImage.query.filter_by(bank_id=bank_id).update(
             {BankImage.semantic_dup_group: None, semantic_lane: None},
