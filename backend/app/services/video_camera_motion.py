@@ -84,12 +84,12 @@ still photograph has no second instant. This is the same legitimate divergence
 """
 from __future__ import annotations
 
-import json
 import logging
 import math
 
 from ..extensions import db
 from ..models import VideoBank, VideoClip, VideoSource
+from .video_pass_scaffold import clip_summary as _summary, retry_when_idle as _retry_when_idle, store_pass_result
 
 logger = logging.getLogger(__name__)
 
@@ -636,12 +636,6 @@ def pending_clips(bank_id, rescan=False):
 # going to click instead of needing one of its own. See
 # video_clip_search.pending_clips, where this rule was written first, after a
 # bank of 861 shots retired itself in one pass.
-def _retry_when_idle(rows, state_key, done):
-    """`done` first; when there are none, the ones that failed last time."""
-    fresh = [c for c in rows if not done(c)]
-    if fresh:
-        return fresh
-    return [c for c in rows if _summary(c).get(state_key) == 'unreadable']
 
 
 def run_camera_motion(bank_id, rescan=False, *, on_clip=None, should_stop=None):
@@ -694,29 +688,8 @@ def run_camera_motion(bank_id, rescan=False, *, on_clip=None, should_stop=None):
 
 
 def _store(clip, values):
-    """Merge this pass's reading into the clip's blob and commit it.
-
-    MERGE, not replace: metrics_json holds the quality scores an expensive pass
-    produced plus seven other passes' verdicts, and overwriting it here would
-    erase them silently. The keys this pass OWNS are cleared first, so a re-run
-    that now finds a shot too short cannot leave last run's rates beside this
-    run's state.
-    """
-    summary = _summary(clip)
-    for key in OWNED_KEYS:
-        summary.pop(key, None)
-    summary.update(values)
-    clip.metrics_json = json.dumps(summary)
-    db.session.commit()
+    """This pass's OWNED_KEYS through the shared merge-and-commit - see
+    video_pass_scaffold.store_pass_result."""
+    store_pass_result(clip, values, OWNED_KEYS)
 
 
-def _summary(clip):
-    """The clip's stored measurements, parsed. A corrupt blob reads as an empty
-    one — this pass must never be the reason a bank's quality scores disappear."""
-    if not clip.metrics_json:
-        return {}
-    try:
-        loaded = json.loads(clip.metrics_json)
-    except (ValueError, TypeError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}

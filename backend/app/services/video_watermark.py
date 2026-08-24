@@ -39,12 +39,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import tempfile
 
 from ..extensions import db
 from ..models import VideoBank, VideoClip, VideoSource
+from .video_pass_scaffold import clip_summary as _summary, empty_scratch as _empty, retry_when_idle as _retry_when_idle
 
 logger = logging.getLogger(__name__)
 
@@ -159,12 +159,6 @@ def pending_clips(bank_id, rescan=False):
 # going to click instead of needing one of its own. See
 # video_clip_search.pending_clips, where this rule was written first, after a
 # bank of 861 shots retired itself in one pass.
-def _retry_when_idle(rows, state_key, done):
-    """`done` first; when there are none, the ones that failed last time."""
-    fresh = [c for c in rows if not done(c)]
-    if fresh:
-        return fresh
-    return [c for c in rows if _summary(c).get(state_key) == 'unreadable']
 
 
 def run_watermark(bank_id, rescan=False, *, on_clip=None, should_stop=None):
@@ -296,28 +290,5 @@ def _store(clip, score, state):
     db.session.commit()
 
 
-def _summary(clip):
-    """The clip's stored measurements, parsed. A corrupt blob reads as an empty
-    one — this pass must never be the reason a bank's quality scores disappear."""
-    if not clip.metrics_json:
-        return {}
-    try:
-        loaded = json.loads(clip.metrics_json)
-    except (ValueError, TypeError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}
 
 
-def _empty(scratch):
-    """Drop this chunk's frames. Emptied per chunk rather than at the end: 768 px
-    JPEGs of a whole bank are a second copy of the footage, and the point of
-    chunking is that only one chunk's worth is ever on disk."""
-    try:
-        names = os.listdir(scratch)
-    except OSError:
-        return
-    for name in names:
-        try:
-            os.unlink(os.path.join(scratch, name))
-        except OSError:
-            pass

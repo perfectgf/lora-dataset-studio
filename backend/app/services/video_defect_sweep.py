@@ -75,7 +75,6 @@ questions already, and answers them differently on purpose:
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
@@ -86,6 +85,7 @@ import time
 from ..extensions import db
 from ..models import VideoBank, VideoClip, VideoSource
 from . import ffmpeg_tools
+from .video_pass_scaffold import clip_summary as _summary, store_pass_result
 
 logger = logging.getLogger(__name__)
 
@@ -620,32 +620,8 @@ def _empty_result():
 
 
 def _store(clip, values):
-    """Merge this pass's verdict into the clip's blob and commit it.
-
-    MERGE, not replace: metrics_json holds the quality scores a much more
-    expensive pass produced, plus the dedup, watermark, look and safe-zone
-    verdicts, and overwriting it here would erase them silently. The keys this
-    pass OWNS are cleared first, so a re-run that produces fewer of them (a shot
-    that now falls between two samples) cannot leave last run's `block_score`
-    sitting beside this run's state.
-
-    COMMITTED per clip: the resume contract every pass in this lane keeps.
-    """
-    summary = _summary(clip)
-    for key in OWNED_KEYS:
-        summary.pop(key, None)
-    summary.update(values)
-    clip.metrics_json = json.dumps(summary)
-    db.session.commit()
+    """This pass's OWNED_KEYS through the shared merge-and-commit - see
+    video_pass_scaffold.store_pass_result."""
+    store_pass_result(clip, values, OWNED_KEYS)
 
 
-def _summary(clip):
-    """The clip's stored measurements, parsed. A corrupt blob reads as an empty
-    one — this pass must never be the reason a bank's quality scores disappear."""
-    if not clip.metrics_json:
-        return {}
-    try:
-        loaded = json.loads(clip.metrics_json)
-    except (ValueError, TypeError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}

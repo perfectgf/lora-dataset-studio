@@ -77,6 +77,7 @@ from .. import config as cfg
 from ..extensions import db
 from ..models import VideoBank, VideoClip, VideoSource
 from . import video_safe_zone_geometry as geometry
+from .video_pass_scaffold import clip_summary as _summary, empty_scratch as _empty, retry_when_idle as _retry_when_idle, store_pass_result
 
 logger = logging.getLogger(__name__)
 
@@ -346,12 +347,6 @@ def pending_clips(bank_id, rescan=False):
 # going to click instead of needing one of its own. See
 # video_clip_search.pending_clips, where this rule was written first, after a
 # bank of 861 shots retired itself in one pass.
-def _retry_when_idle(rows, state_key, done):
-    """`done` first; when there are none, the ones that failed last time."""
-    fresh = [c for c in rows if not done(c)]
-    if fresh:
-        return fresh
-    return [c for c in rows if _summary(c).get(state_key) == 'unreadable']
 
 
 def run_safe_zone(bank_id, rescan=False, *, on_clip=None, should_stop=None,
@@ -575,49 +570,10 @@ def _summarise_clip(per_frame, boxes_by_key, *, text_ok):
 
 
 def _store(clip, values):
-    """Merge this pass's verdict into the clip's blob and commit it.
-
-    MERGE, not replace: metrics_json holds the quality scores a much more
-    expensive pass produced, plus the dedup, watermark and look verdicts, and
-    overwriting it here would erase them silently. The keys this pass OWNS are
-    cleared first, so a re-measure that finds fewer of them (a bank re-run
-    without the OCR engine) cannot leave last run's `safe_area` sitting beside
-    this run's `bars_only`.
-
-    COMMITTED per clip: the resume contract every pass in this lane keeps. A bank
-    of thousands that is stopped, or whose text reader dies, keeps every
-    measurement it already earned.
-    """
-    summary = _summary(clip)
-    for key in OWNED_KEYS:
-        summary.pop(key, None)
-    summary.update(values)
-    clip.metrics_json = json.dumps(summary)
-    db.session.commit()
+    """This pass's OWNED_KEYS through the shared merge-and-commit - see
+    video_pass_scaffold.store_pass_result."""
+    store_pass_result(clip, values, OWNED_KEYS)
 
 
-def _summary(clip):
-    """The clip's stored measurements, parsed. A corrupt blob reads as an empty
-    one — this pass must never be the reason a bank's quality scores disappear."""
-    if not clip.metrics_json:
-        return {}
-    try:
-        loaded = json.loads(clip.metrics_json)
-    except (ValueError, TypeError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}
 
 
-def _empty(scratch):
-    """Drop this chunk's frames. Emptied per chunk rather than at the end: 768 px
-    JPEGs of a whole bank are a second copy of the footage, and the point of
-    chunking is that only one chunk's worth is ever on disk."""
-    try:
-        names = os.listdir(scratch)
-    except OSError:
-        return
-    for name in names:
-        try:
-            os.unlink(os.path.join(scratch, name))
-        except OSError:
-            pass

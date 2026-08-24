@@ -52,6 +52,7 @@ from ..extensions import db
 from ..models import VideoClip
 from . import video_metrics
 from . import infer_env
+from .video_pass_scaffold import clip_summary as _summary
 
 logger = logging.getLogger(__name__)
 
@@ -221,14 +222,3 @@ def run_aesthetic(bank_id, rescore=False, *, on_clip=None, should_stop=None):
     return {'rated': rated, 'unrated': unrated, 'error': None}
 
 
-def _summary(clip):
-    """The clip's stored measurements, parsed. A corrupt blob reads as an empty
-    one — this pass MERGES into what the metrics, dedup and watermark passes
-    wrote and must never be the reason a bank's quality scores disappear."""
-    if not clip.metrics_json:
-        return {}
-    try:
-        loaded = json.loads(clip.metrics_json)
-    except (ValueError, TypeError):
-        return {}
-    return loaded if isinstance(loaded, dict) else {}
