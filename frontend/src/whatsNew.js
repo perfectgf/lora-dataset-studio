@@ -110,6 +110,20 @@ export const WHATS_NEW = [
     to: '/gallery',
   },
   {
+    id: '2026-08-24-engines-settings-groups',
+    date: '2026-08-24',
+    title: 'Image engines settings, organised into groups',
+    blurb:
+      'The section had grown into a wall of eleven cards — API keys next to '
+      + 'Klein pins next to the improve prompt. It now opens on a clickable '
+      + 'summary of six groups (Engines & API keys · Klein · Krea 2 · '
+      + 'Generation LoRA presets · SeedVR2 · Prompts & improve tuning), each '
+      + 'collapsible and remembered across visits. Every Settings link and '
+      + 'search result still lands on its field — a collapsed group opens '
+      + 'itself on the way.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-08-24-improve-output-size-in-note',
     date: '2026-08-24',
     title: 'Pick the improve output size right under the ✨ button',

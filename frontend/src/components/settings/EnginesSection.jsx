@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { INPUT_CLASS, Card, SecretField } from './primitives'
+import { SettingsGroup, SettingsGroupsToc } from './SettingsGroupsView'
+import { ENGINES_GROUPS, readOpenGroups } from './settingsGroups'
 import KleinLoraCombobox, { useKleinGenerationLoras } from './KleinLoraCombobox'
 import ModelFilePicker, { useModelFiles } from './ModelFilePicker'
 import ChatgptSubscriptionConnect from '../common/ChatgptSubscriptionConnect'
@@ -1437,10 +1439,28 @@ function ChatgptSubscriptionCard({ caps, config, setField, refreshCaps, toast, c
   )
 }
 
+/* The section is organised as a clickable SUMMARY plus collapsible groups —
+   eleven flat cards had grown into a wall where API keys sat next to Klein
+   pins next to the improve prompt, and finding anything meant scrolling
+   (reported from a tablet, mid preset editing). Which cards live in which
+   group is data (settingsGroups.ENGINES_GROUPS), the shells are shared
+   (SettingsGroupsView.jsx — NOT settingsGroups.jsx with a capital: a name
+   differing only by case resolves to the wrong file on a Windows checkout),
+   and deep-links keep working untouched: each group is
+   a native <details>, which the ?focus= reveal already knows how to open. */
 export default function EnginesSection(props) {
   const { config, setField, toggleEngine, caps, refreshCaps, toast, configDefaults } = props
+  const [group1, group2, group3, group4, group5, group6] = ENGINES_GROUPS
+  const [initiallyOpen] = useState(() => readOpenGroups(
+    typeof localStorage === 'undefined' ? null : localStorage, 'engines'))
+  const groupProps = (g) => ({
+    sectionId: 'engines', group: g, defaultOpen: initiallyOpen.has(g.id),
+  })
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <SettingsGroupsToc sectionId="engines" groups={ENGINES_GROUPS} />
+
+      <SettingsGroup {...groupProps(group1)}>
       <Card title="API keys" help="Keys are write-only — fields stay blank even when a key is already saved.">
         {ENGINE_SECRETS.map((f) => <SecretField key={f.key} field={f} {...props} />)}
       </Card>
@@ -1489,23 +1509,38 @@ export default function EnginesSection(props) {
             config={config} configDefaults={configDefaults} setField={setField} />
         </fieldset>
       </Card>
+      </SettingsGroup>
 
+      <SettingsGroup {...groupProps(group2)}>
       <KleinModelFilesCard config={config} setField={setField} caps={caps} />
 
       <KleinGenerationCard config={config} setField={setField} configDefaults={configDefaults} />
+      </SettingsGroup>
 
+      <SettingsGroup {...groupProps(group3)}>
+      <KreaCard config={config} setField={setField} configDefaults={configDefaults} caps={caps} />
+      </SettingsGroup>
+
+      {/* The two preset lists live TOGETHER, not each under its engine: the
+          activity is one ("my named LoRA chains"), and it is the block the
+          scattered-options report came from. Each card still names its
+          engine — the lists stay independent, one name can mean two chains. */}
+      <SettingsGroup {...groupProps(group4)}>
       <KleinLorasCard config={config} setField={setField} />
 
-      <KreaCard config={config} setField={setField} configDefaults={configDefaults} caps={caps} />
-
       <KreaLorasCard config={config} setField={setField} />
+      </SettingsGroup>
 
+      <SettingsGroup {...groupProps(group5)}>
       <SeedVr2Card config={config} setField={setField} configDefaults={configDefaults}
         caps={caps} />
+      </SettingsGroup>
 
+      <SettingsGroup {...groupProps(group6)}>
       <IdentityPromptsCard config={config} setField={setField} promptDefaults={props.promptDefaults}
         promptDefaultsBySubject={props.promptDefaultsBySubject}
         setIdentityPrompts={props.setIdentityPrompts} configDefaults={configDefaults} />
+      </SettingsGroup>
     </div>
   )
 }
