@@ -578,10 +578,39 @@ def _app_pillow_spec() -> str:
     return spec if spec.lower() != 'pillow' else 'Pillow>=10'
 
 
+def _venv_root(python: str) -> str:
+    """The venv directory that OWNS `python` (its grandparent, when a pyvenv.cfg
+    marks it as one), resolved and case-normalised — or '' for a non-venv path.
+
+    This is the identity that matters when two interpreter paths are compared:
+    on Linux a venv's bin/python is a SYMLINK to the base interpreter, so
+    resolving the BINARY (os.path.samefile) answers "same base Python?", never
+    "same environment?". Every venv on the machine then collapses into one —
+    which is how the Flask-venv guard mistook the app-managed bank-scoring env
+    for the app's own venv inside the GPU Docker image and refused installs that
+    were the whole point of the button. The DIRECTORY is still resolved (a data
+    dir reached through a mount symlink must match itself); only the binary is
+    taken at face value. Conda envs carry no pyvenv.cfg and return '', keeping
+    their comparisons on the old samefile path. Never raises."""
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(python or '')))
+        if root and os.path.isfile(os.path.join(root, 'pyvenv.cfg')):
+            return os.path.normcase(os.path.realpath(root))
+    except OSError:
+        pass
+    return ''
+
+
 def _is_flask_venv(python: str) -> bool:
     """True when `python` resolves to the app's OWN interpreter (the Flask venv) —
-    the environment whose Pillow must never be downgraded. Case/separator-insensitive
-    on Windows; never raises."""
+    the environment whose Pillow must never be downgraded. Compares ENVIRONMENTS,
+    not binaries (see _venv_root): two venvs are the same only when they are the
+    same directory, and a venv is never the same environment as a bare system
+    Python, even the one it was built from. Case/separator-insensitive on
+    Windows; never raises."""
+    own, other = _venv_root(sys.executable), _venv_root(python)
+    if own or other:
+        return bool(own) and bool(other) and own == other
     try:
         return os.path.samefile(python, sys.executable)
     except OSError:
@@ -666,14 +695,14 @@ def manual_command(action) -> str:
         # test_requirements_ml_floors_transformers_for_qwen3vl).
         python = _bank_scoring_env_python()
         pkgs = ' '.join(f'"{s}"' for s in _bank_scoring_specs())
-        return (f'{_quote(python)} -m pip install torch --index-url {_TORCH_CPU_INDEX}  '
+        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
                 f'&&  {_quote(python)} -m pip install {pkgs}')
     if action == 'shot_detect':
         # One line, and no weights step: transnetv2-pytorch carries its own inside
         # the wheel. Targets the scoring environment because of torch.
         python = (cfg.get('shot_detect.python') or cfg.get('bank_scoring.python')
                   or _bank_scoring_env_python())
-        return (f'{_quote(python)} -m pip install torch --index-url {_TORCH_CPU_INDEX}  '
+        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
                 f'&&  {_quote(python)} -m pip install '
                 f'"{_requirement_spec("transnetv2-pytorch")}" "{_requirement_spec("av")}"')
     if action == 'bank_siglip2':
@@ -690,7 +719,7 @@ def manual_command(action) -> str:
             f"d(repo_id='{assets.MODEL_ID}', filename='{name}', "
             f"revision='{assets.REVISION}', cache_dir=r'{root}')"
             for name in assets.FILES)
-        return (f'{_quote(python)} -m pip install torch --index-url {_TORCH_CPU_INDEX}  '
+        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
                 f'&&  {_quote(python)} -m pip install "transformers>=4.49" '
                 f'huggingface_hub safetensors sentencepiece Pillow  &&  '
                 f'{_quote(python)} -c "from huggingface_hub import hf_hub_download as d; '
@@ -708,7 +737,7 @@ def manual_command(action) -> str:
                         for name in meta['files'])
             + '"'
             for repo, meta in watermark_detector.MODEL_FILES.items())
-        return (f'{_quote(python)} -m pip install torch --index-url {_TORCH_CPU_INDEX}  '
+        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
                 f'&&  {_quote(python)} -m pip install transformers huggingface_hub '
                 f'safetensors  &&  {pulls}')
     if action == 'ollama_model':
@@ -1235,6 +1264,31 @@ _TORCH_CPU_INDEX = 'https://download.pytorch.org/whl/cpu'
 _WARM_IMPORT_TIMEOUT = 300
 
 
+def _install_cpu_torch_pair(action, python, *, constraint=False) -> int:
+    """Install torch AND torchvision together from _TORCH_CPU_INDEX into a managed
+    environment. Always the PAIR, never torch alone: the stacks that land in these
+    envs afterwards (open_clip_torch, timm, simple-lama-inpainting) depend on
+    torchvision, and left to pip that torchvision resolves from PyPI — where the
+    Linux wheel is built against a DIFFERENT torch than the CPU-index one already
+    present. The mismatch imports into `RuntimeError: operator torchvision::nms
+    does not exist` and the whole env is unusable (reported from the GPU Docker
+    image, whose rebuilt bank-scoring env failed exactly this way; Dockerfile.gpu
+    names the same trap for the image venv and pairs them for the same reason).
+    Windows never surfaced it because PyPI's Windows torchvision wheels are CPU
+    builds. One index, both names: pip resolves a matched pair, and the call is a
+    no-op when a matched pair is already there."""
+    _append(action, 'installing CPU torch + torchvision '
+                    '(download.pytorch.org/whl/cpu) if needed')
+    cmd = [python, '-m', 'pip', 'install', 'torch', 'torchvision',
+           '--index-url', _TORCH_CPU_INDEX]
+    if constraint:
+        cmd += ['-c', str(_ML_REQUIREMENTS)]
+    rc = _run_pip(action, cmd)
+    if rc != 0:
+        _append(action, f'torch install failed (rc={rc}) — see the log above')
+    return rc
+
+
 def _watermark_env_dir():
     """The app-managed watermark venv directory (deterministic, under the data dir), so
     a re-click resolves the SAME venv — idempotent build/repair, never a duplicate."""
@@ -1252,8 +1306,15 @@ def _watermark_env_python() -> str:
 
 
 def _same_path(a, b) -> bool:
-    """True when two paths point at the same interpreter. samefile when both exist,
-    else a case/separator-insensitive compare (so a not-yet-built venv path matches)."""
+    """True when two paths point at the same interpreter ENVIRONMENT. Venv pythons
+    compare by the venv directory that owns them (see _venv_root) — never by
+    resolving the binary, which on Linux collapses every venv into its symlinked
+    base and made a borrowed interpreter indistinguishable from the managed env.
+    Non-venv paths keep samefile when both exist, else a case/separator-insensitive
+    compare (so a not-yet-built venv path matches)."""
+    ra, rb = _venv_root(a or ''), _venv_root(b or '')
+    if ra or rb:
+        return bool(ra) and bool(rb) and ra == rb
     try:
         return os.path.samefile(a, b)
     except OSError:
@@ -1402,11 +1463,10 @@ def _pip_install_watermark(action, python, *, managed: bool) -> int:
     spec = _requirement_spec(_WATERMARK_PKG)
     _append(action, f'target interpreter: {python}')
     if managed:
-        _append(action, 'installing CPU torch (download.pytorch.org/whl/cpu)')
-        rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
-                               '--index-url', _TORCH_CPU_INDEX, '-c', str(_ML_REQUIREMENTS)])
+        # simple-lama-inpainting depends on torchvision, so the pair matters here
+        # exactly as it does for the bank-scoring stack (see _install_cpu_torch_pair).
+        rc = _install_cpu_torch_pair(action, python, constraint=True)
         if rc != 0:
-            _append(action, f'torch install failed (rc={rc}) — see the log above')
             return rc
     _append(action, f'installing {spec}  (constraints: requirements-ml.txt)')
     return _run_pip(action, [python, '-m', 'pip', 'install', spec, '-c', str(_ML_REQUIREMENTS)])
@@ -1588,11 +1648,8 @@ def _run_bank_scoring(action) -> int:
         _append(action, 'Install/repair targets only the LDS-managed environment below.')
     # Past this point the target is always the app-managed venv.
     _append(action, f'target interpreter: {python}')
-    _append(action, 'installing CPU torch (download.pytorch.org/whl/cpu)')
-    rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
-                           '--index-url', _TORCH_CPU_INDEX])
+    rc = _install_cpu_torch_pair(action, python)
     if rc != 0:
-        _append(action, f'torch install failed (rc={rc}) — see the log above')
         return rc
     specs = _bank_scoring_specs()
     _append(action, f"installing {', '.join(specs)}")
@@ -1686,9 +1743,7 @@ def _run_bank_siglip2(action) -> int:
         _append(action, 'Install/repair targets only the LDS-managed environment below.')
 
     _append(action, f'target interpreter: {python}')
-    _append(action, 'installing CPU torch if needed (the GPU-Python picker remains available)')
-    rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
-                           '--index-url', _TORCH_CPU_INDEX])
+    rc = _install_cpu_torch_pair(action, python)
     if rc != 0:
         return rc
     rc = _run_pip(action, [python, '-m', 'pip', 'install',
@@ -1792,11 +1847,8 @@ def _run_watermark_detect(action) -> int:
             _append(action, line)
         return 1
     _append(action, f'target interpreter: {python}')
-    _append(action, 'installing CPU torch (download.pytorch.org/whl/cpu) if needed')
-    rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
-                           '--index-url', _TORCH_CPU_INDEX])
+    rc = _install_cpu_torch_pair(action, python)
     if rc != 0:
-        _append(action, f'torch install failed (rc={rc}) — see the log above')
         return rc
     rc = _run_pip(action, [python, '-m', 'pip', 'install', 'transformers',
                            'huggingface_hub', 'safetensors'])
@@ -2764,11 +2816,8 @@ def _run_shot_detect(action) -> int:
             _append(action, line)
         return 1
     _append(action, f'target interpreter: {python}')
-    _append(action, 'installing CPU torch (download.pytorch.org/whl/cpu) if needed')
-    rc = _run_pip(action, [python, '-m', 'pip', 'install', 'torch',
-                           '--index-url', _TORCH_CPU_INDEX])
+    rc = _install_cpu_torch_pair(action, python)
     if rc != 0:
-        _append(action, f'torch install failed (rc={rc}) — see the log above')
         return rc
     # av rides along because the WORKER decodes with PyAV in this same
     # environment (infer/shot_detect_infer.py imports av before torch sees a

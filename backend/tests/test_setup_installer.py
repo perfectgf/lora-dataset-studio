@@ -1603,6 +1603,111 @@ def test_run_bank_scoring_still_installs_into_the_managed_venv(app, monkeypatch)
     assert saved == managed
 
 
+# --- Interpreter identity: environments, not binaries ----------------------------
+# On Linux every venv's bin/python is a SYMLINK to the base interpreter, so
+# comparing interpreters with os.path.samefile answers "same base Python?" — True
+# for any two venvs on the machine. Inside the GPU Docker image that mistook the
+# app-managed bank-scoring env for the Flask venv and refused the watermark-detector
+# and shot-detection installs with advice that could not work (the config key the
+# refusal says to clear was already empty). The comparators now compare the venv
+# DIRECTORY that owns the binary (marked by pyvenv.cfg). These tests rebuild the
+# collision with HARDLINKS so it is exercised on every OS, symlinks or not.
+
+def _hardlinked_venv(tmp_path, name, base):
+    """A venv-SHAPED directory whose python binary is a hardlink to `base` — every
+    env built this way answers True to os.path.samefile against the others, which
+    is exactly the Linux symlink collision, reproduced portably (NTFS included)."""
+    import os
+    bindir = 'Scripts' if os.name == 'nt' else 'bin'
+    exe = 'python.exe' if os.name == 'nt' else 'python'
+    env = tmp_path / name
+    (env / bindir).mkdir(parents=True)
+    (env / 'pyvenv.cfg').write_text('home = anywhere\n')
+    py = env / bindir / exe
+    os.link(base, py)
+    return str(py)
+
+
+def test_venv_comparators_tell_two_envs_apart_when_their_binaries_are_one_file(
+        tmp_path, monkeypatch):
+    import os
+    from app import setup_installer
+    base = tmp_path / 'python-base'
+    base.write_bytes(b'')
+    try:
+        flask_py = _hardlinked_venv(tmp_path, 'flask-venv', base)
+        managed_py = _hardlinked_venv(tmp_path, 'managed-env', base)
+    except OSError:
+        pytest.skip('hardlinks unavailable on this filesystem')
+    assert os.path.samefile(flask_py, managed_py)         # the collision is real
+    monkeypatch.setattr(setup_installer.sys, 'executable', flask_py)
+    assert setup_installer._is_flask_venv(flask_py)       # itself: still True
+    assert not setup_installer._is_flask_venv(managed_py)  # another env: never
+    assert not setup_installer._same_path(flask_py, managed_py)
+    # A venv is not the bare base interpreter it was built from either.
+    assert not setup_installer._is_flask_venv(str(base))
+
+
+def test_two_binary_names_inside_one_env_are_the_same_interpreter(tmp_path):
+    """bin/python vs bin/python3 of ONE env compare equal — the identity is the
+    environment, not the file name."""
+    import os
+    from app import setup_installer
+    base = tmp_path / 'python-base'
+    base.write_bytes(b'')
+    try:
+        py = _hardlinked_venv(tmp_path, 'env', base)
+    except OSError:
+        pytest.skip('hardlinks unavailable on this filesystem')
+    sibling = os.path.join(os.path.dirname(py),
+                           'python3.exe' if os.name == 'nt' else 'python3')
+    os.link(str(base), sibling)
+    assert setup_installer._same_path(py, sibling)
+
+
+def test_same_path_still_matches_a_not_yet_built_venv_by_string(tmp_path):
+    """The pre-build compare (neither path exists yet) keeps working: a configured
+    value equal to the managed path must count as managed BEFORE the env exists."""
+    from app import setup_installer
+    ghost = str(tmp_path / 'envs' / 'bank_scoring' / 'bin' / 'python')
+    assert setup_installer._same_path(ghost, ghost)
+    assert not setup_installer._same_path(
+        ghost, str(tmp_path / 'other' / 'bin' / 'python'))
+
+
+# --- torch and torchvision install as a PAIR from the CPU index -------------------
+# torch alone from the CPU index leaves torchvision to resolve later from PyPI as
+# open_clip/timm/simple-lama's dependency — and on Linux that wheel is built against
+# a DIFFERENT torch, so the env dies at import with 'operator torchvision::nms does
+# not exist' (the Docker GPU report; Dockerfile.gpu pairs them for the same reason).
+
+def test_bank_scoring_install_pairs_torchvision_with_torch(app, monkeypatch):
+    from app import setup_installer, config
+    seen = []
+    monkeypatch.setattr(setup_installer, '_find_base_python', lambda a: r'C:\pybase\python.exe')
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _fake_venv_popen(seen))
+    with app.app_context():
+        config.save_config({})
+        setup_installer._runs['bank_scoring'] = setup_installer._new_run()
+        rc = setup_installer._run_bank_scoring('bank_scoring')
+    assert rc == 0
+    torch_cmd = next(c for c in seen if 'torch' in c)
+    assert 'torchvision' in torch_cmd
+    assert setup_installer._TORCH_CPU_INDEX in torch_cmd
+
+
+def test_manual_commands_pair_torchvision_with_torch_everywhere(app):
+    """Every copy-paste command that puts torch into the managed env names
+    torchvision on the same index line — the command documents what the Install
+    button itself does, so the two must not drift."""
+    from app import setup_installer
+    with app.app_context():
+        for action in ('bank_scoring', 'shot_detect', 'bank_siglip2',
+                       'watermark_detect'):
+            cmd = setup_installer.manual_command(action)
+            assert 'torch torchvision --index-url' in cmd, action
+
+
 # --- The transformers floor the video-caption worker depends on ------------------
 # infer/video_caption_infer.py:103 imports Qwen3VLForConditionalGeneration, a class
 # transformers only grew in 4.57.0 (huggingface/transformers PR #40795, shipped in
