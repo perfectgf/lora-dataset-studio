@@ -30,7 +30,12 @@ export const ZIP_SCOPE_ALL = 'all';
 export const ZIP_SCOPE_SELECTION = 'selection';
 
 function scopePath(target) {
-  if (!target || target.recordId == null) return null;
+  if (!target) return null;
+  // The app-wide 🖼 Gallery: no record to scope by. Its ZIP routes are
+  // selection-ONLY (the backend refuses a missing `ids`), so callers there
+  // always pass one.
+  if (target.kind === 'app') return '/api/gallery/images';
+  if (target.recordId == null) return null;
   const rid = target.recordId;
   // Same rule as galleryScope(): no step means the whole run.
   return (target.kind === 'run' || target.step == null)

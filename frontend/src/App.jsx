@@ -27,6 +27,7 @@ const SetupPage = lazyPage(() => import('./pages/SetupPage'))
 const GuidePage = lazyPage(() => import('./pages/GuidePage'))
 const CloudRunsPage = lazyPage(() => import('./pages/CloudRunsPage'))
 const CanvasPage = lazyPage(() => import('./pages/CanvasPage'))
+const GalleryPage = lazyPage(() => import('./pages/GalleryPage'))
 import { recommendedMet } from './hooks/useSetupSteps'
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import HeaderMenu from './components/common/HeaderMenu'
@@ -218,6 +219,16 @@ function NavBar() {
       )}
       {caps.studio_visible && (
         <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>Test Studio</NavLink>
+      )}
+      {/* 🖼 Gallery — every generated image, one feed. Last: it is where the
+          OUTPUT of the other workspaces accumulates, so it reads as the shelf
+          at the end of the row. Visible whenever any surface that generates
+          is: renders can outlive a broken ComfyUI, so the training gates keep
+          it reachable even while the studio gate is down. */}
+      {(caps.studio_visible || caps.cloud_training || caps.training_visible) && (
+        <NavLink to="/gallery" className={navItemClass} onClick={() => setOpen(false)}>
+          <span className="inline-flex items-center gap-1"><span aria-hidden>🖼</span> Gallery</span>
+        </NavLink>
       )}
     </>
   )
@@ -451,7 +462,8 @@ function PageLoading() {
 
 function Shell() {
   const { pathname } = useLocation();
-  const wideWorkspaceRoute = pathname === '/canvas' || pathname === '/bank';
+  const wideWorkspaceRoute = pathname === '/canvas' || pathname === '/bank'
+    || pathname === '/gallery';
   /* 🖼 THE BOARD IS THE WHOLE SCREEN. The canvas is not a document with a
      picture in it — it is a surface you pan and zoom, and every pixel the page
      keeps for itself is a pixel of board you have to pan to reach. So `/canvas`
@@ -546,6 +558,7 @@ function AppInner() {
             <Route path="/dataset/studio/:id" element={<StudioPage />} />
             <Route path="/cloud" element={<CloudRunsPage />} />
             <Route path="/canvas" element={<CanvasPage />} />
+            <Route path="/gallery" element={<GalleryPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/settings/:section" element={<SettingsPage />} />
             <Route path="/setup" element={<SetupPage />} />

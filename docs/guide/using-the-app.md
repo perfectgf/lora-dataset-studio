@@ -258,6 +258,42 @@ Two things still take the GPU exclusively and are not queued behind anything:
 a training run, and a vision pass (captioning, framing, face analysis). While
 one of those is running, new generations wait for it and the app says so.
 
+## The Gallery (every image you generated)
+
+**🖼 Gallery** in the top bar is one feed of everything the app ever rendered —
+Test Studio cells, Canvas previews, comparison runs and ✨ Upscale & improve
+results — across every dataset at once, newest first. The per-checkpoint
+galleries answer "what did this training produce"; this page answers "what did
+I make".
+
+Narrow it from the row above the grid: one dataset, **Renders** or
+**✨ Improved** only, or **👍 Liked** — the images you rated up in the Test
+Studio. The count always names what the grid is actually showing, and **Load
+more** states how many are left.
+
+Tap any image to open the viewer — the same one the Canvas uses, with
+everything the picture was made from: seed (copyable), checkpoint, base model,
+sampler, CFG, the always-on LoRAs it was generated with, and the full prompt.
+The **‹ ›** buttons (or the ← → keys) walk the feed without closing it; tap
+the picture to put the details away, double-tap to magnify.
+
+From the viewer you can also:
+
+- **⬇ Download** — the file lands under a name that still says which dataset,
+  run, step and seed made it.
+- **✨ Upscale & improve** — Klein (re-renders detail; sharper, but skin can
+  shift) or SeedVR2 (upscales and keeps the look). The result arrives at the
+  top of this gallery as its own ✨ image; the original is untouched. The
+  amber note under the buttons is where the Klein instruction is edited in
+  place, the Klein model is chosen, and a **LoRA preset** can be chained into
+  every improve — all app-wide, the same values Settings shows.
+
+**Select** at the bottom turns on selection mode: tap the misses, then
+**🗑 Delete** (files go to the recycle bin or the app Trash — and the rows
+leave the Test Studio too, which the confirmation says before anything is
+armed), or **⬇ ZIP** to download the picked images as one archive under their
+lineage names.
+
 ## Recover a paused Test Studio batch
 
 If ComfyUI drops while Test Studio is processing a batch, the affected tile says
