@@ -59,10 +59,11 @@ def engine_stub(monkeypatch):
     calls = []
 
     def fake(engine, *, user_id, source, source_path, prompt, label, dataset,
-             extra_metadata=None):
+             extra_metadata=None, profile=None):
         calls.append({'engine': engine, 'user_id': user_id, 'source': source,
                       'source_path': source_path, 'prompt': prompt,
-                      'dataset': dataset, 'extra_metadata': extra_metadata})
+                      'dataset': dataset, 'extra_metadata': extra_metadata,
+                      'profile': profile})
         return f'job-{len(calls)}'
 
     monkeypatch.setattr(svc, '_enqueue_improve', fake)
