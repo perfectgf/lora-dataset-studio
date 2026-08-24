@@ -1370,8 +1370,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     onPick={(pick) => { setCoverageFilter(pick); setSection('images'); }} />
                   {/* Images imported WITHOUT head-crop have no shot type, so they count
                       for nothing in the bar above (the default on body-fidelity datasets:
-                      a whole drag-and-drop import can leave it at 0). The vision pass that
-                      fills them in lives right here, under the bar that shows the gap. */}
+                      a whole drag-and-drop import can leave it at 0). A crop clears the
+                      stored shot type for the same reason — those pixels changed. The
+                      vision pass that fills them in lives right here, under the bar
+                      that shows the gap. */}
                   <ClassifyFramingButton images={images} ollama={caps.ollama} capsLoading={capsLoading}
                     busy={ds.busy} activity={act} onClassify={(n) => ds.classify(n)} />
                   <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">

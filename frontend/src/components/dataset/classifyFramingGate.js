@@ -1,22 +1,20 @@
 // 📐 Classify framing — UI gate (PURE JS, JSX-free so node --test can import it).
 //
-// Imported images keep framing = NULL unless head-crop was on at import time, and
-// the Composition bar only counts images whose framing is KNOWN. A drag-and-drop
-// import (the default on body-fidelity datasets) therefore leaves the bar at 0 with
-// no way out inside the app: the vision pass that fills those framings exists
-// (POST /api/dataset/<id>/classify) but had no trigger.
+// The Composition bar only counts images whose framing is KNOWN. Two ways a row
+// lands here with framing = NULL:
+//   • imported without head-crop (the default on body-fidelity datasets)
+//   • cropped since the last classify — crop_image clears framing, same as the
+//     Bank, so this pass is what re-reads the new pixels
 //
 // The set this module counts is EXACTLY the set the server pass acts on
-// (face_dataset_service.classify_images: source='import' AND framing IS NULL) —
-// including rejected rows, which the pass classifies too. Counting the composition
-// buckets instead would under-report and the button would promise less than it does.
-
-const IMPORT_SOURCE = 'import';
+// (face_dataset_service._classify_pool: has a filename AND framing IS NULL) —
+// including rejected rows, and any source. Counting only imports would hide a
+// generated shot that was cropped down to a face.
 
 /** How many images the classify pass would actually process. */
 export function countUnclassified(images) {
   if (!Array.isArray(images)) return 0;
-  return images.filter((i) => i && i.source === IMPORT_SOURCE && !i.framing).length;
+  return images.filter((i) => i && i.filename && !i.framing).length;
 }
 
 // Ollama is the only backend for this pass (Qwen3-VL). Each state gets the ONE
@@ -57,7 +55,8 @@ export function classifyFramingState({
     running,
     // Nothing left to classify (or never anything: an empty dataset, a fully
     // classified one) → the button is not on screen at all. It stays while a pass
-    // runs so its progress has somewhere to live.
+    // runs so its progress has somewhere to live. After a crop the count rises
+    // again because crop cleared those framings.
     visible: running || count > 0,
     blocked: !!blockedReason,
     blockedReason,
@@ -68,7 +67,7 @@ export function classifyFramingState({
     title: blockedReason
       || (running
         ? 'A framing pass is already running on this dataset'
-        : `Reads ${count} imported image(s) with a local vision model and sorts each `
+        : `Reads ${count} image(s) with a local vision model and sorts each `
           + 'into face / bust / body / back, so they finally count in Composition. '
           + 'Uses the GPU; it waits rather than competing with a training run.'),
   };
@@ -76,11 +75,23 @@ export function classifyFramingState({
 
 /** Toast after the pass returns. `classified === 0` while there WAS work to do is the
  * silent failure to name: the vision call answers empty when Ollama is down, and the
- * server keeps framing NULL on purpose (so a retry can still work). */
-export function classifyResultMessage(classified, expected) {
+ * server keeps framing NULL on purpose (so a retry can still work).
+ *
+ * `attempted` is how many rows the server actually queued. Prefer it over
+ * `expected` when present. */
+export function classifyResultMessage(classified, expected, {
+  attempted, unanswered,
+} = {}) {
   const n = Number(classified) || 0;
-  const want = Number(expected) || 0;
+  const want = Number.isFinite(Number(attempted)) ? Number(attempted) : (Number(expected) || 0);
   if (n === 0 && want > 0) {
+    if (Number(unanswered) === 0) {
+      return {
+        tone: 'error',
+        text: 'Nothing could be classified — the image files were not found on disk. '
+          + 'Nothing was changed.',
+      };
+    }
     return {
       tone: 'error',
       text: 'Nothing could be classified — the vision model returned no answer. '

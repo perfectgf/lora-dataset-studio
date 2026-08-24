@@ -323,6 +323,148 @@ def test_classify_images_sets_framing_from_vision(app, monkeypatch):
         assert all(r.variation_label == '3/4, smile' for r in rows)
 
 
+def test_classify_images_forces_json_format(app, monkeypatch):
+    """Same grammar pin as Bank framing and head-crop: without fmt='json' a
+    reasoning model rambles past the token budget and the pass reports 0
+    classified while blaming Ollama."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.config import LOCAL_USER
+
+    seen = {}
+
+    def fake(_bytes, _prompt, **kw):
+        seen.update(kw)
+        return '{"framing": "bust"}'
+
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama', fake)
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', _vram_freed)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'J', 'j')
+        ids, failed = svc.import_images(LOCAL_USER, ds.id, [_png()], crop=False)
+        assert failed == 0
+        assert svc.classify_images(LOCAL_USER, ds.id) == 1
+        assert seen.get('fmt') == 'json'
+        assert seen.get('prefer_json') is True
+
+
+def test_classify_images_skips_already_tagged_unless_forced(app, monkeypatch):
+    """Default fill leaves a known shot type alone; force overwrites it.
+
+    After a crop the pixels changed and the stored framing is stale — that is
+    the Bank's framing ``rescan``, ported to the dataset.
+    """
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    from app.extensions import db
+
+    answers = ['{"framing": "body"}']
+
+    def _describe(*_a, **_k):
+        return answers[0]
+
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama', _describe)
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', _vram_freed)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'I', 'i')
+        ids, failed = svc.import_images(LOCAL_USER, ds.id, [_png()], crop=False)
+        assert failed == 0
+        assert svc.classify_images(LOCAL_USER, ds.id) == 1
+        assert db.session.get(FaceDatasetImage, ids[0]).framing == 'body'
+
+        answers[0] = '{"framing": "face"}'
+        assert svc.classify_images(LOCAL_USER, ds.id) == 0
+        assert db.session.get(FaceDatasetImage, ids[0]).framing == 'body'
+
+        assert svc.classify_images(LOCAL_USER, ds.id, force=True) == 1
+        assert db.session.get(FaceDatasetImage, ids[0]).framing == 'face'
+
+
+def test_classify_images_fills_a_generated_row_with_no_framing(app, monkeypatch):
+    """A crop clears framing on generated shots too; the fill pass must see them.
+
+    Restricting the pool to source='import' was why a cropped catalog shot
+    vanished from Composition and never came back without a full rescan.
+    """
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    from app.extensions import db
+
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama',
+                        lambda *a, **k: '{"framing": "face"}')
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', _vram_freed)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'G', 'g')
+        ids, failed = svc.import_images(LOCAL_USER, ds.id, [_png()], crop=False)
+        assert failed == 0
+        row = db.session.get(FaceDatasetImage, ids[0])
+        row.source = 'generated'
+        row.framing = None
+        db.session.commit()
+
+        assert svc.classify_images(LOCAL_USER, ds.id) == 1
+        assert db.session.get(FaceDatasetImage, ids[0]).framing == 'face'
+
+
+def test_classify_images_force_includes_generated_rows(app, monkeypatch):
+    """A tagged generated shot is left alone unless force=True (Bank rescan)."""
+    from app.services import face_dataset_service as svc
+    from app.services import vision_ollama
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    from app.extensions import db
+
+    monkeypatch.setattr(vision_ollama, 'describe_image_ollama',
+                        lambda *a, **k: '{"framing": "face"}')
+    monkeypatch.setattr(vision_ollama, 'unload_vision_model', _vram_freed)
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'G', 'g')
+        ids, failed = svc.import_images(LOCAL_USER, ds.id, [_png()], crop=False)
+        assert failed == 0
+        row = db.session.get(FaceDatasetImage, ids[0])
+        row.source = 'generated'
+        row.framing = 'body'
+        db.session.commit()
+
+        assert svc.classify_images(LOCAL_USER, ds.id) == 0
+        assert db.session.get(FaceDatasetImage, ids[0]).framing == 'body'
+
+        assert svc.classify_images(LOCAL_USER, ds.id, force=True) == 1
+        assert db.session.get(FaceDatasetImage, ids[0]).framing == 'face'
+
+
+def test_classify_route_forwards_force(client, app, monkeypatch):
+    from app.routes import datasets as routes
+
+    seen = {}
+
+    def _fake(_user_id, _dataset_id, force=False, report=None):
+        seen['force'] = force
+        if report is not None:
+            report['attempted'] = 4
+            report['unanswered'] = 0
+        return 4
+
+    monkeypatch.setattr(routes.svc, 'classify_images', _fake)
+    ds_id = _create(client, 'Kai', 'kai').get_json()['id']
+    resp = client.post(f'/api/dataset/{ds_id}/classify', json={'force': True})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body['ok'] is True
+    assert body['classified'] == 4
+    assert body['attempted'] == 4
+    assert seen['force'] is True
+
+    seen.clear()
+    resp = client.post(f'/api/dataset/{ds_id}/classify')
+    assert resp.status_code == 200
+    assert seen['force'] is False
+
+
 # --- route-level: 503 while the vision window is held ----------------------
 def test_classify_route_returns_503_while_vision_flag_set(client, app):
     from app.job_queue import queue_manager

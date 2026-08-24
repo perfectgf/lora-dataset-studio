@@ -639,7 +639,9 @@ export function useDataset() {
         toast.error([d.error, d.detail].filter(Boolean).join(' — ') || 'Unexpected error');
         return;
       }
-      const msg = classifyResultMessage(d.classified, want);
+      const msg = classifyResultMessage(d.classified, want, {
+        attempted: d.attempted, unanswered: d.unanswered,
+      });
       (toast[msg.tone] || toast.success)(msg.text);
       await refresh();
     } finally {

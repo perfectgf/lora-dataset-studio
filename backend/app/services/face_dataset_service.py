@@ -2472,6 +2472,11 @@ def crop_image(user_id, image_id, x, y, w, h):
         _clear_watermark_metadata(img)
         img.upscale_ratio = scale
         _invalidate_image_content_analysis(img)
+        # Same shape as a Bank crop: the stored shot type describes the pixels
+        # that just went away. Clearing it makes 📐 Classify pick this row up
+        # (and drops it from Composition until that pass runs) instead of
+        # leaving a body-count on a face crop.
+        img.framing = None
         db.session.commit()
     return ok
 
@@ -7123,8 +7128,39 @@ def _parse_classify(raw):
     return fr, (label or None)
 
 
-def classify_images(user_id, dataset_id):
-    """Classify imported images lacking a framing via Qwen3-VL. Returns count."""
+def _classify_pool(dataset_id, force=False):
+    """The rows the framing pass will classify.
+
+    ONE definition for the job, matching the Bank's ``_framing_pool``: the
+    dataset UI counts this same set (``classifyFramingGate.js``), so a button
+    that announces N must act on N.
+
+    Default: every image that has a file and whose framing is still NULL —
+    imported without a shot type, or cropped since the last classify (crop
+    clears framing, same as the Bank). ``force`` re-reads tagged files too
+    (the Bank's framing rescan; no dataset button exposes it).
+    """
+    q = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).filter(
+        FaceDatasetImage.filename.isnot(None),
+        FaceDatasetImage.filename != '')
+    if not force:
+        q = q.filter(FaceDatasetImage.framing.is_(None))
+    return q
+
+
+def classify_images(user_id, dataset_id, force=False, report=None):
+    """Classify images via Qwen3-VL. Returns how many rows were written.
+
+    Default fills images that still have no shot type (any source — a crop
+    clears framing so this pass is what re-reads it). ``force`` re-classifies
+    every image that has a file (the Bank's framing ``rescan``).
+    An empty vision answer leaves the row untouched, so a retry can finish it
+    without wiping a value that was already there.
+
+    ``report``, when a dict, is filled with ``attempted`` / ``unanswered`` /
+    ``missing`` / ``vanished`` so the UI can tell "looked at them, model said
+    nothing" from "the pool was empty" — both used to arrive as classified=0.
+    """
     _guard_not_bank_export(dataset_id)
     try:
         from .vision_ollama import describe_image_ollama, unload_vision_model
@@ -7133,14 +7169,13 @@ def classify_images(user_id, dataset_id):
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
-    rows = FaceDatasetImage.query.filter_by(
-        dataset_id=dataset_id, source='import', framing=None).all()
+    rows = _classify_pool(dataset_id, force).all()
     # Ids, not ORM objects: see _live_image_row. The commit at the bottom of this
     # loop expires every row it has not reached, and a tile deleted from the grid
     # meanwhile used to kill the whole classification.
     row_ids = [img.id for img in rows]
     n = 0
-    vanished = 0
+    vanished = unanswered = missing = 0
     # Persistent progress indicator (survives a page reload): try/finally guarantees
     # end() runs even if the batch raises → no phantom "Classifying…" spinner.
     token = dataset_activity.begin(dataset_id, 'classify', total=len(row_ids))
@@ -7153,14 +7188,23 @@ def classify_images(user_id, dataset_id):
                 continue
             path = _img_path(img) if img.filename else ''
             if not os.path.exists(path):
+                missing += 1
                 continue
             with open(path, 'rb') as fh:
-                raw = describe_image_ollama(fh.read(), CLASSIFY_PROMPT, num_predict=1200,
-                                            prefer_json=True, keep_alive=_VISION_BATCH_KEEPALIVE)
+                # fmt='json' is the Bank framing call, and the head-crop call:
+                # without the grammar a reasoning/abliterated checkpoint rambles
+                # a <think> trace past num_predict and `response` comes back
+                # empty — the toast then blames Ollama for a silent no-answer.
+                raw = describe_image_ollama(
+                    fh.read(), CLASSIFY_PROMPT, num_predict=400,
+                    prefer_json=True, fmt='json',
+                    keep_alive=_VISION_BATCH_KEEPALIVE,
+                    auto_start_local=(i == 0))
             if not (raw or '').strip():
                 # Échec vision (Ollama indisponible) ≠ « framing indéterminé » :
                 # on laisse framing=None (retry possible) au lieu d'écrire 'unknown'
                 # définitivement, qui bloquerait toute reclassification.
+                unanswered += 1
                 continue
             framing, label = _parse_classify(raw)
             img.framing = framing
@@ -7173,6 +7217,11 @@ def classify_images(user_id, dataset_id):
     if vanished:
         logger.info('classify: %s image(s) were deleted while the pass ran, skipped',
                     vanished)
+    if report is not None:
+        report['attempted'] = len(row_ids)
+        report['unanswered'] = unanswered
+        report['missing'] = missing
+        report['vanished'] = vanished
     return n
 
 

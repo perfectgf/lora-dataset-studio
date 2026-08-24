@@ -412,6 +412,36 @@ def test_manual_crop_clears_all_watermark_metadata_after_pixel_change(app):
         )
 
 
+def test_manual_crop_clears_framing_so_classify_can_re_read_it(app):
+    """Bank-shaped: a crop describes pixels that no longer exist.
+
+    Clearing framing drops the image from Composition and puts it back on
+    the 📐 Classify button — only the cropped ones, not the whole set.
+    """
+    import os
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Crop framing', 'cropfr')
+        d = svc._dataset_dir(ds.id)
+        os.makedirs(d, exist_ok=True)
+        buf = io.BytesIO()
+        Image.new('RGB', (1200, 900), (90, 30, 30)).save(buf, 'PNG')
+        open(os.path.join(d, 'body.webp'), 'wb').write(buf.getvalue())
+        img = FaceDatasetImage(
+            dataset_id=ds.id, filename='body.webp', status='keep',
+            source='generated', framing='body')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        assert svc.crop_image(LOCAL_USER, img.id, 0, 0, 400, 400) is True
+
+        row = svc.db.session.get(FaceDatasetImage, img.id)
+        assert row.framing is None
+
+
 # --- Full backup / restore -----------------------------------------------------
 
 def test_backup_roundtrip_restores_everything(app):

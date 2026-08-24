@@ -1021,14 +1021,24 @@ def dataset_small_image_rescue_resolve(dataset_id, candidate_id):
 
 @bp.post('/dataset/<int:dataset_id>/classify')
 def dataset_classify(dataset_id):
+    """Tag shot types (face / bust / body / back) via the vision model.
+
+    Default fills images that still have no framing (imported without one, or
+    cropped since — a crop clears the stored shot type). ``{force: true}``
+    re-reads every image that has a file (the Bank's framing rescan).
+    """
     if not svc.get_dataset(LOCAL_USER, dataset_id):
         return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get('force'))
+    outcome = {}
     try:
         with gpu_exclusive_vision_window(flag_ttl=1800):
-            n = svc.classify_images(LOCAL_USER, dataset_id)
+            n = svc.classify_images(LOCAL_USER, dataset_id, force=force,
+                                    report=outcome)
     except Exception as e:
         return _map_error(e)
-    return jsonify({'ok': True, 'classified': n})
+    return jsonify({'ok': True, 'classified': n, **outcome})
 
 
 @bp.post('/dataset/<int:dataset_id>/caption')

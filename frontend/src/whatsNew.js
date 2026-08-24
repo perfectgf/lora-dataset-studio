@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-24-crop-clears-dataset-framing',
+    date: '2026-08-24',
+    title: 'Crop a shot, and Composition forgets the old framing',
+    blurb:
+      'Cropping a body shot into a face used to leave Composition still counting '
+      + 'it as a body. A crop now clears that shot type — the same way the Bank '
+      + 'already does — so the image drops out of the mix until 📐 Classify framing '
+      + 're-reads just the ones you cut. Untouched images stay as they were.',
+    to: '/datasets?section=add',
+  },
+  {
     id: '2026-08-24-bank-forgets-missing-images',
     date: '2026-08-24',
     title: 'A bank can now let go of images that are really gone',

@@ -3,8 +3,9 @@ import { HelpBadge } from '../../help/HelpMode';
 import { classifyFramingState } from './classifyFramingGate';
 
 /** 📐 Classify framing — sits right under the Composition bar, where the lack is
- * seen: images imported without head-crop have no shot type, so they count for
- * nothing above. Renders nothing when there is nothing to classify. */
+ * seen: imported without a shot type, or cropped since the last classify (crop
+ * clears framing, same as the Bank). Renders nothing when there is nothing to
+ * classify. */
 export default function ClassifyFramingButton({
   images, ollama, capsLoading = false, busy = false, activity = null, onClassify,
 }) {
@@ -24,7 +25,7 @@ export default function ClassifyFramingButton({
         <HelpBadge topic="action-classify-framing" className="self-center" />
         {!s.running && (
           <span className="text-content-subtle text-[0.6875rem] min-w-0">
-            imported without a shot type — they count for nothing in Composition until sorted
+            no shot type yet — imported without one, or cropped since they were last classified
           </span>
         )}
       </div>

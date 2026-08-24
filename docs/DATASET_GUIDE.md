@@ -76,6 +76,11 @@ download) and is **local-only** for now.
   (Settings ▸ Local tools); it uses the GPU and waits rather than competing with
   a training run. Nothing is deleted and images it cannot read stay unknown, so
   running it again only retries those.
+- **A crop forgets the old shot type.** Cropping a body shot into a face (or a
+  bust into a close-up) clears the stored framing, the same way a Bank crop
+  does. Composition drops that image from its bucket until you run **📐 Classify
+  framing** again — and the button only counts the ones that actually changed,
+  not the whole set. Same vision model, same GPU wait.
 - **Vary everything except the person:** location, lighting, outfit, pose,
   expression, camera angle. Whatever repeats across images gets baked into the
   LoRA — a repeated background wall becomes part of "the person".

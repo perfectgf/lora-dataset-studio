@@ -233,7 +233,8 @@ export const ACTION_TOPICS = [
      'no framing', 'not classified', 'unclassified', 'composition', 'composition zero',
      'composition empty', 'bar at 0', 'counts nothing', 'missing from composition',
      'face', 'bust', 'body', 'back', 'sort shots', 'imported', 'import', 'drag and drop',
-     'no crop', 'head crop off', 'ollama', 'vision', 'qwen'],
+     'no crop', 'head crop off', 'after crop', 'after cropping', 'cropped',
+     'still says body', 'wrong shot type', 'ollama', 'vision', 'qwen'],
     '/datasets?section=add', 'dataset-guide', '2-how-many-images-and-which-ones'),
   // The composition bar can be fully green on a set that is one pose, one outfit,
   // one light. This is the panel that says so — keyworded on the SYMPTOM ("all my
