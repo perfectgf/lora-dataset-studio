@@ -59,3 +59,31 @@ class EngineRefused(EngineError):
     on the first refusal would throw away the rows that would have succeeded.
     Callers should count these separately from real failures — a batch that ends
     with "9 refused" is a policy outcome, not a broken app."""
+
+
+def provider_error_message(resp) -> str:
+    """The provider's own explanation for a failed request, trimmed.
+
+    Gemini and OpenRouter both answer the documented envelope
+    {"error": {"code", "message", ...}}; an edge/proxy failure can answer
+    something else entirely, so fall back to the raw text. Handing back the
+    provider's exact words is the point - a generic 'request failed' leaves
+    the user with nothing to act on. One body for both engines (they were
+    byte-identical copies); each keeps its historical `_error_message` name
+    as an import alias so per-module monkeypatching still works."""
+    try:
+        body = resp.json()
+    except Exception:                                  # noqa: BLE001 — non-JSON edge error
+        body = None
+    if isinstance(body, dict):
+        err = body.get('error')
+        if isinstance(err, dict):
+            msg = str(err.get('message') or '').strip()
+            if msg:
+                return msg[:300]
+        elif isinstance(err, str) and err.strip():
+            return err.strip()[:300]
+    try:
+        return (resp.text or '').strip()[:300]
+    except Exception:                                  # noqa: BLE001
+        return ''

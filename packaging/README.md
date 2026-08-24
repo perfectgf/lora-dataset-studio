@@ -56,6 +56,12 @@ rather than passing quietly.
 - Run `python scripts/check_release_artifacts.py` after changing a release workflow.
 - Test the extracted archive by double-clicking `start.bat` on a clean Windows VM.
 
+`make_icon.py` is the generator for `packaging/icon.ico` (launcher exe and
+window) and the repo-root `icon.png` (the Pinokio tile). Nothing invokes it at
+build time - both outputs are committed so the build is reproducible; run
+`python packaging/make_icon.py` to regenerate them from the same render when
+the tile design changes.
+
 `build_portable.ps1` and `launcher.py` remain in the repository only as a legacy
 local developer experiment. They are not invoked by CI, `build.bat`, or the release
 workflow, and their output is unsupported and must never be published.

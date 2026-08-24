@@ -48,7 +48,8 @@ import logging
 import requests
 
 from .. import config as cfg
-from .engine_errors import EngineError, EngineFatal, EngineRefused
+from .engine_errors import (EngineError, EngineFatal, EngineRefused,
+                            provider_error_message as _error_message)
 
 logger = logging.getLogger(__name__)
 
@@ -92,31 +93,6 @@ def _api_key():
 def get_model() -> str:
     """The configured model slug, or the default. Free text on purpose."""
     return (cfg.get('engines.openrouter_model') or '').strip() or DEFAULT_MODEL
-
-
-def _error_message(resp) -> str:
-    """OpenRouter's own explanation for a rejected request, trimmed.
-
-    The documented error body is {"error": {"code": int, "message": str}}; a
-    proxy/edge failure can answer with something else entirely, so fall back to
-    the raw text. Returning the provider's exact words is the whole point — a
-    generic 'request failed' would leave the user with nothing to act on."""
-    try:
-        body = resp.json()
-    except Exception:                                  # noqa: BLE001 — non-JSON edge error
-        body = None
-    if isinstance(body, dict):
-        err = body.get('error')
-        if isinstance(err, dict):
-            msg = str(err.get('message') or '').strip()
-            if msg:
-                return msg[:300]
-        elif isinstance(err, str) and err.strip():
-            return err.strip()[:300]
-    try:
-        return (resp.text or '').strip()[:300]
-    except Exception:                                  # noqa: BLE001
-        return ''
 
 
 def _raise_for_status(resp, *, ref_count: int, model: str) -> None:

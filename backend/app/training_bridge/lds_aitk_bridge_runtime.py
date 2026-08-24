@@ -2106,6 +2106,9 @@ def _remove_runtime_tree_no_follow(path: Path, *, root: Path) -> None:
     if not stat.S_ISDIR(info.st_mode) or _is_link_or_reparse_info(info):
         raise OSError("runtime work directory is linked")
 
+    # Identical twin in services/training_state_bundle.py (the Flask side).
+    # This runtime deploys standalone into ai-toolkit and cannot import app.*,
+    # so it carries its own copy. test_cross_interpreter_twins.py pins both.
     def remove_directory(directory: Path) -> None:
         with os.scandir(directory) as entries:
             children = list(entries)

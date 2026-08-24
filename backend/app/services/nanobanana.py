@@ -75,7 +75,8 @@ import os
 import requests
 
 from .. import config as cfg
-from .engine_errors import EngineError, EngineFatal, EngineRefused
+from .engine_errors import (EngineError, EngineFatal, EngineRefused,
+                            provider_error_message as _error_message)
 
 logger = logging.getLogger(__name__)
 
@@ -217,29 +218,6 @@ def get_model() -> str:
     return ((cfg.get('engines.nanobanana_model') or '').strip()
             or (os.environ.get(_ENV_VAR) or '').strip()
             or DEFAULT_MODEL)
-
-
-def _error_message(resp) -> str:
-    """Gemini's own explanation, trimmed. Its documented envelope is
-    {"error": {"code", "message", "status"}}; an edge failure answers something
-    else entirely, so fall back to the raw text. Handing back the provider's
-    exact words is the point — 'request failed' leaves nothing to act on."""
-    try:
-        body = resp.json()
-    except Exception:                                  # noqa: BLE001 — non-JSON edge error
-        body = None
-    if isinstance(body, dict):
-        err = body.get('error')
-        if isinstance(err, dict):
-            msg = str(err.get('message') or '').strip()
-            if msg:
-                return msg[:300]
-        elif isinstance(err, str) and err.strip():
-            return err.strip()[:300]
-    try:
-        return (resp.text or '').strip()[:300]
-    except Exception:                                  # noqa: BLE001
-        return ''
 
 
 def _raise_for_status(resp, *, model: str) -> None:

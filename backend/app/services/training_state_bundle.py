@@ -725,6 +725,9 @@ def _remove_tree_no_follow(path: Path, *, root: Path) -> None:
     if not stat.S_ISDIR(info.st_mode) or _is_link_or_reparse_info(info):
         raise OSError('refusing to remove a linked staging tree')
 
+    # Identical twin in training_bridge/lds_aitk_bridge_runtime.py, which runs
+    # inside ai-toolkit's interpreter and cannot import app.* - the copy is the
+    # coupling boundary. test_cross_interpreter_twins.py pins the two bodies.
     def remove_directory(directory: Path) -> None:
         with os.scandir(directory) as entries:
             children = list(entries)
