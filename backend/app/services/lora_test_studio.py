@@ -3635,6 +3635,10 @@ def improve_canvas_image(user_id, image_id, engine=None):
     engine = fds.resolve_improve_engine(engine)
     fds._improve_preflight(engine)          # same refusals, same actionable 409s
     prompt = fds._improve_prompt() if engine == 'klein' else ''
+    # The preset the pass will chain (klein.improve_lora_preset) — read through
+    # the SAME resolver the enqueue profile uses, so what is stored below is
+    # what actually runs. [] for SeedVR2 and for "none picked".
+    preset_rows = fds.improve_lora_preset_rows() if engine == 'klein' else []
 
     candidate = LoraTestImage(
         dataset_id=row.dataset_id,
@@ -3653,12 +3657,18 @@ def improve_canvas_image(user_id, image_id, engine=None):
         # screen that had no effect on the picture (same rule as the dataset lane).
         prompt=(prompt[:500] if engine == 'klein'
                 else 'SeedVR2 upscale (no prompt — restoration pass)'),
-        # Deliberately NOT copied: z_model, aspect, cfg, steps, sampler, scheduler,
-        # negative, extra_loras. None of them decided this image — the improve
-        # profile did — and the lightbox renders them as "Made with", where a
-        # copied value would be a lie about how the picture was produced.
+        # Deliberately NOT copied: z_model, aspect, cfg, steps, sampler, scheduler.
+        # None of them decided this image — the improve profile did — and the
+        # lightbox renders them as "Made with", where a copied value would be a
+        # lie about how the picture was produced. `extra_loras` follows the same
+        # rule from the other side: it is set (below) to the improve preset's
+        # OWN rows when one is chained, because those DID decide the picture —
+        # and left NULL otherwise, never copied from the source render.
         parent_image_id=row.id,
         derivation_kind=CANVAS_IMAGE_IMPROVE,
+        extra_loras=(json.dumps(
+            [{'filename': r['file'], 'strength': r['strength']}
+             for r in preset_rows]) if preset_rows else None),
     )
     db.session.add(candidate)
     db.session.commit()                      # row BEFORE enqueue: no orphan job
