@@ -42,6 +42,7 @@ import {
 } from '../../utils/trainingPresets';
 import { useTrainingPresets } from './useTrainingPresets';
 import { useSliderTraining } from './useSliderTraining';
+import { useBestEpoch } from './useBestEpoch';
 import { runConfirmableTrainingRequest } from '../../utils/trainingConfirmations';
 import { continueAttemptOutcome } from '../../utils/continueOutcome';
 import { HelpBadge } from '../../help/HelpMode';
@@ -1379,22 +1380,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
     if (info) setBaseInfo(info);
   };
 
-  // Best-epoch (jandordoe): score the run's samples vs the reference, recommend
-  // the checkpoint closest to the best-scoring step. Result cleared on base change.
-  const [bestEpoch, setBestEpoch] = useState(null);
-  const [bestEpochBusy, setBestEpochBusy] = useState(false);
-  useEffect(() => { setBestEpoch(null); }, [checkpointBase, checkpointTrainType, checkpointVariant, ds.currentId]);
-  const findBestEpoch = async () => {
-    setBestEpochBusy(true);
-    try {
-      const d = await postTrain(`/api/dataset/${ds.currentId}/train/best-epoch`,
-        trainingRunSelection(checkpointBase, checkpointTrainType, checkpointVariant));
-      if (d && d.ok === false) { toastTrainError(d, 'best-epoch scoring failed'); return; }
-      setBestEpoch(d);
-    } finally {
-      setBestEpochBusy(false);
-    }
-  };
+  const { bestEpoch, bestEpochBusy, findBestEpoch } = useBestEpoch({
+    ds, postTrain, toastTrainError, checkpointBase, checkpointTrainType,
+    checkpointVariant,
+  });
 
   // Steps are family + variant recipes owned by the backend. Never duplicate a
   // formula here: doing so previously showed a Z-Image estimate while a Krea or
