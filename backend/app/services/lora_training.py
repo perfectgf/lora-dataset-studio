@@ -650,7 +650,7 @@ def _lora_family_dirs(fam: str) -> list[str]:
     try:
         roots.append(_loras_root())
     except RuntimeError:
-        pass
+        pass   # an unconfigured root is simply not a candidate
     roots += comfy_model_paths.search_roots('loras')
     out, seen = [], set()
     for root in roots:
@@ -752,7 +752,7 @@ def _aitoolkit_supports_krea() -> bool:
                     if pat.search(fh.read()):
                         return True
             except OSError:
-                continue
+                continue   # unreadable log: not the one this grep is looking for
     return False
 
 
@@ -782,7 +782,7 @@ def _aitoolkit_supports_flux2klein() -> bool:
                     if pat.search(fh.read()):
                         return True
             except OSError:
-                continue
+                continue   # unreadable log: not the one this grep is looking for
     return False
 
 
@@ -815,7 +815,7 @@ def _aitoolkit_supports_anima() -> bool:
                     if pat.search(fh.read()):
                         return True
             except OSError:
-                continue
+                continue   # unreadable log: not the one this grep is looking for
     return False
 
 
@@ -894,7 +894,7 @@ def _sdxl_base_choices() -> set:
         for rel, _ab in comfy_model_paths.list_models('checkpoints'):
             out.add(os.path.basename(rel))
     except Exception:
-        pass
+        pass   # ComfyUI absent or unreadable: the fallback name list stands
     return out
 
 
@@ -2417,7 +2417,7 @@ def _aitoolkit_supports_concept_slider() -> bool:
                     if pat.search(fh.read()):
                         return True
             except OSError:
-                continue
+                continue   # unreadable log: not the one this grep is looking for
     return False
 
 
@@ -4771,7 +4771,7 @@ def _mask_fields(dataset_folder: str) -> dict:
         if isinstance(meta, dict) and isinstance(meta.get('mask_min_value'), (int, float)):
             min_value = float(meta['mask_min_value'])
     except (OSError, ValueError, TypeError):
-        pass
+        pass   # optional sidecar: absent or corrupt meta keeps the default floor
     return {'mask_path': md, 'mask_min_value': min_value}
 
 
@@ -6166,7 +6166,7 @@ def list_checkpoints(user_id, dataset_id, base_model=_PERSISTED, family=None,
                     'Full-state resume is unavailable for this run: '
                     + '; '.join(bridge_reasons))
     except (OSError, ValueError, TypeError):
-        pass
+        pass   # advisory detail only: resume stays offered without the sentence
     for c in out:
         state = state_by_step.get(int(c['step']))
         if state is not None:
@@ -6535,7 +6535,7 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
             # 2026-07-13: imports succeeded but "in ComfyUI" stayed at 0).
             cloud_prefixes.add(f'lds{r.id}_')
     except Exception:
-        pass
+        pass   # best-effort prefix harvest: one broken row must not hide the others
     subfolder = _FAMILY_SUBDIR.get(fam, 'z image')
     out, seen = [], set()
     for dest_dir, fn in sorted(((d, fn) for d in dirs for fn in os.listdir(d)),
@@ -6765,7 +6765,7 @@ def _dir_size(path) -> int:
             try:
                 total += os.path.getsize(os.path.join(dirpath, f))
             except OSError:
-                pass
+                pass   # vanished mid-walk: a size sum stays best-effort
     return total
 
 
@@ -6779,14 +6779,14 @@ def dataset_disk_usage(user_id, dataset_id, base_model=_PERSISTED, family=None,
         if os.path.isdir(rd):
             out['run_dir_bytes'] = _dir_size(rd)
     except Exception:
-        pass
+        pass   # a disk-usage figure is advisory: what cannot be sized just does not count
     try:
         from ..models import CloudTrainingRun
         for r in CloudTrainingRun.query.filter_by(dataset_id=dataset_id).all():
             if r.staging_dir and os.path.isdir(r.staging_dir):
                 out['cloud_staging_bytes'] += _dir_size(r.staging_dir)
     except Exception:
-        pass
+        pass   # a disk-usage figure is advisory: what cannot be sized just does not count
     try:
         ds = fds.get_dataset(user_id, dataset_id)
         fam = _train_type(ds, family)
@@ -6795,9 +6795,9 @@ def dataset_disk_usage(user_id, dataset_id, base_model=_PERSISTED, family=None,
             try:
                 out['deployed_bytes'] += os.path.getsize(p) if p else 0
             except OSError:
-                pass
+                pass   # vanished or unresolvable: the sum stays best-effort
     except Exception:
-        pass
+        pass   # outer belt over the whole loop: the figure stays advisory either way
     out['total_bytes'] = sum(v for k, v in out.items() if k.endswith('_bytes'))
     return out
 
@@ -6855,7 +6855,7 @@ def purge_training_artifacts(user_id, trigger_safe) -> list[str]:
         try:
             output_datasets_roots.append(str(accessor()))
         except RuntimeError:
-            pass
+            pass   # an unconfigured root is simply not a candidate
     for root in output_datasets_roots:
         if not os.path.isdir(root):
             continue
@@ -7702,7 +7702,7 @@ def _pf_vram(ds, ttype, label, _machine_warn, _check):
                    f'{vram} GB' + ('' if _at_1024 else ' (already at 768)'),
                    scope='machine')
     except Exception:
-        pass
+        pass   # an advisory VRAM note must never block the preflight it decorates
 
 
 def _pf_torch_arch(_machine_warn, _check):
@@ -8054,7 +8054,7 @@ def _crash_payload(log_path, dataset_id, rc) -> dict:
             payload['hf_gated'] = {k: gated[k] for k in ('status', 'repo', 'url',
                                                          'title', 'message')}
     except Exception:
-        pass
+        pass   # diagnosis enricher: a failed probe leaves its section out
     # A dead fast-download accelerator looks exactly like a network fault, and the
     # app never sets that variable — so saying so is the whole remedy (GitHub #18,
     # bobba84).
@@ -8063,7 +8063,7 @@ def _crash_payload(log_path, dataset_id, rc) -> dict:
         if transfer:
             payload['hf_transfer'] = transfer
     except Exception:
-        pass
+        pass   # diagnosis enricher: a failed probe leaves its section out
     # A `ModuleNotFoundError` in the log is a PROVEN interpreter problem, and the
     # one fact the log itself never carries is WHICH Python produced it. The
     # module is read off the log — no subprocess is spawned from the watcher
@@ -8082,7 +8082,7 @@ def _crash_payload(log_path, dataset_id, rc) -> dict:
                     'python', 'module', 'windows_store', 'alternative',
                     'title', 'message')}
     except Exception:
-        pass
+        pass   # diagnosis enricher: a failed probe leaves its section out
     try:
         from .. import capabilities
         arch = torch_arch_verdict(capabilities.aitoolkit_torch_info(),
@@ -8090,7 +8090,7 @@ def _crash_payload(log_path, dataset_id, rc) -> dict:
         if arch and not arch['supported']:
             payload['gpu_arch'] = {'message': arch['message'], 'command': arch['command']}
     except Exception:
-        pass
+        pass   # diagnosis enricher: a failed probe leaves its section out
     return payload
 
 
@@ -8703,7 +8703,7 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
                 try:
                     logf.close()
                 except OSError:
-                    pass
+                    pass   # closing the log is courtesy inside an error path already being reported
             try:
                 _clear_training_identity(ttl_seconds=None)
             except Exception:
@@ -8911,7 +8911,7 @@ def _fsync_directory(path) -> None:
     try:
         os.fsync(descriptor)
     except OSError:
-        pass
+        pass   # fsync is belt-and-braces: close() already flushed the bytes
     finally:
         os.close(descriptor)
 
@@ -9121,7 +9121,7 @@ def _copy_verified_exact_checkpoint(source: Path, destination: Path, record) -> 
         try:
             temporary.unlink()
         except FileNotFoundError:
-            pass
+            pass   # already gone: exactly the state the unlink wanted
 
 
 def _archive_and_seed_exact_bundle(
@@ -10087,7 +10087,7 @@ def _parse_training_log(text: str) -> dict:
             try:
                 loss = float(lm.group(1))
             except ValueError:
-                continue
+                continue   # a line that only LOOKS like a loss sample: skip it
             out['loss'] = loss
             if not curve or curve[-1][0] != step:
                 curve.append([step, loss])

@@ -198,7 +198,7 @@ def run_checkpoint_files(run) -> dict:
         try:
             names = os.listdir(d)
         except OSError:
-            continue
+            continue   # an unreadable checkpoint dir has nothing to list
         for name in names:
             if name.lower().endswith('.safetensors') and name not in out:
                 out[name] = os.path.join(d, name)
@@ -919,7 +919,7 @@ def _create_full_transformer_repo(run, token, _api=None,
             api.delete_repo(repo_id=repo_id, repo_type='model')
             cleaned = True
         except Exception:
-            pass
+            pass   # deleting the just-created empty repo is courtesy; the status below tells the truth
         try:
             _persist_artifact_state(
                 run, 'repository_preparation_failed', hf_repo_id=repo_id,
@@ -929,7 +929,7 @@ def _create_full_transformer_repo(run, token, _api=None,
                     if cleaned else
                     'Repository preparation failed; repository cleanup must be checked'))
         except Exception:
-            pass
+            pass   # stamping the failure detail must not mask the original error on its way up
         raise RuntimeError(
             'could not prepare the Krea 2 licence and model card in the private '
             'Hugging Face repository; no GPU was rented') from None
@@ -3490,7 +3490,7 @@ def _load_bad_hosts() -> dict:
         try:
             _bad_hosts_path().write_text(json.dumps(live), encoding='utf-8')
         except OSError:
-            pass
+            pass   # persisting the denylist is best-effort: memory still holds it
     return live
 
 
@@ -5692,7 +5692,7 @@ def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
             try:
                 remote.stop_job(job_id)
             except Exception:
-                pass
+                pass   # the pod may already be gone: stopping twice must not break the teardown
             if _dense_delivers_local(run):
                 # The cap is about not paying for ever, not about
                 # throwing the result away: a dense master that only
@@ -5715,7 +5715,7 @@ def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
             try:
                 remote.stop_job(job_id)
             except Exception:
-                pass
+                pass   # the pod may already be gone: stopping twice must not break the teardown
             if _dense_delivers_local(run):
                 # Stopping the TRAINING is not abandoning the result:
                 # the LoRA lane rescues its checkpoint here too. A
@@ -5824,7 +5824,7 @@ def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
             try:
                 remote.stop_job(job_id)
             except Exception:
-                pass
+                pass   # the pod may already be gone: stopping twice must not break the teardown
             if _is_full_transformer_run(run):
                 _keep_full_transformer_pod(
                     run,
@@ -5852,7 +5852,7 @@ def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
                 try:
                     remote.stop_job(job_id)
                 except Exception:
-                    pass
+                    pass   # the pod may already be gone: stopping twice must not break the teardown
                 _finish_if_open(
                     run, 'error',
                     detail='Still not training after '
@@ -5886,7 +5886,7 @@ def _poll_job_until_terminal(run, remote, job_id, stop_event, c,
                 try:
                     remote.stop_job(job_id)
                 except Exception:
-                    pass
+                    pass   # the pod may already be gone: stopping twice must not break the teardown
                 _finish_if_open(
                     run, 'error',
                     detail='No training step reached in '
@@ -6383,7 +6383,7 @@ def _fetch_checkpoint(run, remote, ckpt, timeout=None, attempts=3,
         try:
             os.remove(dest)
         except OSError:
-            pass
+            pass   # deleting the bad partial is best-effort: the retry overwrites it anyway
         raise RuntimeError(f'truncated download of {name}: {got}/{want} bytes')
     return dest
 
@@ -7920,7 +7920,7 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
         try:
             wanted.append(int(i))
         except (TypeError, ValueError):
-            continue
+            continue   # malformed client id: dropped, the rest of the batch lands
     out = {'mode': None, 'deleted': 0, 'trashed': 0, 'already_absent': 0,
            'rows_removed': 0, 'previews_removed': 0, 'dataset_ids': [],
            'skipped': []}
@@ -8033,7 +8033,7 @@ def generate_checkpoint_previews(user_id, dataset_id, checkpoints, prompt=None,
         try:
             rid, step = int(c['record_id']), int(c['step'])
         except (KeyError, TypeError, ValueError):
-            continue
+            continue   # malformed client entry: dropped, the rest of the batch lands
         if rid not in by_run:
             by_run[rid] = _testable_for_record(dataset_id, fam, rid)
         fn = by_run[rid].get(step)
@@ -8661,7 +8661,7 @@ def save_canvas_positions(user_id, dataset_id, positions) -> dict:
             rid = int(p['record_id'])
             x, y = float(p['x']), float(p['y'])
         except (KeyError, TypeError, ValueError):
-            continue
+            continue   # malformed client entry: dropped, the rest of the board lands
         if not (x == x and y == y and abs(x) != float('inf') and abs(y) != float('inf')):
             continue
         wanted[rid] = (x, y)
@@ -8832,7 +8832,7 @@ def save_canvas_image_nodes(user_id, dataset_id, nodes) -> dict:
         try:
             iid = int(n['image_id'])
         except (KeyError, TypeError, ValueError):
-            continue
+            continue   # malformed client entry: dropped, the rest of the board lands
         box = _clamp_image_box(n.get('x'), n.get('y'), n.get('w'), n.get('h'))
         if box is None:
             continue
@@ -8918,7 +8918,7 @@ def _preset_payload(positions, images) -> dict:
                 lane.append({'record_id': int(p['record_id']),
                              'x': float(p['x']), 'y': float(p['y'])})
             except (KeyError, TypeError, ValueError):
-                continue
+                continue   # malformed client entry: dropped, the rest of the lane lands
         if lane:
             out_pos[str(int(ds_id))] = lane
     for ds_id, rows in (images or {}).items():
@@ -8927,7 +8927,7 @@ def _preset_payload(positions, images) -> dict:
             try:
                 iid = int(n['image_id'])
             except (KeyError, TypeError, ValueError):
-                continue
+                continue   # malformed client entry: dropped, the rest of the lane lands
             box = _clamp_image_box(n.get('x'), n.get('y'), n.get('w'), n.get('h'))
             if box is None:
                 continue
@@ -9022,7 +9022,7 @@ def apply_canvas_layout_preset(user_id, preset_id) -> dict:
         try:
             pictures += save_canvas_image_nodes(user_id, int(ds_id), rows).get('saved', 0)
         except (LookupError, ValueError):
-            continue
+            continue   # that lane is gone: the rest of the board still lands
     return {'applied': {'cards': cards, 'images': pictures}, 'preset': _preset_row(row)}
 
 
@@ -9476,7 +9476,7 @@ def orphan_staging_dirs() -> list:
         try:
             size = lt._dir_size(str(path))
         except OSError:
-            continue
+            continue   # vanished mid-scan: the reclaim figure stays best-effort
         out.append({'name': name, 'size_bytes': size,
                     'checkpoints': len(_loose_checkpoints(str(path)))})
     return out
@@ -9575,7 +9575,7 @@ def cloud_progress(user_id, dataset_id, train_type=None, run_id=None) -> dict:
             with open(log_path, encoding='utf-8', errors='replace') as fh:
                 parsed.update(lt._parse_training_log(fh.read()))
         except OSError:
-            pass
+            pass   # the log is decoration here: parsing it is best-effort
     samples = []
     samples_dir = os.path.join(run.staging_dir or '', 'samples')
     if os.path.isdir(samples_dir):

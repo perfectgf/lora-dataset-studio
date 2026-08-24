@@ -2882,7 +2882,7 @@ def delete_dataset(user_id, dataset_id):
         from . import lora_training as lt
         purge_trigger = lt._safe_trigger(ds)
     except ImportError:
-        pass
+        pass   # circular-import escape: the purge works without the trigger name
     imgs = FaceDatasetImage.query.filter_by(dataset_id=dataset_id).all()
     studio_rows = LoraTestImage.query.filter_by(dataset_id=dataset_id).all()
     # ◉ LoRA Canvas card positions. The model declares a relationship() to
@@ -5031,7 +5031,7 @@ def _drop_comfy_output(filename):
     try:
         os.remove(p)
     except OSError:
-        pass
+        pass   # already gone or locked: the trash sweep moves on
 
 
 def _run_reference_edit(app, user_id, dataset_id, token, act_token, engine, refs,
@@ -5207,7 +5207,7 @@ def _commit_edited_reference_locked(user_id, dataset_id, image_bytes):
             try:
                 os.remove(p)
             except OSError:
-                pass
+                pass   # rollback is best-effort: the pair may never have landed
         raise
     # 2) VERIFY both landed before touching anything the dataset still points at.
     if not (os.path.exists(ref_path) and os.path.exists(orig_path)):
@@ -5215,7 +5215,7 @@ def _commit_edited_reference_locked(user_id, dataset_id, image_bytes):
             try:
                 os.remove(p)
             except OSError:
-                pass
+                pass   # rollback is best-effort: the pair may never have landed
         raise RuntimeError('failed to write edited reference')
     # 3) REPOINT the dataset, then commit.
     ds.ref_filename = new_ref
@@ -5227,7 +5227,7 @@ def _commit_edited_reference_locked(user_id, dataset_id, image_bytes):
             try:
                 os.remove(os.path.join(dsdir, fn))
             except OSError:
-                pass
+                pass   # the replaced file may be gone or locked: the new pair is already in place
     return new_ref
 
 
@@ -6249,7 +6249,7 @@ def _imp_commit_row(user_id, dataset_id, index, stored, extension, scale,
         try:
             os.unlink(stored_path)
         except FileNotFoundError:
-            pass
+            pass   # already gone: exactly what the rollback wanted
         except OSError:
             logger.warning('dataset import: could not remove uncommitted image %s',
                            stored_path, exc_info=True)
@@ -6349,7 +6349,7 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
                 if min(_import_header_dimensions(raw)) < SCRAPE_IMPORT_MIN_SIDE:
                     stats['small'] = stats.get('small', 0) + 1
             except Exception:
-                pass
+                pass   # the counter feeds a toast: an unreadable header must not fail the import
         try:
             if preserve_exact_bytes:
                 if crop:
@@ -6509,7 +6509,7 @@ def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
                 if min(_import_header_dimensions(raw)) < SCRAPE_IMPORT_MIN_SIDE:
                     stats['small'] = stats.get('small', 0) + 1
             except Exception:
-                pass
+                pass   # the counter feeds a toast: an unreadable header must not fail the import
         try:
             stored, extension = import_store_image(raw)
         except Exception as e:
@@ -6615,7 +6615,7 @@ def import_dataset_zip(user_id: int, dataset_id: int,
                     except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile,
                             zlib.error, lzma.LZMAError, NotImplementedError,
                             RuntimeError):
-                        pass
+                        pass   # unreadable member: the image imports uncaptioned
             entries = [
                 (os.path.splitext(i.filename)[0], i.filename,
                  lambda i=i: z.read(i))
@@ -6686,7 +6686,7 @@ def import_dataset_folder(user_id, dataset_id, folder, stats=None):
                     captions[os.path.splitext(p)[0]] = \
                         fh.read().decode('utf-8', 'replace').strip()
             except OSError:
-                pass
+                pass   # unreadable caption file: the image imports uncaptioned
 
     def _read(p):
         source_stat = os.lstat(p)
@@ -6850,7 +6850,7 @@ def _existing_dhash_rows(dataset_id) -> list:
             with Image.open(os.path.join(_dataset_dir(dataset_id), r.filename)) as im:
                 out.append((_dhash(im), r.id))
         except (OSError, ValueError):
-            continue
+            continue   # unreadable image: it cannot match a dHash anyway
     return out
 
 
@@ -8965,7 +8965,7 @@ def _preserve_original(path) -> bool:
             try:
                 os.unlink(staged_backup)
             except OSError:
-                pass
+                pass   # already gone: the backup owed nothing
 
 
 def _stage_oriented_watermark_edit(path) -> str | None:
@@ -9003,7 +9003,7 @@ def _stage_oriented_watermark_edit(path) -> str | None:
             try:
                 os.unlink(staged)
             except OSError:
-                pass
+                pass   # already gone: the staged copy owed nothing
         return None
 
 
@@ -9026,7 +9026,7 @@ def _discard_staged_watermark_edit(staged_path) -> None:
     try:
         os.unlink(staged_path)
     except OSError:
-        pass
+        pass   # already gone: the staged copy owed nothing
 
 
 def _apply_watermark_crop(path, box) -> bool:
@@ -10845,7 +10845,7 @@ def bulk_improve_eligible_ids(user_id, dataset_id, image_ids):
         try:
             image_id = int(raw)
         except (TypeError, ValueError):
-            continue
+            continue   # malformed client id: dropped, the rest of the batch lands
         if image_id not in seen:
             seen.add(image_id)
             wanted.append(image_id)
@@ -11718,7 +11718,7 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
             try:
                 os.remove(late_output)
             except OSError:
-                pass
+                pass   # already gone or locked: the late output was a leftover either way
         try:
             _sync_generate_activity(img.dataset_id)
         except Exception:
@@ -11921,7 +11921,7 @@ def write_export_zip(user_id: int, dataset_id: int, output: BinaryIO) -> None:
                 zf.writestr(f"{folder}/{safe}_000_ref.png", rpng.getvalue())
                 zf.writestr(f"{folder}/{safe}_000_ref.txt", ds.trigger_word)
             except OSError:
-                pass
+                pass   # the reference is a bonus in this export: a bad file must not sink the zip
         for n, img in enumerate(kept, 1):
             path = _img_path(img) if img.filename else ''
             if not img.filename or not os.path.exists(path):
