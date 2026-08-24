@@ -3844,21 +3844,10 @@ def import_backup_zip(user_id: int, archive: bytes | BinaryIO):
             owned.close()
 
 
-def _bkp_validate_archive(z: zipfile.ZipFile):
-    """The whole security battery of a backup import, moved verbatim
-    (2026-08-24): central-directory limits, manifest/version checks, image
-    metadata normalisation and provenance rules, archive-entry filtering
-    with the traversal/collision refusals, the v2 archive<->metadata
-    pairing, and the analysis-cache binding (CRC/SHA validated BEFORE any
-    staging folder or transaction exists). Pure reads: nothing on disk or
-    in the database changes here. Returns (manifest, images_meta,
-    restored_training_mode, infos, validated_cache_payloads)."""
-    # Validate the central directory BEFORE inflating JSON.  Previously a tiny
-    # compressed manifest/images.json could bypass the image-only size total and
-    # consume unbounded RAM during z.read/json.loads.
-    all_infos = z.infolist()
-    _validate_backup_limits(
-        (info.filename, info.file_size) for info in all_infos)
+def _bkp_v_manifest(z, all_infos):
+    """Locate and parse manifest.json/images.json, enforce format/version and
+    normalise both. Moved verbatim from _bkp_validate_archive. Returns
+    (manifest, images_meta, restored_training_mode, version)."""
     metadata = {}
     for info in all_infos:
         if info.filename not in ('manifest.json', 'images.json'):
@@ -3896,6 +3885,13 @@ def _bkp_validate_archive(z: zipfile.ZipFile):
         _normalized_backup_image_meta(meta, version=version)
         for meta in images_meta
     ]
+    return manifest, images_meta, restored_training_mode, version
+
+
+def _bkp_v_rows(images_meta, version):
+    """Per-row identity/provenance validation (filenames, backup ids, Klein
+    rescue lineage). Moved verbatim from _bkp_validate_archive. Returns the
+    casefolded filename -> exact name map the v2 cross-check needs."""
     seen_backup_ids = set()
     metadata_image_names = {}
     rescue_sources = set()
@@ -3942,6 +3938,13 @@ def _bkp_validate_archive(z: zipfile.ZipFile):
                 raise ValueError('multiple Klein rescue candidates for one source')
     if any(parent_id not in rescue_sources for parent_id in rescue_parent_counts):
         raise ValueError('Klein rescue candidate has no valid source')
+    return metadata_image_names
+
+
+def _bkp_v_payload_names(all_infos, version):
+    """Select the restorable payload members and map their casefolded names,
+    refusing ref/images collisions. Moved verbatim from _bkp_validate_archive.
+    Returns (infos, archive_names)."""
     infos = []
     for info in all_infos:
         if info.is_dir() or info.filename in ('manifest.json', 'images.json'):
@@ -3975,6 +3978,13 @@ def _bkp_validate_archive(z: zipfile.ZipFile):
     if collisions:
         collision = archive_names['images'][next(iter(collisions))]
         raise ValueError(f'backup has colliding ref/image filename: {collision}')
+    return infos, archive_names
+
+
+def _bkp_v_crosscheck_v2(version, manifest, archive_names, metadata_image_names):
+    """v2-only cross-checks: archive image set == metadata set (exact case), and
+    every required/allowed reference file present with no orphans. Moved
+    verbatim from _bkp_validate_archive."""
     if version >= 2:
         archive_image_keys = set(archive_names['images'])
         metadata_image_keys = set(metadata_image_names)
@@ -4018,6 +4028,13 @@ def _bkp_validate_archive(z: zipfile.ZipFile):
             raise ValueError(
                 f'unreferenced reference image in backup: '
                 f'{archive_names["ref"][next(iter(orphan_refs))]}')
+
+
+def _bkp_v_caches(z, all_infos, images_meta, version):
+    """Derive analysis-cache ownership from the validated rows, then read and
+    verify every requested sidecar (size, digest, shape) before anything is
+    staged. Moved verbatim from _bkp_validate_archive. Returns the
+    cache_ref -> raw payload map."""
 
     # Derive cache ownership only after the exact set of restorable rows/files
     # has been validated. A crafted skipped row cannot smuggle an otherwise
@@ -4088,6 +4105,30 @@ def _bkp_validate_archive(z: zipfile.ZipFile):
             raise ValueError(
                 'analysis cache sidecar is malformed or has a digest mismatch')
         validated_cache_payloads[cache_ref] = raw
+    return validated_cache_payloads
+
+
+def _bkp_validate_archive(z: zipfile.ZipFile):
+    """The whole security battery of a backup import, moved verbatim
+    (2026-08-24): central-directory limits, manifest/version checks, image
+    metadata normalisation and provenance rules, archive-entry filtering
+    with the traversal/collision refusals, the v2 archive<->metadata
+    pairing, and the analysis-cache binding (CRC/SHA validated BEFORE any
+    staging folder or transaction exists). Pure reads: nothing on disk or
+    in the database changes here. Returns (manifest, images_meta,
+    restored_training_mode, infos, validated_cache_payloads)."""
+    # Validate the central directory BEFORE inflating JSON.  Previously a tiny
+    # compressed manifest/images.json could bypass the image-only size total and
+    # consume unbounded RAM during z.read/json.loads.
+    all_infos = z.infolist()
+    _validate_backup_limits(
+        (info.filename, info.file_size) for info in all_infos)
+    manifest, images_meta, restored_training_mode, version = _bkp_v_manifest(
+        z, all_infos)
+    metadata_image_names = _bkp_v_rows(images_meta, version)
+    infos, archive_names = _bkp_v_payload_names(all_infos, version)
+    _bkp_v_crosscheck_v2(version, manifest, archive_names, metadata_image_names)
+    validated_cache_payloads = _bkp_v_caches(z, all_infos, images_meta, version)
     return (manifest, images_meta, restored_training_mode, infos,
             validated_cache_payloads)
 
