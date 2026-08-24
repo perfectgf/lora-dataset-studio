@@ -59,7 +59,7 @@ function Chip({ tone = 'muted', title = '', children }) {
  *
  *  Wraps and breaks at 400 px: a repository id is long, and a card that scrolls
  *  sideways on a phone hides the very sentence this exists to show. */
-export function HubLine({ entry, presence = null }) {
+function HubLine({ entry, presence = null }) {
   const line = denseHubLine(entry, presence);
   if (!line) return null;
   return (

@@ -192,7 +192,7 @@ export function promotePayload({ name, targetKey, frames, size, ids, edgeInsetS,
 // Above this share of one source, the result is lopsided enough to be worth a
 // sentence. 0.5 rather than the 0.6 that was actually measured: the point is to
 // speak before it gets that bad.
-export const LOPSIDED_SHARE = 0.5
+const LOPSIDED_SHARE = 0.5
 
 /** Why this cap cannot be used, or '' when it can. */
 export function capProblem(value) {
@@ -244,7 +244,7 @@ export function capBalanceNote(composition, appliedCap) {
 // The researched figure is ~0.25 s per end. The cap mirrors the server's
 // (video_bank_service.MAX_EDGE_INSET_S): not a claim about how long a transition
 // is, but a guard against a typo emptying a dataset.
-export const MAX_EDGE_INSET_S = 5
+const MAX_EDGE_INSET_S = 5
 
 /** Why this inset cannot be used, or '' when it can. Checked here as well as on
  * the server so the reason sits next to the field instead of arriving as a red

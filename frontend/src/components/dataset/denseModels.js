@@ -30,7 +30,7 @@ export const fmtBytes = (bytes) => {
   return `${n} B`;
 };
 
-export const FAMILY_TITLE = {
+const FAMILY_TITLE = {
   krea: 'Krea 2', zimage: 'Z-Image', sdxl: 'SDXL',
   flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima',
 };
@@ -49,10 +49,10 @@ export function denseModelTitle(entry) {
    paints before the network answers, and everything below has to read honestly
    in that first frame. See backend `hub_presence` for why `unknown` (no token,
    offline, 5xx, refused token) may never collapse into `gone`. */
-export const HUB_PRESENT = 'present';
-export const HUB_GONE = 'gone';
-export const HUB_UNKNOWN = 'unknown';
-export const HUB_UNCHECKED = 'unchecked';
+const HUB_PRESENT = 'present';
+const HUB_GONE = 'gone';
+const HUB_UNKNOWN = 'unknown';
+const HUB_UNCHECKED = 'unchecked';
 
 const hubState = (presence) => {
   const state = String(presence?.state || '').trim().toLowerCase();

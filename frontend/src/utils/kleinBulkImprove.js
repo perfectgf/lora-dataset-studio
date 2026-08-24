@@ -1,6 +1,6 @@
 import { isSmallImageRescueRow } from './smallImageRescue.js'
 
-export function kleinImproveExclusionReason(image, allImages = []) {
+function kleinImproveExclusionReason(image, allImages = []) {
   if (!image) return 'image no longer exists'
   if (!image.filename) return 'image file is not ready'
   if (isSmallImageRescueRow(image)) return 'resolve the Klein rescue pair first'

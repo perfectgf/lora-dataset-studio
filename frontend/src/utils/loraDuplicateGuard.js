@@ -75,7 +75,7 @@ export function isFixedLoraDuplicate(rowFile, fixedLora) {
 /** The sentence shown on the offending row. Engine-specific because the two
  *  fixed slots have different names and different strength settings, and a
  *  warning that cannot name the setting to change is a dead end. */
-export const FIXED_LORA_SLOTS = {
+const FIXED_LORA_SLOTS = {
   klein: {
     label: 'consistency LoRA',
     strengthSetting: 'Consistency strength',

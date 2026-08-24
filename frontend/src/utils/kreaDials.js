@@ -54,7 +54,7 @@ export const KREA_IDENTITY_STRENGTH_STEP = 0.05;
 /** A finite number inside [min, max], or `fallback` when the value is unusable.
  *  null/undefined/'' are ABSENT, not zero — `Number(null)` is 0, and a dial
  *  still waiting for /api/settings must not render as "off". */
-export function clampDial(value, min, max, fallback) {
+function clampDial(value, min, max, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;

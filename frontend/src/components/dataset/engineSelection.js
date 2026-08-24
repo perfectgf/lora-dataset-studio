@@ -115,7 +115,7 @@ export const DEFAULT_ENGINE = 'nanobanana';
 export const MODES = ['split', 'all'];
 /** Sharing the N selected shots between the engines (total = N, today's cost)
  *  is the default: nobody should multiply their bill without asking. */
-export const DEFAULT_MODE = 'split';
+const DEFAULT_MODE = 'split';
 
 /** Keep only real engine ids, de-duplicated, in canonical order. Anything else
  *  (a typo, a removed engine, a non-string) is dropped rather than trusted. */

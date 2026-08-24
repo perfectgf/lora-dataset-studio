@@ -32,7 +32,7 @@ export const IMPROVE_ENGINES = [
   },
 ]
 
-export const DEFAULT_IMPROVE_ENGINE = 'klein'
+const DEFAULT_IMPROVE_ENGINE = 'klein'
 
 export function improveEngine(id) {
   return IMPROVE_ENGINES.find((e) => e.id === id)

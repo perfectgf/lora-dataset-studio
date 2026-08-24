@@ -16,12 +16,12 @@
  * browser sees.
  */
 import {
-  availableImproveEngines, improveEngine, improveEngineBlockedReason,
+  availableImproveEngines, improveEngineBlockedReason,
 } from '../../utils/improveEngines.js';
 
 /** How each edit is named on screen. Method ids are stored in user databases
     (`bank_image.edit_method`) — the WORDS may change, the keys may not. */
-export const EDIT_LABEL = {
+const EDIT_LABEL = {
   crop: '✂ Cropped here',
   improve: '✨ Improved here',
 };
@@ -167,8 +167,3 @@ export function revertOutcomeMessage(result) {
   };
 }
 
-/** The engine label used in the running-pass line, from the id the run was
-    started with. Falls back to the shared default rather than showing an id. */
-export function improveEngineLabel(id) {
-  return improveEngine(id).label;
-}

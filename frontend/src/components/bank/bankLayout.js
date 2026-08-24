@@ -98,7 +98,6 @@ export const RAIL_FOLDED_GROUPS = [
   'score', 'framing', 'medium', 'angle', 'resolution', 'origin',
 ];
 
-export const RAIL_GROUPS = [...RAIL_PRIMARY_GROUPS, ...RAIL_FOLDED_GROUPS];
 
 /**
  * Which rail groups render, given what the passes have actually produced.

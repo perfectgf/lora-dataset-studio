@@ -10,7 +10,7 @@ export const SEMANTIC_ENGINE_OPTIONS = [
   { id: 'siglip2', label: 'SigLIP 2', hint: 'Optional · its own semantic index' },
 ]
 
-export const PIPELINE_BASE_STEPS = [
+const PIPELINE_BASE_STEPS = [
   'scan', 'auto_reject', 'score', 'semantic_dedup',
   'watermark', 'faces', 'framing', 'caption',
 ]

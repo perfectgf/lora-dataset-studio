@@ -1,12 +1,12 @@
 export const CANVAS_FAMILY_SELECTION_KEY = 'lds.canvasModelFamilies';
-export const CANVAS_EXTRA_FILTERS_KEY = 'lds.canvasExtraFilters';
-export const CANVAS_STATUS_ORDER = ['active', 'completed', 'error', 'unknown'];
+const CANVAS_EXTRA_FILTERS_KEY = 'lds.canvasExtraFilters';
+const CANVAS_STATUS_ORDER = ['active', 'completed', 'error', 'unknown'];
 
 const ACTIVE_STATUSES = new Set([
   'preparing', 'provisioning', 'uploading', 'training', 'downloading', 'terminating',
 ]);
 
-export const CANVAS_FAMILY_LABELS = {
+const CANVAS_FAMILY_LABELS = {
   zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL',
   flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima',
 };

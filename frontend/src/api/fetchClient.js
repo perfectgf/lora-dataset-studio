@@ -74,7 +74,7 @@ export async function fetchWithCsrfRetry(url, options = {}) {
 
 /* The two sentences the network layer is allowed to say out loud. Exported so
    the tests and the offline indicator quote the same strings. */
-export const CONNECTION_LOST_MESSAGE = 'Connection lost. Please check your network.';
+const CONNECTION_LOST_MESSAGE = 'Connection lost. Please check your network.';
 export const CONNECTION_BACK_MESSAGE = 'Back online.';
 
 /**

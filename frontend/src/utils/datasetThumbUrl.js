@@ -26,7 +26,7 @@ export const THUMB_SIDES = [128, 192, 256, 320, 384, 512, 640, 768, 1024];
 const IMG_SEGMENT = /^(\/api\/dataset\/\d+)\/img\/(.+)$/;
 
 /** The rung that covers a tile drawn `px` wide. Unknown/garbage → 512. */
-export function datasetThumbSide(px) {
+function datasetThumbSide(px) {
   const want = Number(px);
   if (!Number.isFinite(want) || want <= 0) return 512;
   return THUMB_SIDES.find((side) => side >= want) ?? THUMB_SIDES[THUMB_SIDES.length - 1];

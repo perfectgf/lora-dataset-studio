@@ -15,7 +15,6 @@
      - nothing may move before the settings have loaded, since the panel is not
        rendered yet.  */
 
-export const SECTION_SCROLL_MARGIN_PX = 8
 
 /* A ?focus= arrival is not over when the first scroll ends.
 

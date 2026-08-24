@@ -24,7 +24,7 @@
 /** Hard ceiling on one archive, mirrored from services/gallery_download.py
  *  (ZIP_IMAGE_CAP). Duplicated as a NUMBER only so the button can say the limit
  *  before the round-trip; the backend remains the one that enforces it. */
-export const ZIP_IMAGE_CAP = 500;
+const ZIP_IMAGE_CAP = 500;
 
 export const ZIP_SCOPE_ALL = 'all';
 export const ZIP_SCOPE_SELECTION = 'selection';

@@ -116,7 +116,7 @@ export function faceScoringErrorMessage(scoringError) {
  * `error` is a separate concern (why an attempted inpaint failed) and is
  * surfaced by its own toast.error at the call site.
  */
-export function summarizeClean(d) {
+function summarizeClean(d) {
   const cropped = d.cropped || 0;
   // LaMa and Klein inpaints tally together — both "repainted the mark" from the
   // user's point of view (the batch method toggle picks which engine ran).

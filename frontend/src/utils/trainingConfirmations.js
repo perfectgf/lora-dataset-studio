@@ -9,7 +9,7 @@ const OPTION_FOR_CONFIRM_FLAG = Object.freeze({
   allow_parallel_run: 'allowParallelRun',
 })
 
-export function withTrainingConfirmationFlag(options, flag) {
+function withTrainingConfirmationFlag(options, flag) {
   const option = OPTION_FOR_CONFIRM_FLAG[flag]
   return option ? { ...(options || {}), [option]: true } : options
 }

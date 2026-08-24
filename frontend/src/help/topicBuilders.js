@@ -2,7 +2,7 @@
    (2026-08-24 split). PURE JS, like everything the registry imports. */
 
 // settings-reference H2 anchor for each Settings section id.
-export const SETTINGS_ANCHOR = {
+const SETTINGS_ANCHOR = {
   overview: 'overview',
   engines: 'image-engines',
   scraping: 'scraping-sources',

@@ -56,7 +56,7 @@ export function getWorkspacePanels(sectionId, context) {
 /* Where a dataset opens when the URL asks for nothing. Named once, here, so the
    landing screen is a decision with a home rather than a literal repeated in a
    fallback branch. */
-export const DEFAULT_WORKSPACE_SECTION = 'add';
+const DEFAULT_WORKSPACE_SECTION = 'add';
 
 export function resolveWorkspaceLocation(searchParams, context) {
   const requestedSection = searchParams.get('section');

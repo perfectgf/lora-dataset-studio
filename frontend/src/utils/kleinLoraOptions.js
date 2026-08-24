@@ -71,7 +71,7 @@ export function filterLoras(loras, query) {
 // Cap on rendered options — the dropdown never floods the viewport, and the
 // keyboard-navigation index stays bounded (waltm: ≤20 shown). Filtering narrows
 // further; a footer tells the user to refine when matches exceed the cap.
-export const MAX_VISIBLE_OPTIONS = 20;
+const MAX_VISIBLE_OPTIONS = 20;
 
 /**
  * The options actually rendered for a query: filtered, capped to `max`, then split

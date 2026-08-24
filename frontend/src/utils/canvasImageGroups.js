@@ -56,7 +56,7 @@ export function groupMembers(nodes, groupId) {
 
 /** Every group present in a list, as {groupId: members[]} — only the real ones.
  *  A single row left carrying a group id is not a group; see layoutImageNodes. */
-export function groupIndex(nodes) {
+function groupIndex(nodes) {
   const out = new Map();
   for (const n of (nodes || [])) {
     if (!n.groupId) continue;

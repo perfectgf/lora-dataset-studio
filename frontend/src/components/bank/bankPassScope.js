@@ -102,7 +102,7 @@ export function passScopeStatuses(scopeId) {
 }
 
 /** Does this scope reach the rejected pile? Drives the warning, nothing else. */
-export function passScopeTouchesBin(scopeId) {
+function passScopeTouchesBin(scopeId) {
   return !!passScopeOption(scopeId).bin;
 }
 
@@ -112,7 +112,7 @@ export function passScopeTouchesBin(scopeId) {
  *  the rule this payload already follows for `unscanned` and for the caption
  *  counts. Until the first payload lands the dialog says so instead of quoting a
  *  number nobody measured. */
-export function passCountsKnown(payload, passId) {
+function passCountsKnown(payload, passId) {
   const p = payload?.pass_scopes?.[passId];
   return !!p && !!p.todo;
 }
@@ -137,12 +137,6 @@ export function passScopeCount(payload, passId, scopeId, redo = false) {
     .reduce((n, pile) => n + (Number(table[pile]) || 0), 0);
 }
 
-/** The whole pile, per scope, straight from `counts` — what "everything in this
- *  scope" means when a pass has no per-pass table (✨ Score, ✂ crops). */
-export function pileCount(counts, scopeId) {
-  return passScopeOption(scopeId).piles
-    .reduce((n, pile) => n + (Number(counts?.[pile]) || 0), 0);
-}
 
 /**
  * How many images in THIS scope the pass will reach but cannot answer for,

@@ -25,7 +25,7 @@
 // resolve extensionless specifiers) as well as by Vite.
 import { famLabel } from './familyLabels.js';
 import {
-  blendCombinations, blendConfigCount, combineBlocker, stackKey, stackWeight,
+  blendConfigCount, combineBlocker, stackKey, stackWeight,
   stackWeightList, stackWeightSet,
 } from '../components/dataset/studio/loraStack.js';
 
@@ -89,7 +89,7 @@ export function canvasFamily(selection) {
    have silently reset every slider the user moved before launching. */
 
 /** The picks, in the shape studio/loraStack.js reads. */
-export function canvasStackSelection(selection) {
+function canvasStackSelection(selection) {
   return (selection || []).map((e) => ({
     dataset_id: e.datasetId,
     checkpoint: `${e.recordId}:${e.step}`,
@@ -106,14 +106,12 @@ export function canvasStackSelection(selection) {
  *  Studio, importée, pas réécrite. */
 export const canvasStackWeightSet = (sets, entry) =>
   stackWeightSet(sets, canvasStackSelection([entry])[0]);
-export const canvasStackWeightList = (weights, sets, entry) =>
+const canvasStackWeightList = (weights, sets, entry) =>
   stackWeightList(weights, sets, canvasStackSelection([entry])[0]);
 
-/** Combien de combinaisons ce board va lancer, et lesquelles. */
+/** Combien de combinaisons ce board va lancer. */
 export const canvasBlendConfigCount = (selection, opts = {}) =>
   blendConfigCount(canvasStackSelection(selection), opts);
-export const canvasBlendCombinations = (selection, opts = {}) =>
-  blendCombinations(canvasStackSelection(selection), opts);
 
 /** Weight-map key of ONE pick — equal to `canvasCheckpointKey` by construction. */
 export const canvasStackKey = (entry) => stackKey(canvasStackSelection([entry])[0]);

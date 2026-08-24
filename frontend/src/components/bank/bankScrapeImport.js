@@ -47,7 +47,7 @@ export function summarizeBankScrapeImport(totals) {
   return bits.join(' · ');
 }
 
-export const BANK_SCRAPE_ENDPOINT = '/api/bank/scrape-import';
+const BANK_SCRAPE_ENDPOINT = '/api/bank/scrape-import';
 
 /**
  * Run the whole import. `post(url, body)` is the caller's JSON POST (injected so

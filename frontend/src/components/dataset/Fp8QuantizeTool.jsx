@@ -40,7 +40,7 @@ const pct = (done, total) => (
   total > 0 ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0
 );
 
-export const RUNNING_STATES = ['downloading', 'quantizing'];
+const RUNNING_STATES = ['downloading', 'quantizing'];
 
 /** Which checkpoint, which folder, what it costs — before anything moves. */
 export function Fp8DeliverPlan({

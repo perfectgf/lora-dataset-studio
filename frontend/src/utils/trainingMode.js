@@ -337,11 +337,11 @@ export function denseDelivery(run = {}) {
   return ['local', 'hub', 'both'].includes(value) ? value : 'hub';
 }
 
-export function denseDeliversLocally(run = {}) {
+function denseDeliversLocally(run = {}) {
   return isFullTransformerRun(run) && denseDelivery(run) !== 'hub';
 }
 
-export function denseDeliversToHub(run = {}) {
+function denseDeliversToHub(run = {}) {
   return isFullTransformerRun(run) && denseDelivery(run) !== 'local';
 }
 
@@ -577,7 +577,7 @@ export function fullTransformerUnavailableReason(selection = {}) {
 /** True for a Krea variant that is a DISTILLED few-step model. Unset means Raw,
  * mirroring the backend default (`_krea_is_raw`), so a dataset that never
  * persisted a variant is never warned about Turbo. */
-export function isKreaTurboVariant(variant) {
+function isKreaTurboVariant(variant) {
   return !['', 'base', 'raw'].includes(String(variant ?? '').trim().toLowerCase());
 }
 

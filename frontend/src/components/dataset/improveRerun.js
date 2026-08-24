@@ -11,7 +11,7 @@
  *
  * Kept in plain .js (no JSX) so `node --test` can exercise the decision itself.
  */
-export const KLEIN_IMAGE_IMPROVE = 'klein_image_improve';
+const KLEIN_IMAGE_IMPROVE = 'klein_image_improve';
 
 export const REIMPROVE_TITLE =
   'Re-run Upscale & improve on the source image, with your current improve settings';

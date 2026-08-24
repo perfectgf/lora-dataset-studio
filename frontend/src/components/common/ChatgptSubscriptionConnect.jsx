@@ -126,7 +126,7 @@ export default function ChatgptSubscriptionConnect({ caps, refreshCaps, toast, l
    the lane's limits (reference-image count, daily image cap) follow the plan, not
    the account — but neither field is guaranteed by the token, so each one only
    appears when the backend actually reported it. */
-export function subscriptionLabel(sub) {
+function subscriptionLabel(sub) {
   const s = sub || {}
   const parts = [s.email, s.plan].filter((v) => typeof v === 'string' && v.trim())
   return parts.length ? `Connected — ${parts.join(' · ')}` : 'Connected'

@@ -18,7 +18,7 @@
  * amateur footage this bank was built for. It stays the default because
  * replacing it blind would only trade one unmeasured number for another; what
  * changed is that it is now free to disagree with. */
-export const SHOT_THRESHOLD_DEFAULT = 0.5
+const SHOT_THRESHOLD_DEFAULT = 0.5
 
 /** '' → null (inherit) · '0.7' → 0.7 · anything else throws with the sentence
  * to show the user. Thrown rather than clamped: a field has somebody in front

@@ -84,7 +84,7 @@ export function LoraMergePlan({ plan, busy = false, disabled = false, onStart = 
 }
 
 /** The long half, alive. A merge of a 26 GB base is minutes, not seconds. */
-export function LoraMergeProgress({ state, onCancel = null }) {
+function LoraMergeProgress({ state, onCancel = null }) {
   if (!state || !MERGE_RUNNING_STATES.includes(state.status)) return null;
   const width = pct(state.done, state.total);
   return (
@@ -110,7 +110,7 @@ export function LoraMergeProgress({ state, onCancel = null }) {
 }
 
 /** What happened — and, when it worked, what this file is and is not. */
-export function LoraMergeOutcome({ state }) {
+function LoraMergeOutcome({ state }) {
   if (!state) return null;
   const result = state.result || null;
   if (state.status === 'done') {

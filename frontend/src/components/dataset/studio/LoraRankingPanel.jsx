@@ -54,7 +54,7 @@ export default function LoraRankingPanel({ ranking }) {
 /** The ranking is not "most likes wins", and that surprises people: a config with
  *  6👍4👎 sits BELOW one with 2👍0👎. Explaining it where the numbers are shown is
  *  the only place it lands — nobody goes looking for it in the docs. */
-export function HowVotingWorks() {
+function HowVotingWorks() {
   const [open, setOpen] = useState(false);
   return (
     <details className="mt-1 rounded border border-border bg-app"

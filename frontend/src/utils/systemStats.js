@@ -16,8 +16,8 @@
  */
 
 /** Fractions of a resource at which the tone changes. */
-export const WARM_AT = 0.50;
-export const HOT_AT = 0.80;
+const WARM_AT = 0.50;
+const HOT_AT = 0.80;
 
 /** localStorage key for "the user folded this away". NEVER rename it — a new
  *  key would silently re-open the widget for everyone who had closed it. */

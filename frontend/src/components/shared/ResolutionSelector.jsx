@@ -31,7 +31,7 @@ const TIERS = [
 const CAP = 1536;        // tier cap: max px per side of the PRESET (Z-Image safe band)
 const ABS_CAP = 3072;    // absolute safety cap applied AFTER the multiplier (long side)
 const FLOOR = 512, MULT = 16;
-export const MULT_MIN = 1.0, MULT_MAX = 1.9, MULT_STEP = 0.1;
+const MULT_MIN = 1.0, MULT_MAX = 1.9, MULT_STEP = 0.1;
 // Past this the base model (Krea/Z-Image) can soften/duplicate or OOM on the GPU.
 const MULT_WARN = 1.5;
 const snap = (v) => Math.max(FLOOR, Math.round(v / MULT) * MULT);
@@ -44,7 +44,7 @@ const clampMult = (m) => {
 // donc le mode SDXL passe 1024 et l'affichage colle aux dimensions réellement
 // générées (le backend applique la même re-borne). `multiplier` (1.0–1.9) agrandit
 // le PRESET après le cap de palier, borné ensuite au cap absolu 3072.
-export function tierDims(aspectRatio, mp, maxLongSide, multiplier = 1) {
+function tierDims(aspectRatio, mp, maxLongSide, multiplier = 1) {
   const [rw, rh] = RATIOS[aspectRatio] || RATIOS.square;
   const r = rw / rh;
   let h = Math.sqrt((mp * 1e6) / r);

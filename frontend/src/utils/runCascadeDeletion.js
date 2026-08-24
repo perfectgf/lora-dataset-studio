@@ -39,7 +39,7 @@ function count(impact, key) {
 /* The cascade half of the deletion-impact payload. Missing (an older backend, a
    failed probe) yields an all-zero block rather than undefined, so the caller
    never has to guard every read. */
-export function cascadeBlock(impact) {
+function cascadeBlock(impact) {
   return impact?.cascade || {};
 }
 

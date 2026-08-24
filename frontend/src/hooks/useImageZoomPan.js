@@ -29,7 +29,7 @@ export const DOUBLE_TAP_MS = 260;
 
 /** One wheel notch. Small enough to feel continuous on a trackpad, big enough
  *  that a mouse wheel gets somewhere in three clicks. */
-export const WHEEL_STEP = 1.18;
+const WHEEL_STEP = 1.18;
 
 /**
  * @param {object} opts

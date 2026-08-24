@@ -84,10 +84,6 @@ export function videoShotThresholdUrl(bankId) {
   return `/api/video-bank/${bankId}/shot-threshold`
 }
 
-export function videoSourceShotThresholdUrl(bankId, sourceId) {
-  return `/api/video-bank/${bankId}/source/${sourceId}/shot-threshold`
-}
-
 /** "At threshold X you would get N shots" — read from the cached probabilities,
  * writes nothing. The same philosophy as the quality cuts' preview: a number
  * only means something once you have seen what it would do to THIS bank. */

@@ -27,7 +27,7 @@ export const FACE_DETECTION_LABEL = 'Face detection (InsightFace)';
  *  knowingly does not feel trapped; someone who discovers it mid-flight does.
  *  Order of magnitude from requirements-ml.txt (insightface + onnxruntime + numpy
  *  + headless OpenCV) plus the antelopev2 model the first run fetches. */
-export const FACE_DETECTION_COST = '~400 MB, a few minutes';
+const FACE_DETECTION_COST = '~400 MB, a few minutes';
 
 const READY_DETAIL = 'InsightFace is installed — face masking is available.';
 

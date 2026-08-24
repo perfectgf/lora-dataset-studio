@@ -26,7 +26,7 @@ import { busyRefusal } from '../bank/bankPassRun.js';
    progress banner, so "🧽 Watermark scan is running" points at something
    visible on screen. An unknown kind falls back to "Another pass" rather than
    leaking an internal identifier. */
-export const DATASET_JOB_LABELS = {
+const DATASET_JOB_LABELS = {
   watermark_detect: '🧽 Watermark scan',
   watermark_clean: '🧽 Watermark cleaning',
   caption: '🏷️ Captioning',

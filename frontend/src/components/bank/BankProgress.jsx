@@ -21,7 +21,7 @@ import {
    server-side thread looked exactly like a pass that had stopped. Plain text,
    NOT a live region — the global ConnectionBanner already announces the outage
    once, and a second live region would double every announcement. */
-export function ProgressUnknown({ stale }) {
+function ProgressUnknown({ stale }) {
   return (
     <p className="m-0 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-content-muted">
       <span aria-hidden>📡</span>{' '}

@@ -23,7 +23,7 @@
 /** How a SeedVR2 candidate's stored prompt begins (lora_test_studio /
  *  face_dataset_service write the same sentence). Stored on rows, so it can
  *  never be reworded without an alias. */
-export const SEEDVR2_PROMPT_PREFIX = 'SeedVR2 upscale';
+const SEEDVR2_PROMPT_PREFIX = 'SeedVR2 upscale';
 
 /** Whether ↩ can be offered on this row at all. */
 export function canRestoreImproveSettings(img) {

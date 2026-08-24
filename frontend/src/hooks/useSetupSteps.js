@@ -299,7 +299,7 @@ export function comfyuiDirVerdict(check) {
 // time. Deliberately a NOTE, never a blocker: mounting the volumes afterwards is a
 // perfectly normal order of operations. Empty string = nothing to say (not probed,
 // or fine). The backend already redacted the path.
-export function inputFolderNote(inputCheck) {
+function inputFolderNote(inputCheck) {
   const c = inputCheck || {}
   if (c.ok !== false) return ''
   return c.problem || 'The app cannot write into ComfyUI’s input folder.'
@@ -316,7 +316,7 @@ export function inputFolderNote(inputCheck) {
 // ("no interpreter found here") and opens both doors with equal weight — make
 // one, or name the one you already have. Pure strings + a shape: node --test
 // locks the wording, which is the part that was wrong.
-export const AITOOLKIT_PYTHON_SETTING = 'Settings ▸ Local tools ▸ ai-toolkit Python interpreter'
+const AITOOLKIT_PYTHON_SETTING = 'Settings ▸ Local tools ▸ ai-toolkit Python interpreter'
 
 // The install path, before any folder is configured. Same rule: the venv is ONE
 // way to give ai-toolkit a Python, not the definition of a working install.
@@ -604,7 +604,7 @@ export function recommendedMet(caps) {
  *  loadable. Mirrors setup_installer._needs_install — the backend authority, which
  *  now also REPLACES a blocking-invalid file instead of returning "already
  *  present" and doing nothing (the trap that made "download it again" a no-op). */
-export function brokenOrMissing(missing, invalid) {
+function brokenOrMissing(missing, invalid) {
   const out = Array.isArray(missing) ? [...missing] : []
   blockingInvalid(invalid).forEach((i) => { if (!out.includes(i.asset)) out.push(i.asset) })
   return out
@@ -686,7 +686,7 @@ export function kreaNeedsComfyuiRestart(caps) {
  *  interpreter, which the app does not own and must never pip into. Cloning it
  *  alone would land a pack that fails to import — so the pack is explained, and
  *  only the weights are installed. */
-export const SEEDVR2_INSTALL_ORDER = ['seedvr2_model', 'seedvr2_vae']
+const SEEDVR2_INSTALL_ORDER = ['seedvr2_model', 'seedvr2_vae']
 
 export function seedvr2InstallPlan(caps) {
   const cu = (caps || {}).comfyui || {}

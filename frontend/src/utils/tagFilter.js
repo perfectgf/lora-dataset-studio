@@ -31,7 +31,7 @@ export function normalizeTag(tag) {
 }
 
 /** Booru tokenisation — identical to CaptionToolsBar's frequency panel. */
-export function tokenizeTags(caption) {
+function tokenizeTags(caption) {
   return (caption || '')
     .split(',')
     .map((t) => t.trim().toLowerCase())
@@ -56,7 +56,7 @@ function proseHasWord(caption, tag) {
 }
 
 /** Does this caption carry `tag` under the given match mode ('booru' | 'prose')? */
-export function captionHasTag(caption, tag, mode) {
+function captionHasTag(caption, tag, mode) {
   const needle = normalizeTag(tag);
   if (!needle) return false;
   if (mode === 'prose') return proseHasWord(caption, needle);

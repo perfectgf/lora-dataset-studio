@@ -37,7 +37,7 @@ export const EXPORT_PADDING = 56;
 
 /** How many device pixels a world unit is worth by default. 2 keeps text and
  *  edges crisp when the file is viewed at 100 %; the cap below can lower it. */
-export const EXPORT_PIXEL_RATIO = 2;
+const EXPORT_PIXEL_RATIO = 2;
 
 /** The ceiling, in total pixels. Browsers refuse canvases past a few hundred
  *  megapixels — silently, by producing a blank one — and a twenty-lane board at
@@ -124,7 +124,7 @@ export function boardExportFilename(when = new Date(), laneCount = 0) {
    graphite the board is designed in rather than inheriting whatever the viewer
    had selected the second they pressed the button.
    -------------------------------------------------------------------------- */
-export const EXPORT_COLORS = {
+const EXPORT_COLORS = {
   background: '#0d1014',
   laneName: '#e6e9ef',
   laneMeta: '#8b93a3',

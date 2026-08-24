@@ -40,7 +40,7 @@ import { normalizeSemanticEngine, semanticEngineLabel } from './bankSemanticEngi
 // discriminating gap of a query compresses by 30–70%. A rule written against an
 // absolute band would simply never fire there; a ratio against the measured
 // median fires exactly when the ranking stops separating anything.
-export const SPREAD_BANDS = [
+const SPREAD_BANDS = [
   { maxRatio: 0.35, label: 'all about equally close' },
   { maxRatio: 0.80, label: 'the last ones are noticeably looser' },
   { maxRatio: Infinity, label: 'the tail is much weaker than the top' },

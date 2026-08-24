@@ -19,7 +19,6 @@ export const BALANCE_AXES = [
 export const BALANCE_DEFAULT_AXIS = 'framing'
 
 const FRAMING_LABEL = { face: 'face', bust: 'bust', body: 'body', back: 'back' }
-const FRAMING_ORDER = ['face', 'bust', 'body', 'back']
 
 export function bucketLabel(b) {
   const fr = FRAMING_LABEL[b.framing] || b.framing || '?'
@@ -105,4 +104,3 @@ export function balanceReadiness({ semanticReady = false, coverage = null,
   return { ready: true, reason: '' }
 }
 
-export const FRAMING_SORT = FRAMING_ORDER

@@ -148,7 +148,7 @@ export function draftSummary(draft) {
 
 /** Default length of a hand-made shot, in seconds. Long enough to be a shot, short
  * enough that trimming it down is the usual next gesture rather than the reverse. */
-export const NEW_SHOT_S = 5
+const NEW_SHOT_S = 5
 
 /** Bounds for a shot the detector missed entirely, starting at the playhead.
  * `{ start_s, end_s }`, or null when there is not room before the end of the file.

@@ -64,13 +64,13 @@ export const IMPROVE_LINE_OFF =
     is simply false, and the reader has no way to guess which setting produced
     it. Naming the setting makes the note both checkable and actionable: if the
     sentence is wrong, the fix is one field away. */
-export const IMPROVE_ANIME_CAUTION =
+const IMPROVE_ANIME_CAUTION =
   'This dataset’s subject type is set to anime. Words like “detailed texture” and '
   + '“sharp details” describe a photograph — they are what pushes anime skin and fabric '
   + 'towards realism. Edit the instruction, or turn it off and upscale only.';
 
 /** Longest quote kept inline; the full text always rides in the title attribute. */
-export const QUOTE_MAX = 120;
+const QUOTE_MAX = 120;
 
 /** Collapse whitespace so a multi-line prompt stays one readable line. */
 function flatten(text) {

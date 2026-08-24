@@ -11,7 +11,7 @@ export const TIMELINE_PLAYBACK_MODES = Object.freeze({
 
 export const TIMELINE_SPEEDS = Object.freeze([0.5, 1, 2]);
 
-export const WEBM_MIME_CANDIDATES = Object.freeze([
+const WEBM_MIME_CANDIDATES = Object.freeze([
   'video/webm;codecs=vp9',
   'video/webm;codecs=vp8',
   'video/webm',

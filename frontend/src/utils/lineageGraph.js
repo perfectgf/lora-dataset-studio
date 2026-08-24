@@ -26,7 +26,7 @@ import { siblingSort } from './lineageTree.js';
 // renderer draws each run as a fixed-size card so the layout is deterministic.
 export const CARD_W = 264;
 export const CARD_H = 64;
-export const H_GAP = 62;   // gap between one generation and the next (→)
+const H_GAP = 62;   // gap between one generation and the next (→)
 export const V_GAP = 26;   // gap between sibling bands (↓)
 export const PAD = 22;     // breathing room around the whole tree
 
@@ -40,8 +40,8 @@ export const PILL_H = 20;
 // Square-ish, ~2 tiles per card row — the layout below adapts to these.
 export const PILL_W_BIG = 128;
 export const PILL_H_BIG = 132;
-export const PILL_GAP = 6;         // between pills, both axes
-export const PILL_TOP_GAP = 8;     // card bottom → first pill row
+const PILL_GAP = 6;         // between pills, both axes
+const PILL_TOP_GAP = 8;     // card bottom → first pill row
 export const PILLS_PER_ROW = Math.max(1, Math.floor((CARD_W + PILL_GAP) / (PILL_W + PILL_GAP)));
 
 const COL = CARD_W + H_GAP;   // centre-to-centre horizontal step per depth

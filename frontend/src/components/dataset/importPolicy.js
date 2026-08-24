@@ -16,11 +16,9 @@ export const IMPORT_ENCODING_LABEL = {
   lossless: 'WebP lossless',
 };
 
-export const IMPORT_FALLBACK_MAX_SIDE = 1024;
-export const IMPORT_FALLBACK_CEILING = 8192;
-export const IMPORT_FALLBACK_ENCODING = 'preserve';
-export const IMPORT_FALLBACK_INPUT_MAX_SIDE = 16384;
-export const IMPORT_FALLBACK_INPUT_MAX_PIXELS = 64 * 1024 * 1024;
+const IMPORT_FALLBACK_MAX_SIDE = 1024;
+const IMPORT_FALLBACK_INPUT_MAX_SIDE = 16384;
+const IMPORT_FALLBACK_INPUT_MAX_PIXELS = 64 * 1024 * 1024;
 export const IMPORT_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/bmp';
 export const IMPORT_IMAGE_FORMATS = 'JPEG, PNG, WebP and BMP';
 

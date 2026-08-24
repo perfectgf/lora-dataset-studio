@@ -22,7 +22,7 @@
 /** What each destination accepts. Keys are the `destination` prop of
  * ConceptSourcesPanel; anything unknown is treated as the historical image lane
  * so a typo degrades to the old behaviour rather than to an empty grid. */
-export const SCRAPE_DESTINATION_MEDIA = {
+const SCRAPE_DESTINATION_MEDIA = {
   dataset: ['image'],
   bank: ['image'],
   'video-bank': ['video'],

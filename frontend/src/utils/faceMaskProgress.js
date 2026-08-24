@@ -10,7 +10,6 @@
    moment nothing at all was wrong. So each stage says what it is, and only the
    stages that really cost are named. */
 
-export const FACE_MASK_PHASES = ['starting', 'downloading', 'loading', 'detecting'];
 
 const PHASE_LABELS = {
   starting: 'Starting the face detector…',

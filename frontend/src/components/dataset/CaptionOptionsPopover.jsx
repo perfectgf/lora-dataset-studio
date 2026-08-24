@@ -63,7 +63,7 @@ export const APPEARANCE_FAMILIES = [
 export const APPEARANCE_DEFAULTS = {
   hair: 'omit', makeup: 'describe', facial_hair: 'omit', glasses: 'describe',
 };
-export const APPEARANCE_LOCKED = [
+const APPEARANCE_LOCKED = [
   'face shape', 'eye colour', 'skin', 'age', 'gender', 'ethnicity',
 ];
 

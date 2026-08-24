@@ -22,7 +22,7 @@ import { PASS_SCOPE_OPTIONS, passScopeOption } from './bankPassScope.js';
  *  name the caption row has always used so no caller has to be rewritten to follow it. */
 export const CAPTION_SCOPE_OPTIONS = PASS_SCOPE_OPTIONS;
 
-export function captionScopeOption(scopeId) {
+function captionScopeOption(scopeId) {
   return passScopeOption(scopeId);
 }
 

@@ -34,7 +34,6 @@ export function kreaMissingLabels(missing) {
     .map((k) => KREA_ASSET_LABELS[k]);
 }
 
-export const KREA_NODE_PACK_URL = 'https://github.com/lbouaraba/comfyui-krea2edit';
 
 /** Why the Krea engine can't be picked, or null when it can.
  *  Ordered by what the user has to do FIRST: a disabled engine and an

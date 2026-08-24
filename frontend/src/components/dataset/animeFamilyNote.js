@@ -14,7 +14,7 @@
 // computed from the installed ai-toolkit). Recommending an option the reader
 // cannot take is worse than saying nothing.
 
-export const ANIME_FAMILY_NOTE =
+const ANIME_FAMILY_NOTE =
   'This dataset is an anime character; Anima trains on an anime base. '
   + 'Switching is optional — every family can train it.';
 

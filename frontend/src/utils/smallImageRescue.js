@@ -1,5 +1,5 @@
-export const SMALL_IMAGE_SOURCE = 'small_image_source';
-export const KLEIN_SMALL_IMAGE = 'klein_small_image';
+const SMALL_IMAGE_SOURCE = 'small_image_source';
+const KLEIN_SMALL_IMAGE = 'klein_small_image';
 
 export const isSmallImageRescueRow = (image) =>
   image?.derivation_kind === SMALL_IMAGE_SOURCE

@@ -48,7 +48,7 @@ export const COMBINE_MIN_WEIGHT = 0;
  * Studio, parce qu'un pas de 0.05 pour aller de 1 à 5 est une invitation à
  * abandonner. */
 export const COMBINE_MAX_WEIGHT = 5;
-export const COMBINE_DEFAULT_WEIGHT = 1;
+const COMBINE_DEFAULT_WEIGHT = 1;
 
 /** Une saisie CLAVIER de poids, ramenée dans la plage — ou `null` si elle ne
  *  veut rien dire encore.

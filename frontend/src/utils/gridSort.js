@@ -113,7 +113,7 @@ export const BANK_SORTS = [
     'Least sure first — the images the classifier nearly could not call'),
 ];
 
-export const DEFAULT_BANK_SORT = 'default';
+const DEFAULT_BANK_SORT = 'default';
 
 const BANK_IDS = new Set(BANK_SORTS.map((s) => s.id));
 

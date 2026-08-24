@@ -48,7 +48,7 @@ export const FLAG_PREREQ = {
 }
 
 /** The gesture that unblocks each prerequisite, in the app's own button names. */
-export const FLAG_PREREQ_TEXT = {
+const FLAG_PREREQ_TEXT = {
   scan: 'run 🔎 Scan first — no image here has been measured yet',
   provenance: 'run 🔎 Rescan first — this bank was scanned before the pass that measures it',
   score: 'run ✨ Score first — nothing here has been scored yet',

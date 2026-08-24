@@ -18,7 +18,7 @@ export const NOT_TRAINED = ['not-trained', 'Not trained yet', '🚫'];
 // Tile size: 'S' compact list rows (maximum density), 'M' the historical
 // photo grid, 'L' large previews. Same 3-step segmented idiom as the
 // workspace image grid — no slider (mouse-fragile, no useful granularity).
-export const LIBRARY_TILE_SIZES = ['S', 'M', 'L'];
+const LIBRARY_TILE_SIZES = ['S', 'M', 'L'];
 
 /** Clamp a stored tile-size preference to a valid value (default 'M'). */
 export function normalizeTileSize(v) {

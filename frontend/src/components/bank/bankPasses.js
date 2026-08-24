@@ -575,7 +575,7 @@ export function bankPass(passId, { semanticEngine = 'clip' } = {}) {
 // `_scopeId` is kept for the call shape (passScopeRows hands every option in):
 // today a pass either takes scopes or refuses them all, so the answer does not
 // depend on which one is asked about.
-export function passScopeAvailability(passId, _scopeId) {
+function passScopeAvailability(passId, _scopeId) {
   const spec = bankPass(passId);
   if (!spec) return { ok: false, reason: 'Unknown pass.' };
   if (spec.scopes === true) return { ok: true, reason: '' };

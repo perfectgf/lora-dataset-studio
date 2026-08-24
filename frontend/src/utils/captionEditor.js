@@ -10,7 +10,7 @@ export function captionCharacterLabel(caption) {
 // The ceiling an older backend hard-sliced stored captions at — mid-word, mid-sentence.
 // Kept only to RECOGNISE those legacy truncations (the current backend caps far higher
 // and cuts on a sentence boundary), so the UI can nudge the user to re-caption.
-export const LEGACY_CAPTION_CEILING = 800;
+const LEGACY_CAPTION_CEILING = 800;
 
 // True when a caption looks like a legacy truncation: exactly 800 characters AND not
 // ending on sentence-final punctuation (so it was almost certainly cut mid-thought).

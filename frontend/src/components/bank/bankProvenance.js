@@ -115,7 +115,7 @@ export function originLabel(img) {
 
 /* Generator bucket sizes (SDXL / FLUX / SD1.5). A camera essentially never
  * produces one of these exact shapes. */
-export const GENERATOR_SIZES = [
+const GENERATOR_SIZES = [
   [512, 512], [768, 768], [1024, 1024], [1536, 1536],
   [1152, 896], [896, 1152], [1216, 832], [832, 1216],
   [1344, 768], [768, 1344], [1536, 640], [640, 1536],

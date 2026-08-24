@@ -83,7 +83,7 @@ export const IMPROVE_MEGAPIXELS_STEP = 0.5;
 /** A typed output-size value, made storable: clamped to the same bounds the
  *  Settings card enforces, quantised nowhere (2.5 is legal), NaN -> null so a
  *  half-typed box never becomes a settings write. */
-export function normalizeImproveMegapixels(value) {
+function normalizeImproveMegapixels(value) {
   // '' first: Number('') is 0, which would turn an emptied box into a 0.5 write.
   if (value === '' || value === null || value === undefined) return null;
   const n = Number(value);

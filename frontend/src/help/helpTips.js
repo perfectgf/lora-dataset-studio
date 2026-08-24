@@ -6,7 +6,7 @@
    not the mode is on; that is their whole point. requestHelpTip() only fires an
    event; the TipHost (HelpMode.jsx) decides whether to actually show it. */
 
-export const TIPS_SEEN_KEY = 'ldsHelpTipsSeen';
+const TIPS_SEEN_KEY = 'ldsHelpTipsSeen';
 export const TIP_EVENT = 'lds:help-tip';
 
 function defaultStore() {
