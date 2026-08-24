@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import CompositionBar from './CompositionBar';
 import CoveragePanel from './CoveragePanel';
 import ClassifyFramingButton from './ClassifyFramingButton';
 import ReferencePanel from './ReferencePanel';
-import VariationCatalog from './VariationCatalog';
 import TrainingPanel from './TrainingPanel';
 import { fmt } from '../../utils/studioFormat';
 import ImportDropzone from './ImportDropzone';
@@ -22,19 +21,25 @@ import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
 import CaptionOptionsPopover from './CaptionOptionsPopover';
 import { recaptionConfirmation } from './captionCategory';
-import CropModal from './CropModal';
-import ReferenceEditModal from './ReferenceEditModal';
 import { defaultEditEngine } from './referenceEdit';
 import { localEngineUnavailableReason, hasComfyui } from '../../utils/localEngineReason.js';
 import { captionEnginesSummary, CAPTION_ENGINE_WHY } from '../../utils/captionEngines.js';
 // …and the per-image half of the same question, for the captions listed in full here.
 import { captionOriginInfo } from '../../utils/captionOrigin.js';
 import { extraRefCropSource } from './extraRefs';
-import DatasetLightbox from './DatasetLightbox';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import DatasetToBankDialog from './DatasetToBankDialog';
-import PublishHfModal from './PublishHfModal';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
+// Lazily loaded: each renders behind a condition (a click opens it) or a
+// hidden section, so its code leaves the DatasetPage entry chunk - which
+// sat alone above vite's 500 kB warning. WatermarkReviewLightbox stays
+// static: its buildWatermarkRecap named export is used at runtime here,
+// and a static import would pin the module into this chunk anyway.
+const VariationCatalog = lazy(() => import('./VariationCatalog'));
+const CropModal = lazy(() => import('./CropModal'));
+const ReferenceEditModal = lazy(() => import('./ReferenceEditModal'));
+const DatasetLightbox = lazy(() => import('./DatasetLightbox'));
+const PublishHfModal = lazy(() => import('./PublishHfModal'));
 import {
   summarizeFlagged, rejectableFlagged, rejectFlaggedConfirmText, flaggedSourceNote,
 } from './watermarkFlagged.js';
@@ -1377,6 +1382,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   <ClassifyFramingButton images={images} ollama={caps.ollama} capsLoading={capsLoading}
                     busy={ds.busy} activity={act} onClassify={(n) => ds.classify(n)} />
                   <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">
+                    <Suspense fallback={null}>
                     <VariationCatalog key={`vc-${d.id}-${bodyFid}`} datasetId={d.id} busy={ds.generationBusy}
                       generating={act && act.kind === 'generate' ? act : null}
                       onGenerate={(...args) => {
@@ -1393,6 +1399,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       onSaveSuffixes={(patch) => ds.updateSettings(patch, { quiet: true })}
                       subjectType={d.subject_type || 'human'}
                       onSaveSubjectType={(st) => ds.updateSettings({ subject_type: st }, { quiet: true })} />
+                    </Suspense>
                   </div>
                   {/* Head-crop optional: ON tags framing='face' at import (I2); OFF keeps
                       the original framing so bust/body photos import as-is. Body-fidelity
@@ -2144,6 +2151,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
         </div>{/* /right column */}
       </div>{/* /workspace grid */}
 
+      {/* Every dialog below renders behind a click; the lazy ones load
+          their chunk on that first click, a frame nobody can see. */}
+      <Suspense fallback={null}>
       {cropImg && cropImg.filename && (
         <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(cropImg.filename)}${
           ds.nonces?.[cropImg.id] ? `?v=${ds.nonces[cropImg.id]}` : ''}`}
@@ -2300,6 +2310,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
             if (summary) toast.success(`Review done — ${summary}`);
           }} />
       )}
+      </Suspense>
     </div>
   );
 }
