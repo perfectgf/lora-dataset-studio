@@ -94,6 +94,38 @@ export const WHATS_NEW = [
     to: '/datasets?section=add',
   },
   {
+    id: '2026-08-24-gallery-page',
+    date: '2026-08-24',
+    title: 'A Gallery of everything you ever generated',
+    blurb:
+      '🖼 Gallery in the top bar is one feed of every image the app made — Test '
+      + 'Studio cells, Canvas previews, comparison runs and ✨ improvements — '
+      + 'across every dataset, newest first, with filters (dataset, renders vs '
+      + 'improved, 👍 liked). The viewer walks the feed with ‹ › or the arrow '
+      + 'keys, shows everything a picture was made from, and carries the '
+      + 'actions you already know: ⬇ Download under its lineage name, ✨ '
+      + 'Upscale & improve (result lands at the top of the feed), and a Select '
+      + 'mode to 🗑 delete misses or ⬇ ZIP a pick. Built for the phone as much '
+      + 'as the desktop.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-08-24-improve-lora-preset',
+    date: '2026-08-24',
+    title: 'Upscale & improve can now chain your LoRA presets',
+    blurb:
+      'The ✨ pass ran with its instruction and nothing else — your generation '
+      + 'LoRA presets (Settings ▸ Engines) never applied to it. The improve '
+      + 'note now has a LoRA preset picker next to the instruction editor: '
+      + 'pick one and every Klein improve chains it after the consistency '
+      + 'LoRA — the single pass, the 🔄 re-run and the batch alike, in every '
+      + 'dataset (it is app-wide, like the instruction, and the panel says '
+      + 'so). SeedVR2 stays a pure restoration. A renamed or deleted preset '
+      + 'quietly runs as None, never a blocked pass — and the result records '
+      + 'which LoRAs actually ran in its details.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-08-24-bank-forgets-missing-images',
     date: '2026-08-24',
     title: 'A bank can now let go of images that are really gone',
@@ -707,8 +739,8 @@ export function markAllSeen(storage, entries = WHATS_NEW) {
 
 // Param-less top-level routes (mirror App.jsx <Routes>).
 const TOP_LEVEL_ROUTES = new Set([
-  '/datasets', '/bank', '/video-bank', '/studio', '/cloud', '/canvas', '/guide',
-  '/help', '/setup',
+  '/datasets', '/bank', '/video-bank', '/studio', '/cloud', '/canvas', '/gallery',
+  '/guide', '/help', '/setup',
 ]);
 
 const SETTINGS_IDS = new Set(SETTINGS_SECTIONS.map((s) => s.id));

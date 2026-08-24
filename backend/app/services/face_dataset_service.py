@@ -10322,7 +10322,22 @@ def _improve_enqueue_profile(ds=None) -> dict:
         'sampler_steps': _improve_int('improve_steps', 4),
         'base_lora_strength': _improve_float('improve_base_lora_strength', 0.0),
         'output_megapixels': _improve_float('improve_megapixels', 2.0, 8.0),
+        # The generation-LoRA preset the user picked FOR THIS PASS
+        # (klein.improve_lora_preset), resolved to its ordered rows here so the
+        # choice reaches the same three lanes as every other improve knob.
+        # Fail-closed: '' or a stale name resolve to [], which
+        # enqueue_klein_edit reads as "no preset".
+        'generation_loras': improve_lora_preset_rows(),
     }
+
+
+def improve_lora_preset_rows():
+    """Ordered [{file, strength}] rows of the preset ✨ improve is set to chain,
+    or [] — the resolver's own fail-closed rule. One reader, shared with the
+    surfaces that record provenance (improve_canvas_image stores these rows on
+    the candidate), so what is stored is what actually ran."""
+    from .klein_edit_helper import resolve_generation_lora_preset
+    return resolve_generation_lora_preset(cfg.get('klein.improve_lora_preset'))
 
 
 def _improve_extra_metadata(source, label, engine='klein') -> dict:

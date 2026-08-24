@@ -7759,6 +7759,99 @@ def run_gallery(record_id, limit=RUN_GALLERY_LIMIT,
     }
 
 
+# One page of the app-wide 🖼 Gallery, and the most it will ever answer at
+# once. Sized like the checkpoint gallery's default: big enough that a phone
+# scroll does not stall every screenful, small enough that the first paint is
+# not a thousand thumbnails.
+APP_GALLERY_PAGE = 60
+APP_GALLERY_PAGE_MAX = 200
+
+
+def app_gallery(limit=APP_GALLERY_PAGE, before_id=None, dataset_id=None,
+                kind=None, liked=False) -> dict:
+    """Every image the app ever generated, newest first — the 🖼 Gallery page.
+
+    The checkpoint and run galleries answer "what did THIS training produce";
+    this one answers "what did I make", across every dataset and every surface
+    at once (Test Studio cells, inline canvas previews, comparison runs, and
+    the ✨ Upscale & improve results derived from them). Same rows, same
+    serializer (`_gallery_image`) — a third shape here would be a third chance
+    for the viewers to disagree about what an image row carries.
+
+    Pagination is a cursor, not an offset: `before_id` returns rows strictly
+    older than that id. Ids are monotonic and the feed is id-descending, so a
+    page boundary cannot skip or duplicate an image when new renders land
+    between two requests — the exact failure OFFSET pagination has on a feed
+    that grows at its head.
+
+    Filters (`dataset_id`, `kind` 'renders'|'improved', `liked`) narrow both
+    the page and `count`, so the header's number always names what the grid is
+    actually showing. `datasets` lists every dataset holding at least one
+    generated image — UNfiltered on purpose: it feeds the filter control, and a
+    picker that only offered the current pick could never be changed."""
+    from ..models import FaceDataset, LoraTestImage
+    q = LoraTestImage.query.filter(
+        LoraTestImage.status == 'done',
+        LoraTestImage.filename.isnot(None))
+    if dataset_id is not None:
+        q = q.filter(LoraTestImage.dataset_id == dataset_id)
+    if kind == 'improved':
+        q = q.filter(LoraTestImage.derivation_kind.isnot(None))
+    elif kind == 'renders':
+        q = q.filter(LoraTestImage.derivation_kind.is_(None))
+    if liked:
+        q = q.filter(LoraTestImage.rating == 1)
+    count = q.count()
+
+    page = q
+    if before_id is not None:
+        page = page.filter(LoraTestImage.id < before_id)
+    cap = max(1, min(int(limit or APP_GALLERY_PAGE), APP_GALLERY_PAGE_MAX))
+    # cap+1 answers "is there another page" with the same query that fetches
+    # this one — a second count per scroll would be paid on every page.
+    rows = page.order_by(LoraTestImage.id.desc()).limit(cap + 1).all()
+    has_more = len(rows) > cap
+    rows = rows[:cap]
+
+    ds_counts = (db.session.query(LoraTestImage.dataset_id,
+                                  func.count(LoraTestImage.id))
+                 .filter(LoraTestImage.status == 'done',
+                         LoraTestImage.filename.isnot(None))
+                 .group_by(LoraTestImage.dataset_id).all())
+    names = ({d.id: d.name for d in FaceDataset.query.filter(
+                 FaceDataset.id.in_([i for i, _ in ds_counts])).all()}
+             if ds_counts else {})
+    datasets = sorted(
+        ({'id': i, 'name': names.get(i) or f'Dataset {i}', 'count': n}
+         for i, n in ds_counts),
+        key=lambda d: d['name'].lower())
+
+    from . import trash
+    return {
+        'count': count,
+        'has_more': has_more,
+        # The cursor for the next page — the OLDEST id on this one. null when
+        # the feed is exhausted, so the client never asks for a page that can
+        # only be empty.
+        'next_before_id': rows[-1].id if rows and has_more else None,
+        'images': [_gallery_image(r) for r in rows],
+        'datasets': datasets,
+        # Where a deleted image WOULD land — same promise, same source as the
+        # checkpoint gallery, so the confirmation never promises the wrong thing.
+        'delete_mode': trash.disposal_mode(),
+    }
+
+
+def delete_gallery_images(image_ids) -> dict:
+    """🗑 The Gallery page's delete — the checkpoint delete with its scope
+    removed. The feed lists rows from every run at once, so its delete has no
+    (record_id, step) to be scoped BY; what keeps it honest instead is that it
+    can only ever reach `lora_test_image` rows, and every degradation rule of
+    the narrow delete (a generating cell is skipped, a shared file survives,
+    a missing file still loses its row) applies through the same function."""
+    return delete_checkpoint_images(None, None, image_ids)
+
+
 def delete_checkpoint_images(record_id, step, image_ids) -> dict:
     """🗑 Delete generated images from a checkpoint's gallery — file AND row.
 
@@ -7782,6 +7875,11 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
     function on purpose: two delete paths over the same rows would be two places
     to keep the recycle-bin promise, the shared-file rule and the "generating is
     never cancelled" rule true, and they would drift.
+
+    ``record_id=None`` removes the scope entirely — the app-wide 🖼 Gallery
+    (``delete_gallery_images``), whose feed spans every run and therefore has
+    no record to be scoped by. The per-checkpoint ROUTES never pass None here,
+    so their "not ours to delete" refusal is unchanged.
 
     Degrades instead of failing, because the gallery of a real install is never
     tidy:
@@ -7813,8 +7911,9 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
            'skipped': []}
     if not wanted:
         return out
-    scoped = LoraTestImage.query.filter(LoraTestImage.record_id == record_id,
-                                        LoraTestImage.id.in_(wanted))
+    scoped = LoraTestImage.query.filter(LoraTestImage.id.in_(wanted))
+    if record_id is not None:
+        scoped = scoped.filter(LoraTestImage.record_id == record_id)
     if step is not None:
         scoped = scoped.filter(LoraTestImage.step == step)
     rows = scoped.all()
@@ -7857,8 +7956,10 @@ def delete_checkpoint_images(record_id, step, image_ids) -> dict:
             remove_ids.append(row.id)
             continue
         try:
-            mode = trash.dispose(path, context=(f'run-{record_id}' if step is None
-                                                else f'checkpoint-{record_id}-{step}'))
+            mode = trash.dispose(path, context=(
+                'gallery' if record_id is None
+                else f'run-{record_id}' if step is None
+                else f'checkpoint-{record_id}-{step}'))
         except OSError as e:
             out['skipped'].append({'id': row.id, 'reason': str(e)})
             continue

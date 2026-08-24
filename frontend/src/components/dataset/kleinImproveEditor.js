@@ -30,21 +30,37 @@
    full payload, so the panel re-reads what was actually stored rather than
    trusting what it sent. */
 
+import { sanitizeGenerationLoraPresets } from '../../utils/generationLoras.js';
+
 /** The raw split of the improve setting, read from a /api/settings payload.
  *  `stored` is what config holds ('' = following the default), `shipped` the
  *  built-in text. Both are needed at once by the editor: the box shows the
- *  effective text while the STORE only ever receives the override. */
+ *  effective text while the STORE only ever receives the override.
+ *
+ *  `loraPreset`/`loraPresets` ride along because they are the SAME panel's
+ *  other half: which generation-LoRA preset ✨ improve chains
+ *  (klein.improve_lora_preset) — global exactly like the instruction, and read
+ *  from the same payload so the two can never quote different config states.
+ *  A stored name no longer matching a preset is KEPT (shown as-is): the
+ *  backend resolves it fail-closed to "none", and hiding it here would leave
+ *  the user unable to see, or clear, the stale pick. */
 export function improveEditorState(payload) {
   if (!payload || typeof payload !== 'object') {
-    return { loaded: false, stored: '', shipped: '', enabled: true };
+    return { loaded: false, stored: '', shipped: '', enabled: true,
+      loraPreset: '', loraPresets: [] };
   }
   const ip = (payload.config && payload.config.identity_prompts) || {};
   const defaults = payload.identity_prompt_defaults || {};
+  const klein = (payload.config && payload.config.klein) || {};
   return {
     loaded: true,
     stored: typeof ip.klein_improve === 'string' ? ip.klein_improve : '',
     shipped: typeof defaults.klein_improve === 'string' ? defaults.klein_improve : '',
     enabled: ip.klein_improve_enabled !== false,
+    loraPreset: typeof klein.improve_lora_preset === 'string'
+      ? klein.improve_lora_preset : '',
+    loraPresets: sanitizeGenerationLoraPresets(klein.generation_lora_presets)
+      .map((p) => p.name),
   };
 }
 
@@ -70,12 +86,19 @@ export const IMPROVE_OFF_NOTE =
 /** The PUT /api/settings body for the improve setting. PARTIAL by design: the
  *  endpoint deep-merges, so this touches neither the other identity prompts nor
  *  any other config section. Keys are omitted when absent from the patch — a
- *  toggle-only save must not also rewrite the prompt with a stale value. */
+ *  toggle-only save must not also rewrite the prompt with a stale value.
+ *  `loraPreset` writes klein.improve_lora_preset the same partial way; a patch
+ *  carrying only it therefore sends NO identity_prompts section at all. */
 export function improveSettingsPatch(patch = {}) {
+  const config = {};
   const ip = {};
   if (patch.prompt !== undefined) ip.klein_improve = String(patch.prompt ?? '');
   if (patch.enabled !== undefined) ip.klein_improve_enabled = !!patch.enabled;
-  return { config: { identity_prompts: ip } };
+  if (Object.keys(ip).length) config.identity_prompts = ip;
+  if (patch.loraPreset !== undefined) {
+    config.klein = { improve_lora_preset: String(patch.loraPreset ?? '') };
+  }
+  return { config };
 }
 
 /** Coalescing saver for the instruction box.

@@ -135,7 +135,10 @@ export const ACTION_TOPICS = [
      'change the prompt', 'turn off', 'disable', 'toggle', 'no prompt', 'upscale only',
      'klein', 'anime', 'drawn', 'realistic', 'texture', 'skin', 'detail', 'lightbox',
      'reset to default', 'built-in default', 'global', 'app-wide', 'every dataset',
-     'applies everywhere', 'same as settings'],
+     'applies everywhere', 'same as settings',
+     // The same note now also picks the LoRA preset the pass chains
+     // (klein.improve_lora_preset) — one panel, all three improve knobs.
+     'lora preset', 'improve preset', 'chain lora', 'preset', 'extra loras'],
     '/datasets?section=images', 'settings-reference', 'image-engines'),
   action('action-reimprove-tile', 'Re-run Upscale & improve after changing its settings',
     ['improve', 'upscale', 'reimprove', 're-improve', 'rerun', 're-run', 'redo', 'again',

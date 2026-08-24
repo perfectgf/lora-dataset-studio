@@ -189,7 +189,14 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   /* ✦ Repair one detail instead of regenerating the whole picture
      (.samexit, Discord). Absent = the button is not drawn, so a surface that
      has no route for it shows nothing rather than a dead control. */
-  onRepair = null, onRepairUndo = null }) {
+  onRepair = null, onRepairUndo = null,
+  /* ‹ › Walk the host's list without closing the viewer — the 🖼 Gallery's
+     whole browsing loop. Same contract as every optional action here: absent =
+     not drawn, so the three hosts that show ONE picture render exactly what
+     they always did. The host passes null AT the ends rather than a disabled
+     flag, for the same reason — a chevron that cannot go anywhere is not
+     drawn, never greyed. */
+  onPrev = null, onNext = null }) {
   const dialogRef = useRef(null);
   const closeRef = useRef(null);
   /* ONE reading of "are the facts on screen", used by the panel, the pane and
@@ -236,13 +243,19 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     // before it closes the viewer, so the key never throws away the render you
     // were in the middle of inspecting.
     const onKey = (e) => {
-      if (e.key !== 'Escape' || repairOpen) return;
+      if (repairOpen) return;
+      // ← → walk the list even while magnified: the zoom resets with the new
+      // picture anyway (resetKey follows img), so making the user un-zoom
+      // first would add a step that buys nothing.
+      if (e.key === 'ArrowLeft' && onPrev) { onPrev(); return; }
+      if (e.key === 'ArrowRight' && onNext) { onNext(); return; }
+      if (e.key !== 'Escape') return;
       if (zoom.zoomed) { zoom.reset(); return; }
       onClose?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [img, onClose, repairOpen, zoom]);
+  }, [img, onClose, repairOpen, zoom, onPrev, onNext]);
   useEffect(() => { if (img) closeRef.current?.focus(); }, [img]);
   /* Folding the details resizes the frame under a held zoom, and a view that
      was legally at its edge before is a strip of backdrop afterwards. Settle
@@ -259,9 +272,21 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   const blocks = imagePromptBlocks(img);
   const label = alt || 'Generated image';
 
+  // The ‹ › chevrons pin to the OVERLAY, like ✕ — inside the zoom pane they
+  // would feed the pan/tap gesture machinery a press that meant "next". The
+  // right one steps clear of the facts column in the split shape, so it always
+  // sits over the PICTURE's edge; the widths mirror FACTS_PANEL_CLASS plus a
+  // 1rem gutter.
+  const NAV_BTN_CLASS = 'absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 '
+    + 'items-center justify-center rounded-full bg-white/10 text-2xl leading-none '
+    + 'text-white hover:bg-white/20';
+  const NAV_NEXT_POS = showFacts
+    ? 'right-2 md:landscape:right-[21rem] lg:landscape:right-[25rem] xl:landscape:right-[28rem]'
+    : 'right-2';
+
   return (
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={label}
-      data-testid="generated-image-lightbox"
+      data-testid="generated-image-lightbox" data-probe-layer
       onClick={onClose}
       // ⚠️ /95, not an arbitrary /92: Tailwind only emits the opacities in its
       // scale, so bg-black/92 compiled to NOTHING and the board behind stayed at
@@ -312,6 +337,24 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
           aria-label="Reset the zoom"
           className="absolute right-24 top-3 z-10 flex h-9 items-center rounded-full bg-white/10 px-3 text-[0.75rem] font-semibold leading-none text-white hover:bg-white/20">
           <span aria-hidden className="mr-1">⤾</span>{Math.round(zoom.view.scale * 100)}%
+        </button>
+      )}
+
+      {/* ‹ › — drawn only where there IS somewhere to go (see the prop note). */}
+      {onPrev && (
+        <button type="button" data-testid="lightbox-prev"
+          onClick={(e) => { e.stopPropagation(); onPrev(); }}
+          title="Previous image (←)" aria-label="Previous image"
+          className={`${NAV_BTN_CLASS} left-2`}>
+          <span aria-hidden>‹</span>
+        </button>
+      )}
+      {onNext && (
+        <button type="button" data-testid="lightbox-next"
+          onClick={(e) => { e.stopPropagation(); onNext(); }}
+          title="Next image (→)" aria-label="Next image"
+          className={`${NAV_BTN_CLASS} ${NAV_NEXT_POS}`}>
+          <span aria-hidden>›</span>
         </button>
       )}
 

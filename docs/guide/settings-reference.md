@@ -316,6 +316,8 @@ It is a **rendering** knob, not an anatomy fix: extra limbs, tails or wrong body
 
 Separate from **Upscale & improve ▸ Steps** (`klein.improve_steps`), which drives the manual improve pass only.
 
+**LoRA preset on ✨ Upscale & improve** → `klein.improve_lora_preset` (a preset **name**, default **blank = none**). Which of your **generation LoRA presets** (the named combinations defined on this card) every Klein improve chains after the consistency LoRA. Picked from the improve note itself — the panel under the ✨ button, next to the instruction editor — and **app-wide like the instruction**: the single ✨, the 🔄 re-run and the whole batch all follow it, in every dataset. Fail-closed like the rest of the preset chain: a renamed or deleted preset quietly runs as **None**, never a blocked pass. **SeedVR2 is unaffected** — a restoration chains no LoRA. The improved image records the LoRAs that actually ran in its details, so a render never claims a preset it did not use.
+
 ### Variation output size (both local engines)
 
 Not in Settings — it sits at the top of the **Generate variations** panel, above the shot cards, whenever a local engine is selected. **Output size (MP)** → `variations.output_megapixels` (0.5–2.0, default **2.0**).

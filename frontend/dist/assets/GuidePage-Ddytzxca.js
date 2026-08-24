@@ -1,4 +1,211 @@
-# Using the app
+import{j as e,t as A,h as C,n as R,r as v,aa as L,L as I}from"./index-B4sws1s7.js";import{m as T,s as P,D as U}from"./DiagnosticReport-D9t1TFLm.js";function p(a,r="i"){const h=[],t=/(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))/g;let i=0,o,l=0;for(;(o=t.exec(a))!==null;){o.index>i&&h.push(a.slice(i,o.index));const n=o[0],d=`${r}-${l++}`;if(n.startsWith("`"))h.push(e.jsx("code",{className:"px-1 py-0.5 rounded bg-surface-raised text-indigo-200 text-[0.8125em] font-mono",children:n.slice(1,-1)},d));else if(n.startsWith("**"))h.push(e.jsx("strong",{className:"text-content font-semibold",children:n.slice(2,-2)},d));else if(n.startsWith("*"))h.push(e.jsx("em",{children:n.slice(1,-1)},d));else{const c=n.match(/^\[([^\]]+)\]\(([^)]+)\)$/);h.push(e.jsx("a",{href:c[2],target:"_blank",rel:"noreferrer",className:"text-indigo-300 underline decoration-indigo-400/40 hover:decoration-indigo-300",children:c[1]},d))}i=o.index+n.length}return i<a.length&&h.push(a.slice(i)),h}function j(a){const r=a.replace(/\r\n/g,`
+`).split(`
+`),h=[];let t=0;for(;t<r.length;){const i=r[t];if(!i.trim()){t++;continue}if(i.startsWith("```")){const n=[];for(t++;t<r.length&&!r[t].startsWith("```");)n.push(r[t++]);t++,h.push({t:"code",body:n.join(`
+`)});continue}const o=i.match(/^(#{1,3})\s+(.*)$/);if(o){h.push({t:`h${o[1].length}`,body:o[2]}),t++;continue}if(/^(-{3,}|\*{3,})\s*$/.test(i)){h.push({t:"hr"}),t++;continue}if(i.startsWith(">")){const n=[];for(;t<r.length&&r[t].startsWith(">");)n.push(r[t++].replace(/^>\s?/,""));h.push({t:"quote",body:n.join(" ")});continue}if(/^\|/.test(i)){const n=[];for(;t<r.length&&/^\|/.test(r[t]);)n.push(r[t++]);const d=y=>y.replace(/^\||\|$/g,"").split("|").map(g=>g.trim()),c=d(n[0]),m=n.slice(2).map(d);h.push({t:"table",header:c,body:m});continue}if(/^(\s*)([-*]|\d+\.)\s+/.test(i)){const n=[],d=/^\s*\d+\./.test(i);for(;t<r.length&&/^(\s*)([-*]|\d+\.)\s+/.test(r[t]);){let c=r[t].replace(/^(\s*)([-*]|\d+\.)\s+/,"");for(t++;t<r.length&&/^\s{2,}\S/.test(r[t])&&!/^(\s*)([-*]|\d+\.)\s+/.test(r[t]);)c+=" "+r[t++].trim();n.push(c)}h.push({t:"list",ordered:d,items:n});continue}const l=[i];for(t++;t<r.length&&r[t].trim()&&!/^(#{1,3}\s|```|\||>|(\s*)([-*]|\d+\.)\s|-{3,}\s*$)/.test(r[t]);)l.push(r[t++]);h.push({t:"p",body:l.join(" ")})}return h}function b(a,r,h=!1){const t=`b${r}`;switch(a.t){case"h1":return e.jsx("h1",{className:"m-0 mt-2 text-content font-bold text-2xl",children:p(a.body,t)},t);case"h2":return e.jsx("h2",{id:h?void 0:T(a.body),className:`${h?"text-xl":"mt-4 border-b border-border pb-1.5 text-lg"} m-0 scroll-mt-24 text-content font-bold`,children:p(a.body,t)},t);case"h3":return e.jsx("h3",{className:"m-0 mt-2 text-content font-semibold text-base",children:p(a.body,t)},t);case"hr":return e.jsx("hr",{className:"border-border my-2"},t);case"quote":return e.jsx("blockquote",{className:"m-0 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-4 py-3 text-content text-sm leading-relaxed",children:p(a.body,t)},t);case"code":return e.jsx("pre",{className:"m-0 rounded-lg border border-border bg-app/60 p-3 overflow-x-auto text-[0.8125rem] text-content-muted font-mono",children:a.body},t);case"table":return e.jsx("div",{className:"overflow-x-auto rounded-lg border border-border",children:e.jsxs("table",{className:"w-full text-sm border-collapse",children:[e.jsx("thead",{children:e.jsx("tr",{className:"bg-surface-raised",children:a.header.map((i,o)=>e.jsx("th",{className:"text-left px-3 py-2 text-content font-semibold border-b border-border whitespace-nowrap",children:p(i,`${t}h${o}`)},o))})}),e.jsx("tbody",{children:a.body.map((i,o)=>e.jsx("tr",{className:o%2?"bg-surface":"",children:i.map((l,n)=>e.jsx("td",{className:"px-3 py-2 text-content-muted align-top border-b border-border last:border-b-0",children:p(l,`${t}r${o}c${n}`)},n))},o))})]})},t);case"list":{const i=a.ordered?"ol":"ul";return e.jsx(i,{className:`m-0 flex flex-col text-sm text-content-muted ${h&&a.ordered?"list-none gap-2 p-0":`gap-1.5 pl-5 ${a.ordered?"list-decimal":"list-disc"}`}`,children:a.items.map((o,l)=>{const n=o.match(/^\[([ xX])\]\s+(.*)$/);return n?e.jsxs("li",{className:"list-none -ml-5 flex items-start gap-2",children:[e.jsx("span",{"aria-hidden":!0,className:`mt-0.5 grid place-items-center w-4 h-4 shrink-0 rounded border text-[0.625rem] ${n[1]===" "?"border-border-strong text-transparent":"border-emerald-400/60 bg-emerald-500/15 text-emerald-300"}`,children:"✓"}),e.jsx("span",{children:p(n[2],`${t}i${l}`)})]},l):h&&a.ordered?e.jsxs("li",{className:"flex gap-3 rounded-lg border border-border bg-app px-3 py-3 leading-relaxed",children:[e.jsx("span",{"aria-hidden":!0,className:"grid h-6 w-6 shrink-0 place-items-center rounded-md bg-indigo-500/15 font-mono text-[0.6875rem] font-bold text-indigo-300",children:String(l+1).padStart(2,"0")}),e.jsx("span",{children:p(o,`${t}i${l}`)})]},l):e.jsx("li",{children:p(o,`${t}i${l}`)},l)})},t)}default:return e.jsx("p",{className:"m-0 text-sm text-content-muted leading-relaxed",children:p(a.body,t)},t)}}function N({source:a,variant:r="default",sectionActions:h=null}){const t=j(a||"");if(r==="guide"){const i=t.filter((d,c)=>!(c===0&&d.t==="h1")),o=[],l=[];let n=null;return i.forEach((d,c)=>{d.t==="h2"?(n={heading:d,blocks:[],index:c},l.push(n)):n?n.blocks.push({block:d,index:c}):d.t!=="hr"&&o.push({block:d,index:c})}),e.jsxs("div",{className:"flex max-w-none flex-col gap-4",children:[o.length>0&&e.jsx("div",{className:"flex flex-col gap-3 rounded-xl border border-indigo-400/20 bg-gradient-to-br from-indigo-500/10 via-surface to-surface px-4 py-4 sm:px-5",children:o.map(({block:d,index:c})=>b(d,c,!0))}),l.map(({heading:d,blocks:c,index:m})=>{const y=T(d.body),g=h?h[y]:null;return e.jsxs("section",{id:y,className:"scroll-mt-24 rounded-xl border border-border bg-surface px-4 py-4 shadow-sm shadow-black/10 sm:px-5 sm:py-5",children:[e.jsxs("div",{className:"mb-4 flex items-start gap-3 border-b border-border pb-3",children:[e.jsx("span",{"aria-hidden":!0,className:"mt-1 h-5 w-1 shrink-0 rounded-full bg-gradient-primary"}),e.jsx("div",{className:"min-w-0 flex-1",children:b(d,m,!0)}),g&&e.jsx("div",{className:"shrink-0",children:g})]}),e.jsx("div",{className:"flex flex-col gap-3",children:c.map(({block:k,index:w})=>b(k,w,!0))})]},`section-${m}`)})]})}return e.jsx("div",{className:"flex max-w-none flex-col gap-3",children:t.map((i,o)=>b(i,o))})}const F=`# Getting started
+
+LoRA Dataset Studio turns one reference photo into a trained, ranked LoRA —
+curation, captioning, face-scoring and training behind a single browser tab, on
+your own machine. The useful part of LoRA training isn't the training; it's
+building a clean, balanced, well-captioned image set. This app puts that whole
+pipeline behind one UI.
+
+> **In a hurry?** Launch the app, let the **Setup** wizard scan your machine,
+> and create your first dataset from your own photos — no API key, no GPU, no
+> external tool required for that first step.
+
+---
+
+## Two ways to run it
+
+| | API-only | Full local |
+|---|---|---|
+| **What works** | Create datasets, generate via Gemini/ChatGPT, curate, caption via API, export ZIP | Everything — plus local (Klein) generation, JoyCaption, face scoring, masks, training, Test Studio |
+| **Needs** | Python 3.10–3.12, an API key | ComfyUI and/or ai-toolkit + an NVIDIA GPU (12 GB+ for local generation) |
+| **Good for** | Laptops, first try, cloud training | The full pipeline on a training rig |
+
+You can start API-only and add the local tools later — features light up
+automatically when their tool is detected.
+
+## First launch
+
+**Windows (one command):** download \`LoRA-Dataset-Studio-windows.zip\` from the
+[latest release](https://github.com/perfectgf/lora-dataset-studio/releases/latest),
+extract it, then double-click \`start.bat\`. Releases contain an archive/source, not
+a prebuilt executable launcher. \`start.bat\` finds or downloads a compatible Python
+(3.10–3.12), creates \`.venv\`, installs the requirements, and opens the app at
+\`http://127.0.0.1:5050/\`.
+
+**Any OS (manual venv):**
+
+\`\`\`
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\\Scripts\\activate
+pip install -r backend/requirements.txt
+python backend/run.py
+\`\`\`
+
+**Pinokio (one click, any OS):** in [Pinokio](https://pinokio.computer), use
+**Discover → Download from URL** with
+\`https://github.com/perfectgf/lora-dataset-studio.git\`, then **Install** and
+**Start**. Pinokio creates the environment (\`env/\`), installs the core
+requirements and opens Studio on the port it really bound. Two things to know:
+the optional tools are still connected from **Setup**, and updates go through
+Pinokio's **Update** tab — it runs the same \`git pull --ff-only\` as the in-app
+updater. You do not have to remember that last part: the app recognises a
+Pinokio launch and its Updates card shows *Stop → Update → Start* (with how many
+commits behind you are) instead of the **Update & restart** button, which would
+relaunch the server in a window Pinokio no longer tracks.
+
+**Docker (API-only):** \`cp .env.example .env\`, then \`docker compose up --build\`.
+
+**Docker (GPU, with ComfyUI inside):** \`cp .env.example .env\`, then
+\`mkdir -p run basedir data-docker-gpu bank-images\` — create those yourself, or Docker creates
+them as \`root\` and the app cannot write to them — then
+\`docker compose -f docker-compose.gpu.yml up --build\`. Needs an NVIDIA GPU and the
+NVIDIA Container Toolkit; this is the only Docker option that can do Klein/Z-Image
+generation and the Test Studio.
+
+The CUDA 12.x compatibility minimum is driver **525.60.13 on Linux** or **528.33
+on Windows/WSL**; for the default CUDA 12.9 image, use at least **575.51.03 on
+Linux** or **576.02 on Windows**. The optional CUDA 13 image needs **R580+**.
+If you reuse an existing ComfyUI tree, \`LDS_COMFY_BASEDIR\` must name the parent
+that directly contains \`models/\`, \`input/\`, \`output/\` and \`custom_nodes/\`, not
+the \`models/\` folder itself. Compose actively defaults DNS to \`1.1.1.1\`; set
+\`LDS_DNS\` to your router or Pi-hole when internal hostnames matter.
+
+Both ports are published on the host and remain reachable from the LAN. A
+Settings restart is handled by the container supervisor and keeps the fixed
+container bind. To update this Docker flavour, update and rebuild the image rather
+than trying to replace \`/app\` in place:
+
+\`\`\`
+git pull
+docker compose -f docker-compose.gpu.yml up -d --build
+\`\`\`
+
+If \`/data\` or existing contents beneath it are not writable, \`LDS_FORCE_CHOWN=true\`
+is the last resort: it recursively changes ownership only for the \`LDS_DATA\` mount,
+never the ComfyUI or bank mounts.
+
+The full install matrix (Windows release ZIP, GPU requirements, external tools)
+lives in the README on GitHub.
+
+## What is running on your machine {#architecture}
+
+A full-local install is **three separate programs**, in **two folders**, on
+**two ports**, with **two Python environments**. Nothing in the app used to say
+so, and the cost of guessing is real: a user spent hours patching ai-toolkit's
+own web UI — a component this app never talks to — while the actual problem was
+one line of \`config.json\` (reported by strouder, GitHub #19).
+
+| Component | Where | What it does | Port |
+|---|---|---|---|
+| **LoRA Dataset Studio** (Flask) | the folder you extracted, **its own \`.venv\`** | The UI you are reading this in. Curation, captioning, and the thing that **starts and stops training**. | **5050** |
+| **ai-toolkit** (\`run.py\`) | the folder you point at in Settings, **its own venv — the one with \`torch\`** | The training **engine**. It is run as a command-line process; it has no UI of its own. | — |
+| ai-toolkit's Next.js UI (\`ui/\`) | inside the ai-toolkit folder | An **unrelated** web interface that ships with ai-toolkit. This app never launches it, never reads it, and never writes to it. | 8675 |
+
+Two consequences worth remembering:
+
+- **The Studio reads \`config.json\` and drives training.** That file belongs to
+  this app (it sits in its data folder, and every key in it has a field in
+  **Settings**). Editing anything inside ai-toolkit's \`ui/\` folder changes
+  nothing here — if you ever find yourself editing \`ui/dist/…\`, you are in the
+  wrong project.
+- **The two Python environments are not interchangeable.** The Studio's \`.venv\`
+  runs the web app; ai-toolkit's venv is the one that must have \`torch\` and the
+  training dependencies. Settings ▸ Local tools ▸ **Python interpreter** is how
+  you tell the app which interpreter is ai-toolkit's — and its **Test** button
+  now checks that the interpreter can really \`import torch\`, not just that the
+  file exists.
+
+There is no process stacking to worry about on our side: the Studio is a single
+Flask process, and starting a second one on the same port fails loudly instead
+of running invisibly alongside the first.
+
+### Supported Python versions {#python-versions}
+
+- **LoRA Dataset Studio: Python 3.10 – 3.12.** \`start.bat\` finds or downloads
+  one for you; the optional ML extras (insightface, onnxruntime, \`numpy<2\`)
+  only publish wheels for those versions.
+- **ai-toolkit: Python 3.11 is the safe choice.** On **3.13** its pinned
+  \`scipy==1.12.0\` has no wheel, pip falls back to building from source and dies
+  on a missing Fortran compiler (measured and reported by strouder, GitHub #19).
+  On Windows, install **3.11.9** — it is the last 3.11 with a binary installer;
+  later 3.11.x are source-only security releases.
+- The two do **not** have to match. They are separate environments on purpose.
+
+### If Hugging Face downloads fail {#hf-downloads}
+
+If a base-model download dies with something that reads like a network error,
+check whether \`HF_HUB_ENABLE_HF_TRANSFER=1\` is set in your environment. That
+turns on an optional fast-download accelerator which needs the \`hf_xet\` (or
+\`hf_transfer\`) package installed **in the environment doing the downloading**;
+without it, transfers abort with a misleading message. This app never sets that
+variable — it comes from your shell, ai-toolkit's \`.env\`, or a ComfyUI launcher.
+Either fix works: set \`HF_HUB_ENABLE_HF_TRANSFER=0\`, or \`pip install hf_xet\`.
+The training failure panel now recognises this case and says so.
+*(Reported by bobba84, GitHub #18.)*
+
+## The Setup wizard
+
+On first launch you land in **Setup**. It scans your machine automatically and
+walks through five steps — each one unlocks a set of features:
+
+1. **Image generation** — add a Gemini or OpenAI API key (or point at a local
+   Klein model) so the app can generate dataset images.
+2. **ComfyUI** — unlocks local (Klein) generation and the Test Studio.
+3. **Ollama** — the local vision model behind auto-captioning, framing
+   auto-classify and head-crop.
+4. **Quality tools** — face-similarity scoring, person masks, watermark
+   inpainting and bank scoring (a one-click \`pip install\`).
+5. **ai-toolkit** — the training engine.
+
+Each optional helper says what it unlocks and what still works without it, and
+installs on its own — or all at once, which is usually what you want on a fresh
+machine.
+
+<p align="center">
+  <img src="../screenshots/setup/install-everything.png" alt="Setup step 4 listing each ML helper with its own Install button and an Install all option" width="760">
+</p>
+
+Nothing is mandatory: **Skip setup** is always available, and every step can be
+revisited later from **Settings**, where each tool has a Test button that tells
+you immediately whether the app can see it.
+
+**Setup is a first run, not a toll gate.** Once the app has seen your install
+working — configured, with at least one image engine answering — it stops
+sending you to the wizard. Coming back later (a new tab, a new browser, another
+machine on your network, or a restarted server) drops you straight into the app,
+and the same checks the wizard runs happen in the background while you work. A
+short line in the corner says so and then fades.
+
+You are only interrupted when something that *used to* work has stopped —
+an API key that no longer answers, an ML helper that no longer imports. The
+warning names what broke and links to Setup. It does **not** fire because
+ComfyUI or Ollama simply isn't running (you start those on demand), and it does
+not fire because something was never installed in the first place. If you
+removed a component deliberately, **That was on purpose** stops the app
+mentioning it again.
+
+## Around the app
+
+- **Datasets** — the home tab and your **library**: photo tiles of every
+  dataset, grouped by model family, with a search box and a badge for each
+  family you've already trained. Create one and work it through the guided
+  flow (source → curate → caption → train).
+- **🏋️ Runs** — every training in one place, cloud *and* local: live progress,
+  the settings each launch used, retry a failed run (↻), continue a finished
+  one (▶), and download the LoRA (appears once ai-toolkit or a vast.ai key is set).
+- **Test Studio** — grid-test a trained LoRA across checkpoints and strengths,
+  vote, and rank (appears once ComfyUI is reachable).
+- **Guide** — this manual.
+- **Setup** — the guided wizard, re-runnable anytime.
+- **Settings** — everything the wizard configures, plus server, updates,
+  maintenance and the diagnostic report.
+
+Next chapter: **Using the app** — the full walkthrough, dataset type by dataset
+type.
+`,D=`# Using the app
 
 The workspace is a **guided flow**: each stage stays folded until the one
 before it is done, and the progress rail on the left tells you where you are
@@ -55,7 +262,7 @@ captioning rules and a few guards change with the dataset kind.
    hair). ⚙️ Options lets you Describe hair, makeup, facial hair or glasses so
    they stay prompt-controllable. Fix every flagged caption. A find/replace +
    tag-frequency panel sweeps the whole set at once; its **💾 Write .txt
-   files** button drops a kohya-style `<image>.txt` next to each kept image
+   files** button drops a kohya-style \`<image>.txt\` next to each kept image
    in the dataset folder (same format as the export ZIP) for external tools.
 8. **Fix individual shots** — every generated tile has a ✏️ button: edit the
    exact prompt that made it and regenerate in place, without losing the rest.
@@ -165,7 +372,7 @@ checkpoint**. Inside a full model's card the same tool appears with that model
 already filled in as the base.
 
 **Say what you are merging.** Pick a full-precision base, then add one or more
-LoRAs, each with a weight. `1.0` applies a LoRA exactly as it was trained;
+LoRAs, each with a weight. \`1.0\` applies a LoRA exactly as it was trained;
 lower blends it in more gently; a negative weight subtracts it. Several LoRAs
 stack — that is what "baked in LoRAs with balanced weights" means when you read
 it on a model page.
@@ -216,13 +423,13 @@ fp8 tool — which is the order the refusal points you at.
   written, naming the weights it expected to find. A LoRA trained for another
   model has nothing to merge into.
 - **Tensors that are not part of the model** are reported, not dropped. Not every
-  `.safetensors` contains only a model: one community Krea 2 file circulating
+  \`.safetensors\` contains only a model: one community Krea 2 file circulating
   today carries about 75 MB of an image in two tensors hiding under a legitimate
   name. Nothing we do not understand is modified — it is copied through, and the
   plan names it so you know it is there.
 
 **What the merge needs:** the same Python that quantization uses — one with
-`torch` available. If it is missing, the plan says so with the command to fix it,
+\`torch\` available. If it is missing, the plan says so with the command to fix it,
 before you click anything.
 
 ## The generation queue
@@ -303,7 +510,7 @@ recovered or different ComfyUI state.
 
 First recover or restart ComfyUI. For a valid local portable install,
 **Setup → ComfyUI → ▶ Start ComfyUI** uses the app's fixed local-safe profile.
-It does not read, change or execute any `.bat` file; your existing launcher and
+It does not read, change or execute any \`.bat\` file; your existing launcher and
 its settings stay untouched. Once ComfyUI is responding, **Cancel** the paused
 batch and resume it from Studio. That makes the next prompt an explicit choice,
 never an automatic continuation.
@@ -317,14 +524,14 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
   **scraper** (paste a gallery URL or run a Reddit keyword search, tick the
   frames you want, they land straight in the dataset — deduplicated and
   quality-filtered). Already have a kohya-style dataset on disk (images +
-  same-name `.txt` captions)? **⋯ More → 📂 Import from folder…** merges it in
+  same-name \`.txt\` captions)? **⋯ More → 📂 Import from folder…** merges it in
   from a pasted folder path — captions attach, duplicates are skipped (a ZIP
   works too, via **📦 Import dataset**). On gallery sites (PornPics), a category/tag/search scan
   shows **the same previews the listing page does** — one per gallery, the shot
   that actually matches your keyword. Tick **Scan full albums** to pull every
-  photo of each matched gallery instead, or paste a single `/galleries/…` URL
+  photo of each matched gallery instead, or paste a single \`/galleries/…\` URL
   to get that whole album. Sex.com works the same way for keyword searches
-  (`sex.com/en/pics?search=…`) — every pin **is** a single matching image, so
+  (\`sex.com/en/pics?search=…\`) — every pin **is** a single matching image, so
   there is no album option to worry about. Civitai searches return **SFW
   results only** unless you add a Civitai API key in **Settings → Scraping &
   sources**.
@@ -359,14 +566,14 @@ Pick **Style** at creation. What changes:
 You are not locked into the captioners shipped here. The round trip is:
 
 1. **⬇ Export ZIP** from *Import & export*. The archive is a plain kohya layout —
-   one folder of `image.png` + same-name `image.txt` pairs. If some kept images
+   one folder of \`image.png\` + same-name \`image.txt\` pairs. If some kept images
    have no caption yet, the app asks before exporting instead of refusing:
-   confirm and their `.txt` files come out empty, ready to be filled.
-2. **Caption them wherever you like.** Any tool that writes a `<image>.txt`
+   confirm and their \`.txt\` files come out empty, ready to be filled.
+2. **Caption them wherever you like.** Any tool that writes a \`<image>.txt\`
    sidecar next to each image works — that is the convention this app reads,
    whatever the file names are and whatever folder depth you use.
 3. **📦 Import dataset (ZIP)** (or **📂 Import from folder…**) with the same
-   images and their new `.txt` files. Images already in the dataset are **not
+   images and their new \`.txt\` files. Images already in the dataset are **not
    duplicated**: their caption lands on the row that already holds them, and the
    toast says how many were applied.
 
@@ -380,7 +587,7 @@ Two things worth knowing before you start:
   have, not as a replacement dataset.
 
 **A Style dataset asks louder, on purpose.** A Style LoRA learns everything its
-captions do *not* name, so an empty `.txt` teaches it nothing; the export
+captions do *not* name, so an empty \`.txt\` teaches it nothing; the export
 confirmation says so before letting you through. Cancelling takes you straight
 to the captions instead.
 
@@ -413,7 +620,7 @@ grid.
 
 **Export first.** The exported file is the format, and the example an LLM needs:
 
-```json
+\`\`\`json
 {
   "format": "lds-shots/1",
   "subject_type": "animal",
@@ -426,26 +633,26 @@ grid.
   ],
   "examples": []
 }
-```
+\`\`\`
 
 Then ask a chat assistant for more shots *in that exact shape*, and import the
 file it gives you.
 
 Each shot needs three things:
 
-- **`label`** — a short name, max 80 characters, shown on the card. It must be
+- **\`label\`** — a short name, max 80 characters, shown on the card. It must be
   unique: not a built-in label (of *any* subject type), and not one of your
   existing shots. The app refuses a collision and tells you which label is at
   fault — two shots sharing a label would make it resolve the wrong prompt the
   day you regenerate one.
-- **`framing`** — exactly one of `face`, `bust`, `body`, `back`. Anything else is
+- **\`framing\`** — exactly one of \`face\`, \`bust\`, \`body\`, \`back\`. Anything else is
   refused; it is never quietly remapped.
-- **`prompt`** — the text sent to the image engine, max 500 characters.
+- **\`prompt\`** — the text sent to the image engine, max 500 characters.
 
-`nsfw: true` is optional and only has an effect when Klein is the only engine
-checked. Everything under **`examples`** is ignored on import — that's how the
+\`nsfw: true\` is optional and only has an effect when Klein is the only engine
+checked. Everything under **\`examples\`** is ignored on import — that's how the
 export can show you samples without them coming back as duplicates. Any other
-field (including `aspect`) is ignored too, and the import summary says so: an
+field (including \`aspect\`) is ignored too, and the import summary says so: an
 imported shot uses its framing's default aspect ratio.
 
 **Nothing is written until you confirm.** The app reads the file, lists what
@@ -485,7 +692,7 @@ setup into a single file so you can move to a new machine — or recover from on
   choices, training defaults, cloud tuning, watermark preferences. It's a
   *logical* backup, one entry per dataset, not a raw disk dump.
 - **Include trained LoRAs** (checkbox next to the button): also bundle the
-  trained `.safetensors` files themselves. These are large — hundreds of MB per
+  trained \`.safetensors\` files themselves. These are large — hundreds of MB per
   checkpoint — so it's **off by default**; the light training history above is
   always included, so a dataset comes back under **Trained** either way. Tick it
   when you want the finished LoRAs to travel too.
@@ -503,7 +710,7 @@ setup into a single file so you can move to a new machine — or recover from on
   machine; if it isn't, they're reported as skipped and the **Trained** status
   still stands (the run is what marks it trained, not the file on disk). Nothing
   is ever overwritten — a dataset whose name already exists comes back with a
-  `(restored)` suffix — and you get an honest final report of what was restored,
+  \`(restored)\` suffix — and you get an honest final report of what was restored,
   renamed or skipped.
 
 ## The image bank (triage a big folder)
@@ -615,7 +822,7 @@ The funnel itself:
    caption just those. It runs in the background, frees the GPU like the other
    passes, and is Stop-able mid-run. The captions are plain descriptions (no
    trigger word, nothing omitted) whose real job is **search**: type into the
-   🔍 box — `red dress`, `sunset`, a file name — and the grid filters to
+   🔍 box — \`red dress\`, \`sunset\`, a file name — and the grid filters to
    matching images, combinable with every other filter. It's the fast way to
    find shots in a 9 000-image dump.
 6. **⬆ Promote** — the kept images are **copied** into the dataset you choose
@@ -713,7 +920,7 @@ the panel — see [Pick a balanced set](#pick-a-balanced-set).
 with your triage, it removes every image you marked ✕ rejected from its source
 folder — the actual files, not just the status. It asks you to type **DELETE**
 first, and tells you where the files will go before you confirm: your OS trash
-when [`send2trash`](https://pypi.org/project/Send2Trash/) is installed, the
+when [\`send2trash\`](https://pypi.org/project/Send2Trash/) is installed, the
 app's own Trash otherwise (recoverable until you empty it from Settings), and a
 permanent delete only when neither can take the file. Kept and undecided images
 are never touched, and a file it can't remove (locked, read-only) is reported
@@ -746,7 +953,7 @@ skipped and why, with the headline counts.
 
 ## Choosing where a bank pass runs
 
-Every pass button in the bank ends in `…` and opens a **launch window** before
+Every pass button in the bank ends in \`…\` and opens a **launch window** before
 anything runs. The window is not a settings panel — it says three separate
 things, and keeping them apart is the point.
 
@@ -775,7 +982,7 @@ them.
 
 **Settings this pass reads.** Only what the *calculation* consumes, with where
 each value lives. 🔎 Scan quality, for instance, reads exactly one of the twelve
-🎚 filter thresholds (`dup_distance`), and it reads it for the duplicate grouping
+🎚 filter thresholds (\`dup_distance\`), and it reads it for the duplicate grouping
 at the end — not for the measuring.
 
 **Not decided here.** The knobs that only change how the grid is **sorted and
@@ -1023,7 +1230,7 @@ recovering the original file's size.
 bank with the **🔎 Origin** chips:
 
 - **🤖 AI** — the file still carries generation metadata: a ComfyUI workflow
-  in the PNG, A1111-style `parameters`, or the C2PA/XMP "generated" marker the
+  in the PNG, A1111-style \`parameters\`, or the C2PA/XMP "generated" marker the
   commercial generators write. Certain when present.
 - **📷 Camera** — the file still carries camera EXIF (make, model, exposure).
   Strong evidence it was actually photographed.
@@ -1065,7 +1272,7 @@ unclassified; the row says how many.
 
 **You no longer have to ask for it.** Because it costs nothing beyond what
 ✨ Score already paid, it now runs **automatically at the end of every ✨ Score
-pass**, and the pass's own line reports it (`· 🎨 Medium: 812 classified`). If
+pass**, and the pass's own line reports it (\`· 🎨 Medium: 812 classified\`). If
 the CLIP text encoder is missing, the line says *skipped* and names the reason
 rather than staying quiet. The **🎨 Classify medium** button is still there: it
 is how you re-run the pass on its own, and how you re-classify images that
@@ -1121,7 +1328,7 @@ writes nothing but the angle, and leaves your person groups exactly as they are.
 ## Set the bank filters from a sentence
 
 At the top of **Triage**, **🗣 Describe the set you want** takes a plain request —
-`an amateur photo set, least polished first` — and moves the bank's own controls:
+\`an amateur photo set, least polished first\` — and moves the bank's own controls:
 medium, quality flags, resolution tier, sort. The chip counters below then say,
 measured, how many images that lands on.
 
@@ -1133,15 +1340,15 @@ same filters a click would set, and clearing them is the same gesture as always.
 It answers over what your bank has actually measured. The real per-value counts go
 to the model with the request, so it cannot reach for a bucket that holds nothing.
 
-**It says when it cannot.** Asking for what is *in* the pictures — `women
-outdoors` — has nowhere to land while captions cover a small fraction of a bank
+**It says when it cannot.** Asking for what is *in* the pictures — \`women
+outdoors\` — has nowhere to land while captions cover a small fraction of a bank
 and framing almost none of it. That part of the request comes back as *not
 expressible here* rather than as a filter that would return a few thousand
 convincing, unrelated images.
 
 **It will not turn an exclusion into a search.** The ranker returns *more* of a
-negated thing, not less (`a woman without a bikini` measured 60% bikinis against a
-10.1% baseline), so `without a watermark` is reported back to you instead of being
+negated thing, not less (\`a woman without a bikini\` measured 60% bikinis against a
+10.1% baseline), so \`without a watermark\` is reported back to you instead of being
 quietly sent. To guarantee an absence, use the word-exclude box.
 
 ## Choose CLIP or SigLIP 2 for Bank semantics
@@ -1174,8 +1381,8 @@ images. **Reindex SigLIP 2** rebuilds that cache only; it never touches Score.
 ## Find bank images by describing them
 
 Under **Curate**, **🔤 Find by text…** ranks images by how close they are to a
-phrase you type — `brunette outdoors, wide shot`, `red dress against a white
-wall`, `close-up, harsh flash`. It reads the Bank's selected semantic index:
+phrase you type — \`brunette outdoors, wide shot\`, \`red dress against a white
+wall\`, \`close-up, harsh flash\`. It reads the Bank's selected semantic index:
 the existing **✨ Score** cache for CLIP, or the separate index you explicitly
 built for SigLIP 2. A search itself performs no image inference; searching while
 a LoRA trains is fine.
@@ -1189,7 +1396,7 @@ says whether you can trust the bottom of the list.
 
 **Do not read those numbers as percentages, and do not compare engines by their
 raw values.** The following measurements are specifically for the default CLIP
-ViT-L/14 `openai` space, on a real bank (48 images from 8 unrelated datasets):
+ViT-L/14 \`openai\` space, on a real bank (48 images from 8 unrelated datasets):
 
 | | Range |
 |---|---|
@@ -1241,9 +1448,9 @@ setting, materials and colour**, and unreliable for three things in particular:
 
 The negation case is the one to remember, because it fails *silently and
 backwards*: CLIP does not penalise "without", it simply ignores the word. Someone
-searching `woman without glasses` gets women **wearing** glasses and has no way
-to tell the search misfired. The same measurement on a 7,316-image bank: `a
-photo of a woman without a bikini` returned **60% bikinis**, against a 10%
+searching \`woman without glasses\` gets women **wearing** glasses and has no way
+to tell the search misfired. The same measurement on a 7,316-image bank: \`a
+photo of a woman without a bikini\` returned **60% bikinis**, against a 10%
 base rate — the query did not miss, it inverted. See **Push down** below.
 
 These are properties of the model, not bugs to report. Describe what *is* in the
@@ -1254,8 +1461,8 @@ the negation case, use the **Push down** field described next, because typing
 ### Push down what you do not want
 
 The panel has a second field, **Push down**, for the trait you are trying to get
-away from: `hat`, `sunglasses`, `blonde hair`. You can also write it inline in
-the query with a leading dash — `a woman in a car -hat` means the same thing.
+away from: \`hat\`, \`sunglasses\`, \`blonde hair\`. You can also write it inline in
+the query with a leading dash — \`a woman in a car -hat\` means the same thing.
 Typing a query that starts negating something ("a woman without a hat") offers
 you the field instead, rather than letting the search fail quietly.
 
@@ -1282,7 +1489,7 @@ off a cliff (10 points at Strong, 25 past it). That is why Normal is the default
 and why Strong is described as a trade rather than as "better".
 
 **Some pairs cannot be separated at all,** and the app says so instead of
-pretending. Excluding `a bikini` from `a woman at the beach` barely moved: at
+pretending. Excluding \`a bikini\` from \`a woman at the beach\` barely moved: at
 every usable strength two thirds of the results still had a bikini, because in
 this model's eyes a beach photo largely *is* a bikini photo — and by the strength
 that finally bit, the beach was gone too. After each search the summary reports
@@ -1305,8 +1512,8 @@ search, then releases it when you close the panel or after the idle window.
 Every phrase is cached under that engine's model key, so CLIP and SigLIP 2 text
 vectors can never be mixed and re-typing one is free even after a restart.
 
-On a memory-tight machine you can set `bank_scoring.text_search_idle_minutes` to
-`0`: nothing is ever kept warm, and each new phrase pays the ten seconds instead.
+On a memory-tight machine you can set \`bank_scoring.text_search_idle_minutes\` to
+\`0\`: nothing is ever kept warm, and each new phrase pays the ten seconds instead.
 
 ## Choose who captions a bank, and which pile
 
@@ -1372,7 +1579,7 @@ that are already there.
 
 **It keeps the captions you wrote yourself.** Every caption now records who wrote
 it — JoyCaption, Ollama, or you. "You" means: typed or corrected in a dataset's
-caption box, changed by a find/replace across a dataset, or brought back as `.txt`
+caption box, changed by a find/replace across a dataset, or brought back as \`.txt\`
 sidecars from another tool. That record travels with the text through
 **Import to bank**, bank-to-bank copies, promotion back to a dataset, and backup
 restores, so a caption you wrote in a dataset three steps ago is still recognised
@@ -1517,12 +1724,12 @@ byte-for-byte the original again.
 ## Find more images like this one — by attribute, not by look
 
 **Select an image** in a captioned bank and its tags are already there: beside
-the gallery on desktop, or in the filter bar on a phone. Tick `woman`, `red`,
-`dress` or `balcony` and the grid narrows to the images whose captions mention
+the gallery on desktop, or in the filter bar on a phone. Tick \`woman\`, \`red\`,
+\`dress\` or \`balcony\` and the grid narrows to the images whose captions mention
 them. No extra click, no badge to find.
 
 **Select several and the row counts.** Each chip carries how many of your
-selected images cite it — `red dress 7 / 12` means 7 of the 12 captioned images
+selected images cite it — \`red dress 7 / 12\` means 7 of the 12 captioned images
 you picked mention it. That is deliberately *not* an intersection: keeping only
 the tags every single image shares would print 12 next to each survivor (a number
 that says nothing) and usually leave you with one word. What you want to know is
@@ -1531,8 +1738,8 @@ that a tag describes over half of what you selected.
 The row is honest about what it did **not** count, on its own lines:
 
 - images in your selection with **no caption yet** — named, not folded into the
-  denominator, so `7 / 12` always means 7 of 12 images that had something to say;
-- images whose caption held **no word worth filtering on** (`a photo of her`) —
+  denominator, so \`7 / 12\` always means 7 of 12 images that had something to say;
+- images whose caption held **no word worth filtering on** (\`a photo of her\`) —
   a different problem with a different fix;
 - a selection **too large to read in one request**, which says how many images it
   left out rather than quietly shrinking the total.
@@ -1559,14 +1766,14 @@ worth knowing because they fail differently:
 
 Details that decide what you get:
 
-- **Several chips mean AND.** Ticking `red` and `dress` shows images mentioning
+- **Several chips mean AND.** Ticking \`red\` and \`dress\` shows images mentioning
   both, so every extra chip narrows further. The line under the chips says so
   while the filter is active.
-- **Chips are matched as whole words**, in captions *and* file names. `car` will
-  not bring back `scarf`. (The 🚫 exclude box below is looser — it matches
+- **Chips are matched as whole words**, in captions *and* file names. \`car\` will
+  not bring back \`scarf\`. (The 🚫 exclude box below is looser — it matches
   anywhere — because a word you type by hand is often a fragment on purpose.)
-- **Booru captions keep their tags whole** (`red dress` stays one chip); prose
-  captions are cut into words, so `golden hour` becomes two chips and ticking
+- **Booru captions keep their tags whole** (\`red dress\` stays one chip); prose
+  captions are cut into words, so \`golden hour\` becomes two chips and ticking
   both means "captions with both words", not "captions about golden hour".
 - **It only sees what a captioner wrote.** An attribute nobody put in words is
   invisible here, however plain it is in the picture. Caption more of the bank
@@ -1581,10 +1788,10 @@ The bank's 🔍 search box narrows the grid *to* a word. Next to it, the 🚫
 file name** contains what you type. That turns a captioned bank into a checklist
 — *what have I not tagged yet?* — instead of a list you have to keep re-reading.
 
-- **Several words at once**, comma-separated: `logo, watermark, screenshot` hides
+- **Several words at once**, comma-separated: \`logo, watermark, screenshot\` hides
   anything mentioning any of them.
 - **It composes with everything else** — the search box included. Searching
-  `dress` while excluding `red` gives you the dresses that are not red, and the
+  \`dress\` while excluding \`red\` gives you the dresses that are not red, and the
   filter chips, subfolder, resolution tier and framing all still apply.
 - **It travels with the filter**: **Select all in filter**, **▶ Review one by
   one** and the curation picks (🎨 diverse, ⚖️ balanced, similar) all work on the
@@ -1592,8 +1799,8 @@ file name** contains what you type. That turns a captioned bank into a checklist
 
 Two limits worth knowing:
 
-- **It matches anywhere in the text**, like the search box — so `car` also hides
-  `scarf`. Type the longer word when that matters.
+- **It matches anywhere in the text**, like the search box — so \`car\` also hides
+  \`scarf\`. Type the longer word when that matters.
 - **Images with no caption are never hidden.** They have nothing to match, and
   hiding them would remove exactly the images a checklist is looking for.
 
@@ -1704,9 +1911,9 @@ The full-screen view is where you can actually *see* whether a hand is right or
 an eye is mush — so that is where the verdict belongs. The bar under the image
 carries the same three buttons as the Bank's **▶ Review**, on the same keys:
 
-- **✓ Keep** — `K`
-- **✕ Reject** — `R`
-- **⏭ Skip** — `S` (or **→**)
+- **✓ Keep** — \`K\`
+- **✕ Reject** — \`R\`
+- **⏭ Skip** — \`S\` (or **→**)
 
 **Keep and Reject move you on** as soon as the verdict is saved, so a folder of
 300 pictures is worked through with one hand on the keyboard and never a return
@@ -1860,7 +2067,7 @@ Three things each control tells you that a bare number cannot:
   duplicates is cheap: it walks the stored hashes and decodes nothing.
 - **How many images it would touch.** As you change a read-time value, the panel
   asks the server how many images that number *would* flag and shows
-  `1 240 → 3 019 images flagged` before you save anything. Nothing is written
+  \`1 240 → 3 019 images flagged\` before you save anything. Nothing is written
   until you press **Save**.
 
 Every field has **↺ Reset to default** (it only appears when the value is not
@@ -1925,7 +2132,7 @@ press **Stop** in the ⏳ progress bar at the top of the bank; the buttons come
 back by themselves the moment the bank is free.
 
 When a re-run does start, the button reports what the pass produced right where
-you pressed it: **`Done — 12 duplicate groups · 34 images (was 9 · 26)`**. If
+you pressed it: **\`Done — 12 duplicate groups · 34 images (was 9 · 26)\`**. If
 your new value groups exactly the same images it says so — *unchanged* — rather
 than leaving you unable to tell a no-op from a pass that never ran.
 
@@ -1960,7 +2167,7 @@ what the app shows you and to what it copies when you **⬆ Promote**; your
 original keeps its exact bytes, whatever you do. Select the images and use
 **↺ Rotate left** / **↻ Rotate right** in the selection bar to fix a whole
 sideways batch at once, or turn one image without leaving **▶ Review** with the
-↺ / ↻ buttons (keyboard: `[` and `]`). Rotating in Review never decides
+↺ / ↻ buttons (keyboard: \`[\` and \`]\`). Rotating in Review never decides
 anything — the image stays under your cursor so you can judge it once it is the
 right way up.
 
@@ -1978,7 +2185,7 @@ place. (Asked for by nofaceman on Discord, backed by mr.arrow.)
 
 **✂ Crop** is per image, in **▶ Review** — the only place a bank shows a picture
 big enough to draw a box on. Open Review (or press ▶ on a tile), then click
-**✂ Crop** or press `C`. Drag the box, or snap it to a ratio, and confirm.
+**✂ Crop** or press \`C\`. Drag the box, or snap it to a ratio, and confirm.
 Cropping decides nothing: the image stays under your cursor so you can judge it
 once it is framed properly.
 
@@ -2123,7 +2330,7 @@ once into the same Python the **✨ Score** pass already uses.
 
 **How good is it, measured.** On 110 images pulled from a real bank and labelled
 by eye — half of them hard on purpose: faint corner logos, semi-transparent
-handles across the subject, an `OnlyFans.com/…` line barely a few pixels tall, and
+handles across the subject, an \`OnlyFans.com/…\` line barely a few pixels tall, and
 clean photos containing legitimate signage — the detector at its default setting
 flagged **none of the 55 clean images** and **54 of the 55 marked ones**. The
 vision model, on the exact same 110, flagged one clean image and missed one marked
@@ -2131,7 +2338,7 @@ one. So the detector is not a downgrade in judgement; the gain you actually buy 
 the ten-fold speed-up. Neither is a verdict: both are a review flag, and both leave
 your source files untouched.
 
-The one image the detector missed was a `MET-ART.com` line in a bottom corner
+The one image the detector missed was a \`MET-ART.com\` line in a bottom corner
 scoring 0.929, just under the 0.94 cut — and the highest-scoring clean image sat
 at 0.939. The two overlap by about a hundredth, which is why the cut is a
 **setting** (Settings ▸ Captioning & quality ▸ *Watermark detector sensitivity*)
@@ -2146,7 +2353,7 @@ Draw a zone on them with **🚩 Edit mask** below, or leave them as a filter.
 
 The detector draws **one** box, and it is a guess: it can miss a second logo,
 swallow half the face, or land beside the mark. Open **▶ Review**, walk to the
-image and press **🚩 Edit mask** (shortcut `M`) — the same zone editor the
+image and press **🚩 Edit mask** (shortcut \`M\`) — the same zone editor the
 datasets use, on the bank image, right there.
 
 It also opens on an image the scan flagged **nothing** on, where the button reads
@@ -2196,7 +2403,7 @@ images sometimes. When you would rather drop the whole pile and move on,
 
 Four things worth knowing before you click it:
 
-- **The number is the number.** `N` is what the button will really reject, not
+- **The number is the number.** \`N\` is what the button will really reject, not
   how many are flagged. Small-image rescue pairs are excluded (the server refuses
   a batch containing one, so including them would reject *nothing*) and failed
   rows are excluded (the server skips them). If the two differ, the row says so
@@ -2285,7 +2492,7 @@ Paste or browse to the new folder
 and press **🔍 Check this folder**. Nothing is written yet: the app walks the
 candidate folder and tells you how many of *this bank's* images are in there and
 how many are not. Paste it however you like — Windows' *Copy as path* wraps the
-path in quotes, and a trailing `\` or forward slashes are equally fine; the field
+path in quotes, and a trailing \`\\\` or forward slashes are equally fine; the field
 then shows the folder the app actually resolved, so what you confirm is what it
 will use.
 
@@ -2328,8 +2535,8 @@ package**:
 - **GPU ready** — everything the pass imports is there *and* PyTorch sees the
   card. Pick it and the next Score run is minutes instead of hours.
 - **Missing packages** — the reason is named. The common one is an interpreter
-  with a perfect CUDA PyTorch but no **OpenCLIP**: Score needs `open_clip` and
-  `transformers`/`timm` too, so CUDA alone is not enough. Such an interpreter is
+  with a perfect CUDA PyTorch but no **OpenCLIP**: Score needs \`open_clip\` and
+  \`transformers\`/\`timm\` too, so CUDA alone is not enough. Such an interpreter is
   **refused**, on purpose — accepting it would trade slow-but-working scoring for
   an import error an hour into the pass.
 - **CPU only** — it can run the pass, it just has no usable CUDA.
@@ -2338,7 +2545,7 @@ package**:
 
 **The app never installs anything into an environment it did not create.** Your
 ai-toolkit venv runs your training and ComfyUI's runs your generation; a silent
-`pip install` into either is not something a dataset tool gets to do. When a
+\`pip install\` into either is not something a dataset tool gets to do. When a
 package is missing the dialog shows you the exact command and leaves the choice
 to you — run it in a terminal, then hit **↻ Check again** and the row updates.
 
@@ -2385,12 +2592,12 @@ Python I already have**. It is the same detector, the same dialog and the same
 promise — with one difference that matters:
 
 **The dependency list is SigLIP 2's, not Score's.** The semantic worker never
-imports `open_clip` or `timm`. An interpreter Score refuses for a missing
+imports \`open_clip\` or \`timm\`. An interpreter Score refuses for a missing
 OpenCLIP — the most common shape of a ComfyUI venv — can be perfectly good here,
 and refusing it would be a lie about a worker that does not need it. What it
-*does* need is a **Transformers recent enough to carry `Siglip2Model`** (4.49 or
+*does* need is a **Transformers recent enough to carry \`Siglip2Model\`** (4.49 or
 newer). That one is checked by really looking for the class, not just for the
-package: an older `transformers` imports fine and then dies at model load, an
+package: an older \`transformers\` imports fine and then dies at model load, an
 hour into an index. Such an interpreter is refused, and the repair line the
 dialog hands you carries the version floor.
 
@@ -2422,7 +2629,7 @@ Two things changed:
   reports which device the scan *actually* ran on — "(detector on GPU, …)" or
   "(detector on CPU, …)" — read back from the scan itself, not from a guess.
 - **The picker speaks the detector's own dependency list.** It never imports
-  `open_clip`, `timm` or even NumPy, so the ComfyUI interpreter Score refuses
+  \`open_clip\`, \`timm\` or even NumPy, so the ComfyUI interpreter Score refuses
   is usually perfect here. What it *does* need is a **Transformers carrying
   both halves of the cascade** — the SigLIP classifier and the Grounding-DINO
   locator (4.40 or newer). Both classes are really looked for, not assumed
@@ -2445,14 +2652,14 @@ on its own.
 Videos are a different kind of material and they get their own bank. On the
 **🗃️ Bank** page the switch at the top right says which kind you are making —
 **🖼 Images** or **🎬 Video**. This matters more than it looks: an image bank
-skips every `.mp4` you drop into its folder **without a word**, so a folder of
+skips every \`.mp4\` you drop into its folder **without a word**, so a folder of
 video used to look like an empty bank.
 
 A video bank triages **shots**, not files. One two-hour rush is not something you
 can judge; the three hundred shots inside it are.
 
-1. **Create it** — name it, point it at the folder. Every `.mp4`, `.mov`, `.mkv`,
-   `.webm` and `.avi` under it (subfolders included) is inventoried in place.
+1. **Create it** — name it, point it at the folder. Every \`.mp4\`, \`.mov\`, \`.mkv\`,
+   \`.webm\` and \`.avi\` under it (subfolders included) is inventoried in place.
    Nothing is copied, and **no pass ever modifies your files** — scanning,
    cutting and building all write elsewhere. The one thing that adds to that
    folder is a scrape you send to this bank yourself (next step).
@@ -2486,7 +2693,7 @@ can judge; the three hundred shots inside it are.
    above the buttons always names the one step to take next — run them out of
    order and each simply finds nothing to do and reports success.
 3. **Triage** — the grid is thumbnails, and only thumbnails. Click one to watch
-   exactly that shot, `←`/`→` to move, `K` to keep, `R` to reject. Filter by
+   exactly that shot, \`←\`/\`→\` to move, \`K\` to keep, \`R\` to reject. Filter by
    status, or click a file in the **Files** list to see only its shots. For a
    whole bank at speed, **⌨ Burst mode** judges shots straight from the grid,
    one keystroke each — see *Triage a video bank from the keyboard* below.
@@ -2514,34 +2721,34 @@ marker under the thumbnail. From there:
 
 | Key | What it does |
 | --- | --- |
-| `K` | Keep this shot |
-| `R` | Reject this shot |
-| `P` | Put it back to untriaged |
-| `S` or `→` | Move on without deciding |
-| `←` | Move back one shot |
-| `U` | Undo the last decision, and go to that shot |
-| `Home` | Jump to the first untriaged shot |
-| `?` | Show or hide the shortcut panel |
-| `Esc` | Leave burst mode |
+| \`K\` | Keep this shot |
+| \`R\` | Reject this shot |
+| \`P\` | Put it back to untriaged |
+| \`S\` or \`→\` | Move on without deciding |
+| \`←\` | Move back one shot |
+| \`U\` | Undo the last decision, and go to that shot |
+| \`Home\` | Jump to the first untriaged shot |
+| \`?\` | Show or hide the shortcut panel |
+| \`Esc\` | Leave burst mode |
 
-They are the same keys as the image bank's **▶ Review** — `K` keep, `R` reject,
-`S` skip, `←` back, `Esc` out — because a reflex that is right on one screen and
-wrong on the next is worse than no reflex. `P`, `U` and `Home` are this lane's
+They are the same keys as the image bank's **▶ Review** — \`K\` keep, \`R\` reject,
+\`S\` skip, \`←\` back, \`Esc\` out — because a reflex that is right on one screen and
+wrong on the next is worse than no reflex. \`P\`, \`U\` and \`Home\` are this lane's
 own: a video bank has three verdicts where the image review has two.
 
 Four things are worth knowing before you lean on it:
 
 - **The cursor jumps to the next shot you have not judged yet**, not simply the
   next tile. On a half-triaged bank that is most of the speed. Untick
-  **Auto-advance** and the cursor stays put instead, so `K` then `R` corrects
+  **Auto-advance** and the cursor stays put instead, so \`K\` then \`R\` corrects
   the same shot — useful when you are being careful rather than fast.
 - **It never wraps.** When nothing untriaged is left ahead of the cursor, the
-  bar says so — and says how many are still sitting *behind* it, with `Home` to
+  bar says so — and says how many are still sitting *behind* it, with \`Home\` to
   go back to the first. A run that silently looped back to the top would put
   your next keystroke on a shot you did not expect.
 - **Undo goes back one step at a time, and shows you what it fixed.** The bar
   always names the decision it would take back (*"↩ U undoes ✕ Reject on 0:12 –
-  0:15"*) and how many steps are left in the net — ten. Each `U` restores what
+  0:15"*) and how many steps are left in the net — ten. Each \`U\` restores what
   the shot actually was before, so undoing a reject on a shot you had already
   kept puts the **keep** back, not a blank. The offer sits in the bar rather
   than in a toast on purpose: at one keystroke a second a toast is replaced
@@ -2745,7 +2952,7 @@ The number is stored per shot and read by one cut in **🎚 Quality cuts**,
 **Motion irregularity floor** — the one threshold in the panel that works the
 other way round from the rest. **A LOW score is the suspicious one**, so this is
 a floor and raising it flags *more* shots; a shot below it wears a **May be
-AI-generated** chip in the grid like any other flag. Set it as a `_max` in your
+AI-generated** chip in the grid like any other flag. Set it as a \`_max\` in your
 head and you will flag every handheld shot in the bank and clear every generated
 one.
 
@@ -2798,7 +3005,7 @@ chip says *may be*. Use it to decide what to look at, not what to throw away.
 
 The 🗃️ Bank already tells you whether a still is AI, and the two answers are
 **different in kind**, which is why they are worded differently. The image
-lane's `AI` verdict reads **metadata** — a generator's own prompt block inside
+lane's \`AI\` verdict reads **metadata** — a generator's own prompt block inside
 the PNG, an A1111 parameter string, a C2PA mark — and that is *proof* when it is
 present. It is also absent from almost everything scraped, and its silence means
 "unknown", never "not AI". This pass reads **the pixels** and infers, so it is
@@ -2834,14 +3041,14 @@ as it does to you.
 | **Static shot** | Nothing moved enough to name — a tripod, a clamp, or very steady hands. |
 | **Handheld** | The movement has a high-frequency part nobody is steering. |
 
-Three more are **this app's own**, and the gallery marks them with a small `ᐩ` so
+Three more are **this app's own**, and the gallery marks them with a small \`ᐩ\` so
 you never carry one into a caption expecting the trainer to recognise it:
 
 | Label | What it means |
 | --- | --- |
-| **Rolling** `ᐩ` | The horizon turns — the camera rotates about its own axis. Absent from the trainer's fourteen, and measured here because it is the one movement a language model reading the footage reliably gets wrong. |
-| **Slideshow** `ᐩ` | The whole frame moved as one rigid picture, which is what a photograph panned across does — a Ken Burns move, not a camera. |
-| **Subject moves** `ᐩ` | Something in the shot moved more than the camera did, so no direction could be read at all. |
+| **Rolling** \`ᐩ\` | The horizon turns — the camera rotates about its own axis. Absent from the trainer's fourteen, and measured here because it is the one movement a language model reading the footage reliably gets wrong. |
+| **Slideshow** \`ᐩ\` | The whole frame moved as one rigid picture, which is what a photograph panned across does — a Ken Burns move, not a camera. |
+| **Subject moves** \`ᐩ\` | Something in the shot moved more than the camera did, so no direction could be read at all. |
 
 A shot carries **several** labels where several apply: a handheld pan that also
 zooms is all three, and the filter row lets you pick any one of them.
@@ -2889,7 +3096,7 @@ a **🎥 Camera** row of filters above the grid. It composes with the ⚑ flag c
 so *"shaky shots that also pan right"* is one click each.
 
 If you do want to **cut** on camera movement, 🎚 Quality cuts gains
-**`camera_shake_max`**. It is empty by default like every other cut, and it is
+**\`camera_shake_max\`**. It is empty by default like every other cut, and it is
 deliberately **not** the same threshold as the *Handheld* label: the label fires
 at a fixed internal floor and describes, the cut fires wherever you put it and
 rejects. A shot can be labelled handheld without being flagged, or the reverse,
@@ -3094,7 +3301,7 @@ in the bank.
 **What it cannot do**, measured on the model this app uses:
 
 - **“Without” is ignored, not honoured.** Ask for *a street without cars* and you
-  get cars. Type `-cars` instead: that subtracts the unwanted thing from the score
+  get cars. Type \`-cars\` instead: that subtracts the unwanted thing from the score
   and pushes those shots down the ranking. It cannot promise their absence, and
   the panel says so rather than pretending otherwise.
 - **It cannot count.** *Two people* barely outranks a picture of one.
@@ -3115,7 +3322,7 @@ each shot and writes one or two sentences about what happens in it.
 
 That line does two jobs, and the second is the one nobody sees coming:
 
-- **It is what the clip trains on.** At promotion each clip gets a `.txt` sidecar
+- **It is what the clip trains on.** At promotion each clip gets a \`.txt\` sidecar
   next to it, and that file *is* the prompt. Before this pass existed every
   promoted clip shipped with an **empty** one — which the trainer accepts in
   silence, training the clip on no prompt at all. The build dialog now tells you
@@ -3138,10 +3345,10 @@ other than the shot*, and a LoRA trained on those learns the evasion. It was
 measured rather than assumed: the wording turned out to matter **more than the
 model**, and the stock model asked plainly beat an uncensored one asked the old
 way. Every caption records which wording produced it, and the choice is
-remembered as `video_caption.style` if you set it in your config.
+remembered as \`video_caption.style\` if you set it in your config.
 
 **You can change which model writes them.** The pass ships with one checkpoint
-and uses it unless you say otherwise (`video_caption.model` — see *Settings
+and uses it unless you say otherwise (\`video_caption.model\` — see *Settings
 reference*). It is worth changing when the default **talks around** what your
 footage shows: a caption that names things evasively is not a style choice, it
 teaches the trained model to look away too, and the captions read perfectly well
@@ -3158,7 +3365,7 @@ captioned stays captioned and the next run picks up where it left off.
 
 ## Video training sets (and the two things to check before you cut one)
 
-Promoting a video bank builds a flat folder of clips with a `.txt` caption next
+Promoting a video bank builds a flat folder of clips with a \`.txt\` caption next
 to each one, and lists it in your library under **🎬 Video training sets**.
 
 **You can cap how many clips one source contributes.** A 50-clip set that is
@@ -3261,7 +3468,7 @@ to look at.
 
 - **Datasets** opens a menu with a search box, **Select all** / **Clear**, and
   one checkbox per dataset with its run count. The search matches the name *and*
-  the model family, so typing `krea` brings up every Krea lane.
+  the model family, so typing \`krea\` brings up every Krea lane.
 - **Models** and **Status** are the same idea for the model family and the run
   state (Active, Completed, Errors, Unknown).
 - **Pinned** toggles the pinned images on and off. Turned off it goes amber:
@@ -3298,7 +3505,7 @@ working or wedged. Every number carries a colour: green below 50 % of its
 resource, amber 50-80 %, red past 80 %; **▾** folds the readout away and stops
 the polling with it, and the choice is remembered. It is a glance, not a
 monitor: there is no history, no graph and
-no per-process breakdown. On a machine with no NVIDIA card (or with `nvidia-smi`
+no per-process breakdown. On a machine with no NVIDIA card (or with \`nvidia-smi\`
 unavailable, as in some containers) the GPU and VRAM numbers are simply absent
 rather than shown as zeros, and the row is hidden on phone-width screens.
 
@@ -3465,7 +3672,7 @@ The dialog also names **what “resume” means**; it never silently guesses:
   Save/preview cadence, learning rate and timestep weighting stay locked because
   changing any of them would change the trajectory the state belongs to.
 - **LoRA weights only** is the explicit fallback and is available for legacy
-  checkpoints. The chosen `.safetensors` is copied into a clean run folder;
+  checkpoints. The chosen \`.safetensors\` is copied into a clean run folder;
   optimizer, scheduler, scaler, RNG and dataloader progress restart. The source
   run is renamed aside, not deleted, so all its saves remain recoverable.
 
@@ -3596,7 +3803,7 @@ them. There is **no limit**: drop a third, a tenth, they all join the strip.
 - **Which side.** Drop on the left half of a picture to land before it, on the
   right half to land after it. The same gesture **re-orders** a group: drag a
   member out and back onto the slot you want.
-- **Move the whole group** by its **title bar** (`⠿ N images`), which is also
+- **Move the whole group** by its **title bar** (\`⠿ N images\`), which is also
   where its **✕** lives. That bar is the only thing that moves a group, on
   purpose: dragging a *picture* inside a group means something else entirely.
 - **Take one back out** by dragging it **off the group**. That is the whole rule
@@ -3610,7 +3817,7 @@ them. There is **no limit**: drop a third, a tenth, they all join the strip.
 - **Which ✕ am I about to press?** At rest a group is nothing but photographs.
   Hover (or Tab to) one and *that* picture lights up and shows its own step
   label, its 🔍 and its ✕ — the group's own ✕ is the one on the title bar, and it
-  carries the count (`✕3`) precisely so the two can never be confused. Closing a
+  carries the count (\`✕3\`) precisely so the two can never be confused. Closing a
   group closes all of its pictures, undoes the group, and each one keeps its own
   remembered size; re-pinning one from its gallery brings back **that one**, not
   the strip.
@@ -3688,7 +3895,7 @@ inline previews). The canvas is a second way in, not a replacement.
 
 ## Undeploy several LoRAs at once
 
-Deploying a checkpoint copies it into ComfyUI's `loras` folder so you can use it
+Deploying a checkpoint copies it into ComfyUI's \`loras\` folder so you can use it
 in a workflow. Over a few months of training that folder fills up, and taking
 LoRAs back out used to be a one-at-a-time errand: open a run's checkpoint pill,
 open its popover, press ⏏ Undeploy, repeat. Nothing anywhere even told you how
@@ -3765,3 +3972,1490 @@ otherwise be read as a vote for the checkpoint that did not produce it.
   flexibility.
 - The next chapter — **Building a good dataset** — explains *why* behind every
   rule above. Read it once before your first serious run.
+`,W=`# Building a good LoRA dataset
+
+This guide condenses what actually moves the needle when training a character LoRA
+with this app (ai-toolkit under the hood). Every number here matches what the app
+enforces or defaults to — when in doubt, the app's warnings are this guide applied.
+
+> **The one principle behind everything:** a LoRA learns whatever is **constant
+> across your images and NOT described in the captions**. Keep the subject constant,
+> vary everything else, and never describe the subject — that's the trigger word's job.
+
+---
+
+## 1. Pick your model family first
+
+The family changes the caption style, the image count, and the settings — so decide
+before you caption anything.
+
+| | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein |
+|---|---|---|---|---|---|
+| **Caption style** | Prose sentences | Booru tags | Prose sentences | Prose sentences | Prose sentences |
+| **Images (min → good)** | 12 → 20+ | 20 → 30+ | 15 → 20+ | 15 → 20+ | 15 → 20+ |
+| **Training base** | Z-Image-Turbo (or a converted custom merge) | Your ComfyUI checkpoint (e.g. bigLove) | Krea-2-Raw (default), Turbo, or a Krea 2 checkpoint on your disk | FLUX.1-dev (gated HF) | FLUX.2-klein-base 4B (default) or 9B (gated HF) |
+| **Preview quality** | Fast, distilled | Depends on checkpoint | Raw: slow but faithful | High, ~20 steps | Non-distilled, real CFG (~25 steps) |
+| **Best for** | Fast iteration, prose-driven prompting | Booru-native checkpoints, NSFW ecosystems | Highest realism ceiling | The largest LoRA ecosystem, strong prompt fidelity | Modern FLUX.2 stack; 4B trains on mid-range GPUs |
+
+**Krea note:** the default trains on **Krea-2-Raw** — the official recommendation is
+*"train on Raw, validate on Turbo"*. Raw runs are long (hours); that's normal, not stuck.
+The **Base** selector also lists every Krea 2 checkpoint sitting in your ComfyUI
+\`unet\` / \`diffusion_models\` folders — a model one of your own full-model runs
+delivered, or a community Krea 2 build — so you can keep training on top of one
+instead of starting from the official weights every time. Entries carry a tag when
+the file is quantized: \`· fp8 cast\` trains but starts from degraded weights,
+\`· packed export\` cannot be loaded at all (see *Which quantized checkpoints can be
+trained on* in section 10). Local runs use the file directly; a cloud run first
+pushes it to your private Hugging Face repo, which the panel offers to do.
+
+**FLUX.1 note:** trains on **FLUX.1-dev**, a *gated* Hugging Face model — accept its
+license and set a HF token before the first run (the initial download is ~24 GB). It's
+a 12B model like Krea 2, so **~24 GB VRAM** is the comfort zone (drop the resolution to
+**768** to fit smaller cards). **Local training only for now**; in-app testing (Test
+Studio) is coming — until then, test your Flux LoRA in your own ComfyUI.
+
+**FLUX.2 Klein note:** two model sizes, picked next to the base selector — **4B**
+(default) trains on a **16–24 GB** local GPU, **9B** needs **32–48 GB VRAM** and is
+best trained via **☁️ Train in cloud** (both local and cloud runs are supported for
+this family). Both bases are *gated* on Hugging Face: accept the license of
+\`FLUX.2-klein-base-4B\` / \`-9B\` and set a HF token before the first run. In-app
+testing (Test Studio) is coming — until then, test your Klein LoRA in your own
+ComfyUI.
+
+**Anima note (the one family that takes BOTH caption styles):** Anima is an anime
+model with **hybrid prompting** — its model card documents *booru tags* and *natural
+language* as equally supported, which its LLM text encoder is what makes possible. So
+this is the family where the "match the style" rule below does **not** apply: caption
+in prose, caption in booru tags, or keep an existing dataset as it is — the app will
+not flag either as a mismatch, and you never have to force the launch. Prose is only
+the preselected default. It trains on the open \`Anima-Base-v1.0-Diffusers\` (no gated
+download) and is **local-only** for now.
+
+---
+
+## 2. How many images, and which ones
+
+- **Target ~25 images** for a balanced character LoRA. More isn't automatically
+  better — 25 varied images beat 60 near-duplicates every time.
+- **Balance the framing.** The app tracks four buckets: **face / bust / body / back**.
+  A dataset that is 100% face close-ups produces a LoRA that falls apart on
+  full-body prompts — it has never seen the body.
+- **Imported images may have no shot type yet.** Only images imported with the
+  head-crop option on are tagged automatically; a plain drag-and-drop import (the
+  default on body-fidelity datasets) leaves the shot type unknown, and unknown
+  images count for nothing in the Composition bar — a whole import can leave it
+  at 0. **📐 Classify framing (N)**, right under that bar in 📸 Add images, reads
+  those images with the local vision model (Ollama) and sorts each into face /
+  bust / body / back. It needs Ollama running with a vision model pulled
+  (Settings ▸ Local tools); it uses the GPU and waits rather than competing with
+  a training run. Nothing is deleted and images it cannot read stay unknown, so
+  running it again only retries those.
+- **A crop forgets the old shot type.** Cropping a body shot into a face (or a
+  bust into a close-up) clears the stored framing, the same way a Bank crop
+  does. Composition drops that image from its bucket until you run **📐 Classify
+  framing** again — and the button only counts the ones that actually changed,
+  not the whole set. Same vision model, same GPU wait.
+- **Vary everything except the person:** location, lighting, outfit, pose,
+  expression, camera angle. Whatever repeats across images gets baked into the
+  LoRA — a repeated background wall becomes part of "the person".
+- **Reject near-duplicates.** Two frames of the same shot teach nothing and
+  overweight that look. The pre-flight check flags them; reject one of each pair.
+- **Quality floor:** no motion blur, no heavy compression, the face readable.
+  One bad image does more harm than one good image does good.
+
+**Body fidelity mode** (Datasets → ⋯ More): use it when the body shape and body
+marks (tattoos, scars) should bind to the trigger too. It shifts the composition
+targets toward bust/body shots, imports full-frame by default, and extends the
+caption rules below to body marks.
+
+---
+
+## 3. Captions — the make-or-break step
+
+The model reads your captions during training and learns to attribute **whatever
+the caption does NOT explain** to the trigger word.
+
+**The golden rule: never describe what the person IS — describe everything else.**
+
+- ❌ \`myTrigger, a woman with long blonde hair and blue eyes, smiling\` —
+  the LoRA learns almost nothing: the caption already "explains" the appearance.
+- ✅ \`myTrigger, sitting at a café table, warm afternoon light, denim jacket,
+  looking at the camera\` — hair, face and skin are unexplained → they bind
+  to \`myTrigger\`.
+
+Concretely:
+
+1. **Start every caption with the trigger word.** The app injects it on export.
+2. **Never mention face, eyes or skin** — and, by default, hair. Those bind
+   to the trigger. ⚙️ *Options* on the Captions panel has **Appearance in
+   captions**: flip Hair, Makeup, Facial hair or Glasses to **Describe** when
+   you want that look prompt-controllable (different hairstyles, no mascara in
+   every gen). **Omit** keeps it bound to the trigger. Face, eye colour, skin,
+   age, gender and ethnicity stay omitted. Extra instructions cannot reintroduce
+   an omitted family — flip the row instead. The *identity-leak* check watches
+   whatever is currently omitted.
+3. **Describe scene, outfit, pose, lighting, framing** — and any appearance
+   family you set to Describe. Those stay promptable *independently* of the
+   identity.
+4. **Vary the captions.** Identical captions across images teach nothing;
+   captions under ~8 words are too weak to isolate the identity.
+5. **Match the style to the family.** Prose for Z-Image and Krea; booru tags for
+   SDXL booru-native checkpoints. The app blocks a mismatch for a reason —
+   a prose-captioned SDXL LoRA produces disjointed images. **Anima is the
+   exception:** it reads both forms natively, so neither is ever blocked there
+   (see the Anima note above).
+
+   ⚠️ **Concept datasets cannot be captioned in booru tags at all** (the concept
+   captioner only writes prose). A Concept dataset on a booru-native SDXL
+   checkpoint will therefore always be stopped by the caption-style check: train
+   the concept on a prose family instead, or force the launch knowing the cost.
+
+**Caption length.** ⚙️ *Options* on the Captions panel carries a **Caption length**
+preset — *Standard* (the prompt untouched), *Concise* (aims for one short sentence,
+~20–30 words) or *Detailed* (several sentences). It is a **target the vision model
+follows loosely**, not a hard cap: expect a spread around it, not a word count. Pick
+*Concise* when detailed captions keep describing the identity you want bound to the
+trigger, *Detailed* when you want scene, outfit and lighting to stay independently
+promptable.
+
+What that looked like when measured — 18 real portrait photos, the shipped default
+vision model (\`huihui_ai/qwen3-vl-abliterated:8b-instruct\`), the plain descriptive
+prompt, one pass per preset:
+
+| Preset | Median | Range |
+|---|---|---|
+| Concise | 24.5 words | 18–30 |
+| Standard | 87.5 words | 65–112 |
+| Detailed | 126 words | 106–152 |
+
+Your numbers will differ — another vision model, JoyCaption, or a different kind of
+image all move them. Treat the presets as *shorter / as-is / longer*, not as a
+contract on a word count.
+
+Two more things worth knowing:
+
+- **Order.** The prompt is built as: the base prompt with its omission rules, then the
+  vocabulary register, then the length preset, then your free **Extra instructions**
+  last — so a hand-written steer that contradicts a preset is what the model reads
+  most recently and wins. The identity/concept leak cleaners run after all of it
+  regardless, so Extra instructions cannot reintroduce an omitted identity term.
+  Flip **Appearance in captions** (Hair / Makeup / Facial hair / Glasses) when
+  you *want* that look in the caption so it stays prompt-controllable.
+- **Concise is not the "short" of long + short captions.** Dual captions derive a
+  short variant *from* the stored long caption into its own field; the length preset
+  changes the long caption itself. They are separate axes and compose freely.
+- Concise stays **prose** on purpose (never a comma-separated tag list), so a Concise
+  dataset still passes the caption-style check for prose-native families instead of
+  being mistaken for booru tags at launch.
+
+**Concept datasets** (training a *thing/style/act*, not a person) invert the rule:
+describe everything **except the concept** — the concept is what must bind to the
+trigger. Keep *person* masking **off** for concepts — a person mask would erase the
+very thing you're training. Masking **faces** is the opposite polarity and is
+available on purpose: see §8.
+
+**Stopping a run.** Started a big caption pass and realized it's captioning badly,
+or an option was mis-set? A **⏹ Stop** button sits in the captioning progress
+banner. It finishes the image being written (an inference is never cut off
+mid-way), then stops cleanly: every caption written so far is kept, the rest is
+left untouched, and you get a *"stopped — X captioned"* summary. Nothing is killed
+and nothing already done is lost — just fix the option and run again on what's left.
+
+---
+
+## 4. Settings cheat-sheet
+
+The defaults below are the app's defaults (post-research). Change them from
+⚙️ Advanced options on the training panel — each knob has its own why/how there.
+That panel also has a **Presets** row: apply a shipped ★ recipe (*Krea
+character*, *Concept*, *Style*), or save your tuned settings as a named preset to
+reuse across datasets and share (import/export as JSON).
+
+| Setting | Z-Image | SDXL | Krea 2 | FLUX.1 | FLUX.2 Klein | Why |
+|---|---|---|---|---|---|---|
+| **LoRA rank / alpha** | 16 / 16 | 32 / 16 | 32 / 32 | 16 / 16 | 16 / 16 | Capacity to memorize the identity. SDXL's alpha = rank ÷ 2 is that family's half-strength convention. |
+| **Resolution** | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | 768 + 1024 | Multi-scale: holds up from close-up to full-body. |
+| **Save checkpoint** | every 250 | every 250 | every 250 | every 250 | every 250 | More snapshots → better odds one is at the sweet spot. |
+| **Steps** | auto | auto | auto | auto | auto | ~120 × images, clamped 1500–3500. A fixed 3000 overcooks small sets. |
+| **Masked training** | ON | ON | ON | ON | ON | Background weighs only 10% of the loss → identity binds to the person, not the room. OFF for concepts — they have their own face masking instead (§8). |
+
+Rules of thumb:
+
+- **Raise rank (48–64)** only for a hard identity (distinctive features the
+  default misses) *and* a bigger dataset — high rank on 15 images just memorizes them.
+- **Don't chase steps.** More steps past the sweet spot = overfitting (plastic
+  skin, same face angle everywhere, prompt deafness). Train with checkpoints
+  every 250 and pick the best one instead.
+- **Turbo variant (Krea)** is the VRAM/time-friendly fallback — fine for drafts,
+  Raw for the final run.
+- **GPU under 24 GB?** Resolution is the #1 memory lever: set it to **768 only**
+  (Krea 2 especially — 1024 saturates a 24 GB card). You trade some fine detail
+  for a run that actually fits and trains far faster.
+
+### Steps — how many, and where "good results" start
+
+The app sets the step count **automatically** for a character LoRA:
+**≈ 120 × kept images, clamped to 1500–3500.** The *target is the same* for
+Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein — the model family changes how *fast*
+that target converges, not the number. (Concept/style datasets scale differently:
+**475 · √n, clamped 2000–12000**, because they train on hundreds of images.)
+
+So the character step count just follows your dataset size:
+
+| Kept images | Auto steps |
+|---|---|
+| 12–15 | 1500 – 1800 |
+| 20 | 2400 |
+| 25 | 3000 |
+| 30 and up | 3500 (capped) |
+
+**"Good results" is a checkpoint you pick, not the finish line.** A snapshot is
+saved every 250 steps, and the best one is almost never the last — later
+checkpoints know the face better but obey prompts worse. *Where* the first
+usable checkpoint appears depends on how fast the model converges:
+
+| Model | Converges | Where the sweet spot tends to land |
+|---|---|---|
+| **Z-Image** | Fast (distilled) | Around the **middle** of the run; watch for overfit in the last ~20% (waxy skin, frozen expression) |
+| **Krea 2 – Turbo** | Fast (distilled) | Like Z-Image — check early-to-middle checkpoints first |
+| **SDXL** | Medium (base-dependent) | Middle of the run; booru-native checkpoints lock an identity quickly |
+| **Krea 2 – Raw** | Slow (12B, non-distilled) | The **last third** — the run is long by design, let it finish the full count rather than stopping early |
+| **FLUX.1-dev** | Medium (12B, guidance-distilled) | Middle of the run; a strong prompt-follower, so watch for waxy skin / frozen expression if you overshoot into the last ~20% |
+| **FLUX.2 Klein (4B/9B)** | Medium (non-distilled base) | Middle of the run; previews run with real CFG so overfit shows honestly — pick the earliest checkpoint that holds the identity |
+
+**Takeaway:** don't hand-tune the step number. Train the auto count, then use the
+**Test Studio** to pick the *earliest* checkpoint that nails the identity — that's
+the one with the most prompt flexibility left.
+
+---
+
+## 5. Pre-flight checklist
+
+The app runs these checks when you hit Train — here's the list to self-check earlier:
+
+- [ ] At least the family minimum kept (12 Z-Image / 20 SDXL / 15 Krea / 15 FLUX.1 / 15 FLUX.2 Klein) — 20–30 is the comfort zone
+- [ ] Framing balanced — not 100% face shots (some bust/body/back)
+- [ ] Every kept image captioned *(strongly recommended — a blank caption won't block the launch, it just asks you to confirm "train anyway")*
+- [ ] **Zero identity leaks** (the leak badge shows 0 for whatever is currently omitted — face/eyes/skin, and by default hair)
+- [ ] Captions varied, ≥ 8 words, style matches the family (prose vs booru — Anima takes either)
+- [ ] Near-duplicate pairs resolved (keep one of each)
+- [ ] Body fidelity: if ON, actual full-body shots exist
+
+**Continue anyway.** When the readiness panel turns red over a *quality* blocker —
+most often too few images for the family — a **Continue anyway** checkbox appears
+under the list. Tick it and the Train button unlocks; the launch is recorded as
+"acknowledged not-ready" in its saved config. It's meant for deliberate
+experiments (you'll usually get an overfit LoRA), not for skipping the work. The
+checkbox only ever covers quality guard-rails: genuine impossibilities that would
+just crash the trainer — **zero kept images**, or a **slider with no prompt pair**
+— are never offered the option, and the box un-ticks itself the moment the
+blockers change.
+
+**Stopping a training run.** The red **⏹ Stop training** button next to Train
+ends the run in progress — it is not a housekeeping button. It kills the training
+process, clears the pending local training queue, and hands the GPU back to
+ComfyUI. What you keep: **every checkpoint already saved**, which stays testable
+in the Studio and can be continued later with ▶ Continue. Because a run can be
+hours long, the button asks for confirmation first. The same run can also be
+stopped from the **Runs** hub ("Stop run"), which does exactly the same thing.
+
+---
+
+## 6. After training: pick the right checkpoint
+
+Training produces a checkpoint every 250 steps — **the last one is often NOT the
+best one**. Later checkpoints know the identity better but obey prompts worse.
+
+1. Open the **Test Studio** from the dataset (the LoRA comes pre-selected).
+2. Generate the same prompt grid across several checkpoints and strengths.
+3. Pick the **earliest checkpoint that nails the identity** — it keeps the most
+   prompt flexibility. Signs you've gone too far: waxy skin, identical
+   expression/angle regardless of prompt, outfits from the dataset bleeding in.
+4. Save the winning settings (★) — they're reused as the dataset's defaults.
+
+### Test several prompts in one launch
+
+Under the prompt box is the history of the prompts you have saved, with a
+thumbnail of the image you liked best for each. Clicking a card loads it into the
+field, as before. **Ticking its box adds it to a batch**: the panel counts what is
+selected, the button says how many prompts it is about to run, and one launch
+renders them all — same checkpoints, same settings, **same seed**, which is what
+makes two prompts comparable rather than two unrelated pictures.
+
+It is one run, not several: the images queue up and the GPU works through them by
+itself. Tick nothing and the screen behaves exactly as it always has, running the
+prompt in the field.
+
+**There is no limit on how many you tick.** What there is instead is the price,
+shown before you click: the panel counts every generation the run will queue and
+estimates how long it takes **at the pace your machine has actually been running
+at** — measured from your own recent test generations, not assumed. Past about an
+hour it asks once whether you meant it. The queue is serial, so you can stop it at
+any point and everything already generated is kept.
+
+The same tick boxes are in **🎨 Generate from the board** on the ◉ LoRA Canvas,
+because both screens show the same prompt history.
+
+### Compare LoRAs — or blend them
+
+Check two or more LoRAs and Studio asks what you want to do with them:
+
+- **⚖ Compare** (the default) tests each LoRA **on its own**, one column per LoRA,
+  swept across the strengths you picked. This is what you want to answer "which of
+  these is better".
+- **🧬 Blend** loads them **together in the same image**, each at its own weight,
+  and injects **every trigger word** into the prompt for you. This is what you want
+  to answer "do these two work together" — a character plus a style, or a character
+  plus a concept.
+
+> This mode was called **🧬 Combine** until August 2026. Only the name changed;
+> the ◉ LoRA Canvas offers the very same thing from the board, and calling it two
+> different things was a needless thing to learn twice.
+
+**What blending two characters actually gives you** is a *hybrid* — one person who
+is neither of the two, not both of them side by side in one shot. That is a real
+and deliberate use, but if you expected "my two characters together", this is not
+it. The reliable pairings are **character + style** and **character + concept**.
+
+In Blend mode the strength sweep disappears: each LoRA already carries its own
+weight, so the run is one configuration instead of a grid. Start both around
+0.7-0.9 — two LoRAs at 1.0 usually fight each other, and the one you care about
+most should be the heavier of the two. Result tiles from a stack carry a **🧬**
+badge naming the exact weights that made them.
+
+**Steps and CFG are set in the same panel, in both modes.** They are render
+settings, not LoRA settings, so they stay available when the strength sweep
+disappears in Blend — and like every other axis, ticking two values renders both
+(the cell counter shows what that costs before you launch). SDXL also exposes its
+second pass there.
+
+**Trying several weights at once.** Under each LoRA's slider is a row of weight
+boxes. Tick two on one LoRA and two on the other, and the launch renders **all
+four combinations** in a single run — the search you would otherwise do by
+launching, looking, moving a slider and launching again. Each image is labelled
+with its own pair, and the stack view lines the combinations up side by side so
+you can pick the one that works and save its weights with ★.
+
+Tick nothing and the slider governs, exactly as before the boxes existed; the
+slider is also how you use a weight that is not on the grid. Tick one box and you
+get one configuration — one image — like any other blend.
+
+The count is spelled out before you launch ("4 weight combinations → 4 images,
+about 1 min"), and past 24 images it turns amber and says so. It never refuses:
+the queue is serial and it is your machine. Two LoRAs at four weights each is 16
+images — the multiplication is quick, which is exactly why the panel does it for
+you.
+
+**One family per run, always.** A Krea LoRA and an SDXL LoRA cannot be blended:
+they need different base models and different workflows. The picker greys out the
+other families as soon as you check one, and a run that somehow mixes them is
+refused with both family names in the message.
+
+### Enhance a short prompt
+
+**✨ Enhance** rewrites what you typed into a fuller prompt using your local Ollama
+model — it adds framing, pose, lighting, background and mood, and deliberately
+leaves identity and trigger words alone (the LoRA supplies the identity, and Studio
+injects the trigger itself at generation time).
+
+It is a local feature: without Ollama installed, running, and with its model pulled,
+the button is **greyed out and says which of the three is missing** rather than
+failing when you press it. Install or start it from **Settings › Local tools**.
+
+### Reuse a dataset caption in Studio
+
+Press **🎲 Caption** for a realistic test prompt from work you already curated.
+The first use asks which dataset to draw from; after that, each main-button click
+inserts a random **nonblank caption from a kept image** in that dataset. Studio
+remembers the chosen source in this browser's localStorage. Use **▾** beside the
+button to change the source dataset.
+
+The source needs at least one kept image with a nonblank caption. If you have
+typed a prompt, Studio asks before replacing it.
+
+### Continue a run instead of starting over
+
+If the best checkpoint is *almost* there — the identity nearly locked but a touch
+undercooked — you don't have to retrain from scratch. The **▶ Continue training**
+button (on the dataset's Checkpoints panel and on the **Runs** hub) opens a small
+dialog:
+
+- **Resume from** — which checkpoint to restart from. The default is the latest,
+  but the whole point is that you can pick an **earlier, less-cooked epoch**: the
+  classic case where step 750 held up better than the over-cooked 1000. Choosing
+  an earlier step never destroys the run's later saves — they're set aside intact
+  (on disk locally, in the run's staging for cloud) and the continuation writes
+  its own.
+- **Extra steps** — how many *more* steps to train; the dialog shows the target
+  step you'll land on.
+- **Adjust settings (optional)** — a resume can only safely change a handful of
+  things: the **checkpoint/preview cadence**, the **preview prompts** and the
+  **preview steps and CFG** (test images only — never the weights), and the
+  **timestep weighting**. Everything structural
+  (rank, base model, optimizer) is locked to the checkpoint you're continuing.
+  The timestep knob enables a known **two-phase recipe**: train balanced first,
+  then continue with a low-noise-leaning emphasis to polish fine texture.
+
+- **Run it** — **💻 Local** or **☁ Cloud**. A checkpoint is just a
+  file, so where a run trained doesn't decide where it can be finished: a run
+  trained on your GPU can be continued on a rented one (the checkpoint is uploaded
+  and training picks up from it, on a fresh pod, leaving every local save
+  untouched), and a cloud epoch mirrored into your run folder can be finished
+  locally. A lane you can't use right now — no vast.ai key, no ai-toolkit, a
+  training already running here, a cloud limit reached — is disabled **with the
+  reason**, never hidden. The same choice is offered by the **Runs** page's
+  ▶ Continue, where the cloud reason is counted against *that run's* dataset —
+  the page lists runs from all of them.
+
+You can also click a checkpoint pill in the **◉ Graph** and pick *▶ Continue from
+here*: the dialog opens already set on that step.
+
+Continue works for both **local and cloud** runs from the Runs hub.
+
+## 7. Dual captions (long + short)
+
+An optional, **off-by-default** training technique, toggled under **⚙️ Advanced
+options → Dual captions** on the training panel. When on, the run uses
+ai-toolkit's native \`short_and_long_captions\`: **every image trains with both its
+full caption and a short one.** It's a *text-side augmentation* — showing the
+model two phrasings of the same image so the LoRA leans less on any single
+wording and generalizes to prompts that don't match your caption style.
+
+How the short caption is produced:
+
+- It's **derived from the long caption**, automatically, the next time you
+  (re-)caption — text-only, via the local vision model. Turning the toggle on
+  doesn't rewrite anything by itself; **re-caption** to generate the shorts.
+- It follows the **same kind rules** as the long one: no trigger word, and the
+  identity / concept / aesthetic stays omitted (that's still the trigger's job).
+- You can **edit it per image** in the **⛶** caption editor, next to the long one.
+
+**Local training only for now.** The cloud pod's dataset upload doesn't carry the
+JSON file the short caption is read from, so **cloud runs train on the long
+caption alone** — turning the toggle on simply has no effect there yet.
+
+**Not on Krea 2 or Anima.** Those two families pre-cache their text embeddings and
+unload the text encoder to fit their DiT in VRAM. ai-toolkit caches exactly one
+embedding per image — the long caption — and once the encoder is gone the training
+loop reads those cached embeddings instead of the caption text, so a second caption
+has nowhere to be encoded. Asking for both used to crash the run at the first step,
+*after* the weights download and the whole caching pass (reported by **1Tomber**,
+GitHub #22). The app now refuses the combination when it builds the training config:
+the toggle says so, the pre-launch check warns, and the run trains on the long
+caption alone — trigger word included, exactly like a normal run.
+
+---
+
+## 8. Concept LoRAs: keeping faces out
+
+A Concept LoRA learns the one thing every image shares. If those images all show
+people, it quietly learns **their faces too** — and when you later stack it with a
+Character LoRA, the two pull against each other over whose face to render. This was
+reported by **shivdbz2010 (GitHub)**.
+
+Turn on **Mask faces** in *Advanced options* on a Concept dataset. Faces are
+detected and **weighed down in the training loss**, so the concept binds to the act
+instead of to the people in your photos.
+
+**Your images are not touched.** Nothing is blurred, pixelated or painted over.
+That distinction matters: a blurred face would *be* what the model is trained to
+reproduce, and the LoRA would learn to render blurry faces. A loss mask says
+"don't correct me here" instead, so nothing at all is learned in that area.
+
+Before you rely on it:
+
+- **Variety beats masking.** The people who maintain these trainers say dataset
+  diversity matters more here. A concept demonstrated by ten different people
+  already dilutes identity; with two, the faces are as constant as the concept and
+  no mask fully compensates.
+- **Preview it.** The training panel draws the mask on your own shots and shows how
+  many images got no face at all. A *partly* masked set is the bad case: the faces
+  left unmasked become the only ones the LoRA still learns faces from, so they end
+  up over-represented.
+- **You can stop the preview, and it resumes.** On a large set the pass takes a
+  while, so **Stop** is next to it — and what it already found is kept. Start it
+  again and it continues from where it stopped rather than from image 1. The
+  button says what stopping costs at the moment you press it, because that
+  changes: the face detector is loaded before the first image and that load is
+  paid again on every start, so stopping *during* the load gives up only the
+  load, while stopping *during* the analysis keeps every face found so far.
+  Change your kept images and the saved work is dropped instead of reused —
+  boxes detected on photos that left the set would describe a run that no longer
+  exists.
+- **If your concept lives on the face** — an expression, a mouth, a gaze — masking
+  the head can erase what you're teaching. The app warns when your description says
+  so; it doesn't stop you, because only you know your dataset.
+- **Nobody has measured this.** There's no published before/after of a concept LoRA
+  trained with and without face masking. This gives you the lever, not a promise.
+
+Two knobs live in **Settings ▸ Training**: how far the detected face box is grown
+into a head, and how much the masked area still counts. Neither is zero, on
+purpose — see the settings reference.
+
+---
+
+## 9. Coverage — what your set never showed
+
+Section 2 says "vary everything except the person". The Composition bar cannot
+check that: it counts face / bust / body / back against a target, so a set of
+twenty-five front-on studio portraits in one outfit reaches a **fully green
+target** while having no profile, no daylight and no second outfit. The LoRA that
+comes out reproduces that one look and nothing else.
+
+**🔍 Coverage**, the collapsible panel right under the Composition bar, is that
+second check. Open it and it reports, per axis, what your captions describe and
+what they never mention:
+
+| Axis | What a gap means |
+|---|---|
+| Camera view | frontal / three-quarter / profile — a character with no profile has a side nobody ever saw |
+| Camera height | eye level / low / high / overhead — eye-level-only is the default trap |
+| Lighting | daylight, indoor, golden hour, studio, night, backlit, overcast |
+| Setting | indoor, outdoor, urban, plain backdrop, water, vehicle |
+| Outfit | counts how many **distinct** outfit types appear — one outfit gets learned as part of the person |
+| Expression | counts how many distinct expressions appear |
+
+Which axes apply depends on the dataset kind. A **style** dataset is judged on
+lighting, setting and view only — "one outfit" is not a defect when the outfit is
+not what you are teaching. A **concept** dataset drops the expression axis.
+
+### What it can and cannot see
+
+This is deliberately a cheap check, not a second model. It reads **the words in
+the captions you already generated** — nothing new runs, there is no GPU cost,
+and the numbers appear instantly. That comes with real limits, and the panel
+repeats them on screen rather than hiding them:
+
+- **No captions, no reading.** With an uncaptioned dataset the panel says so
+  instead of drawing empty bars. Run the caption pass first.
+- **It sees descriptions, not pixels.** A profile shot the captioner described
+  without the word "profile" is invisible here. An absence is strong evidence,
+  not proof.
+- **Negation is not parsed.** "not smiling" counts as a smile.
+- **Under five captions it refuses to judge** — at that size everything looks
+  missing for the wrong reason.
+- **It never selects, keeps, rejects or changes anything.** It is advice.
+
+### Clicking a chip shows you those images
+
+A number tells you *profile 3*; it does not tell you **which** three, and hunting
+for them by eye in a grid of two hundred is the part that made the panel easy to
+read and hard to act on. **Click any chip that has a count** and the grid opens
+filtered to exactly the images that chip counted, with \`🔍 profile — camera view\`
+in the filter bar and the usual *clear all* next to it.
+
+It stays advice: filtering changes which images you are *looking at*, never what
+they are. Nothing is kept, rejected, recaptioned or reordered by the click, and
+removing the chip brings the whole grid back.
+
+Two things follow from the panel reading captions rather than pixels, and they
+are worth knowing before you trust a filter:
+
+- **The filter shows what the chip counted, no more.** Rejected and failed images
+  are outside the panel's pool, so they stay outside its filter — the number and
+  the images you get can never disagree.
+- **A chip with a zero is not clickable**, because there is nothing to show. That
+  is the gap the panel is pointing at, and the answer to it is generating or
+  importing, not filtering.
+
+Pair it with **Sort ▸ Shot type** on the grid and the two compose: filter to the
+profiles, group what is left by shot type, and decide what to keep with like
+sitting next to like.
+
+The panel reads the same pool the Composition bar counts: everything that is not
+rejected and not failed. It also tells you how many images have **no shot type
+yet**, which is the one thing the bar above silently drops.
+
+## 10. Full-model recipe — what you can change
+
+Full-model (dense) training is a different animal from a LoRA: instead of a small
+adapter, it rewrites all 12B weights of Krea 2 Raw. That only fits on one 80 GB
+card under a specific geometry, so most of the recipe is locked — and the panel
+now says which parts and why.
+
+**Locked, and not negotiable**
+
+| Locked | Why |
+| --- | --- |
+| Batch size 1, bf16 | The 80 GB budget has no room for more. |
+| Adafactor | Adam-family optimizer states would not fit alongside the weights. |
+| Gradient checkpointing, cached latents + text embeddings | Same reason — turn any of them off and the run dies out of memory, an hour in, on a rented GPU. |
+
+**Editable, because these change the RESULT rather than whether it fits**
+
+| Setting | Default | Range | Why you would move it |
+| --- | --- | --- | --- |
+| Steps | adaptive | ≥ 500 | Longer runs on larger sets. |
+| Preview prompts | generic per kind | up to 8 lines | The defaults describe nobody. These images are the only way to judge a run *while it is still costing money* — make them look like your dataset. \`{trigger}\` marks where the subject goes. |
+| Learning rate | 1e-6 | 1e-7 – 5e-6 | Lower if the model drifts off the base too fast; higher only with evidence. |
+| Resolution | 1024 px | 768 or 1024 | 768 trains faster and cheaper, at lower fidelity. |
+| Checkpoint every / keep | 250 steps / keep 1 | ≥ 100 steps / keep 1-3 | More kept checkpoints means more sweet-spot candidates — and each one is about 26 GB of PRIVATE Hugging Face storage. The panel states the total before you launch; the launch itself refuses (confirmably) when it plainly will not fit. |
+| Images per step | 1 | 1, 2, 4, 8 | Batch size is locked at 1, so by default each step learns from a **single image** — over a set of several thousand, that is a very noisy estimate of the right direction. This averages several images into one update instead. It needs no extra VRAM (the images go through one at a time); it needs TIME. |
+| Learning-rate schedule | constant | constant · warmup · cosine | Constant is what shipped. Warming up eases the first steps rather than hitting a 12B model at full rate from step 1. Cosine fades the rate to zero by the last step, which settles fine detail late instead of still shoving the weights around at the end. |
+| Warm up over | 100 steps | 10 - 1000 | Only used by the warmup schedule. |
+| Noise schedule | linear | linear · sigmoid · weighted | Which noise levels the run trains on. \`sigmoid\` concentrates on the middle of the range; \`weighted\` keeps the linear draw but weights the loss on a bell curve. There is no settled consensus for Krea 2 — linear is what every validated run so far used, so it stays the default. |
+
+**"Images per step" is the one setting here that spends money.** Everything else
+changes what the run produces at the same price. This one multiplies the run:
+4 images per step means about 4× the wall-clock and about 4× the bill on a GPU
+rented by the hour. The card prints the multiplier next to the control and turns
+it amber above 1, so the number is visible *before* you launch rather than on an
+invoice. What it does **not** change: the number of checkpoints, their cadence,
+or the Hugging Face storage the run needs — \`steps\` counts optimizer steps, so
+raising this changes how much each step learned from, not how many files land.
+
+**Two settings you may expect, and why they are not offered**
+
+Both exist in AI Toolkit. Both would break *this* model, so the card does not
+show them:
+
+- **EMA** (averaging the weights as training goes) keeps a second copy of every
+  trained parameter on the GPU, plus a third whenever it saves. On a LoRA that is
+  a few hundred megabytes. On a 12B full model it is roughly +26 GB, then +26 GB
+  again at the first checkpoint, on top of an unquantized model and its
+  gradients — the run would die at its first save. EMA is still available for
+  **LoRA** training, where it costs almost nothing.
+- **min-SNR weighting** needs a signal-to-noise table that flow-matching models
+  like Krea 2 simply do not have. Worse, the trainer's attempt to build that
+  table fails *silently* at startup, so the job does not refuse when you launch
+  it — it crashes inside the loss computation an hour later, on a pod you are
+  paying for. Refusing it up front is the cheaper failure.
+
+The same reasoning removes \`shift\`-style noise schedules from the full-model
+list: the trainer derives their shift from a token count that assumes a field
+Krea 2's denoiser names differently, so the value silently comes out four times
+too big. A mis-shifted schedule looks like a tuned run and is not one.
+
+> **Which AI Toolkit is this about?** LoRA training uses the AI Toolkit installed
+> on *your* machine — it changes whenever you update it. Full-model training is
+> cloud-only and uses the AI Toolkit baked into the rented pod's image, which is
+> pinned. They are different codebases at different dates. Every statement above
+> was checked against the pinned one, and each run now records the image the pod
+> actually booted, so a run can say for itself which trainer produced its weights.
+
+### Where a finished run lands, and why in that order
+
+A finished full model is brought **to this computer first** — into the checkpoint
+folder (Settings ▸ Storage) — and the pod is destroyed **only** once that file is
+proven: its byte count matches what the pod advertised, and its safetensors
+header re-reads and declares tensors. Nothing is pushed to Hugging Face *while
+the run trains*, which is the whole point: a full private quota used to arrive as
+a \`403\` at step 2750 of 3000 and end a paid run. Once the local copy exists, the
+master is uploaded to your private repository as a **backup**, and that upload is
+allowed to fail — it costs the ability to *continue* this model later, nothing
+more.
+
+Three deliveries, in Settings ▸ Storage ▸ **Full-model delivery**:
+
+| Delivery | What you get | What it costs |
+| --- | --- | --- |
+| **This computer, then a Hugging Face backup** (default) | The model here, plus a Hub copy that keeps the run resumable. | The Hub copy still needs private storage. |
+| **This computer only** | Nothing touches your Hugging Face quota. | The run can **not** be continued later. |
+| **Hugging Face only** | The behaviour of runs made before this existed. | A full quota can end the run itself. |
+
+If anything interrupts the download — a cut stream, a full drive, a cancelled
+transfer — the run ends as **error_pod_kept** with the machine alive, and the
+Runs page offers **Fetch to this computer**, which resumes from the byte it
+stopped at. A launch also refuses (confirmably) when the checkpoint drive plainly
+has no room for what is coming.
+
+### Continuing a full model
+
+▶ Continue works on a full model: a fresh pod is handed the checkpoint, drops it
+into its job folder, and ai-toolkit resumes from the step written in the file —
+so a run that stopped at 3000 continues to 4000 instead of paying for the first
+3000 again.
+
+The interesting part is **how the 26 GB gets to the pod**, because there are two
+roads and they are not interchangeable. The dialog shows both, with numbers:
+
+- **☁ Hugging Face** — the pod downloads the checkpoint itself over a datacenter
+  link. Minutes. It needs a Hub copy of the run to exist, and the weights pass
+  through a third party on the way.
+- **💻 This computer** — the file goes straight up from here. Nothing outside
+  your machine is involved, and it costs your upload speed: usually hours.
+
+**The number that actually decides it is neither speed nor privacy — it is the
+GPU bill.** The pod is rented and charged from the moment it boots, including
+every minute it spends waiting for its checkpoint. Three hours of upload at
+$1.40/h is **$4.20 of graphics card computing nothing**. The dialog shows that
+figure for each road before you click, alongside the file size and how long it
+expects to take.
+
+That estimate is honest about where it comes from. The app times the checkpoints
+it pushes to pods, so once you have sent one the forecast says *"measured at N
+Mbit/s on your last 3 transfers"*. Until then it says it is an estimate and names
+the speed it assumed. (If you already know your uplink, \`cloud.uplink_mbps\` seeds
+it — but a real measurement always wins over a typed one.)
+
+**Dataset uploads deliberately do not count towards that number**, even though
+they are also transfers to a pod. A dataset is thousands of small files sent
+eight per request, so what it measures is dominated by per-request latency; a
+checkpoint is one continuous stream. Mixing them would produce a figure that
+describes neither, and it would be used to forecast the faster of the two. The
+cost of that choice is stated rather than hidden: ten dataset uploads still leave
+this forecast labelled an estimate.
+
+**A long upload is interruptible without being lost.** The file is sent in
+slices, and every slice that reached the pod stays there: if the link drops, the
+app is closed, or the machine reboots, continuing that run again picks up at the
+last whole slice instead of starting over.
+
+When a road is unavailable the dialog says which one and why — a run delivered
+to this computer only has no Hub copy to pull, and a run whose local file was
+deleted has only the Hub.
+
+**The Hugging Face road is checked, not remembered.** The app records that a
+delivery succeeded, but that record is a minute of the past: a repository you
+deleted last night still reads "delivered". So opening the dialog asks whether
+the repository still answers, and a confirmed deletion closes that road with a
+price of nothing rather than an ETA — renting a pod to fetch a file that is not
+there would spend money on a download that cannot succeed. A check that could
+not be made (offline, no token, an outage) is **not** treated as a deletion: the
+road stays open, because refusing your fast road over a dropped Wi-Fi connection
+would be worse than the problem being avoided. Keeping the default **"This computer + Hugging Face"**
+delivery keeps the fast road open for every future run.
+
+**And the Hub copy is yours to delete — Hugging Face will not tell the app when
+you do.** Deleting one to free space is normal; being told weeks later that a
+model is "available" when the link answers 404 is not. So the Checkpoints panel
+and the Runs page **ask** whether the repository still answers when you open
+them, and say which of three things they found: it is still there, it is not
+there any more, or the check itself failed (no token, offline, an outage) —
+which is never reported as a loss. Until an answer comes back they describe the
+delivery in the past tense, dated, rather than claiming the model is there right
+now.
+
+A repository confirmed gone stops offering what can no longer work: the dead
+links disappear, *Quantize to fp8* is disabled on that card with its reason
+(downloading from that repository is the first thing it would do), and ▶ Continue
+is disabled **only when neither road is open** — that is, when the repository is
+gone *and* this computer no longer holds a full-precision file. With one on the
+disk, the 💻 road above is exactly the way out, so the button stays.
+
+Both halves of that are read fresh, which is the whole point: the repository is
+asked over the network, and the local file is looked for on the disk every time
+the page is drawn. Neither is a note taken when the run finished — deleting
+either one by hand shows up immediately.
+
+### The two files a finished run delivers
+
+A dense run produces a ~26 GB **bf16 master**. Nobody generates with a file that
+size, so the app quantizes it **on the pod** and delivers a **~10 GB fp8 export**
+next to it:
+
+- **the fp8 file is the one to download for ComfyUI.** It is a scaled fp8
+  checkpoint (per-tensor \`float8_e4m3fn\` weights with their scales) and loads
+  with the standard *Load Diffusion Model* node, no extra setup;
+- **the bf16 master is the only one that can be trained again**, merged, or
+  re-quantized differently. fp8 is a lossy, one-way export. *Keep the bf16
+  master* is ON by default for exactly that reason — turning it off halves your
+  storage and closes that door permanently.
+
+If the export fails, the run is still a success: the master is delivered either
+way, and the panel says so rather than reporting a failure. Only the master is
+ever backed up to Hugging Face — the fp8 twin is regenerated from it in seconds,
+and pushing both would eat the private quota twice as fast.
+
+### Quantizing a model you already have
+
+The same conversion is available by hand, in **⚙️ Full-model recipe → Quantize an
+existing model to fp8**: give it the full path to any full-precision
+\`.safetensors\` checkpoint on this machine — a 26 GB model you downloaded from
+Hugging Face, a dense checkpoint from an earlier run — and it writes
+\`<name>_fp8.safetensors\` **next to it**. The source is never modified, and an
+existing output is never silently overwritten.
+
+- It runs on the **CPU**, not the GPU: the work is an elementwise cast plus one
+  reduction per tensor (measured ~1.2 GB/s here, so a 26 GB file is bound by your
+  disk, not by arithmetic). Nothing competes with ComfyUI or a training run.
+- It runs in a **separate Python** — the one that has \`torch\` (the app installs
+  without it; torch is gigabytes). Whether that environment can actually do the
+  work is checked *while the plan is drawn*: one that cannot disables the button
+  and names what to install, rather than failing after the click or, worse,
+  after the download.
+- **The size of the model has no bearing on whether it opens.** It is read one
+  tensor at a time. Mapping the whole file used to reserve its entire size
+  up front, which is why a big checkpoint could fail with "the paging file is
+  too small" on a machine with plenty of free memory and disk.
+- One at a time, app-wide, and it checks free space before it reads a byte.
+- It **refuses a file that is already quantized** — quantizing twice only loses
+  more precision — and refuses a LoRA or adapter, which has nothing large enough
+  to shrink.
+- When it finishes it **re-opens the file it just wrote** and checks the marker,
+  the per-tensor scales and the payload dtype, so a bad conversion is reported
+  now rather than at generation time.
+
+> **This is not ai-toolkit's \`quantize\`.** The \`quantize\` / memory options in
+> Advanced training shrink the model *in memory while it loads*, so a smaller
+> card can train something that would not otherwise fit. They write nothing: the
+> saved checkpoint is still full precision. This feature produces the **file**.
+
+### ✨ Quantize to fp8 — one click, no path to find
+
+A run delivered before the automatic export existed leaves you with a 26 GB file
+in a private repo and no fp8 twin, and until now this block could not help: it
+asked for a path on your disk, and that master has none — the dense lane never
+downloads it. So the block now aims at the model **your run delivered**, and
+does the whole chain with nothing to type: fetch the master, convert it, and
+leave the fp8 file in ComfyUI's own models folder, ready to load.
+
+Click **✨ Quantize to fp8** once and it tells you what it is about to do; the
+conversion only starts on the second click.
+
+- **Which checkpoint it takes, by name.** A dense repo usually holds the final
+  save *and* several ~26 GB step snapshots whose names differ by a number. One
+  rule decides — the **final save** wins, and without one the **highest step**
+  does — and it is the same rule that stamped the file this card lists, so what
+  you read and what runs can never be two different files.
+- **Where the file lands, spelled out.** \`models/diffusion_models\` for a dense
+  transformer, \`models/checkpoints\` for an SDXL-style full checkpoint, honouring
+  an \`extra_model_paths.yaml\` root exactly as a LoRA deploy does. With ComfyUI
+  not configured it falls back to the app's own \`data/models/…\` and **says so** —
+  it never pretends to have put the file where ComfyUI looks.
+- **What it costs in disk, before it starts.** What is still to download, the
+  fp8 file's own ceiling, and 2 GB of working headroom — compared against the
+  free space of the volume that *really* holds that folder (a ComfyUI models
+  folder is very often a junction onto another drive). Not enough is a refusal
+  that writes out every term, and offers to write the file to another folder
+  rather than ending there. Whatever this forecast accepts, the conversion does
+  not then refuse.
+- **It is a real job.** Progress in gigabytes while the master comes down, then
+  per-tensor while it converts, a **Stop** button, and resumption from where it
+  stopped — stopping keeps what already arrived. The job also survives leaving
+  the page: come back and the card shows the same run.
+- **Afterwards, the master is kept by default.** It is the only file you can
+  train from again, merge, or re-quantize. Deleting it is one radio button away,
+  with its size written on it, and it only ever happens *after* the fp8 file has
+  been re-opened and verified.
+- It refuses a file that is **already quantized**, refuses a LoRA/adapter, and
+  **never overwrites** an existing output.
+
+**The path field is still there, as the exception.** A file nothing in the app
+points at — a checkpoint someone shared, a model you downloaded yourself — is
+typed in as before, and takes the same route: same refusals, same disk check,
+same destination, stated. When you have set **Custom weights…**, that path
+pre-fills it, so there is nothing to type there either.
+
+### Full-model training on Turbo: allowed, and unmeasured
+
+Dense (full model) training accepts **Raw, Turbo, or a Krea 2 checkpoint of your
+own** — the full-model panel has its own base picker for all three. Raw is still
+the recommendation, and Turbo now comes with a warning shown before the GPU is
+rented rather than a refusal. Here is what that warning is made of.
+
+**What Turbo is.** A speed-distilled build: it draws an image in about 8 steps
+instead of ~50, and that compression lives in the very weights a dense run
+rewrites. So a dense run on Turbo does eat into the speed.
+
+**What that actually costs, where anyone has measured it.** Not a broken file.
+One distilled model has published results for this: **Z-Image-Turbo**. Full
+fine-tuning leaves a model that still generates properly and simply **stops being
+fast**. Both published sources give the same replacement recipe: give up the
+acceleration settings and infer at **~30 steps, CFG ~2** instead of 8 steps and
+CFG 1.
+
+- [DiffSynth-Studio ▸ Z-Image](https://github.com/modelscope/DiffSynth-Studio/blob/main/docs/en/Model_Details/Z-Image.md)
+  — "Direct training will quickly cause the model to lose its acceleration
+  capability", and after it "the effect of inference with 'acceleration
+  configuration' becomes worse, while the effect of inference with 'no
+  acceleration configuration' becomes better".
+- [Training strategies of Z-Image-Turbo](https://huggingface.co/blog/kelseye/training-strategies-of-z-image-turbo)
+  (kelseye, 2025-12-16) — "Directly updating the model weights (such as **full
+  fine-tuning** or standard LoRA) tends to disrupt the model's pre-trained
+  acceleration trajectory". Its Scheme 1, "the most general fine-tuning method",
+  degrades "significantly" at 8 steps / CFG 1 and is then run at
+  \`num_inference_steps=30\`, \`cfg_scale=2\`. It is offered to people "insensitive
+  to inference speed", which is the whole point: usable, not broken.
+
+Two things those sources do **not** say, and this page used to:
+
+- **They do not say the erosion is progressive.** DiffSynth says training
+  loses the acceleration "quickly"; the paper that studies the problem head-on
+  ([D-OPSD, arXiv 2605.05204](https://arxiv.org/abs/2605.05204), 2026-05-06)
+  treats it as something fine-tuning "would compromise" outright, and exists to
+  *prevent* it rather than to describe it fading. Expect to lose the few-step
+  mode, not to watch it drift.
+- **They say nothing about FLUX.2 Klein.** This page named it as a second model
+  with published results; no source we have does. Black Forest Labs' own
+  fine-tuning material for Klein is about LoRA, and points at the undistilled 9B
+  Base for post-training — consistent with the advice below, but it is not a
+  measurement of what dense training costs a distilled build.
+
+**Nobody has published that measurement for Krea 2 in particular.** Everything
+above is carried over from neighbouring models. So the honest word for
+dense-on-Turbo here is **untested**, not impossible — and an untested lane is a
+thing to warn about, not a thing to forbid. The app says all of the above in the
+panel and in the rental dialog, then lets you launch. What it will not do is
+pretend: the run trains the base you picked, the configuration sent to the pod
+names it, and the run's provenance and model card name it too.
+
+One thing the dense lane deliberately does **not** do on Turbo: load the
+de-distillation adapter the LoRA lane loads. Nothing in the save path unmerges
+it from dense weights, and a LoRA-shaped subtraction would miss the
+normalisation and modulation tensors a dense run moves. Adding it would create
+the defect the old refusal feared; leaving it out cannot.
+
+**Krea's own recommendation is train on Raw** — the undistilled checkpoint they
+publish for exactly this — then validate on Turbo. musubi-tuner, the other
+public trainer with Krea 2 support, recommends the same. Nothing here changes
+that advice.
+
+**If you want the speed back afterwards, the published route is a transplant.**
+Fine-tune on Raw, then merge the Turbo re-distillation LoRA published in the
+\`Comfy-Org/Krea-2\` repo onto your result; authors report doing this around
+strength 0.8-1.0 to get an 8-step build out of a Raw fine-tune. The same trick
+exists for neighbouring models (Z-Image-Turbo distill patches, LCM-LoRA).
+**We have not tested it ourselves** — treat it as a lead, not a supported
+feature.
+
+### Testing a full model: it is a RAW checkpoint
+
+The artifact is **undistilled**. Krea 2 Turbo-style settings — CFG 1 and a
+handful of steps — produce a blurry sketch on it, which reads as "the training
+failed" when nothing failed at all. Use the same settings the run previewed
+with: **CFG ~4 (3.5-5) and 20-30 steps**. The Test Studio now pre-fills those
+automatically when the selected base looks like a Raw / full / fp8 checkpoint.
+
+### Which quantized checkpoints can be trained on, and which cannot
+
+**The format decides, not the number of bits.** "Quantized" covers two different
+files, and only one of them is a wall:
+
+- a **packed export** — ComfyUI's scaled fp8 and its newer \`comfy_quant\` form,
+  every int8 repack, and the fp8 twin this app itself writes — stores its
+  decompression tables as *extra tensors* (\`scaled_fp8\`, \`<layer>.scale_weight\`,
+  \`<layer>.comfy_quant\`). A trainer loads a base strictly: those tensors are keys
+  it does not know, so **the load fails immediately** — not mid-run, not at the
+  first optimizer step. This one is refused, and the message names both the
+  obstacle and the way out;
+- a **plain fp8 cast** stores the weights in fp8 under the tensor names the
+  full-precision file already had, adding nothing. There is no unknown key for the
+  strict load to trip on: the trainer up-casts it to bf16 as it loads. This one is
+  **allowed**. Several widely used Krea 2 checkpoints — including the Turbo file
+  most people already have — are of this kind, and refusing them closed a path
+  that works.
+
+Allowed is not recommended. Picking a cast base shows a warning with the actual
+numbers (how many of the file's tensors are stored in fp8, and how many
+significand bits that leaves against bf16's 8): the precision the cast dropped
+does not come back, so the run starts from an already-degraded base and the LoRA
+it produces is worse than the same run on the full-precision file, for the same
+GPU time. Train on it if that is the file you have — the point is that you know
+what it costs, not that you should not.
+
+**What this check does not answer.** It reads how the file is *packed*, not
+whether the model family can accept its tensors. A checkpoint can pass here and
+still be refused at load for carrying a tensor the architecture does not declare.
+Real case, found while building this: a widely circulated fp8 conversion of Krea 2
+Turbo carries two extra 6144×6144 tensors under weight-shaped names — its own
+metadata describes them as an embedded image, not weights — and a strict load
+rejects them. That failure also happens in the first seconds, before any GPU time
+is spent, and it comes with the trainer's own message naming the keys.
+
+**The way out of a refusal is a click, not a download.** A full-model run keeps
+its bf16 master next to the fp8 twin, and the Checkpoints panel lists that master
+by name — pick it there. If the only copy you have is a packed export, the
+full-precision version has to come from wherever the model was published; there
+is no way back from a packed file, which is why *Keep the bf16 master* is on by
+default.
+
+The check reads a few kilobytes of file header — the quantization markers and the
+tensor dtypes — so it costs nothing and fires the moment you pick the file, not
+an hour into a paid run. A file whose header cannot be read is let through: the
+app refuses what it can prove, never what it merely suspects.
+
+## 11. Preview quality — steps and CFG
+
+The preview images a run writes every few hundred steps are the only thing you
+can judge it by while it is still running, so they have to be *readable*. How
+they are rendered is two numbers — how many **steps** each preview gets, and at
+what **guidance (CFG)** — and both live in ⚙️ **Advanced options** under
+*Preview quality*, next to the cadence and the prompts.
+
+**Leave them empty and nothing changes.** The boxes show, as a placeholder, the
+default your base resolves to; that default follows the model you picked, because
+the right answer is a property of the base and not a preference:
+
+| Base | Preview default | Why |
+| --- | --- | --- |
+| A **distilled** one (Krea 2 Turbo, Z-Image Turbo) | 8 steps, CFG 1 | Distillation is what buys the few-step sampling. Asking for 25 steps at CFG 4 wastes minutes per preview and does not look better. |
+| An **undistilled** one (Krea 2 Raw, Z-Image, FLUX, SDXL) | 20-35 steps, CFG 4-6 | At a distilled model's 8 steps these come back as unfinished sketches — muddy, half-formed — and you cannot tell a bad run from a bad preview. |
+
+You need the boxes when you train on a base the studio does not ship — a merge of
+your own, a converted checkpoint — because then the default is a guess about a
+model nobody measured. Symptoms worth acting on: previews that look like
+sketches (raise the steps), or a preview that visibly costs more time than the
+training it interrupts (lower them).
+
+These are **preview settings only**: they change the picture, never the weights.
+That is also why a **▶ Continue** can change them even in *full training state*
+mode, where the cadence and the learning rate are locked — a resume is exactly
+when you have already seen the previews and know they are unreadable.
+
+*Suggested by charlesangus (GitHub #46).*
+
+---
+
+*Everything above is enforced or surfaced by the app itself (pre-flight checks,
+leak badge, composition bar, coverage panel, advanced options). This page just
+explains why.*
+`,q=`# Troubleshooting
+
+Symptom-first, most-reported first. If your problem isn't here, the next
+chapter (**Getting help**) shows how to report it with one click.
+
+---
+
+## The page is completely blank on Windows, in every browser
+
+**Symptom:** the server log looks healthy, but the page is white and no browser
+loads the interface.
+
+**Why:** Windows stores a content type for each extension in
+\`HKEY_CLASSES_ROOT\\<ext>\\Content Type\`. Another program can overwrite the
+\`.js\` value with \`text/plain\`; older LDS builds then served the bundle with
+that registry MIME type and browsers refused to execute it.
+
+**Fix:** update LoRA Dataset Studio and restart it. Current builds set the MIME
+type of served assets themselves and do not trust the Windows registry. If an
+old build must be used temporarily, repair the \`.js\` Content Type to a
+JavaScript MIME type, then restart the browser. Updating is safer than making a
+registry edit by hand.
+
+*(Reported and diagnosed in [GitHub #12](https://github.com/perfectgf/lora-dataset-studio/issues/12).)*
+
+## "No Z-Image model available" in the Test Studio or training panel
+
+**Why:** the Test Studio generates through ComfyUI, so the Z-Image *base model*
+must physically live in your ComfyUI install — and the scanner only accepts it
+inside a sub-folder whose name contains \`z image\` (or \`zimage\`). A file dropped
+loose in \`models/unet\` is **not** detected.
+
+**Fix:** lay the stack out like this inside your ComfyUI folder, then re-test:
+
+\`\`\`
+models/unet/z image/<your Z-Image checkpoint>.safetensors
+models/text_encoders/Z image/qwen_3_4b.safetensors
+models/vae/z ae.safetensors
+\`\`\`
+
+**The text encoder and the VAE are flexible** — only the base model needs that
+sub-folder. The app resolves those two itself: any capitalisation, any separator
+and any sub-folder work, so \`models/vae/z_ae.safetensors\`, \`models/vae/ae.safetensors\`
+(the name ComfyUI's own Z-Image page uses), \`text_encoders/Z Image/qwen_3_4b.safetensors\`
+and a bare \`text_encoders/qwen_3_4b.safetensors\` are all found, including under an
+\`extra_model_paths.yaml\` root. **Do not rename your files to match the layout above.**
+If the app still says one is missing, the message lists what it accepted and where it
+looked; you can also pin either file by hand with the \`zimage.vae\` /
+\`zimage.text_encoder\` settings (see *Settings reference → Config-file-only settings*).
+
+A Z-Image LoRA only works on a Z-Image base — a regular SD/SDXL graph
+(20–30 steps, CFG 7) renders garbage. The two Z-Image builds then want opposite
+sampler settings, and the Test Studio proposes the right pair per base model:
+**Z-Image-Turbo** is guidance-distilled and wants euler / simple / **8 steps /
+CFG 1.0**, while the non-distilled **Z-Image Base** needs roughly **30–50 steps at
+CFG 3–5** (ComfyUI's own recommendation) — run Base at CFG 1 and it renders mush.
+Those are starting points on a sweepable axis, not measured optima: the Studio grid
+exists to let you find yours.
+
+## "No SDXL checkpoint found" on a fresh install
+
+**Why:** the app derives the models folder from **Settings → Local tools →
+ComfyUI install directory**. If only the API URL is set, there's nothing to scan.
+
+**Fix:** point the install directory at the folder that contains \`models/\` and
+\`main.py\` (the Setup wizard detects it for you), then hit **Test**. SDXL
+checkpoints are scanned from \`models/checkpoints\`.
+
+## The Krea 2 Turbo Test Studio says a custom node is missing
+
+**Why:** the Krea grid rebalances the Qwen3-VL conditioning through a small
+community node (class \`ConditioningKrea2Rebalance\`). It isn't a stock ComfyUI
+node, so a ComfyUI that doesn't have it can't run the Krea pipeline and the
+Studio stops before wasting a run — the same up-front check used for missing
+model files.
+
+**Fix:** install the **ComfyUI-Conditioning-Rebalance** pack (in ComfyUI-Manager,
+search **"Krea 2 Conditioning"** — repo
+\`https://github.com/nova452/ComfyUI-Conditioning-Rebalance\`), then restart
+ComfyUI and relaunch the test. The Studio's error banner names this pack and
+links it directly. Either that original pack or its \`comfyui-krea2-conditioning\`
+fork works — the app pins the node so your rebalance-strength setting is applied
+the same way on both.
+
+## The reference crop isn't centered on the face
+
+**Why:** on a fresh clone the configured Ollama vision model isn't pulled yet,
+so head detection silently falls back to a centered square crop. The app now
+shows a warning toast naming the missing model when this happens.
+
+**Fix:** **Setup → Ollama** — pull the vision model (use the **Instruct**
+variant, not *Thinking*), or click the tile's crop button and frame it by hand.
+**↺ Reset to auto** re-runs the auto-crop after the model is installed.
+
+## Ollama isn't detected (or is installed but stopped)
+
+In Docker, host binary detection is not the deployment selector. Open **Setup → Ollama** and choose:
+
+| Docker choice | Expected state | Fix |
+|---|---|---|
+| **No Ollama** | Disabled by choice | Choose another card only if you want the Ollama features |
+| **Existing host Ollama** | API at \`http://host.docker.internal:11434\` | Start Ollama on the host, bind it so Docker can reach it, and restrict port 11434 to Docker/private networks |
+| **Docker Ollama** | Companion API at \`http://ollama:11434\` | If the companion is absent, rerun the same LDS Docker launcher |
+
+On a native install, LDS still distinguishes **not installed**, **installed but stopped**, and **running**. The **▶ Start Ollama** button applies only to a detected native binary.
+
+No launcher or **Install everything** action pulls the large vision model. Once the selected service is reachable, use the explicit **Pull** button in LDS Setup; it shows progress and supports cancellation/resume. Keep the **Instruct** tag. The Thinking variant reasons instead of returning the compact captions these workflows expect.
+
+## Training log looks frozen for several minutes
+
+**Why:** ai-toolkit's output is block-buffered during model load and latent
+caching — nothing prints even though it's working. A "warming up" phase before
+the first logged step is expected, and Krea-2-Raw runs are *hours* long by
+design.
+
+**Fix:** nothing to fix — check GPU utilization or watch the ai-toolkit output
+folder for new files if you want proof of life. The cloud runs page has a
+stall watchdog that kills genuinely stuck runs.
+
+## Training dies immediately on an RTX 50-series card ("no kernel image is available")
+
+**Why:** an RTX 50-series/Blackwell GPU reports compute capability \`sm_120\`.
+An older torch build can still report \`torch.cuda.is_available() == True\` and
+name the card correctly while carrying no kernel for that architecture. The run
+then fails on its first real CUDA operation.
+
+**Fix:** install a CUDA 12.8 torch build **inside ai-toolkit's own Python
+environment**, not only in the LDS venv:
+
+\`\`\`bash
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+\`\`\`
+
+Run that command with the exact Python configured under **Settings → Local
+tools → ai-toolkit Python interpreter**. The preflight/failure panel recognizes
+this specific \`sm_120\` mismatch. For another architecture mismatch, use the
+torch build appropriate to that card instead of copying this command blindly.
+
+## ai-toolkit isn't detected (conda / uv / no venv)
+
+**Why:** the app auto-detects ai-toolkit's Python from a \`venv/\` or \`.venv/\`
+folder next to its \`run.py\`. Installs that use conda, uv or the system Python
+have no such folder, so the Test button can't find an interpreter — training
+and JoyCaption stay hidden.
+
+**Fix:** in **Settings → Local tools → ai-toolkit**, keep the directory pointing
+at the ai-toolkit folder and fill the optional **Python interpreter** field with
+the full path to the python that has ai-toolkit's dependencies (e.g.
+\`C:\\miniconda3\\envs\\aitk\\python.exe\`), then hit **Test**. ComfyUI Desktop installs
+are recognized automatically — no extra step.
+
+## Reddit scan says "rate limiting requests, retry in Ns" (429)
+
+**Why:** out of the box, Reddit scans authenticate with a **public client id
+shared by many people** (the gallery-dl one). Reddit's quota — about 1000
+requests per 10-minute window — is attached to that id, so other users can
+exhaust it before your very first scan of the day. The "retry in Ns" number is
+just the time left in the current 10-minute window.
+
+**Fix:** get your own free client ID (one minute, no app secret involved):
+**Settings → Scraping & sources** has the field plus a built-in step-by-step
+guide. The one trap: on reddit.com/prefs/apps, pick the app type
+**installed app** — a *web app* or *script* id comes with a client secret and
+Reddit then rejects the anonymous login this app uses (every scan fails
+with 401). Takes effect immediately, no restart needed.
+
+## ComfyUI shows as unreachable
+
+Check **Settings → Local tools → ComfyUI API URL** (default
+\`http://127.0.0.1:8188\`), confirm ComfyUI is running, and check that a firewall
+or a different bind interface is not blocking the connection.
+
+The test has two different failure paths:
+
+- **Connection refused/unreachable** returns quickly and tells you to start
+  ComfyUI or correct the URL.
+- **ComfyUI answered but its node/model inventory timed out** means the process
+  may simply be slow. Large custom-node and model collections make
+  \`/object_info\` expensive. LDS waits **45 seconds** by default; raise
+  \`comfyui.object_info_timeout_s\` under **Settings → Local tools → ComfyUI**
+  and test again.
+
+Do not keep increasing the timeout for a refused connection: a genuinely stopped
+ComfyUI is detected in seconds. If the URL test succeeds but generation still
+fails, continue with the shared-filesystem case below.
+
+## ComfyUI runs in another container (or WSL, or another machine) and generation fails
+
+**Symptom:** setup goes green — the ComfyUI URL answers, the install directory is
+accepted — and then every generation fails.
+
+**Why:** the app talks to ComfyUI through **two** channels, and only one of them is
+the network.
+
+1. **The HTTP API** (\`Settings → Local tools → ComfyUI API URL\`). This is what the
+   *Test* button and the Setup wizard check.
+2. **The filesystem.** Every local engine (Klein, Krea 2 Edit, Klein watermark
+   cleaning) hands ComfyUI its source image by **copying the file into ComfyUI's
+   \`input/\` folder**, and the result comes back from its \`output/\` folder. There is
+   no upload over the API on that path.
+
+A ComfyUI in a separate container, in WSL, or on another host does not share those
+folders with the app by default. The URL answers, so everything looks configured —
+and then the copy writes into a folder ComfyUI cannot see, or fails outright.
+
+**What it takes to work:**
+
+- \`input/\` and \`output/\` must be visible **to both sides at the same path**. Not
+  "an equivalent folder": the app writes \`<input>/edit_source_….png\` and then tells
+  ComfyUI to load \`edit_source_….png\` from *its own* input folder — the two must be
+  the same directory.
+- The app's process must be able to **write** into \`input/\` (a read-only bind mount
+  is not enough), and ComfyUI must be able to read it.
+- If ComfyUI was started with \`--input-directory\` / \`--output-directory\`, set the
+  matching paths in **Settings → Local tools → Advanced: ComfyUI folder overrides**.
+  Those fields take the path **as seen by the app**.
+
+With Docker, that means bind-mounting the same host folders into both containers at
+identical paths, e.g.:
+
+\`\`\`yaml
+# both services
+volumes:
+  - /srv/comfyui/input:/srv/comfyui/input
+  - /srv/comfyui/output:/srv/comfyui/output
+\`\`\`
+
+and then pointing the two override fields at \`/srv/comfyui/input\` and
+\`/srv/comfyui/output\`. The shipped \`docker-compose.yml\` deliberately does **not**
+do this: it runs the app in API-only mode, where ComfyUI is out of scope.
+
+**How you'll know:** the failure now says so. Settings flags an override folder it
+cannot write into, the Setup wizard warns while you configure (a warning, never a
+blocker — mounting volumes afterwards is fine), and a generation that cannot reach
+the folder answers with the folder path and the reason instead of a bare \`500\`.
+Those messages are path-redacted, so they are safe to paste in a help thread.
+
+**Everything else keeps working without shared folders**: the API engines (Gemini,
+ChatGPT, OpenRouter), scraping, curation, captioning through Ollama, training, and
+Hugging Face publishing. Only the ComfyUI-local engines need the filesystem.
+
+*(Reported by nofaceman on Discord.)*
+
+## "Value not in list" on every model, on Linux (fixed)
+
+**Symptom:** on a Linux install, nothing generated at all. ComfyUI's console showed,
+for every workflow:
+
+\`\`\`
+Failed to validate prompt for output 28:
+* UNETLoader 20:
+  - Value not in list: unet_name: 'Krea\\krea2_turbo_fp8.safetensors'
+    not in ['Krea/krea2_turbo_fp8.safetensors']
+\`\`\`
+
+**Why:** ComfyUI builds its model lists with the separator of **its own** host —
+backslash on Windows, forward slash on Linux — and validates a model widget by
+exact string match. The app spelled those names with a Windows backslash whatever
+the platform, and it keeps every model in a subfolder (\`Krea\`, \`klein\`,
+\`z image\`, and every LoRA you train), so on Linux the answer was "nothing works"
+rather than "one model is missing".
+
+**Fixed:** the app now reads the spelling from the ComfyUI it is actually talking
+to and matches it. This also covers the reverse case — the app on Windows driving
+a ComfyUI in WSL, Docker or on another machine, which needs forward slashes — so
+there is nothing to configure either way.
+
+*(Found and diagnosed by 1Tomber, [GitHub #21](https://github.com/perfectgf/lora-dataset-studio/issues/21).)*
+
+## Klein engine stays greyed out
+
+Klein needs a reachable ComfyUI **and** the Klein model files (~16 GB VRAM
+class). **Setup → ComfyUI** offers the download; the license-gated fp8 model
+needs a Hugging Face token (Settings → Local tools).
+
+Whatever the cause, the greyed-out engine now **names it**, and the Setup wizard
+shows the same sentence — the two screens read one verdict, so they cannot send
+you to fix different things. The causes, and what each one means:
+
+| What it says | What it means | What to do |
+| --- | --- | --- |
+| \`Configure ComfyUI in Settings\` | ComfyUI is not answering | Start it, or fix the API URL |
+| \`Klein <file(s)> missing\` | that weight is not on disk | Download it in Setup ▸ Install components |
+| \`… is on disk but cannot be loaded\` | the file is there but unreadable | See below |
+| \`Your ComfyUI doesn't have <value>\` | the graph pins a widget value your ComfyUI doesn't offer | Install the named node pack, restart ComfyUI |
+| \`disabled in Settings (engines)\` | you turned the engine off | Re-enable it in Settings ▸ Engines |
+
+### Where the Klein model may live — you do **not** need \`models/unet/klein/\`
+
+\`models/unet/klein/\` is only where the Setup button *downloads* to. It has never
+been a requirement, and nothing needs to be copied, moved or symlinked to satisfy
+it. The app resolves the Klein UNET exactly where a running ComfyUI would, in
+this order:
+
+| Layout | Example |
+| --- | --- |
+| a \`klein\`-named sub-folder of \`models/unet\` | \`models/unet/klein/flux-2-klein-9b-kv-fp8.safetensors\` |
+| **any** sub-folder whose name contains \`klein\`, any capitalisation or spacing | \`models/unet/Flux2 Klein/…safetensors\` |
+| the **top level** of \`models/unet\` | \`models/unet/flux-2-klein-9b-kv-fp8.safetensors\` |
+| the same three, under \`models/diffusion_models\` | \`models/diffusion_models/flux2-klein-9b/…safetensors\` |
+| any root declared in your \`extra_model_paths.yaml\` | a Stability Matrix / portable / A1111-shared tree |
+| a relocated models folder | **Settings → Local tools → ComfyUI models folder** |
+
+**The one limit:** the model has to be *nameable* as Klein — either the **file
+name** or its **sub-folder name** must contain \`klein\`. A file called
+\`model.safetensors\` sitting loose in \`diffusion_models/\` is invisible; put it in
+a \`klein/\` folder (any file name then works) or rename the file. That rule is
+what stops another family's checkpoint being wired into the Klein graph.
+
+Every row of that table is covered by
+\`backend/tests/test_klein_model_locations_documented.py\`, so it cannot quietly
+stop being true.
+
+*(Reported by CyberTod on Reddit, who duplicated the weights and built a symlink
+to reclaim the disk space — neither was necessary.)*
+
+### "On disk but cannot be loaded"
+
+A \`.safetensors\` file declares the length of its JSON header in its first eight
+bytes. A download that was **cut short or corrupted** leaves a file that is
+shorter than it claims — plausible size, right name, right folder, and no loader
+can open it. A licence or login page saved as \`.safetensors\` fails the same way.
+
+Setup used to tick these as **✓ Installed** (the file existed) while the
+generation page refused the engine. It now shows **⚠ On disk, unreadable** with
+the file name and the reason, and **↻ Download again** replaces the bad file
+instead of reporting "already present" and doing nothing.
+
+If you placed the file by hand somewhere other than the folder Setup downloads
+into, delete it yourself first — the app only replaces files at its own path.
+
+*(Reported by zigzag4794 on Discord.)*
+
+### "Not checked" is not "ready"
+
+With ComfyUI stopped, the checks that need it cannot run, and the app reports no
+gap rather than inventing one. Your files being on disk is therefore **not** a
+clean bill of health, and Setup says so instead of showing a tick it did not
+earn. Start ComfyUI and re-check.
+
+## "Upscale & improve" makes my anime look realistic
+
+**Why:** the improve pass sends Klein a fixed instruction, and the shipped one is
+a *photographic* recipe — \`add detailed texture, add sharp details, add candid
+shot, add soft focus effect\`. It is applied to every dataset, drawn ones
+included, so on anime or illustration it does exactly what it says: it adds skin
+texture and photo micro-detail your line art never had.
+
+**Fix — two levers, both in Settings → Image engines → *Identity, Klein & Krea 2
+prompts (advanced)*:**
+
+1. **Rewrite the instruction.** The *Klein upscale & improve prompt* box holds
+   the text in use; edit it to something that suits drawn art (e.g. "keep the
+   drawn anime rendering, clean line art, flat cel shading, sharpen the lines").
+   Clearing the box restores the shipped default — nothing is frozen.
+2. **Or send no instruction at all.** The checkbox above the box — *Apply an
+   improvement prompt on "Klein upscale & improve"* — turns it off, and the pass
+   becomes a pure upscale.
+
+Separately, **Settings → Image engines → *Upscale & improve — strength*** decides
+how far the pass may move the image at all (output megapixels, sampler steps, the
+enhancement LoRA, the consistency LoRA). Lower the *Enhancement LoRA* and raise
+the *Consistency LoRA* if you want the pass to change less.
+
+Both are now quoted and linked **from the ✨ Upscale & improve button itself** —
+in the lightbox and in the grid's bulk toolbar — so the instruction currently in
+force is readable where the action happens, and anime datasets get an explicit
+warning there.
+
+*(Reported by Qeeyana on Reddit.)*
+
+## Port 5000 conflict on macOS
+
+macOS reserves port 5000 for AirPlay Receiver. Change the port in
+**Settings → Server & access** (e.g. 5050) and restart.
+
+## Garbled characters in the Windows console
+
+Cosmetic only — some UTF-8 text renders wrong on the legacy console codepage.
+The app itself is unaffected.
+
+## \`npm install\` fails with \`Cannot find module @rollup/rollup-<platform>-...\`
+
+Only relevant if you rebuild the frontend yourself (the repo ships \`dist/\`
+prebuilt). It's a known npm bug: delete \`frontend/node_modules\` +
+\`frontend/package-lock.json\` and run \`npm install\` again on this machine.
+
+## A cloud run seems stuck
+
+Open the **Cloud** tab: every run shows its live phase, and the stall watchdog
+(Settings → Training → stall timeout) rescues logs and kills the pod if no step
+progress happens for too long. Orphaned pods are also destroyed automatically
+at every app start — you never pay for a forgotten GPU.
+
+**Decide without opening the vast.ai console.** The longest phase of a fresh
+run is the pod pulling its base weights — 26 GB for Krea 2, half an hour on a
+healthy host. The card shows that download as it happens: how much has landed,
+of how much, at what speed and its ETA. Two readings tell you everything:
+
+- the figures move → it is working, however slow it looks. A crawling download
+  is still a download; the *no training step in 45 min* watchdog will end it if
+  it never gets there;
+- the figures do not move, and the card says **Silent run — no progress
+  reported for N min** → the pod is frozen, not slow. Stop it, or let the
+  freeze watchdog terminate it at the configured limit. That counter is
+  measured on the pod and survives restarting the app, so leaving and coming
+  back does not reset the evidence.
+`,O=`# Getting help & reporting problems
+
+Stuck, found a bug, or missing a feature? Two doors, both watched:
+
+- **Discord** — [discord.gg/j6hnJBFtXE](https://discord.gg/j6hnJBFtXE) — ask in
+  **#help**; usually the fastest way to get unstuck. Feature ideas and votes
+  live in **#roadmap**.
+- **GitHub** — [Issues](https://github.com/perfectgf/lora-dataset-studio/issues) —
+  best for reproducible bugs and feature requests; the templates walk you
+  through what to include.
+
+---
+
+## What makes a report solvable
+
+The difference between a five-minute fix and a week of guessing is almost
+always the same four things:
+
+1. **Version** — shown in Settings → Maintenance → Updates ("Current build").
+2. **Environment** — OS, and whether you run API-only, full local, or Docker.
+3. **What you did → what you expected → what happened** — three short lines
+   beat three paragraphs.
+4. **The log** — the last lines of the server log usually name the real error.
+   Settings → Maintenance → 🪵 Server log → **Copy all**.
+
+## Or let the app write it for you
+
+The **diagnostic report** button below assembles all of that in one click:
+version, OS, capability status, non-secret settings and the last log lines —
+formatted, copied to your clipboard, ready to paste into Discord or a GitHub
+issue.
+
+What it deliberately **never** includes: your API keys or tokens (only
+whether each one is set) and your folder paths (only whether each one is
+configured). One caveat: the log tail can mention file names from your machine
+— skim the paste before posting if that matters to you.
+
+## Feature requests
+
+Describe the **job you were doing when you missed the feature** — the problem
+is more valuable than the proposed solution. Post it in Discord **#roadmap** or
+open a GitHub issue with the *Feature request* template.
+
+## Support the project
+
+LoRA Dataset Studio is free, open source and built in the open. If it saves
+you time and you want to help development, you can sponsor it on
+[GitHub Sponsors](https://github.com/sponsors/perfectgf) — one-time or
+monthly, and 100% of it goes to the project (GitHub charges no fees).
+The best free ways to help are just as welcome: report bugs, share ideas on
+Discord, and star the repo.
+`,x=[{id:"getting-started",num:"01",title:"Getting started",description:"Install the app, connect the tools you need, and understand the workspace.",source:F},{id:"using-the-app",num:"02",title:"Using the app",description:"Follow the complete workflow for character, concept, and style datasets.",source:D},{id:"dataset-guide",num:"03",title:"Building a good dataset",description:"Make stronger choices about images, captions, settings, and checkpoints.",source:W},{id:"settings-reference",num:"04",title:"Settings reference",description:"Every setting explained — what it does, its default, and when to change it.",source:P},{id:"troubleshooting",num:"05",title:"Troubleshooting",description:"Find a symptom, understand the cause, and apply the shortest reliable fix.",source:q}],z={id:"getting-help",num:"06",title:"Getting help",description:"Create a useful report and share the details needed to solve a problem.",source:O,extra:"diagnostic"},G=a=>a.replace(/[`*_]/g,""),B=a=>a.focus?`${a.route}${a.route.includes("?")?"&":"?"}focus=${a.focus}`:a.route;function M({helpOnly:a=!1}){const{section:r}=A(),h=C(),[t]=R(),i=t.get("h"),o=a?[z]:x,l=a?0:Math.max(0,o.findIndex(s=>s.id===r)),n=o[l],d=l>0?o[l-1]:null,c=l<o.length-1?o[l+1]:null,m=[...n.source.matchAll(/^##\s+(.+)$/gm)].map(s=>({title:G(s[1]),id:T(s[1])})),y=Math.max(1,Math.ceil(n.source.trim().split(/\s+/).length/210)),g=s=>{var u;return(u=document.getElementById(s))==null?void 0:u.scrollIntoView({behavior:"smooth",block:"start"})},k=v.useMemo(()=>{const s={};for(const u of L(n.id))s[u.guide.anchor]||(s[u.guide.anchor]=e.jsx("button",{type:"button",onClick:()=>h(B(u.app)),className:"inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-indigo-400/40 bg-indigo-500/10 px-2.5 py-1 text-xs font-medium text-indigo-200 transition-colors hover:bg-indigo-500/20",children:"Open this screen →"}));return s},[n.id,h]);v.useEffect(()=>{i||window.scrollTo(0,0)},[n.id,i]),v.useEffect(()=>{if(!i)return;const s=document.getElementById(i);if(!s)return;s.scrollIntoView({behavior:"smooth",block:"start"});const u=["ring-2","ring-indigo-400/70","ring-offset-2","ring-offset-app"];s.classList.add(...u);const f=setTimeout(()=>s.classList.remove(...u),2e3);return()=>clearTimeout(f)},[i,n.id]);const w=(s,u)=>{const f=s.id===n.id,S=u?`flex shrink-0 items-baseline gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-medium ${f?"border-border-strong bg-surface-raised text-content":"border-border text-content-muted hover:text-content"}`:`relative flex w-full items-baseline gap-2.5 rounded-md px-3 py-2 text-left text-sm ${f?"bg-surface-raised text-content":"text-content-muted hover:bg-surface hover:text-content"}`;return e.jsxs("button",{type:"button",onClick:()=>h(`/guide/${s.id}`),"aria-current":f?"page":void 0,className:S,children:[!u&&f&&e.jsx("span",{"aria-hidden":!0,className:"absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary"}),e.jsx("span",{className:`font-mono text-[11px] ${f?"text-content":"text-content-subtle"}`,children:s.num}),e.jsx("span",{className:"font-medium",children:s.title})]},s.id)};return e.jsxs("div",{className:a?"mx-auto max-w-5xl xl:grid xl:grid-cols-[minmax(0,1fr)_190px] xl:items-start xl:gap-7":"lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:items-start lg:gap-7 xl:grid-cols-[210px_minmax(0,1fr)_190px]",children:[!a&&e.jsxs("aside",{children:[e.jsx("nav",{"aria-label":"Guide chapters",className:"relative -mx-4 flex gap-2 overflow-x-auto px-4 pb-3 lg:hidden",children:x.map(s=>w(s,!0))}),e.jsxs("nav",{"aria-label":"Guide chapters",className:"hidden lg:sticky lg:top-20 lg:block",children:[e.jsx("p",{className:"px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle",children:"Field manual"}),e.jsx("div",{className:"flex flex-col gap-0.5",children:x.map(s=>w(s,!1))})]})]}),e.jsxs("main",{className:`min-w-0 max-w-4xl pb-10 ${a?"mx-auto":"mt-2 lg:mt-0"}`,children:[e.jsxs("header",{className:"relative mb-4 overflow-hidden rounded-2xl border border-border bg-surface px-5 py-5 sm:px-6 sm:py-6",children:[e.jsx("div",{"aria-hidden":!0,className:"absolute -right-16 -top-20 h-52 w-52 rounded-full bg-indigo-500/10 blur-3xl"}),e.jsxs("div",{className:"relative",children:[e.jsxs("div",{className:"mb-3 flex flex-wrap items-center gap-2 font-mono text-[0.6875rem] uppercase tracking-[0.14em] text-content-subtle",children:[e.jsx("span",{className:"rounded-md border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-indigo-300",children:a?"Support":`Chapter ${n.num}`}),e.jsxs("span",{children:[y," min read"]}),!a&&e.jsxs(e.Fragment,{children:[e.jsx("span",{"aria-hidden":!0,children:"·"}),e.jsxs("span",{children:[l+1," of ",o.length]})]})]}),e.jsx("h1",{className:"m-0 max-w-2xl text-2xl font-bold tracking-tight text-content sm:text-3xl",children:n.title}),e.jsx("p",{className:"mb-0 mt-2 max-w-2xl text-sm leading-relaxed text-content-muted sm:text-base",children:n.description})]})]}),m.length>0&&e.jsxs("nav",{"aria-label":"On this page",className:"mb-4 rounded-xl border border-border bg-surface p-3 xl:hidden",children:[e.jsx("p",{className:"m-0 mb-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-content-subtle",children:"On this page"}),e.jsx("div",{className:"flex gap-2 overflow-x-auto pb-0.5",children:m.map(s=>e.jsx("button",{type:"button",onClick:()=>g(s.id),className:"shrink-0 rounded-full border border-border bg-transparent px-2.5 py-1 text-xs text-content-muted hover:border-border-strong hover:text-content",children:s.title},s.id))})]}),e.jsx(N,{source:n.source,variant:"guide",sectionActions:k}),n.extra==="diagnostic"&&e.jsx("div",{className:"mt-6",children:e.jsx(U,{})}),!a&&e.jsxs("div",{className:"mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4",children:[d?e.jsxs(I,{to:`/guide/${d.id}`,className:"group flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 no-underline hover:bg-surface-raised",children:[e.jsx("span",{"aria-hidden":!0,className:"text-content-subtle",children:"←"}),e.jsxs("span",{className:"min-w-0",children:[e.jsx("span",{className:"block font-mono text-[0.625rem] uppercase tracking-wider text-content-subtle",children:"Previous"}),e.jsx("span",{className:"block truncate text-sm font-medium text-content-muted group-hover:text-content",children:d.title})]})]}):e.jsx("span",{}),c?e.jsxs(I,{to:`/guide/${c.id}`,className:"group flex min-w-0 items-center justify-end gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-right no-underline hover:bg-surface-raised",children:[e.jsxs("span",{className:"min-w-0",children:[e.jsx("span",{className:"block font-mono text-[0.625rem] uppercase tracking-wider text-content-subtle",children:"Next"}),e.jsx("span",{className:"block truncate text-sm font-medium text-content-muted group-hover:text-content",children:c.title})]}),e.jsx("span",{"aria-hidden":!0,className:"text-content-subtle",children:"→"})]}):e.jsx("span",{})]})]}),e.jsx("aside",{className:"hidden xl:block",children:e.jsxs("nav",{"aria-label":"On this page",className:"sticky top-20 border-l border-border pl-4",children:[e.jsx("p",{className:"m-0 mb-2 font-mono text-[0.625rem] uppercase tracking-[0.16em] text-content-subtle",children:"On this page"}),e.jsx("div",{className:"flex flex-col gap-0.5",children:m.map(s=>e.jsx("button",{type:"button",onClick:()=>g(s.id),className:"rounded-md bg-transparent px-2 py-1.5 text-left text-xs leading-snug text-content-subtle hover:bg-surface hover:text-content",children:s.title},s.id))})]})})]})}export{M as default};

@@ -690,7 +690,19 @@ DEFAULTS = {
               'improve_consistency_strength': 1.0,
               # Total pixel budget the source is rescaled to before sampling, so it
               # is the output resolution. 2 = the value hardcoded in the workflow.
-              'improve_megapixels': 2.0},
+              'improve_megapixels': 2.0,
+              # Which generation_lora_presets entry the ✨ Upscale & improve pass
+              # chains after the consistency LoRA — by NAME, resolved fail-closed
+              # at enqueue time like every other step of the preset chain (a
+              # renamed or deleted preset degrades to "no extra LoRAs", never to
+              # a blocked pass). '' = none, the behaviour every install had
+              # before this key existed. GLOBAL like the improve instruction
+              # (identity_prompts.klein_improve) and for the same reason: one
+              # answer to "what will improve run with", editable from the
+              # lightbox and from Settings, honoured by the single pass, the
+              # 🔄 re-run and the batch alike. Klein only — SeedVR2 is a
+              # restoration and chains nothing.
+              'improve_lora_preset': ''},
     # Dataset variations — what BOTH local engines share, rather than what each
     # one does on its own. Its own namespace on purpose: a key under `klein` or
     # `krea` would be a value one engine owns and the other happens to read, and

@@ -243,6 +243,71 @@ def gallery_download_plan(record_id, step, image_ids=None, cap=ZIP_IMAGE_CAP):
     }
 
 
+def app_zip_download_name(rows, names):
+    """What a Gallery-page archive is called. One dataset → its slug keeps the
+    identity (`<slug>_gallery_selection.zip`); a cross-dataset pick has no one
+    name to carry, so the scope word does the job alone."""
+    ds_ids = {r.dataset_id for r in rows}
+    if len(ds_ids) == 1:
+        only = next(iter(ds_ids))
+        return f'{slugify(names.get(only), f"dataset{only}")}_gallery_selection.zip'
+    return 'gallery_selection.zip'
+
+
+def app_gallery_download_plan(image_ids, cap=ZIP_IMAGE_CAP):
+    """The Gallery page's selection as a ZIP plan — same answer shape as
+    ``gallery_download_plan``, with the (record_id, step) scope replaced by an
+    explicit id list. Always a SELECTION: the feed can span thousands of images
+    across every run, so "the whole scope" is not a thing this plan offers —
+    a caller that wants everything must say which everything.
+
+    Rows are matched by id across the whole table (status done, file-backed),
+    exactly the rows the feed lists; an id that no longer exists simply is not
+    found, which the counts then state."""
+    from ..models import LoraTestImage
+    cap = max(1, int(cap or ZIP_IMAGE_CAP))
+    wanted = []
+    for i in (image_ids or []):
+        try:
+            wanted.append(int(i))
+        except (TypeError, ValueError):
+            continue
+    rows = []
+    if wanted:
+        rows = (LoraTestImage.query
+                .filter(LoraTestImage.id.in_(wanted),
+                        LoraTestImage.status == 'done',
+                        LoraTestImage.filename.isnot(None))
+                .order_by(LoraTestImage.id.desc()).all())
+    total = len(rows)
+    kept = rows[:cap]
+    truncated = total > len(kept)
+    names = _dataset_names(kept)
+    entries, missing, seen = [], 0, set()
+    for row in kept:
+        path = os.path.join(dataset_path(row.dataset_id), row.filename)
+        if not os.path.exists(path):
+            missing += 1
+            continue
+        name = image_download_name(row, names.get(row.dataset_id))
+        if name in seen:
+            name = f'{row.id}_{name}'
+        seen.add(name)
+        entries.append({'id': row.id, 'path': path, 'name': name})
+    included = len(entries)
+    return {
+        'ok': included > 0,
+        'total': total,
+        'included': included,
+        'missing': missing,
+        'truncated': truncated,
+        'cap': cap,
+        'note': _note(total, included, missing, truncated, cap),
+        'filename': app_zip_download_name(kept, names),
+        'entries': entries,
+    }
+
+
 def write_gallery_zip(entries, output):
     """Write the planned entries into `output`, sorted by their names.
 

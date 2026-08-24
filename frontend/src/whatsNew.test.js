@@ -220,7 +220,7 @@ test('seed section/panel targets resolve against the LIVE navigation registries'
 
 test('isValidTarget accepts good routes and rejects malformed ones', () => {
   for (const ok of [
-    '/datasets', '/studio', '/cloud', '/guide', '/help', '/setup',
+    '/datasets', '/studio', '/cloud', '/gallery', '/guide', '/help', '/setup',
     '/settings/engines', '/settings/maintenance', '/guide/using-the-app',
     '/datasets?section=scrape&panel=scan', '/datasets?section=add',
     '/setup?step=quality', '/setup?step=comfyui',

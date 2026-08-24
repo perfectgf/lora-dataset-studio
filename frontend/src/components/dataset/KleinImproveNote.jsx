@@ -155,6 +155,7 @@ export default function KleinImproveNote({
   const server = improveEditorState(payload);
   const stored = draft?.stored ?? server.stored;
   const enabled = draft?.enabled ?? server.enabled;
+  const loraPreset = draft?.loraPreset ?? server.loraPreset;
   const state = {
     loaded: server.loaded,
     enabled,
@@ -164,15 +165,22 @@ export default function KleinImproveNote({
   const caution = improveAnimeCaution({ ...state, subjectType });
 
   const setStored = (v) => {
-    setDraft((d) => ({ stored: v, enabled: d?.enabled ?? server.enabled }));
+    setDraft((d) => ({ ...(d || {}), stored: v, enabled: d?.enabled ?? server.enabled }));
     saver.current.schedule('prompt', v);
   };
   const setEnabled = (v) => {
-    setDraft((d) => ({ stored: d?.stored ?? server.stored, enabled: v }));
+    setDraft((d) => ({ ...(d || {}), stored: d?.stored ?? server.stored, enabled: v }));
     // A checkbox is a discrete act, not a stream of keystrokes: send it now.
     // schedule-then-flush rather than a direct call so a half-typed sentence
     // rides along in the SAME request instead of being overtaken by it.
     saver.current.schedule('enabled', v);
+    saver.current.flush();
+  };
+  const setLoraPreset = (v) => {
+    setDraft((d) => ({ ...(d || {}), loraPreset: v }));
+    // A pick is discrete, like the checkbox — and rides with any half-typed
+    // sentence for the same reason.
+    saver.current.schedule('loraPreset', v);
     saver.current.flush();
   };
 
@@ -198,6 +206,39 @@ export default function KleinImproveNote({
           even on a one-model install; the picker itself only appears when
           there is more than one thing to pick. */}
       <KleinModelSetting datasetId={datasetId} />
+      {/* WHICH LoRA preset the pass chains (klein.improve_lora_preset) — the
+          third half of "what will improve run with", and app-wide exactly like
+          the instruction, which the label says out loud because this control
+          sits inside dataset screens. Only drawn when there IS something to
+          pick — presets are defined in Settings ▸ Engines — or when a stale
+          pick is stored, which must stay visible so it can be cleared (the
+          backend already resolves it fail-closed to "none"). Klein only:
+          SeedVR2 is a restoration and chains nothing. */}
+      {(server.loraPresets.length > 0 || loraPreset) && (
+        <label className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+          <span className="text-content-muted">LoRA preset (app-wide, Klein only)</span>
+          <select
+            data-testid="klein-improve-lora-preset"
+            aria-label="Generation-LoRA preset chained by every Klein improve"
+            disabled={saving || !server.loaded}
+            value={loraPreset}
+            onChange={(e) => setLoraPreset(e.target.value)}
+            className="min-w-0 max-w-full flex-1 bg-white/[0.03] border border-white/10 rounded-md
+                       px-2 py-1 text-[0.6875rem] text-content focus:outline-none
+                       focus:border-primary/60 disabled:opacity-50"
+          >
+            <option value="" className="bg-surface-overlay">None</option>
+            {server.loraPresets.map((name) => (
+              <option key={name} value={name} className="bg-surface-overlay">{name}</option>
+            ))}
+            {loraPreset && !server.loraPresets.includes(loraPreset) && (
+              <option value={loraPreset} className="bg-surface-overlay">
+                {loraPreset} (missing — runs as None)
+              </option>
+            )}
+          </select>
+        </label>
+      )}
       {/* Two targets because they are two different problems: the WORDS
           (why it turned realistic) and the AMOUNT (how far it moved).
           flex-wrap so they stack rather than overflow on a phone. */}
