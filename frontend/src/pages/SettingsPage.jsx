@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { apiFetch, putJson, del } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
@@ -269,6 +269,9 @@ export default function SettingsPage() {
   // require-token), rings that gate instead so the deep-link never dead-ends.
   const [searchParams] = useSearchParams()
   const focusId = searchParams.get('focus')
+  const location = useLocation()
+  // Which arrival the reveal below has already served — see the effect.
+  const revealedRef = useRef(null)
 
   /* A deep link that names a section must SHOW it, not merely select it. Below
      `lg` the rail stacks above the panel, so "Settings › Image engines →" left
@@ -291,8 +294,22 @@ export default function SettingsPage() {
   }, [section, focusId, loading])
   useEffect(() => {
     if (!focusId || loading || !config) return undefined
+    /* ⚠️ ONCE per ARRIVAL, not once per config. This effect depends on `config`
+       so it can fire after the section has actually rendered — but the section
+       keeps editing that very object (every preset row added, every slider
+       moved), and each edit used to re-run the reveal: the page yanked the
+       reader back to the ?focus= field, ring and all, while they were working
+       at the other end of a long section (reported from the Engines page, mid
+       preset editing, on a tablet). `location.key` is what tells the two
+       apart: a NEW navigation — even to the same URL — gets a fresh key and a
+       fresh reveal; a re-render of the same visit does not. The guard is set
+       only once the target resolves, so a field that renders late still gets
+       its one reveal when `config` lands. */
+    const arrival = `${location.key}|${section}|${focusId}`
+    if (revealedRef.current === arrival) return undefined
     const found = resolveFocusTarget(focusId)
     if (!found) return undefined
+    revealedRef.current = arrival
     openCollapsedAncestors(found.el)
     found.el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     const ring = ['ring-2', 'ring-indigo-400/70', 'ring-offset-2', 'ring-offset-app', 'rounded-md']
@@ -317,7 +334,7 @@ export default function SettingsPage() {
       found.el.classList.remove(...ring)
     }, 4000)
     return () => { clearInterval(settle); clearTimeout(t) }
-  }, [focusId, section, loading, config])
+  }, [focusId, section, loading, config, location.key])
 
   // Enriched search index: besides the section rail, individual settings are
   // matched by their tutorial TEXT (docs/guide/settings-reference.md, indexed by
