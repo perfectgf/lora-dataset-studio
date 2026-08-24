@@ -1,13 +1,18 @@
+# Every spec is bounded `>=floor,<next-major`: the floor is what the code was
+# written against; the cap is one above the major a fresh install resolved on
+# 2026-08-24, so installs made months apart converge on the same majors instead
+# of silently drifting apart. Never lowers what an install already gets. Raise
+# a cap only after actually testing the new major.
 # Optional: the scrape -> concept-dataset bridge (scan a gallery, import chosen
 # images). The concept UPLOAD path needs none of this; only /api/scrape/scan,
 # /api/scrape/thumb and /dataset/<id>/scrape-import do. Install with:
 #   pip install -r backend/requirements-scrape.txt
-gallery-dl>=1.32.0        # gallery enumeration (civitai .red/.com, pornpics, fapello, reddit, sexcom, x, tiktok, erome)
-instaloader>=4.12         # Instagram profile/post scraping (pure-python; the Instagram source needs it)
-yt-dlp>=2026.7.4          # security floor (CVE-2026-50019 cookie leak, CVE-2026-55404 command injection); used by netfetch's video path
-curl_cffi>=0.7            # hardened fetch + thumb proxy (impersonate=chrome, anti-hotlink)
-brotli>=1.1              # Brotli decompression (curl_cffi / yt-dlp)
-beautifulsoup4>=4.12      # HTML parsing (picazor and friends)
-cloudscraper>=1.2.71      # Cloudflare-guarded listings (picazor)
-lxml>=5.0                 # fast HTML/XML parser backend for the above
-ddgs>=9.14                # keyless keyword image search over the open web (websearch source)
+gallery-dl>=1.32.0,<2        # gallery enumeration (civitai .red/.com, pornpics, fapello, reddit, sexcom, x, tiktok, erome)
+instaloader>=4.12,<5         # Instagram profile/post scraping (pure-python; the Instagram source needs it)
+yt-dlp>=2026.7.4          # NO cap on purpose: CalVer (a cap would block security fixes); floor (CVE-2026-50019 cookie leak, CVE-2026-55404 command injection); used by netfetch's video path
+curl_cffi>=0.7,<1            # hardened fetch + thumb proxy (impersonate=chrome, anti-hotlink)
+brotli>=1.1,<2              # Brotli decompression (curl_cffi / yt-dlp)
+beautifulsoup4>=4.12,<5      # HTML parsing (picazor and friends)
+cloudscraper>=1.2.71,<2      # Cloudflare-guarded listings (picazor)
+lxml>=5.0,<7                 # fast HTML/XML parser backend for the above
+ddgs>=9.14,<10                # keyless keyword image search over the open web (websearch source)

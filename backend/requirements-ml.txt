@@ -1,10 +1,15 @@
-insightface>=0.7.3
-onnxruntime>=1.17
-rembg>=2.0.50
-opencv-python-headless>=4.9
+# Every spec is bounded `>=floor,<next-major`: the floor is what the code was
+# written against; the cap is one above the major a fresh install resolved on
+# 2026-08-24, so installs made months apart converge on the same majors instead
+# of silently drifting apart. Never lowers what an install already gets. Raise
+# a cap only after actually testing the new major.
+insightface>=0.7.3,<2
+onnxruntime>=1.17,<2
+rembg>=2.0.50,<3
+opencv-python-headless>=4.9,<6
 # Watermark removal (V1): non-generative LaMa inpainting - only the masked pixels
 # change. Pulls torch; run in the ML subprocess only (never in the Flask venv).
-simple-lama-inpainting>=0.1.2
+simple-lama-inpainting>=0.1.2,<1
 # insightface 0.7.3 uses numpy's removed np.int and links numpy<2 ABI - numpy 2.x
 # import-crashes it. Cap below 2 (1.26.4 is the last with wheels for Py 3.10-3.12).
 numpy>=1.26,<2
@@ -14,9 +19,9 @@ numpy>=1.26,<2
 # installed one. transnetv2-pytorch is the shot detector — MIT, weights bundled in
 # the wheel (~33 MB), so no download step and it works offline; it drags torch and
 # therefore installs into the bank-scoring environment, never the Flask venv.
-av>=13
-imageio-ffmpeg>=0.5
-transnetv2-pytorch>=1.0.5
+av>=13,<19
+imageio-ffmpeg>=0.5,<1
+transnetv2-pytorch>=1.0.5,<2
 # Video captioning runs Qwen3-VL, and infer/video_caption_infer.py imports
 # `Qwen3VLForConditionalGeneration` — a class transformers only grew in 4.57.0
 # (huggingface/transformers PR #40795, shipped in the v4.57.0 release; the
@@ -26,7 +31,7 @@ transnetv2-pytorch>=1.0.5
 # the caption worker died on ImportError and re-clicking the step changed nothing.
 # With the floor, that same click is the repair. Installs into the bank-scoring
 # venv, not the Flask one (see _BANK_SCORING_PKGS in app/setup_installer.py).
-transformers>=4.57
+transformers>=4.57,<6
 
 # Burned-in text (the video lane's safe-zone pass). RapidOCR is Apache-2.0 and
 # runs the PP-OCRv4 detector/recogniser on the CPU onnxruntime pinned above -
