@@ -73,21 +73,21 @@ test('the set of files allowed to raw-fetch is closed', () => {
     'utils/connectionStatus.js',                           // the offline indicator's own probe
     'hooks/useDataset.js',                                 // legacy raw GETs with local error handling
     'hooks/useImageDownload.js',                           // blob download - needs the raw Response, own error copy
-    'hooks/useLoraTestStudio.js',
-    'hooks/useStudioRun.js',
-    'pages/CloudRunsPage.jsx',
-    'components/dataset/CloudLaunchDialog.jsx',
-    'components/dataset/PublishHfModal.jsx',
+    'hooks/useLoraTestStudio.js',                          // status poll, silent retry on transient errors
+    'hooks/useStudioRun.js',                               // run-status poll, silent retry on transient errors
+    'pages/CloudRunsPage.jsx',                             // history/lineage GETs render their own error states
+    'components/dataset/CloudLaunchDialog.jsx',            // readiness/offers polls inside the dialog, own copy
+    'components/dataset/PublishHfModal.jsx',               // whoami/status best-effort, null on failure
     'components/dataset/ConceptFaceMaskField.jsx',        // best-effort mask preview GET, null on failure
-    'components/dataset/TrainingPanel.jsx',
+    'components/dataset/TrainingPanel.jsx',                // status poll + preflight GET with local handling
     'components/dataset/useTrainingPresets.js',          // inherited the panel's best-effort preset-list GET (hook wave 1)
-    'components/dataset/TrainingProgress.jsx',
-    'components/dataset/TrainingReadiness.jsx',
-    'components/dataset/VariationCatalog.jsx',
-    'components/dataset/studio/LoraPicker.jsx',
-    'components/dataset/studio/StudioGenerationSettings.jsx',
-    'components/dataset/studio/StudioRunSetup.jsx',
-    'components/dataset/studio/StudioShell.jsx',
+    'components/dataset/TrainingProgress.jsx',             // progress poll on a timer - silence IS the contract
+    'components/dataset/TrainingReadiness.jsx',            // preflight GET where a 409 is an answer, not an error
+    'components/dataset/VariationCatalog.jsx',             // catalog GET with its own error state
+    'components/dataset/studio/LoraPicker.jsx',            // load-once GET, own empty/error states
+    'components/dataset/studio/StudioGenerationSettings.jsx', // config peek, null on failure
+    'components/dataset/studio/StudioRunSetup.jsx',        // recent-prompts GET, best-effort
+    'components/dataset/studio/StudioShell.jsx',           // base-models GET, own error state
     'components/settings/EnginesSection.jsx',              // capability peek, null on failure
     'components/settings/MaintenanceSection.jsx',          // health poll DURING restart — offline banner must not flap
     'components/settings/ServerSection.jsx',               // same restart poll
