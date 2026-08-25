@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-klein-loras-report-as-deployed',
+    date: '2026-08-26',
+    title: 'Klein, FLUX.1 and Anima LoRAs finally report as deployed',
+    blurb:
+      'Deploying a FLUX.2 Klein LoRA worked, and then nothing believed it: the '
+      + 'button never flipped to Deployed, Generate said the checkpoint was not '
+      + 'deployed yet, and "deploy then generate" went green and instantly red. '
+      + 'The file was written to the Klein folder and looked for in the Z-Image '
+      + 'one, because the studio only knew three families while the app deploys '
+      + 'six. Klein, FLUX.1 and Anima now read their own folders, and they also '
+      + 'appear in the Test Studio family picker, where they were missing for '
+      + 'the same reason. Reported by lunchingfriar.',
+    to: '/canvas',
+  },
+  {
     id: '2026-08-25-selection-stops-tinting',
     date: '2026-08-25',
     title: 'Selecting an image no longer puts a colour film over it',

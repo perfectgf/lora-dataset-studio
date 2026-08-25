@@ -2188,6 +2188,66 @@ def get_krea_loras():
     return out
 
 
+def get_family_loras(family: str) -> list[dict]:
+    """Deployed LoRAs of `family`, for the families that have no hand-written
+    getter above: FLUX.1, FLUX.2 Klein and Anima.
+
+    Same row shape as the three getters above, and the same reason to exist —
+    but it reads the family's folders from `lora_training._lora_family_dirs`,
+    the SAME table the deploy accessors write through, instead of hardcoding a
+    folder name. That is the whole point: a family whose LoRAs are written to
+    `loras/flux2klein` was being looked for in `loras/z image`, because the pool
+    dispatcher had no branch for it and fell through to Z-Image. Deploy said
+    "done" (it was), every later "is it deployed?" said no, and Generate refused
+    a checkpoint sitting right there on disk (GitHub #52, lunchingfriar — Klein;
+    FLUX.1 and Anima were silently in the same hole).
+
+    Reading through `_lora_family_dirs` also picks up the other roots ComfyUI
+    searches (extra_model_paths.yaml), which the folder-walking getters above do
+    not. Empty list when nothing is configured or readable — never raises: this
+    feeds a picker, and a broken read must read as "no LoRA", not as a 500."""
+    fam = (family or '').lower()
+    out = []
+    try:
+        from ..services.lora_training import _lora_family_dirs
+        dirs = _lora_family_dirs(fam)
+    except Exception as e:      # noqa: BLE001 — an unreadable root is not a crash
+        logger.error(f"get_family_loras({fam}) could not resolve its folders: {e}")
+        return out
+    seen = set()
+    for d in dirs:
+        try:
+            if not os.path.isdir(d):
+                continue
+            sub = os.path.basename(os.path.normpath(d))
+            for f in sorted(os.listdir(d)):
+                if not f.lower().endswith('.safetensors'):
+                    continue
+                if not os.path.isfile(os.path.join(d, f)):
+                    continue
+                # LoraLoader form, and de-duplicated by it: the same file name
+                # under two roots is ONE entry for ComfyUI, which resolves it by
+                # this relative name against whichever root holds it.
+                rel = os.path.join(sub, f)
+                key = os.path.normcase(rel)
+                if key in seen:
+                    continue
+                seen.add(key)
+                triggers = _extract_klein_triggers(f)
+                grp, stp = trained_lora_group(f, fam)
+                out.append({
+                    'filename': rel,
+                    'displayName': format_trained_lora_label(f, fam) or _clean_klein_lora_label(f),
+                    'triggerWord': triggers[0]['prompt'] if triggers else None,
+                    'triggerWords': triggers,
+                    'group': grp,
+                    'step': stp,
+                })
+        except OSError as e:
+            logger.error(f"get_family_loras({fam}) could not read {d}: {e}")
+    return out
+
+
 def _clean_flux2_klein_model_label(filename: str) -> str:
     """Make a Flux 2 Klein model filename human-readable for a picker dropdown.
 

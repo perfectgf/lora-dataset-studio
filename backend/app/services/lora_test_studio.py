@@ -60,7 +60,8 @@ from . import lora_training as lt
 from ..job_queue import GPU_ARBITER_LOCK, queue_manager
 from ..utils.comfyui import (FAMILY_LABELS, KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS,
                              KREA_ALLOWED_WEIGHT_DTYPES, apply_optimal_sampler_params,
-                             family_of_lora, format_trained_lora_label, get_krea_loras,
+                             family_of_lora, format_trained_lora_label, get_family_loras,
+                             get_krea_loras,
                              get_krea_models, get_sdxl_loras, get_zimage_loras,
                              get_zimage_models, inject_krea2t_enhancer,
                              load_workflow_local, resolve_checkpoint_ckpt_name)
@@ -524,18 +525,39 @@ def _prompt_with_triggers(prompt, trigger_words):
 # --- Discovery ---------------------------------------------------------------
 # Familles testables, dans l'ordre d'affichage du sélecteur. Libellés = source
 # unique partagée avec le label de LoRA (app.utils.comfyui.FAMILY_LABELS).
-FAMILIES = ('zimage', 'sdxl', 'krea')
+#
+# CETTE LISTE DOIT COUVRIR TOUTE FAMILLE DÉPLOYABLE, et un test de contrat
+# (test_family_pool_parity.py) le vérifie contre lora_training._FAMILY_SUBDIR.
+# Elle est restée à trois pendant qu'on ajoutait le déploiement FLUX.1, FLUX.2
+# Klein et Anima, et le prix a été payé par l'utilisateur : un LoRA Klein était
+# écrit dans loras/flux2klein puis relu dans loras/z image, donc « déployé »
+# répondait NON pour toujours, le badge ne basculait jamais et Generate refusait
+# un fichier posé sur le disque (GitHub #52). La famille était aussi absente du
+# sélecteur du Test Studio, via available_families().
+FAMILIES = ('zimage', 'sdxl', 'krea', 'flux', 'flux2klein', 'anima')
 
 
 def _pool_for_family(family: str) -> list[dict]:
-    """Pool de LoRA d'une famille : SDXL → loras/sdxl, Krea → loras/krea, sinon
-    loras/z image. Source unique du branchement par pipeline."""
+    """Pool de LoRA d'une famille : SDXL → loras/sdxl, Krea → loras/krea,
+    Z-Image → loras/z image, et toute autre famille déployable via son propre
+    dossier (get_family_loras, qui lit la table de _FAMILY_SUBDIR).
+
+    Le défaut n'était PAS la famille manquante, c'était le `return` final : une
+    famille inconnue retombait silencieusement sur le pool Z-Image au lieu de
+    dire qu'elle ne savait pas. Un mauvais dossier se lit comme un dossier vide,
+    et un dossier vide se lit comme « rien n'est déployé » — trois écrans plus
+    loin, sans un mot d'erreur. Une famille hors table renvoie donc [] désormais,
+    et le test de contrat garantit qu'aucune famille déployable n'y tombe."""
     f = (family or 'zimage').lower()
     if f == 'sdxl':
         return get_sdxl_loras()
     if f == 'krea':
         return get_krea_loras()
-    return get_zimage_loras()
+    if f == 'zimage':
+        return get_zimage_loras()
+    if f in FAMILIES:
+        return get_family_loras(f)
+    return []
 
 
 def _trigger_token_match(norm: str, trigger: str) -> bool:
