@@ -401,36 +401,36 @@ export default function BankReviewLightbox({
                 of the decisions CHANGES THE IMAGE and advances nothing. */}
             <button type="button" onClick={() => setCropId(id)} disabled={busy || id == null}
               title="Crop this image (C) — decides nothing. Nothing is resampled: a Bank sits upstream of the training resolution, so the cut keeps its pixels and a dataset decides the size when it imports. Your own file is never modified, and ↩ Revert brings the original framing back."
-              className="rounded-lg border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/30">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/30">
               ✂ Crop{shortcut('C')}
             </button>
             {img?.edit_method && (
               <button type="button" onClick={revertCurrent} disabled={busy}
                 title="Throw away the ✂ crop / ✨ upscale made in this bank and go back to the image it started from. Only a copy made by the app is deleted — your own file was never modified."
-                className="rounded-lg border border-white/25 px-4 py-2 text-sm text-white disabled:opacity-50 hover:bg-white/10">
+                className="min-h-10 lg:min-h-0 rounded-lg border border-white/25 px-4 py-2 text-sm text-white disabled:opacity-50 hover:bg-white/10">
                 ↩ Revert edit
               </button>
             )}
             {canEditMask(img) && (
               <button type="button" onClick={() => setMaskId(id)} disabled={busy}
                 title="Draw the watermark zones on this image (M) — decides nothing. Works even when the scan found nothing: what you draw becomes the flag, and 🧽 Inpaint then repaints exactly that."
-                className="rounded-lg border border-amber-400/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/30">
+                className="min-h-10 lg:min-h-0 rounded-lg border border-amber-400/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/30">
                 🚩 {maskButtonLabel(img)}{shortcut('M')}
               </button>
             )}
             <button type="button" onClick={() => sendDecision('keep')} disabled={busy}
               title="Keep this image and move on (K)"
-              className="rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-5 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50 hover:bg-emerald-500/30">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-5 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50 hover:bg-emerald-500/30">
               ✓ Keep{shortcut('K')}
             </button>
             <button type="button" onClick={() => sendDecision('reject')} disabled={busy}
               title="Reject this image and move on (R) — reversible, nothing is deleted from disk"
-              className="rounded-lg border border-rose-400/60 bg-rose-500/20 px-5 py-2 text-sm font-semibold text-rose-100 disabled:opacity-50 hover:bg-rose-500/30">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-rose-400/60 bg-rose-500/20 px-5 py-2 text-sm font-semibold text-rose-100 disabled:opacity-50 hover:bg-rose-500/30">
               ✕ Reject{shortcut('R')}
             </button>
             <button type="button" onClick={doSkip}
               title="Decide later (S) — stays undecided and is not shown again in this review"
-              className="rounded-lg border border-white/25 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-white/10">
+              className="min-h-10 lg:min-h-0 rounded-lg border border-white/25 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-white/10">
               ⏭ Skip{shortcut('S')}
             </button>
           </div>
