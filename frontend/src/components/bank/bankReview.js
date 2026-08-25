@@ -40,16 +40,34 @@ const dedupe = (ids) => {
 };
 
 /** Open a review session over a snapshot of ids.
- * `startId` (the ▶ button on a tile) is pulled to the front so the session
- * starts exactly where the user clicked, whatever the order. */
+ *
+ * `startId` (the ▶ button on a tile) means "start reviewing HERE", so the run
+ * CONTINUES from that image: the snapshot order is untouched and the cursor is
+ * placed on it. That is what makes a triage resumable — click the shot you
+ * stopped at yesterday and walk forward from it — and it is what the position
+ * readout then tells the truth about ("50 / 340", not "1 / 340").
+ *
+ * It used to pull the id to the FRONT instead, which read as "review this one,
+ * then start over": the very next → went back to the top of the bank, so a run
+ * could only be resumed by deciding on every image in between. Reported by
+ * nofaceman on Discord, who could not resume a triage at all.
+ *
+ * Shuffle keeps the pull-to-front, because there a position means nothing: the
+ * order is random, so "continue from here" and "put this first" are the same
+ * request, and only the latter can honour the click. */
 export function createSession(ids, opts = {}) {
   const { shuffle = false, startId = null, rand = Math.random } = opts;
   const pool = dedupe(ids);
   let order = shuffle ? shuffled(pool, rand) : [...pool];
+  let pos = 0;
   if (startId != null && pool.includes(startId)) {
-    order = [startId, ...order.filter((id) => id !== startId)];
+    if (shuffle) {
+      order = [startId, ...order.filter((id) => id !== startId)];
+    } else {
+      pos = order.indexOf(startId);
+    }
   }
-  return { pool, order, pos: 0, shuffle: !!shuffle, decisions: {}, skipped: [] };
+  return { pool, order, pos, shuffle: !!shuffle, decisions: {}, skipped: [] };
 }
 
 export function currentId(s) {

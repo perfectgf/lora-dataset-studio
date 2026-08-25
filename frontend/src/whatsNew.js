@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-25-review-resumes-where-you-clicked',
+    date: '2026-08-25',
+    title: 'Review picks up where you left off',
+    blurb:
+      'Starting ▶ Review from a tile halfway down a bank used to review that '
+      + 'one shot and then jump back to image #1, so the only way to resume a '
+      + 'triage was to decide on everything in between. It now continues from '
+      + 'the shot you clicked, and the counter says where you actually are — '
+      + '← still steps back over what you passed. Reported by nofaceman.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-25-safelight-icons',
     date: '2026-08-25',
     title: 'Real icons everywhere, instead of emoji',

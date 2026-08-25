@@ -45,11 +45,29 @@ test('duplicate and null ids are dropped from the snapshot', () => {
   assert.equal(progress(s).total, 3);
 });
 
-test('startId opens on that image and keeps the rest of the pool', () => {
+test('startId RESUMES from that image instead of restarting the pool', () => {
+  // Reversed on a user report (nofaceman, Discord): this used to pull the id to
+  // the front, so the next → after the clicked shot went back to image #1 and a
+  // triage could not be resumed at all. "Start here" now means "continue here".
   const s = createSession(IDS, { startId: 4 });
   assert.equal(currentId(s), 4);
+  assert.equal(progress(s).position, 4, 'the readout must say where we are');
   const { seen } = walkAll(s);
-  assert.deepEqual(seen, [4, 1, 2, 3, 5]);
+  assert.deepEqual(seen, [4, 5]);
+});
+
+test('a resumed session can still step BACK into what it skipped over', () => {
+  // Nothing is lost by resuming: ← walks back down the untouched order.
+  const s = back(back(createSession(IDS, { startId: 4 })));
+  assert.equal(currentId(s), 2);
+});
+
+test('shuffle keeps pulling startId to the front (a position means nothing there)', () => {
+  const s = createSession(IDS, { shuffle: true, startId: 4, rand: lcg(7) });
+  assert.equal(currentId(s), 4);
+  const { seen } = walkAll(s);
+  assert.equal(seen.length, IDS.length, 'the whole pool is still covered');
+  assert.equal(seen[0], 4);
 });
 
 test('startId not in the pool is ignored (no crash, normal start)', () => {
