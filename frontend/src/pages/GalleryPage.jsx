@@ -477,11 +477,17 @@ export default function GalleryPage() {
            button that vanishes teaches nothing, and "why can't I?" is the
            question this panel exists to answer. */
         actions={zoom ? (
-          <button type="button"
+          <button type="button" data-testid="lightbox-camera-angles"
             onClick={() => setCameraFor(zoom)}
             disabled={!!cameraRefusal(zoom)}
             title={cameraRefusal(zoom) || 'Re-shoot this scene from another camera position'}
-            className="min-h-10 lg:min-h-0 flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-400/50 bg-indigo-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-indigo-100 hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto">
+            /* Auto width, NOT `w-full sm:w-auto` like the improve engines: two
+               engine buttons side by side would each be a stub on a 400 px
+               phone, but ONE verb beside ⬇ Download fits and costs no row. It
+               was full-width first and the measurement said no — at 360×800
+               the fourth stacked row put this button at y=926 in an 800 px
+               window, i.e. reachable only by scrolling the details column. */
+            className="min-h-10 lg:min-h-0 inline-flex items-center gap-2 rounded-lg border border-indigo-400/50 bg-indigo-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-indigo-100 hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-45">
             <Camera className="size-3.5" aria-hidden />
             Camera angles
           </button>

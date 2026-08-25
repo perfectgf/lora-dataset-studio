@@ -196,6 +196,14 @@ const PAGES = {
       { name: 'lightbox', open: ['[data-testid="gallery-zoom"]'] },
       // Select mode: the sticky bar grows its count / select-all / delete half.
       { name: 'select', open: ['[data-testid="gallery-select-toggle"]'] },
+      // 📷 The camera picker, reached the way a user reaches it: open the
+      // viewer, then press the verb in its footer. Its own state because it is
+      // the densest thing this page can put on a 360 px screen — a dial, three
+      // axes of pills and a prompt list — and the source tests can only prove a
+      // class is WRITTEN. Skipped, and said so, on an instance whose first tile
+      // cannot take it (a camera view or an improve result refuses the button).
+      { name: 'camera', open: ['[data-testid="gallery-zoom"]',
+        '[data-testid="lightbox-camera-angles"]'] },
     ],
   },
   '#/dataset/studio': {
