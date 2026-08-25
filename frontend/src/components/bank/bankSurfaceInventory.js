@@ -215,10 +215,6 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "📦",
-    1
-  ],
-  [
     "📦 Move folder…",
     2
   ],

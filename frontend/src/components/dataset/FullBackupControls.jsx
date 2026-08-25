@@ -15,6 +15,7 @@
  * progress phrasing and summaries come from utils/fullBackup (pure, tested).
  */
 import { useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Download, FolderOpen, Loader2, Package, RefreshCw, Save } from 'lucide-react';
 import { HelpBadge } from '../../help/HelpMode';
 import {
   describeProgress, progressPercent, summarizeBackupResult, summarizeRestoreReport,
@@ -60,7 +61,9 @@ function BackupOverlay({ job, onDownload, onOpenFolder, onDismiss }) {
   return (
     <Overlay label="Back up everything">
       <h2 className="text-base font-semibold text-content">
-        {done ? '✅ ' : error ? '⚠️ ' : '💾 '}
+        {done ? <CheckCircle2 aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px] text-emerald-400" />
+          : error ? <AlertTriangle aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px] text-amber-400" />
+          : <Save aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px]" />}
         {done ? summary.headline : error ? 'Backup failed' : 'Backing up your library'}
       </h2>
       {job.state === 'running' && (
@@ -78,11 +81,11 @@ function BackupOverlay({ job, onDownload, onOpenFolder, onDismiss }) {
           <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
             <button type="button" onClick={onOpenFolder}
               className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content hover:bg-surface-raised">
-              📂 Open folder
+              <FolderOpen aria-hidden="true" className="mr-1 inline h-4 w-4 align-[-2px]" />Open folder
             </button>
             <button type="button" onClick={() => onDownload(job.result?.name)}
               className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-gray-950">
-              ⬇ Download
+              <Download aria-hidden="true" className="mr-1 inline h-4 w-4 align-[-2px]" />Download
             </button>
             <button type="button" onClick={onDismiss}
               className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-content-muted hover:bg-surface-raised">
@@ -114,7 +117,9 @@ function RestoreOverlay({ job, onDismiss }) {
   return (
     <Overlay label="Restore everything">
       <h2 className="text-base font-semibold text-content">
-        {done ? '✅ ' : error ? '⚠️ ' : '♻️ '}
+        {done ? <CheckCircle2 aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px] text-emerald-400" />
+          : error ? <AlertTriangle aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px] text-amber-400" />
+          : <RefreshCw aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px]" />}
         {done ? report.headline : error ? 'Restore failed' : 'Restoring your backup'}
       </h2>
       {job.state === 'running' && (
@@ -158,7 +163,9 @@ export default function FullBackupControls({ backup, onRestore }) {
         <summary
           title="Back up the whole library, or import a backup archive"
           className="flex items-center gap-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-content-muted hover:text-content hover:bg-surface-raised cursor-pointer select-none">
-          <span aria-hidden>{running ? '⏳' : '💾'}</span>
+          {running
+            ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+            : <Save aria-hidden="true" className="h-4 w-4" />}
           {/* The label itself carries the in-flight state, so a closed menu
               still says a backup is running. */}
           <span className="hidden sm:inline">{running ? 'Backing up…' : 'Backup'}</span>
@@ -171,7 +178,7 @@ export default function FullBackupControls({ backup, onRestore }) {
                 onClick={() => { closeMenu(); backup.start(includeLoras); }}
                 title="Archive every dataset, its training history + your settings (API keys excluded) into one file"
                 className={MENU_ITEM}>
-                <span className="whitespace-nowrap">💾 Back up everything</span>
+                <span className="whitespace-nowrap inline-flex items-center gap-1.5"><Save aria-hidden="true" className="h-4 w-4" /> Back up everything</span>
                 <span className="ml-auto shrink-0 text-content-subtle text-[0.625rem]">
                   {running ? 'running…' : 'datasets · settings'}
                 </span>
@@ -191,7 +198,7 @@ export default function FullBackupControls({ backup, onRestore }) {
               onClick={() => { closeMenu(); restoreRef.current?.click(); }}
               title="Import a portable dataset backup — a new dataset will be created"
               className={MENU_ITEM}>
-              <span className="whitespace-nowrap">📦 Import backup</span>
+              <span className="whitespace-nowrap inline-flex items-center gap-1.5"><Package aria-hidden="true" className="h-4 w-4" /> Import backup</span>
               <span className="ml-auto shrink-0 text-content-subtle text-[0.625rem]">.zip archive</span>
             </button>
           )}

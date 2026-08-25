@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Folder, FolderOpen } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { attemptModalSubmit } from '../../utils/submitOutcome.js'
 
@@ -93,7 +94,7 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
       onMouseDown={(e) => { if (e.target === e.currentTarget) dismiss() }}>
       <div className="flex w-full max-w-lg flex-col rounded-xl border border-border bg-surface-overlay p-5 shadow-2xl"
         style={{ maxHeight: '80vh' }}>
-        <h2 className="text-base font-bold text-content">📁 Choose a folder</h2>
+        <h2 className="flex items-center gap-2 text-base font-bold text-content"><Folder aria-hidden="true" className="h-4 w-4" /> Choose a folder</h2>
         <p className="mt-1 text-xs text-content-muted">
           Folders on the machine running the app. Nothing is opened or modified —
           you're only picking a location.
@@ -137,7 +138,7 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
             <li key={e.path}>
               <button type="button" onClick={() => load(e.path)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-content hover:bg-surface">
-                <span aria-hidden="true">📁</span>
+                <Folder aria-hidden="true" className="h-3.5 w-3.5" />
                 <span className="min-w-0 truncate">{e.name}</span>
               </button>
             </li>
@@ -211,7 +212,7 @@ export default function FolderPickerField({
           className="w-full min-w-0 grow rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content font-mono" />
         <button type="button" onClick={browse} disabled={busy}
           className="shrink-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm font-semibold text-content hover:bg-surface disabled:opacity-50">
-          {busy ? 'Opening…' : '📂 Browse…'}
+          {busy ? 'Opening…' : <span className="inline-flex items-center gap-1.5"><FolderOpen aria-hidden="true" className="h-4 w-4" /> Browse…</span>}
         </button>
       </div>
       {hint && <p className="mt-1 text-xs text-content-muted">{hint}</p>}

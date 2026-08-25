@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FolderOpen, Images } from 'lucide-react'
 import { apiFetch, postJson } from '../../api/fetchClient';
 import {
   allGalleryImageIds, galleryActionBar, galleryDeleteConfirmation, galleryDeleteSummary,
@@ -315,7 +316,7 @@ export default function CheckpointGalleryPanel({ target, onClose, onDeleted, onD
                    lg:inset-x-auto lg:left-0 lg:top-0 lg:h-full lg:max-h-none lg:w-[22rem] lg:border-r lg:border-t-0">
         <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
           <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-content">
-            <span aria-hidden>🖼</span> {heading.title}
+            <Images aria-hidden="true" className="h-4 w-4" /> {heading.title}
             <span className="font-normal text-content-muted"> · {heading.subtitle}</span>
           </h3>
           {/* The way back to the board — 44 px of thumb below `lg`. */}
@@ -555,7 +556,7 @@ export default function CheckpointGalleryPanel({ target, onClose, onDeleted, onD
                 }}
                 title="Open the folder these images are saved in (the dataset's folder, on the machine running the app)"
                 className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-content-muted text-[0.75rem] hover:border-indigo-400/50 hover:text-content">
-                <span aria-hidden>📂</span> Open folder
+                <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" /> Open folder
               </button>
             )}
             {bar.showsDelete && (

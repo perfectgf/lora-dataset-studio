@@ -47,12 +47,12 @@ export function faceAnalysisState({ blockedReason, hasRef, busy,
  *  than inventing a count. */
 export function faceAnalysisLabel(scope) {
   const total = Number(scope?.total);
-  if (!Number.isFinite(total) || total <= 0) return '🎭 Analyze faces';
+  if (!Number.isFinite(total) || total <= 0) return 'Analyze faces';
   const unscored = Number(scope?.unscored);
   if (Number.isFinite(unscored) && unscored > 0 && unscored < total) {
-    return `🎭 Analyze faces (${total} · ${unscored} new)`;
+    return `Analyze faces (${total} · ${unscored} new)`;
   }
-  return `🎭 Analyze faces (${total})`;
+  return `Analyze faces (${total})`;
 }
 
 /** Can 🎯 Auto-triage act on the stored face scores?

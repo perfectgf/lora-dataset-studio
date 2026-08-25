@@ -31,7 +31,7 @@ test('"Include trained LoRAs" is an option INSIDE the menu, not a loose toolbar 
 
 test('"Import backup" moved into the same menu, "+ New dataset" stayed out of it', () => {
   const panel = menuPanel()
-  assert.match(panel, /📦 Import backup/)
+  assert.match(panel, /Import backup/)
   assert.doesNotMatch(panel, /New dataset/)
   assert.match(list, /\+ New dataset/)
   assert.match(list, /<FullBackupControls backup=\{backup\} onRestore=\{onRestore\} \/>/)

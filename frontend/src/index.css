@@ -118,6 +118,12 @@
     outline: 2px solid rgb(var(--accent));
     outline-offset: 2px;
   }
+  /* Safelight iconography: every lucide icon draws with a 1.5px stroke (the
+     library default is 2). One rule here instead of a strokeWidth prop on
+     every call site — lucide always puts its "lucide" class on the svg. */
+  svg.lucide {
+    stroke-width: 1.5;
+  }
 }
 
 .skip-link {

@@ -24,7 +24,7 @@ test('the bulk-reject button counts what it will really reject', () => {
   assert.match(workspace, /id="ds-curation-reject-flagged"/);
   // Rendered on, labelled with and acting on the SAME derived number.
   assert.match(workspace, /\{flagged\.rejectable > 0 && \(/);
-  assert.match(workspace, /✕ Reject all flagged \(\{flagged\.rejectable\}\)/);
+  assert.match(workspace, /Reject all flagged \(\{flagged\.rejectable\}\)/);
   assert.match(workspace, /ds\.batchImages\(flagged\.rejectableIds, 'reject'\)/);
   assert.doesNotMatch(workspace, /batchImages\(\s*images\.filter/);
 });

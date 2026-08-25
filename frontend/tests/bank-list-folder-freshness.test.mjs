@@ -56,5 +56,5 @@ test('the bank page itself still renders (no ReferenceError on the way in)', () 
   const html = renderToStaticMarkup(createElement(
     MemoryRouter, null,
     createElement(ToastProvider, null, createElement(BankPage))))
-  assert.match(html, /🗃️ Image bank/)
+  assert.match(html, /Image bank/)
 })

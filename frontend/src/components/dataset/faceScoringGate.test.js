@@ -78,16 +78,16 @@ test('capabilities still loading does not flash "not installed"', () => {
 // ── The button names its own scope ──────────────────────────────────────────
 
 test('the label states how many images the pass will actually score', () => {
-  // A mystery pass on an unknown set is what "🎭 Analyze faces" used to be.
-  assert.equal(faceAnalysisLabel({ total: 42, unscored: 42 }), '🎭 Analyze faces (42)');
-  assert.equal(faceAnalysisLabel({ total: 42, unscored: 7 }), '🎭 Analyze faces (42 · 7 new)');
-  assert.equal(faceAnalysisLabel({ total: 42, unscored: 0 }), '🎭 Analyze faces (42)');
+  // A mystery pass on an unknown set is what "Analyze faces" used to be.
+  assert.equal(faceAnalysisLabel({ total: 42, unscored: 42 }), 'Analyze faces (42)');
+  assert.equal(faceAnalysisLabel({ total: 42, unscored: 7 }), 'Analyze faces (42 · 7 new)');
+  assert.equal(faceAnalysisLabel({ total: 42, unscored: 0 }), 'Analyze faces (42)');
   // An older payload has no scope: fall back to the bare label rather than
   // inventing a count.
-  assert.equal(faceAnalysisLabel(null), '🎭 Analyze faces');
-  assert.equal(faceAnalysisLabel(undefined), '🎭 Analyze faces');
-  assert.equal(faceAnalysisLabel({ total: 0, unscored: 0 }), '🎭 Analyze faces');
-  assert.equal(faceAnalysisLabel({ total: 'x' }), '🎭 Analyze faces');
+  assert.equal(faceAnalysisLabel(null), 'Analyze faces');
+  assert.equal(faceAnalysisLabel(undefined), 'Analyze faces');
+  assert.equal(faceAnalysisLabel({ total: 0, unscored: 0 }), 'Analyze faces');
+  assert.equal(faceAnalysisLabel({ total: 'x' }), 'Analyze faces');
 });
 
 test('the tooltip says the triage pile is in scope', () => {
@@ -136,13 +136,13 @@ test('a dataset that was never analysed names the pass to run', () => {
   const rows = [img({ face_state: null, face_score: null })];
   const r = autoTriageEmptyReason(rows, rows);
   assert.equal(r.kind, 'never_scored');
-  assert.match(r.message, /🎭 Analyze faces/);
+  assert.match(r.message, /Analyze faces/);
 });
 
 test('a set the pass could not score at all says THAT, not "run the pass"', () => {
   // The Discord report: wide shots came back entirely unscorable, so the tool
   // that could have triaged them did not just empty — it vanished. Telling this
-  // user to "run 🎭 Analyze faces" would send them to redo what they just did.
+  // user to "run Analyze faces" would send them to redo what they just did.
   const rows = [img({ face_state: 'too_small', face_score: null }),
                 img({ id: 2, face_state: 'extreme_pose', face_score: null })];
   const r = autoTriageEmptyReason(rows, rows);

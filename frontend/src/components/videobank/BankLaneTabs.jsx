@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router'
+import { Clapperboard, Images } from 'lucide-react';
 
 /** The kind of bank you are making — 🖼 images or 🎬 video.
  *
@@ -28,10 +29,10 @@ export default function BankLaneTabs({ className = '' }) {
       </span>
       {/* `end` on /bank so it does not stay lit while /video-bank is open. */}
       <NavLink to="/bank" end className={cls}>
-        <span aria-hidden>🖼</span> Images
+        <Images aria-hidden="true" className="h-3.5 w-3.5" /> Images
       </NavLink>
       <NavLink to="/video-bank" className={cls}>
-        <span aria-hidden>🎬</span> Video
+        <Clapperboard aria-hidden="true" className="h-3.5 w-3.5" /> Video
         {/* The lane ships, works end to end, and is younger than everything
             around it — the badge says "expect rough edges", not "expect loss":
             triage data is the only thing at stake and sources are never written. */}

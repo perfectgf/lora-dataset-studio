@@ -12,6 +12,7 @@
  * maintainers edit each wave). This file is presentation only.
  */
 import { useEffect, useRef, useState } from 'react';
+import { Gift } from 'lucide-react'
 import { useNavigate } from 'react-router';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import {
@@ -68,7 +69,7 @@ export function WhatsNewButton() {
         has ? 'text-content hover:text-content' : 'text-content-muted hover:text-content'
       } hover:bg-surface-raised`}
     >
-      <span aria-hidden>🎁</span>
+      <Gift aria-hidden="true" className="h-4 w-4" />
       {has && (
         <span
           aria-hidden
@@ -154,7 +155,7 @@ export function WhatsNewModal() {
       >
         <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
           <h2 id="whats-new-title" className="flex items-center gap-2 text-base font-semibold text-content">
-            <span aria-hidden>🎁</span> What&apos;s new
+            <Gift aria-hidden="true" className="h-4 w-4" /> What&apos;s new
           </h2>
           <button
             type="button"
