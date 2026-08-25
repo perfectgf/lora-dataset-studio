@@ -211,10 +211,78 @@ _SEEDVR2_DOWNLOADS = {
     },
 }
 
+# 📷 Camera angles — the weights that move the CAMERA rather than the subject.
+#
+# WHY A SECOND BASE MODEL AT ALL, when a 9 GB one is already installed. Measured
+# on this repo's own Klein lane (2026-08-25, one reference, seed held constant):
+# asked for a profile or a back view, Klein turns the PERSON and leaves the room
+# exactly where it was — every phrasing tried, English, an explicit "only the
+# photographer moves", the Chinese cinematography terms, with and without the
+# one camera LoRA that exists for Klein 9B. The backdrop delta stayed at 11-14
+# (noise) against 64-80 for a real viewpoint change. The Qwen LoRA below was
+# trained on 3000+ gaussian-splatting renders — pairs where the subject cannot
+# move and the background must — and reaches 64-80 on all eight angles tried.
+# That inversion is the feature; it is not reachable by prompting harder.
+#
+# URL survey 2026-08-26 (anonymous HTTP HEAD, no token): all four answer 200 and
+# the signed CDN URL carries `user_id=public` — none is access-gated. The
+# 401/403 recovery path is kept anyway, like every other catalog here: a
+# measurement is a photograph of one moment.
+#
+# NOT LISTED, on purpose: the Qwen image VAE. `krea_vae` above already installs
+# the identical file to the identical destination — a second key for the same
+# bytes would put the same gigabyte on the Setup screen twice and let two copies
+# drift. services/qwen_camera_helper.CAMERA_VAE_ACTION names that button instead.
+#
+# `dest[0]` is 'diffusion_models' for the model and 'loras' for the adapters,
+# both under a `qwen/` subfolder — the same shape the Klein and Krea lanes use,
+# and what qwen_camera_helper._scan looks for first.
+_CAMERA_DOWNLOADS = {
+    'camera_model': {
+        'url': 'https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors',
+        'dest': ('diffusion_models', 'qwen', 'qwen_image_edit_2511_fp8mixed.safetensors'),
+        'min_free_gb': 25, 'gated': False, 'min_bytes': 4 * 1024 ** 3,
+        'license_url': 'https://huggingface.co/Qwen/Qwen-Image-Edit-2511',
+    },
+    # The lane's REASON. Without it the base model still edits, it just answers
+    # `<sks>` the way any edit model does — by turning the subject. A camera view
+    # that silently has no camera in it would look like a success, which is why
+    # qwen_camera_helper lists this one as REQUIRED, not recommended.
+    'camera_lora': {
+        'url': 'https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA/resolve/main/qwen-image-edit-2511-multiple-angles-lora.safetensors',
+        'dest': ('loras', 'qwen', 'Qwen-Image-Edit-2511-Multiple-Angles.safetensors'),
+        'min_free_gb': 2, 'gated': False, 'min_bytes': 32 * 1024 ** 2,
+        'license_url': 'https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA',
+    },
+    # Speed only, and genuinely optional: absent, the lane raises its own step
+    # count (STEPS_WITHOUT_SPEED_LORA) and renders correctly, about five times
+    # slower. Keeping 4 steps without it would render noise — which is why the
+    # step count and this file are decided in the same place.
+    'camera_speed_lora': {
+        'url': 'https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors',
+        'dest': ('loras', 'qwen', 'Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors'),
+        'min_free_gb': 3, 'gated': False, 'min_bytes': 128 * 1024 ** 2,
+        'license_url': 'https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning',
+    },
+    # ⚠️ A THIRD Qwen text encoder, and the three are NOT interchangeable:
+    # qwen_3_8b_fp8mixed is Klein's, qwen3vl_4b_fp8_scaled is Z-Image/Krea's,
+    # and this 2.5-VL 7B build is Qwen-Image-Edit's. They share a folder and a
+    # prefix; a resolver matching a bare 'qwen' picks the wrong one and the
+    # sampler dies on a shape mismatch. Canonical name first, narrow token after
+    # — see qwen_camera_helper.resolve_camera_text_encoder.
+    'camera_text_encoder': {
+        'url': 'https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors',
+        'dest': ('text_encoders', 'qwen_2.5_vl_7b_fp8_scaled.safetensors'),
+        'min_free_gb': 12, 'gated': False, 'min_bytes': 1024 ** 3,
+        'license_url': 'https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI',
+    },
+}
+
 # Every streamed model download, whatever engine it belongs to. The worker,
 # destination resolution, disk precondition and extra_model_paths de-duplication
 # are engine-agnostic; only the catalog entries differ.
-_MODEL_DOWNLOADS = {**_KLEIN_DOWNLOADS, **_KREA_DOWNLOADS, **_SEEDVR2_DOWNLOADS}
+_MODEL_DOWNLOADS = {**_KLEIN_DOWNLOADS, **_KREA_DOWNLOADS, **_SEEDVR2_DOWNLOADS,
+                    **_CAMERA_DOWNLOADS}
 
 # Custom-node packs the app can install itself. The first git-cloned
 # dependencies this app installs at all, so the rules are written down rather

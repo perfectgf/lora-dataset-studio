@@ -260,6 +260,29 @@ Without the pack nothing breaks: upscales still run, they are just capped by the
 
 **There is no batch-size setting, on purpose.** SeedVR2's `batch_size` is a *video* window whose frames share temporal attention to stay coherent — feeding it unrelated dataset photos would let them bleed into each other. Images are upscaled one per job; throughput comes from the normal generation queue and its fan-out cap.
 
+### Camera angles (local)
+
+📷 **Camera angles** re-photographs an existing picture from another camera position: open it in the 🖼 Gallery, press **Camera angles**, pick where the camera stands on the dial, how high it is and how close. The subject stays where it is and **the background moves with the camera**, so what was behind them comes into view.
+
+**This is not the shot catalog's "profile view".** That one asks an edit model for another angle and the model answers by turning the *person* — measured on this app's own Klein lane, the room behind never moved, whatever the wording. Moving the viewpoint needs a model trained on real viewpoint changes, which is why this lane runs on **Qwen-Image-Edit 2511** with fal.ai's Multiple-Angles LoRA (trained on gaussian-splatting renders, Apache-2.0) rather than on the Klein weights you already have.
+
+**What it costs.** The base model is **~20.5 GB**, plus 295 MB for the angles LoRA and 850 MB for the optional 4-step speed LoRA. The text encoder and VAE are shared with lanes you may already have installed. Pressing 📷 with the weights absent starts those downloads and tells you so — nothing is fetched behind your back. Once the model is resident a view takes **12–16 s**; the first one of a session also pays for loading the model (~1 min).
+
+**The limits, stated up front:**
+
+- **Distance is approximate.** Close-up / medium / wide are hints the model mostly honours; several poses asked at *medium* come back tighter than the source.
+- **Off-camera detail is invented.** The part of the scene the original photo never showed is plausible, not real. Fine for a character dataset, wrong for anything that has to be a faithful record of a place.
+- **A camera view cannot be re-shot from another angle.** The second pass would re-invent what the first already invented and present it as the original scene, so the button is refused there and says why.
+- **12 views per run.** The count under the button is the product of the axes you ticked; it says what the run will cost before you spend it.
+
+**Model files (optional).** Same contract as the Klein pins below — empty means auto-detect (canonical download filename first, then a narrow token scan), a value pins one file.
+
+- **Diffusion model** → `camera.unet`. Default **empty**. Auto-detection prefers a **2511** build: the LoRA was trained on that generation and a 2509 build loads happily and quietly under-performs.
+- **Text encoder** → `camera.text_encoder`. Default **empty**. ⚠️ `models/text_encoders` can hold **three different Qwen encoders** — Klein's `qwen_3_8b`, Z-Image/Krea's `qwen3vl_4b`, and this lane's `qwen_2.5_vl_7b`. They are not interchangeable and a wrong one fails at sampling time with a shape error, so auto-detection is deliberately narrow and pinning is how you rescue a renamed file.
+- **VAE** → `camera.vae`. Default **empty**. The same file the **Krea 2 Edit** lane installs — one copy, one Setup button; this lane never downloads a second.
+- **Angles LoRA** → `camera.angles_lora`. Default **empty**. **Required**: without it the base model still edits, it just answers the camera vocabulary the way any edit model does — by turning the subject. A camera view with no camera in it would look like a success, so the lane refuses to run rather than render one.
+- **Speed LoRA** → `camera.speed_lora`. Default **empty**, and genuinely optional: absent, the graph raises its own step count from 4 to 20 and renders correctly, roughly five times slower.
+
 ### Klein model files (optional)
 
 *Contributed by socrasteeze (GitHub).* Pin the exact files the Klein graph loads instead of relying on auto-detection. Every field accepts **a full absolute path or a ComfyUI-relative loader name**; empty fields keep the default behaviour (the canonical download filename first, then a narrow token scan of the ComfyUI model folders). Each field now **lists the files actually found in that ComfyUI folder** (`extra_model_paths.yaml` roots included), with a ↻ to rescan after you drop a new file in; free text stays available because an absolute path from outside every ComfyUI root is a legitimate value no scan can enumerate.

@@ -7670,6 +7670,12 @@ def _gallery_image(r) -> dict:
         # gets a dict or null — never raw JSON to re-parse, never a crash on a
         # hand-edited database (bad JSON reads as "nothing recorded").
         'improve_profile': _parsed_improve_profile(r.improve_profile),
+        # 📷 The camera position this row was rendered at ('right/low/medium'),
+        # or null on every row that is not a camera view. Published for the same
+        # two reasons as `derivation_kind` above: the tile SAYS which angle it
+        # is (a grid of eight views is unreadable otherwise), and the surface can
+        # refuse to re-shoot a view from another angle before the click.
+        'camera_pose': r.camera_pose,
     }
 
 

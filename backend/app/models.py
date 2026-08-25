@@ -765,6 +765,18 @@ class LoraTestImage(db.Model):
     # are part of the frontend contract (improveSettingsRestore.js) — never
     # rename one without an alias. Additive column (see _SCHEMA_ADDITIONS).
     improve_profile = db.Column(Text, nullable=True)
+    # 📷 The camera position this row was rendered AT, as the stable pose id
+    # `azimuth/elevation/distance` (services/camera_angles.pose_id). NULL on
+    # every row that is not a camera view and on rows predating the column.
+    #
+    # Stored rather than derived: the pose IS recoverable from `prompt` (which
+    # holds the LoRA's own `<sks> ...` sentence), but only by parsing English
+    # back into ids — and that parse would silently produce the WRONG label the
+    # day a token changes. A tile that mislabels which angle it is showing is
+    # worse than one with no label, because a dataset gets built on it.
+    # ⚠️ The three components are catalog ids written into user databases: they
+    # never change without an alias path. Additive column (see _SCHEMA_ADDITIONS).
+    camera_pose = db.Column(String(64), nullable=True)
 
     def __repr__(self):
         return f'<LoraTestImage {self.id} ds={self.dataset_id} {self.checkpoint}@{self.strength} {self.status}>'

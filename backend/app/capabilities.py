@@ -1871,6 +1871,15 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
     validity, launcher support, the model scan, and every per-engine gap
     list the Setup screen turns into a button."""
     from .services import lanpaint_helper as _lph
+    from .services import qwen_camera_helper as _qch
+    # 📷 Camera angles. Computed here rather than in a probe of its own for the
+    # same reason LanPaint is: the lane has no pins, no custom-node pack and no
+    # invalid-file class — it is four filenames on disk. `camera_missing` names
+    # setup_installer actions, so the Setup screen turns each one into the
+    # button that installs it; `camera_ready` is the single verdict every
+    # surface reads, so the picker and the Setup card cannot disagree about
+    # whether a view can be rendered.
+    camera_missing = _qch.camera_missing_assets()
     return {
         'reachable': comfy['ok'],
         # WHY it isn't reachable, when it isn't: 'ok' | 'slow' | 'unreachable'
@@ -1947,6 +1956,15 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         'lanpaint_nodes_missing': (_lph.lanpaint_missing_nodes()
                                    if comfy['ok'] else []),
         'lanpaint_nodes_installed': _lph.lanpaint_node_pack_installed(),
+        # setup_installer action names for the camera-angle assets NOT on disk.
+        # One of them is `krea_vae` on purpose — the Qwen VAE ships with the
+        # Krea 2 lane and this lane points at that button rather than declaring
+        # a second download of the same file.
+        'camera_missing': camera_missing,
+        # The speed LoRA missing does NOT make the lane un-ready: it renders at
+        # 20 steps instead of 4. Only the four REQUIRED assets gate it.
+        'camera_ready': not any(a in camera_missing
+                                for a in _qch.CAMERA_REQUIRED),
         # Klein assets PRESENT on disk but not real, loadable weights:
         # [{asset, filename, verdict, blocking, reason}]. Distinct from
         # klein_missing (the file exists, it just can't load) — drives the Setup

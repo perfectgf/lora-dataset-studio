@@ -1,0 +1,129 @@
+{
+  "108": {
+    "inputs": {
+      "unet_name": "qwen\\qwen_image_edit_2511_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Qwen-Image-Edit 2511" }
+  },
+  "109": {
+    "inputs": {
+      "lora_name": "qwen\\Qwen-Image-Edit-2511-Multiple-Angles.safetensors",
+      "strength_model": 1.0,
+      "model": ["108", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "Multiple-Angles LoRA" }
+  },
+  "102": {
+    "inputs": {
+      "lora_name": "qwen\\Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1.0,
+      "model": ["109", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "Lightning 4 steps" }
+  },
+  "94": {
+    "inputs": { "shift": 3.1, "model": ["102", 0] },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": { "title": "ModelSamplingAuraFlow" }
+  },
+  "98": {
+    "inputs": { "strength": 1.0, "model": ["94", 0] },
+    "class_type": "CFGNorm",
+    "_meta": { "title": "CFGNorm" }
+  },
+  "93": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Qwen 2.5-VL text encoder" }
+  },
+  "95": {
+    "inputs": { "vae_name": "qwen_image_vae.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Qwen image VAE" }
+  },
+  "41": {
+    "inputs": { "image": "camera_source.png" },
+    "class_type": "LoadImage",
+    "_meta": { "title": "Source picture" }
+  },
+  "107": {
+    "inputs": { "image": ["41", 0] },
+    "class_type": "FluxKontextImageScale",
+    "_meta": { "title": "Scale to a supported edit resolution" }
+  },
+  "105": {
+    "inputs": { "pixels": ["107", 0], "vae": ["95", 0] },
+    "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode" }
+  },
+  "112": {
+    "inputs": {
+      "clip": ["93", 0],
+      "prompt": "<sks> front view eye-level shot medium shot",
+      "vae": ["95", 0],
+      "image1": ["107", 0]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": { "title": "Camera pose (positive)" }
+  },
+  "100": {
+    "inputs": {
+      "clip": ["93", 0],
+      "prompt": "",
+      "vae": ["95", 0],
+      "image1": ["107", 0]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": { "title": "Negative (empty — CFG 1)" }
+  },
+  "97": {
+    "inputs": {
+      "conditioning": ["112", 0],
+      "reference_latents_method": "index_timestep_zero"
+    },
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "_meta": { "title": "Reference method (positive)" }
+  },
+  "96": {
+    "inputs": {
+      "conditioning": ["100", 0],
+      "reference_latents_method": "index_timestep_zero"
+    },
+    "class_type": "FluxKontextMultiReferenceLatentMethod",
+    "_meta": { "title": "Reference method (negative)" }
+  },
+  "106": {
+    "inputs": {
+      "seed": 0,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": ["98", 0],
+      "positive": ["97", 0],
+      "negative": ["96", 0],
+      "latent_image": ["105", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  },
+  "103": {
+    "inputs": { "samples": ["106", 0], "vae": ["95", 0] },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "9": {
+    "inputs": { "filename_prefix": "camera_angle", "images": ["103", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  }
+}

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Images, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
+import { Camera, Images, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
 import { apiFetch, postJson } from '../api/fetchClient';
+import CameraAnglePicker from '../components/shared/CameraAnglePicker';
 import GeneratedImageLightbox from '../components/shared/GeneratedImageLightbox';
+import { useCameraAngles } from '../hooks/useCameraAngles';
+import { cameraRefusal, isCameraView, poseLabel } from '../utils/cameraAngles';
 import { useCanvasImageImprove } from '../hooks/useCanvasImageImprove';
 import { useRestoreImproveSettings } from '../hooks/useRestoreImproveSettings';
 import { canImproveCanvasImage } from '../utils/canvasImprove';
@@ -58,6 +61,11 @@ export default function GalleryPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [zipping, setZipping] = useState(false);
+  // 📷 The picture the camera picker is open for, or null. Held as the ROW and
+  // not a boolean: the picker outlives a ‹ › step through the feed, and a
+  // flag would silently re-shoot whatever the viewer landed on instead.
+  const [cameraFor, setCameraFor] = useState(null);
+  const shootCameraViews = useCameraAngles();
   const alive = useRef(true);
   // Set true INSIDE the effect, not only at ref creation: StrictMode runs the
   // cleanup once at mount (false) and re-runs the effect — a ref left false
@@ -342,9 +350,26 @@ export default function GalleryPage() {
                 )}
                 {img.derivation_kind && (
                   /* BOTTOM-left: top-right is the verdict's corner and the
-                     selection tick owns top-left while picking. */
-                  <span aria-hidden title="Upscale & improve result"
-                    className="pointer-events-none absolute bottom-0.5 left-1 text-[0.625rem]">✨</span>
+                     selection tick owns top-left while picking. Two derivations
+                     reach this grid and they are NOT the same picture: ✨ is an
+                     upscale of what you see, 📷 is the same scene from another
+                     camera position. One badge for both would make a tile lie
+                     about what produced it — and the camera view carries its
+                     pose, because eight of them side by side are unreadable
+                     otherwise. */
+                  <span aria-hidden
+                    title={isCameraView(img)
+                      ? `Camera view — ${poseLabel(img.camera_pose) || 'another angle'}`
+                      : 'Upscale & improve result'}
+                    className="pointer-events-none absolute bottom-0.5 left-1 text-[0.625rem]">
+                    {isCameraView(img) ? '📷' : '✨'}
+                  </span>
+                )}
+                {isCameraView(img) && poseLabel(img.camera_pose) && (
+                  <span aria-hidden
+                    className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent px-1 pb-0.5 pt-2 text-center text-[0.55rem] leading-tight text-white/85">
+                    {poseLabel(img.camera_pose)}
+                  </span>
                 )}
               </div>
             );
@@ -447,9 +472,35 @@ export default function GalleryPage() {
         onImprove={canImproveCanvasImage(zoom) ? improveImage : undefined}
         onUseImproveSettings={restoreImproveSettings}
         datasetId={zoom?.dataset_id ?? null}
+        /* 📷 In the viewer's footer, beside the other verbs. Shown DISABLED
+           with its reason rather than hidden when the row cannot take it: a
+           button that vanishes teaches nothing, and "why can't I?" is the
+           question this panel exists to answer. */
+        actions={zoom ? (
+          <button type="button"
+            onClick={() => setCameraFor(zoom)}
+            disabled={!!cameraRefusal(zoom)}
+            title={cameraRefusal(zoom) || 'Re-shoot this scene from another camera position'}
+            className="min-h-10 lg:min-h-0 flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-400/50 bg-indigo-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-indigo-100 hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto">
+            <Camera className="size-3.5" aria-hidden />
+            Camera angles
+          </button>
+        ) : null}
         onPrev={zoomIndex > 0 ? () => setZoomIndex(zoomIndex - 1) : null}
         onNext={zoomIndex != null && zoomIndex < images.length - 1
           ? () => setZoomIndex(zoomIndex + 1) : null} />
+
+      {/* The picker sits ABOVE the viewer (both are fixed layers) so the
+          reference picture stays visible behind it while positions are chosen —
+          picking an angle of something you cannot see is guesswork. */}
+      {cameraFor && (
+        <CameraAnglePicker
+          onClose={() => setCameraFor(null)}
+          onShoot={async (poses) => {
+            const ok = await shootCameraViews(cameraFor.id, poses);
+            if (ok) setCameraFor(null);
+          }} />
+      )}
     </div>
   );
 }

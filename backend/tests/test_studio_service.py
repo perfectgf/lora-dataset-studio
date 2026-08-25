@@ -1622,6 +1622,23 @@ def test_embedded_workflow_model_refs_are_all_layout_independent():
             ('Flux2 klein\\flux-2-klein-9b-kv-fp8.safetensors', 'RESOLVED'),
         ('improve skin.json', '139', 'lora_name'):
             ('klein\\realistic.safetensors', 'BYPASSED'),
+        # 📷 Camera angles (services/qwen_camera_helper). Every one of the five
+        # is rewritten before enqueue by a resolver that reads the disk, and
+        # `camera_missing_assets` blocks the run when a REQUIRED one is absent —
+        # so none of these spellings has to exist on anybody's machine.
+        ('qwen_camera_angles.json', '108', 'unet_name'):
+            ('qwen\\qwen_image_edit_2511_fp8mixed.safetensors', 'RESOLVED'),
+        ('qwen_camera_angles.json', '109', 'lora_name'):
+            ('qwen\\Qwen-Image-Edit-2511-Multiple-Angles.safetensors', 'RESOLVED'),
+        # The ONLY optional one: absent, node 102 leaves the graph entirely and
+        # the step count rises to compensate (4 → 20). Dropping it while keeping
+        # 4 steps would render noise, which is why one function decides both.
+        ('qwen_camera_angles.json', '102', 'lora_name'):
+            ('qwen\\Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors', 'BYPASSED'),
+        ('qwen_camera_angles.json', '93', 'clip_name'):
+            ('qwen_2.5_vl_7b_fp8_scaled.safetensors', 'RESOLVED'),
+        ('qwen_camera_angles.json', '95', 'vae_name'):
+            ('qwen_image_vae.safetensors', 'RESOLVED'),
         ('klein_inpaint.json', '114', 'unet_name'):
             ('klein\\flux-2-klein-9b-fp8.safetensors', 'RESOLVED'),
         ('klein_inpaint.json', '10', 'vae_name'):

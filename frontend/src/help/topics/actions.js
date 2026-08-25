@@ -149,6 +149,23 @@ export const ACTION_TOPICS = [
      'improve settings back', 'previous settings', 'settings from image',
      'which settings made this', 'recorded settings', 'improve profile'],
     '/gallery', 'using-the-app', 'the-gallery-every-image-you-generated'),
+  /* 📷 Its own topic rather than a line under the Gallery's, because the
+     question people arrive with is not "what can the Gallery do" — it is
+     either "how do I get the back of this character" or, more often, "why did
+     it turn the person instead of moving the camera". Both vocabularies are in
+     the keywords, including the shot-catalog words, so someone who tried
+     "profile view" first lands here. */
+  action('action-camera-angles', 'Re-shoot a picture from another camera position',
+    ['camera', 'camera angle', 'angles', 'multi-angle', 'multiple angles', 'around',
+     'orbit', 'rotate camera', 'move camera', 'viewpoint', 'point of view',
+     'other side', 'back of', 'behind', 'from behind', 'back view', 'profile',
+     'side view', 'three-quarter', 'low angle', 'high angle', 'from below',
+     'from above', 'turntable', 'coverage', 'sks', 'qwen', 'why did it turn the person',
+     'background did not move', 'same scene different angle'],
+    '/gallery', 'using-the-app', 'the-gallery-every-image-you-generated',
+    { trigger: 'camera-angles-picker',
+      text: 'Pick axes, not pictures: the sides you tick times the heights times '
+        + 'the distances is the run — the count under the button is what it will cost.' }),
   action('action-reimprove-tile', 'Re-run Upscale & improve after changing its settings',
     ['improve', 'upscale', 'reimprove', 're-improve', 'rerun', 're-run', 'redo', 'again',
      'regenerate', 'no regenerate button', 'missing button', 'klein improve', 'candidate',

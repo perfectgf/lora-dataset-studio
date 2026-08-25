@@ -3870,6 +3870,133 @@ def improve_canvas_image(user_id, image_id, engine=None):
     return {'candidate_id': candidate_id, 'job_id': job_id, 'engine': engine}
 
 
+# --- 📷 Camera angles ---------------------------------------------------------
+# The same instant, seen from somewhere else. Why this is not one of the shot
+# catalog's `angle` variations, and why it needs its own base model, is written
+# once in services/camera_angles.py — read that before changing anything here.
+#
+# ⚠️ Written into user databases. Renaming it strands every row already there.
+CAMERA_ANGLE = 'camera_angle'
+
+
+def camera_views_for_canvas_image(user_id, image_id, poses):
+    """Queue one render per requested camera position, from ONE library picture.
+
+    Returns ``{'views': [{'candidate_id', 'job_id', 'pose', 'label'}], 'queued'}``
+    or ``None`` when the image is not the caller's.
+
+    Shape follows ✨ improve deliberately — separate rows, source never touched,
+    each result landing in the same gallery next to the picture it came from —
+    with one difference that matters: **one job per view.** A single job
+    rendering eight poses would share a seed, a queue slot and a failure; one
+    bad pose would take the other seven with it, and nothing would appear until
+    the last one finished. Eight jobs means the first picture arrives in about
+    twelve seconds and a failure costs one view.
+
+    Unlike improve there is NO idempotency guard. Two presses of ✨ on the same
+    picture would produce two indistinguishable upscales, so the second is
+    refused; two presses here are a legitimate request for a second take of the
+    same angle (a different seed, a different guess at the hidden side), which
+    is exactly what someone building a dataset does. The cost is bounded by
+    camera_angles.MAX_VIEWS_PER_RUN instead.
+    """
+    from . import camera_angles as ca
+    from . import qwen_camera_helper as qch
+
+    row = db.session.get(LoraTestImage, image_id)
+    if row is None:
+        return None
+    ds = fds.get_dataset(user_id, row.dataset_id)
+    if not ds:
+        return None
+    if row.derivation_kind:
+        # A view of a view compounds two hallucinated backdrops: the second pass
+        # re-invents what the first pass already invented, and the result is
+        # sold as a photograph of the original scene. Same guard as improve, for
+        # a stronger reason.
+        raise ValueError(ca.ALREADY_DERIVED)
+    if row.status != 'done' or not row.filename:
+        raise ValueError(ca.SOURCE_NOT_DONE)
+    source_path = os.path.join(fds._dataset_dir(row.dataset_id), row.filename)
+    if not os.path.isfile(source_path):
+        raise ValueError(ca.SOURCE_FILE_GONE)
+
+    wanted = ca.normalize_requested(poses)      # raises on empty / unknown / too many
+
+    # Refuse BEFORE creating any row when the weights are absent, so a missing
+    # model cannot leave a dataset full of failed tiles — the lesson the Klein
+    # lane already paid for (preflight in generate_variations).
+    missing = qch.camera_missing_assets()
+    if any(a in missing for a in qch.CAMERA_REQUIRED):
+        raise qch.CameraModelsMissing(missing)
+
+    views = []
+    for azimuth, elevation, distance in wanted:
+        pose = ca.pose_id(azimuth, elevation, distance)
+        prompt = ca.pose_prompt(azimuth, elevation, distance)
+        candidate = LoraTestImage(
+            dataset_id=row.dataset_id,
+            # NOT NULL, and honest: this IS that checkpoint's render, re-shot.
+            checkpoint=row.checkpoint, strength=row.strength,
+            status='pending', filename=None,
+            # Same checkpoint and step → same gallery, next to its source.
+            # `run_id` stays NULL so a camera view never splices itself into the
+            # epoch-by-epoch timeline, which filters on it.
+            record_id=row.record_id, step=row.step, run_id=None,
+            seed=row.seed,
+            # The prompt that ACTUALLY ran, in the LoRA's own grammar. The
+            # lightbox renders it as "Made with", so anything else here would be
+            # a sentence that did not decide the picture.
+            prompt=prompt[:500],
+            parent_image_id=row.id,
+            derivation_kind=CAMERA_ANGLE,
+        )
+        db.session.add(candidate)
+        db.session.commit()                    # row BEFORE enqueue: no orphan job
+        candidate_id = candidate.id
+        try:
+            job_id = qch.enqueue_camera_view(
+                user_id=str(user_id), source_filename=row.filename,
+                source_path=source_path, pose_prompt=prompt,
+                # `is_lora_test` is what routes the finished job back to
+                # link_completed_test_image — without it the completion looks the
+                # result up as a dataset image that does not exist.
+                extra_metadata={
+                    'is_lora_test': True,
+                    'dataset_id': str(row.dataset_id),
+                    'cell_id': candidate_id,
+                    'derivation_kind': CAMERA_ANGLE,
+                    'parent_image_id': row.id,
+                    'action': 'camera_angle',
+                    'camera_pose': pose,
+                })
+        except Exception:
+            # No ghost row: a candidate left pending with no file is exactly what
+            # _active_run_count counts, so a failed enqueue that kept its row
+            # would read as "a test run is already in progress" forever.
+            stale = db.session.get(LoraTestImage, candidate_id)
+            if stale is not None:
+                db.session.delete(stale)
+                db.session.commit()
+            # Views already queued keep theirs — they are real work in flight,
+            # and dropping them would waste GPU already spent.
+            if views:
+                logger.warning('camera angles: %s queued before %s failed',
+                               len(views), pose)
+                break
+            raise
+        saved = db.session.get(LoraTestImage, candidate_id)
+        if saved is None:                      # cancelled mid-enqueue
+            continue
+        saved.job_id = job_id
+        saved.camera_pose = pose
+        db.session.commit()
+        views.append({'candidate_id': candidate_id, 'job_id': job_id,
+                      'pose': pose,
+                      'label': ca.pose_label(azimuth, elevation, distance)})
+    return {'views': views, 'queued': len(views)}
+
+
 # --- Rating + best settings ---------------------------------------------------
 def _owned_test_image(user_id, image_id):
     """Single-user app: no cross-user ownership check (SRC compared the

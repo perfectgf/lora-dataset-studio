@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-camera-angles',
+    date: '2026-08-26',
+    title: 'Walk around your subject: re-shoot any picture from another camera position',
+    blurb:
+      'Open a picture in the Gallery and press 📷 Camera angles: pick where the '
+      + 'camera stands on the dial, how high it is and how close, and the app '
+      + 'renders that scene from there — the subject stays put and the '
+      + 'background moves with the camera, so what was behind them comes into '
+      + 'view. This is not the "profile view" shot the catalog already had: '
+      + 'that one turns the person and leaves the room where it was. Eight '
+      + 'sides of a subject at eye level is one gesture and about two minutes. '
+      + 'First use downloads the weights from Setup ▸ ComfyUI.',
+    to: '/gallery',
+  },
+  {
     id: '2026-08-26-klein-loras-report-as-deployed',
     date: '2026-08-26',
     title: 'Klein, FLUX.1 and Anima LoRAs finally report as deployed',

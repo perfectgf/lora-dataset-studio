@@ -772,6 +772,25 @@ DEFAULTS = {
     # restores it without reinterpreting. 'klein' is the default because it is
     # what every improve did before this setting existed.
     'improve': {'engine': 'klein'},
+    # 📷 Camera angles — the lane that moves the CAMERA rather than the subject
+    # (services/camera_angles.py explains why that needs its own base model).
+    # Same discipline as every other engine block: blank means "find it
+    # yourself", never a machine path. A pin exists for the install whose files
+    # the resolver cannot recognise — three different Qwen text encoders share
+    # `models/text_encoders`, and a renamed one is on disk but invisible.
+    # A pin that cannot be resolved falls back to auto-detection; it never
+    # blocks a render.
+    'camera': {
+        'unet': '', 'text_encoder': '', 'vae': '',
+        # The Multiple-Angles LoRA. Pinning something else here does not make
+        # the lane "wrong" — it makes it a different lane, and that is the
+        # user's business, exactly like a pinned Klein base.
+        'angles_lora': '',
+        # The 4-step Lightning LoRA. Blank and absent = the graph raises its own
+        # step count instead (qwen_camera_helper.STEPS_WITHOUT_SPEED_LORA);
+        # speed is the only thing this file buys.
+        'speed_lora': '',
+    },
     # SeedVR2 — the FIDELITY upscaler (services/seedvr2_helper.py, issue #32 by
     # SurpassHR). Not a generation engine: it restores detail and leaves the
     # content alone, which is the opposite trade from Klein's ✨ improve. Same
