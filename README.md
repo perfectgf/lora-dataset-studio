@@ -65,14 +65,14 @@ The cuts are measured rather than guessed: the aesthetic and near-duplicate thre
 <table>
   <tr>
     <td width="62%" valign="top">
-      <a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="The Bank workspace: the Analyze panel with every pass, the three-level watermark cleaning, and a Bank overview reporting coverage, resolution, framing, medium and structure across 50,461 images" width="100%"></a>
+      <a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="The Bank workspace: the Passes panel with every analysis pass, and a Bank overview reporting coverage, resolution, framing, medium and structure for the whole bank" width="100%"></a>
     </td>
     <td width="38%" valign="top">
       <a href="docs/screenshots/bank/bank-launch-all.png"><img src="docs/screenshots/bank/bank-launch-all.png" alt="The Launch all dialog: eight passes ticked, each quality flag quoting how many images it would reject, and a warning that unscanned images will change those counts" width="100%"></a>
     </td>
   </tr>
   <tr>
-    <td valign="top"><sub><strong>The workspace</strong> — every pass on the left, and on the right what the bank actually <em>is</em>: how much of it each pass has covered, its resolutions, framings, mediums, and how many duplicate and person groups are still unresolved. 50,461 images here, 93% measured for quality, 49% scored.</sub></td>
+    <td valign="top"><sub><strong>The workspace</strong> — every pass on the left, and on the right what the bank actually <em>is</em>: how much of it each pass has covered, its resolutions, framings, mediums, and how many duplicate and person groups are still unresolved. Every number here is measured, never assumed: a pass that has not run says so instead of showing a zero.</sub></td>
     <td valign="top"><sub><strong>Launch all</strong> — the whole triage in one go. Every flag quotes what it would reject <em>today</em>, and says out loud that 3,602 images have not been scanned yet, so those counts will grow. Stop it any time; a pass whose tool is missing is skipped, never failed.</sub></td>
   </tr>
 </table>
@@ -227,7 +227,7 @@ the target model accepts.
       <sub><strong>Image Bank</strong> — score, search and shortlist large collections.</sub>
     </td>
     <td align="center" width="50%">
-      <a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="Dataset image grid with keep/reject decisions, face-similarity scores and per-tile caption fields" width="380"></a><br>
+      <a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="Dataset image grid with keep/reject decisions, shot-type badges and per-tile caption fields" width="380"></a><br>
       <sub><strong>Curate</strong> — review, repair and balance the training set.</sub>
     </td>
   </tr>
