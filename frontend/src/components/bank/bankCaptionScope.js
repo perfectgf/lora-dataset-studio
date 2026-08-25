@@ -69,10 +69,10 @@ export function captionButtonLabel(selectedSize, counts, scopeId) {
   // own size. The pass cannot exceed it, and saying so is the honest bound —
   // quoting a bare `12` for a run of 6 is the same lie the scope counts exist to
   // end, just on the other axis.
-  if (selectedSize > 0) return `🏷️ Caption up to ${selectedSize} selected`;
+  if (selectedSize > 0) return `Caption up to ${selectedSize} selected`;
   const opt = captionScopeOption(scopeId);
-  if (!captionCountsKnown(counts)) return `🏷️ Caption ${opt.short === 'images' ? 'all' : opt.short}`;
-  return `🏷️ Caption ${captionScopeCount(counts, scopeId)} ${opt.short}`;
+  if (!captionCountsKnown(counts)) return `Caption ${opt.short === 'images' ? 'all' : opt.short}`;
+  return `Caption ${captionScopeCount(counts, scopeId)} ${opt.short}`;
 }
 
 /** Is the scope select inert right now, and why?
@@ -237,9 +237,9 @@ export function captionOverwriteCount(counts, scopeId, includeAsserted = false) 
  *  the inert reason (or '') and the label falls back to the bare verb. */
 export function captionRecaptionLabel(counts, scopeId, inertReason = '',
                                       includeAsserted = false) {
-  if (inertReason || !captionCountsKnown(counts)) return '🔄 Re-caption';
+  if (inertReason || !captionCountsKnown(counts)) return 'Re-caption';
   const opt = captionScopeOption(scopeId);
-  return `🔄 Re-caption ${captionRecaptionRunSize(counts, scopeId, includeAsserted)} ${opt.short}`;
+  return `Re-caption ${captionRecaptionRunSize(counts, scopeId, includeAsserted)} ${opt.short}`;
 }
 
 /** Is the re-caption button inert right now, and why? '' when it is live.
@@ -274,7 +274,7 @@ export function captionRecaptionDisabledReason(selectedSize, live, counts, scope
         + '"Also rewrite the ones I wrote" to redo them anyway.';
     }
     return `Nothing to re-caption — no ${pile} image has a caption yet. `
-      + 'Use 🏷️ Caption to write them first.';
+      + 'Use Caption to write them first.';
   }
   return '';
 }
@@ -295,7 +295,7 @@ export function captionRecaptionNote(selectedSize, live, counts, scopeId,
   const unknown = captionUnrecordedCount(counts, scopeId);
   const generated = captionGeneratedCount(counts, scopeId);
   const what = opt.nounAll;
-  const parts = [`🔄 Re-caption rewrites ${run} of the ${pile} ${what} image(s) with the `
+  const parts = [`Re-caption rewrites ${run} of the ${pile} ${what} image(s) with the `
     + 'engine and model picked here.'];
   // What it KEEPS comes first when it keeps anything: the reassurance is the news.
   if (mine > 0 && !includeAsserted) {

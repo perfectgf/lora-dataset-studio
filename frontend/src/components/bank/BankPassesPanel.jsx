@@ -95,17 +95,17 @@ export default function BankPassesPanel({
                 ? `Rate every non-rejected image for aesthetics (1–10), flag NSFW, and group by visual style — one CLIP pass. Powers a smarter "keep best". Already-scored images are reused, so stopping and relaunching costs only what is left. Runs in the background${
                   holdsTheGpu(scoreDevice) ? ', and holds the GPU (ComfyUI is unloaded and training cannot start) for its duration' : ' on the CPU, leaving the GPU free'}.`
                 : 'Install the Bank scoring extra (Setup ▸ Quality tools) to score aesthetics / NSFW / style'}>
-              ✨ Score…{!caps.bank_scoring && ' (needs setup)'}
+              Score…{!caps.bank_scoring && ' (needs setup)'}
             </PassButton>
             <PassButton onClick={() => onPassOpen('medium')} disabled={live || !caps.bank_scoring}
               title={caps.bank_scoring
-                ? 'Sort every scored image into photograph / anime / 3D render / illustration — read off the CLIP embeddings ✨ Score already computed, so no image is looked at again and the GPU stays free. It answers “unsure” rather than guessing: measured on a real 23 500-image bank, it named 2 anime drawings and no wrong verdict.'
+                ? 'Sort every scored image into photograph / anime / 3D render / illustration — read off the CLIP embeddings Score already computed, so no image is looked at again and the GPU stays free. It answers “unsure” rather than guessing: measured on a real 23 500-image bank, it named 2 anime drawings and no wrong verdict.'
                 : 'Install the Bank scoring extra (Setup ▸ Quality tools) — Medium reads the embeddings the Score pass produces'}>
               <Palette aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Classify medium…{!caps.bank_scoring && ' (needs setup)'}
             </PassButton>
             <PassButton onClick={() => onPassOpen('framing')} disabled={live || !visionReady}
               title={visionReady
-                ? 'Classify every non-rejected image by shot type — face close-up, bust, full body, back view — with the same Qwen3-VL classifier the datasets use. Powers the 📐 Framing filter and the coverage advice. GPU vision pass.'
+                ? 'Classify every non-rejected image by shot type — face close-up, bust, full body, back view — with the same Qwen3-VL classifier the datasets use. Powers the Framing filter and the coverage advice. GPU vision pass.'
                 : 'Pull the vision model (Settings ▸ Local tools) to classify framing'}>
               <Ruler aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Classify framing…{!visionReady && ' (needs setup)'}
             </PassButton>
@@ -169,7 +169,7 @@ export default function BankPassesPanel({
           )}
           {!capsLoading && !caps.bank_scoring && (
             <p className="text-xs text-content-muted">
-              ✨ Score needs its own packages (Setup ▸ Quality tools) — or an interpreter
+              Score needs its own packages (Setup ▸ Quality tools) — or an interpreter
               that already has them{scoreGpuPresent
                 ? '. If you train LoRAs or run ComfyUI, this machine probably has one.'
                 : ', which saves installing them twice.'}

@@ -220,7 +220,7 @@ test('bank menu groups by pass, keeps every option, and heads with Default', () 
       title: groups[0].options[0].title }],
   });
   assert.deepEqual(groups.map((g) => g.group),
-    ['', '📁 File', '✨ Score', '🔎 Scan quality', '🎭 Faces', '🎨 Medium']);
+    ['', 'File', 'Score', 'Scan quality', 'Faces', 'Medium']);
   // Grouping is a RE-ARRANGEMENT: no option invented, none lost, none duplicated.
   const flat = groups.flatMap((g) => g.options.map((o) => o.id));
   assert.deepEqual(flat.slice().sort(), BANK_SORTS.map((s) => s.id).slice().sort());

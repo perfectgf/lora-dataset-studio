@@ -1,4 +1,5 @@
 import { pickDatasetCaptions, keptCaptions } from '../../utils/datasetCaptions';
+import { Dices } from 'lucide-react';
 
 /** 🎲 Fill the Preview-prompts textarea with real captions from this dataset.
  *
@@ -42,7 +43,7 @@ export function UseDatasetCaptionsButton({
         onPick?.(pickDatasetCaptions(images, limit).join('\n'));
       }}
       className={`self-start px-2 py-1 rounded-lg border border-border bg-surface text-content-muted text-[0.6875rem] hover:text-content hover:border-content-subtle disabled:opacity-40 disabled:cursor-not-allowed ${className}`}>
-      🎲 Use dataset captions
+      <Dices aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Use dataset captions
     </button>
   );
 }

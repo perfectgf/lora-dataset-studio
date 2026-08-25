@@ -25,6 +25,7 @@
  * `bankWatermark.js` so `node --test` covers it; this file is the shell.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { Flag } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient'
 import PassDialog from './PassDialog.jsx'
 import KleinModelSetting from '../shared/KleinModelSetting'
@@ -181,7 +182,7 @@ export default function BankWatermarkPanel({
       className="rounded-lg border border-border bg-surface-raised">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 p-3 text-left">
-        <span className="text-sm font-semibold text-content">🚩 Watermarks</span>
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-content"><Flag aria-hidden="true" className="h-4 w-4" /> Watermarks</span>
         <span className="text-[0.6875rem] text-content-subtle">{headline}</span>
         {note && <span aria-hidden className="text-[0.6875rem] text-amber-300/90">⚠️</span>}
         <span aria-hidden className="ml-auto text-xs text-content-subtle">{open ? '▲' : '▼'}</span>
@@ -197,7 +198,7 @@ export default function BankWatermarkPanel({
           flag the user disagrees with. */}
       {source && <p className="text-[0.6875rem] text-content-subtle">🔎 {source}</p>}
       {note && <p className="text-xs text-amber-300/90">⚠️ {note}</p>}
-      {masks && <p className="text-xs text-content-subtle">🚩 {masks}</p>}
+      {masks && <p className="text-xs text-content-subtle">{masks}</p>}
 
       <div className="flex flex-wrap gap-2">
         <LevelCard index={1} title="Find them" state={find}
@@ -222,7 +223,7 @@ export default function BankWatermarkPanel({
       {caps.watermark_detect && !caps.watermark_detect_gpu && gpuPresent && (
         <div className="space-y-1">
           <p className="text-xs text-amber-400/90">
-            🚩 Find runs on the CPU — the detector’s Python has no CUDA torch.
+            Find runs on the CPU — the detector’s Python has no CUDA torch.
             This machine has a GPU: point the detector at a Python that already
             has one (ComfyUI’s, ai-toolkit’s) and the scan runs ~10× faster.
           </p>
@@ -329,7 +330,7 @@ export default function BankWatermarkPanel({
               </span>{method === 'klein'
                 ? ' — slower, and the only one that clears a mark ON the subject.'
                 : ' — fast; a mark on the subject stays flagged instead of being smeared.'}
-              {' '}Change it on the 🚩 Watermarks panel, next to this level.
+              {' '}Change it on the Watermarks panel, next to this level.
             </p>
           )}
         </PassDialog>

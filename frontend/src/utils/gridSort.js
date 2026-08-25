@@ -40,18 +40,18 @@
  *  be > 0 for the entry to do anything; `missing` is the reason shown when it is
  *  0 (appended to the label, because a disabled <option>'s title is invisible on
  *  most platforms). */
-const SCAN = { needs: 'scanned', missing: 'run 🔎 Scan quality', group: '🔎 Scan quality' };
-const SCORE = { needs: 'scored', missing: 'run ✨ Score', group: '✨ Score' };
-const FACE = { needs: 'faces', missing: 'run 🎭 Faces', group: '🎭 Faces' };
-const FILE = { needs: 'scanned', missing: 'run 🔎 Scan quality', group: '📁 File' };
+const SCAN = { needs: 'scanned', missing: 'run Scan quality', group: 'Scan quality' };
+const SCORE = { needs: 'scored', missing: 'run Score', group: 'Score' };
+const FACE = { needs: 'faces', missing: 'run Faces', group: 'Faces' };
+const FILE = { needs: 'scanned', missing: 'run Scan quality', group: 'File' };
 // The head angle comes from the 🎭 Faces pass but has its OWN readiness count:
 // a bank scanned before the pass kept the yaw has thousands of faces and zero
 // measured angles, so gating this entry on `faces` would offer a sort that
 // reorders nothing. `angle_measured` is the only honest gate.
 const ANGLE = { needs: 'angle_measured', missing: 'measure head angles',
-  group: '🎭 Faces' };
-const MEDIUM = { needs: 'medium_classified', missing: 'run 🎨 Medium',
-  group: '🎨 Medium' };
+  group: 'Faces' };
+const MEDIUM = { needs: 'medium_classified', missing: 'run Medium',
+  group: 'Medium' };
 
 /** One measure = two entries (↓ then ↑). `hi`/`lo` are what each direction puts
  *  in front of you — written as the REASON to pick it, not as a restatement of
@@ -96,13 +96,13 @@ export const BANK_SORTS = [
     'Best-saved first',
     'Most compressed first — the re-shared, re-saved copies'),
   ...measure('face', 'Face confidence', FACE,
-    'Clearest faces first — from the 🎭 Faces pass',
+    'Clearest faces first — from the Faces pass',
     'Weakest faces first — tiny, turned or half-hidden faces'),
   // The head angle is ordered on its ABSOLUTE value: "turned left" and "turned
   // right" are one shot type, and splitting them would halve every answer for a
   // distinction no training set makes.
   ...measure('yaw', 'Head angle', ANGLE,
-    'Most turned away first — the profiles and three-quarters, from the 🎭 Faces pass',
+    'Most turned away first — the profiles and three-quarters, from the Faces pass',
     'Most face-on first'),
   // The one sort whose USEFUL direction is ↑: it opens on the images the medium
   // classifier nearly could not call, which is exactly the pile worth a human
@@ -223,7 +223,7 @@ const framingRank = (img) => {
 const NEEDS = {
   face: {
     has: (i) => faceScore(i) !== null,
-    missing: 'run 🎭 Analyze faces first',
+    missing: 'run Analyze faces first',
     reason: 'No image has a face score yet — run 🎭 Analyze faces (Curation) to sort by this.',
   },
   framing: {

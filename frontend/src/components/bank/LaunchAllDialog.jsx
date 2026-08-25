@@ -22,7 +22,7 @@ import {
 const QUALITY_FLAGS = [
   { key: 'blur', label: 'Blurry' },
   { key: 'noise', label: 'Noisy' },
-  { key: 'uniform', label: '⬜ Flat' },
+  { key: 'uniform', label: 'Flat' },
   { key: 'small', label: 'Small' },
 ]
 
@@ -55,7 +55,7 @@ export default function LaunchAllDialog({
     { key: 'auto_reject', label: 'Auto-reject flagged',
       desc: 'Reject the images carrying the flags below — reversible, nothing deleted.' },
     score:
-    { key: 'score', label: '✨ Score', needs: 'Bank scoring extra',
+    { key: 'score', label: 'Score', needs: 'Bank scoring extra',
       desc: 'CLIP aesthetic 1–10, NSFW, visual style and Medium (GPU).' },
     semantic_index:
     { key: 'semantic_index', label: 'Build SigLIP 2 semantic index', needs: 'SigLIP 2 Quality tool',

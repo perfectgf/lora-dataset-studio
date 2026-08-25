@@ -274,7 +274,7 @@ export default function BankFilterRail({
             <Chip active={filter.flag === 'clean'}
               onClick={() => setF({ flag: filter.flag === 'clean' ? null : 'clean' })}
               title="Scanned and carrying none of the quality flags">
-              ✨ Clean {flags.clean ?? 0}
+              Clean {flags.clean ?? 0}
             </Chip>
           </FilterGroup>
           {/* Coverage, stated where the zeros are. Measured on a real bank:

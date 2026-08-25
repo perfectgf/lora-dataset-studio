@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Search } from 'lucide-react';
 import RecentPrompts from './RecentPrompts';
 import DescribeImageModal from './DescribeImageModal';
 import DatasetCaptionControl from './DatasetCaptionControl';
@@ -37,7 +38,7 @@ export default function PromptField({ value, placeholder, onChange, onReset, isC
           <button type="button" onClick={() => setDescribeOpen(true)}
             title="Describe an image into a test prompt (vision model)"
             className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
-            🔎 Describe
+            <Search aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Describe
           </button>
         </div>
       </div>

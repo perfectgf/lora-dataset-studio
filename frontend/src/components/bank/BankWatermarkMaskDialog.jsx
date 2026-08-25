@@ -16,6 +16,7 @@
  * is never touched by any of this: a bank cleans into its own working copy.
  */
 import { useCallback, useRef, useState } from 'react'
+import { Flag } from 'lucide-react';
 import { putJson } from '../../api/fetchClient'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { HelpBadge } from '../../help/HelpMode'
@@ -108,7 +109,7 @@ export default function BankWatermarkMaskDialog({ bankId, image, onSaved, onClos
     <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Edit the watermark mask"
       className="fixed inset-0 z-[9998] flex flex-col bg-black">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2">
-        <span className="text-sm font-semibold text-white">🚩 Watermark mask</span>
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white"><Flag aria-hidden="true" className="h-4 w-4" /> Watermark mask</span>
         <span className="max-w-[14rem] truncate text-xs text-white/60" title={image?.name}>
           {image?.name}
         </span>

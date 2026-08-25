@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { BarChart3 } from 'lucide-react';
 import { bankOverviewModel } from './bankOverview.js'
 
 const STATUS_TONE = {
@@ -57,7 +58,7 @@ export default function BankOverview({ payload }) {
             <span aria-hidden="true" className="w-3 shrink-0 text-content-subtle">
               {open ? '▾' : '▸'}
             </span>
-            <span>📊 Bank overview</span>
+            <span className="inline-flex items-center gap-1.5"><BarChart3 aria-hidden="true" className="h-4 w-4" /> Bank overview</span>
           </button>
         </h2>
         <span className="text-xs tabular-nums text-content-subtle">

@@ -3469,7 +3469,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 { target: 'run', ...trainingRunSelection(checkpointBase, checkpointTrainType, checkpointVariant) })}
               title="Open this run's output folder (raw checkpoints, samples, training log)"
               className="px-3 py-1.5 rounded-lg bg-surface-raised border border-border text-content text-xs font-semibold">
-              📂 Run folder
+              <FolderOpen aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Run folder
             </button>
             <span className="text-content-subtle text-[0.625rem]">
               import the checkpoint you like into ComfyUI to use (and test) the LoRA

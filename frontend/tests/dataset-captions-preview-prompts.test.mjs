@@ -103,7 +103,7 @@ function render(props) {
 test('the button is live when the dataset has captions, and says what it does', () => {
   const html = render({})
   assert.match(html, /aria-label="Use dataset captions as preview prompts"/)
-  assert.match(html, /🎲 Use dataset captions/)
+  assert.match(html, />Use dataset captions/)
   assert.match(html, /title="Fill with up to 5 random captions from this dataset — click again for a new draw\."/)
   assert.doesNotMatch(html.match(/<button[^>]*>/)[0], /\sdisabled=/)
 })

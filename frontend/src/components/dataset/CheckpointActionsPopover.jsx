@@ -1,4 +1,5 @@
 import { checkpointActionModel } from './checkpointPopover.js';
+import { Trash2 } from 'lucide-react';
 
 /* ◉ THE checkpoint actions popover — one component, two surfaces.
 
@@ -119,7 +120,7 @@ export default function CheckpointActionsPopover({
           <button type="button" disabled={deleting}
             onClick={() => onDelete(node, pill)} title={a.del.title}
             className="mt-1 flex items-center gap-1.5 border-t border-border px-2 pt-1.5 pb-0.5 text-left text-content-subtle text-[0.625rem] hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50">
-            <span aria-hidden>🗑</span> {deleting ? 'Deleting…' : a.del.label}
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" /> {deleting ? 'Deleting…' : a.del.label}
           </button>
         )}
       </div>

@@ -130,7 +130,7 @@ test('the overview is open by default and folds without tying its state to live 
 test('the overview header and live total stay visible while its details fold', () => {
   const detailsAt = overview.indexOf('<div id={contentId}')
   assert.ok(detailsAt > 0)
-  assert.ok(overview.indexOf('📊 Bank overview') < detailsAt)
+  assert.ok(overview.indexOf('>Bank overview') < detailsAt)
   assert.ok(overview.indexOf('{totalText}') < detailsAt)
 })
 

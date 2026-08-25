@@ -1,7 +1,7 @@
 /** One curation tile: image + keep/reject + source/framing badges + caption + crop. */
 import { improvementBadge } from './improveCandidates.js';
 import SelectionMark from '../shared/SelectionMark';
-import { Eye, Flag, Sparkles } from 'lucide-react';
+import { Drama, Eye, Flag, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { displayLabel } from '../../utils/labels';
 // WHO wrote this tile's caption — the per-image half of the provenance the pass
@@ -314,7 +314,8 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               aria-busy={scoreFaceBusy}
               title={scoreFaceTitle} aria-label={scoreFaceTitle}
               className="grid min-h-7 min-w-7 place-items-center rounded bg-black/60 text-[10px] text-white disabled:cursor-not-allowed disabled:opacity-45">
-              <span aria-hidden="true" className={scoreFaceBusy ? 'animate-pulse' : ''}>{scoreFaceBusy ? '…' : '🎭'}</span>
+              <span aria-hidden="true" className={scoreFaceBusy ? 'animate-pulse' : ''}>{scoreFaceBusy
+                ? '…' : <Drama aria-hidden="true" className="h-3.5 w-3.5" />}</span>
             </button>
           )}
           {canRegenerate && (
@@ -369,7 +370,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
               disabled={curationRefused}
               title={curationRefusedReason || 'Delete permanently'}
               aria-label={curationRefusedReason || 'Delete permanently'}
-              className="px-1.5 py-0.5 rounded bg-red-700/80 text-white text-[10px] disabled:cursor-not-allowed disabled:opacity-45">🗑</button>
+              className="px-1.5 py-0.5 rounded bg-red-700/80 text-white text-[10px] disabled:cursor-not-allowed disabled:opacity-45"><Trash2 aria-hidden="true" className="h-3 w-3" /></button>
           )}
         </div>
         {editingPrompt && (
@@ -428,7 +429,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
                 title={curationRefusedReason || 'Delete this image’s caption (then “Caption” regenerates it via JoyCaption)'}
                 aria-label={curationRefusedReason || 'Delete this image’s caption'}
                 className="rounded border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-45">
-                🗑 Caption
+                <Trash2 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Caption
               </button>
             )}
           </div>

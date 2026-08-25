@@ -228,7 +228,7 @@ test('⋯ says what is folded behind it', () => {
 test('the shelf’s chips carry their words, and the toolbar keeps its targets', () => {
   const presets = fs.readFileSync(new URL('./CanvasLayoutPresets.jsx', import.meta.url), 'utf8');
   assert.ok(canvas.includes('<span aria-hidden>✦</span> Tidy up'));
-  assert.ok(canvas.includes('<span aria-hidden>🔌</span> + LoRA'));
+  assert.ok(canvas.includes('/> + LoRA'));
   assert.ok(canvas.includes('<span aria-hidden>⏏</span> Undeploy…'));
   assert.doesNotMatch(canvas, /hidden sm:inline">Tidy up/);
   assert.doesNotMatch(presets, /hidden sm:inline">Layouts/);

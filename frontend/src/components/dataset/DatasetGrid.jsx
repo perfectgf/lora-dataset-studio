@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Target, Trash2 } from 'lucide-react';
 import DatasetGridItem from './DatasetGridItem';
 import TileSizeControl from '../shared/TileSizeControl';
 import KleinImproveNote from './KleinImproveNote';
@@ -117,7 +118,7 @@ function AutoTriageBar({ images, allImages, datasetId, faceThresholds, onBatch, 
     if (!empty) return null;
     return (
       <div className="flex items-center gap-2 flex-wrap rounded-lg border border-dashed border-border bg-surface px-3 py-2">
-        <span className="text-content-muted text-sm font-semibold shrink-0">🎯 Auto-triage</span>
+        <span className="inline-flex items-center gap-1.5 text-content-muted text-sm font-semibold shrink-0"><Target aria-hidden="true" className="h-4 w-4" /> Auto-triage</span>
         <span role="status" className="text-xs text-content-subtle">{empty.message}</span>
       </div>
     );
@@ -176,7 +177,7 @@ function AutoTriageBar({ images, allImages, datasetId, faceThresholds, onBatch, 
 
   return (
     <div className="relative flex items-center gap-3 flex-wrap rounded-lg border border-border bg-surface px-3 py-2">
-      <span className="text-content text-sm font-semibold shrink-0">🎯 Auto-triage</span>
+      <span className="inline-flex items-center gap-1.5 text-content text-sm font-semibold shrink-0"><Target aria-hidden="true" className="h-4 w-4" /> Auto-triage</span>
       <button type="button" onClick={() => setShowHelp((v) => !v)}
         aria-expanded={showHelp} aria-label="What does auto-triage do?"
         title="What does auto-triage do?"
@@ -574,7 +575,7 @@ export default function DatasetGrid({ images, datasetId, onStatus, onCaption, on
               )}
               <button type="button" disabled={curationWriteBusy} onClick={() => act('delete')}
                 className={`${batchBtn} bg-red-500/15 border border-red-500/40 text-red-300`}>
-                {bulkAction?.action === 'delete' ? bulkActionMessage(bulkAction) : '🗑 Delete'}
+                {bulkAction?.action === 'delete' ? bulkActionMessage(bulkAction) : <><Trash2 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Delete</>}
               </button>
               <span className="ml-auto flex gap-2">
                 <button type="button" disabled={bulkBusy}

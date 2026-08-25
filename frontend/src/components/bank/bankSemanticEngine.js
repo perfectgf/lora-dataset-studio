@@ -164,7 +164,7 @@ export function semanticPurposeSentence(engine) {
 }
 
 export const SCORE_STAYS_CLIP_SENTENCE = '✨ Score stays on CLIP for aesthetic, NSFW, '
-  + 'visual style and 🎨 Medium.'
+  + 'visual style and Medium.'
 
 export const SEMANTIC_CACHE_SENTENCE = 'Switching engines keeps both caches and both '
   + 'same-shot groupings; it starts nothing automatically and deletes nothing.'

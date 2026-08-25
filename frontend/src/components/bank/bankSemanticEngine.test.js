@@ -99,7 +99,7 @@ test('default pipeline checks semantic index only for a ready SigLIP2 install', 
 test('visible copy preserves Score ownership, both caches and both groupings', () => {
   assert.match(semanticPurposeSentence('clip'), /^CLIP powers semantic search/)
   assert.match(semanticPurposeSentence('siglip2'), /^SigLIP 2 powers semantic search/)
-  assert.match(SCORE_STAYS_CLIP_SENTENCE, /aesthetic, NSFW, visual style and 🎨 Medium/)
+  assert.match(SCORE_STAYS_CLIP_SENTENCE, /aesthetic, NSFW, visual style and Medium/)
   assert.match(SEMANTIC_CACHE_SENTENCE, /keeps both caches/)
   assert.match(SEMANTIC_CACHE_SENTENCE, /both same-shot groupings/)
   assert.match(SEMANTIC_CACHE_SENTENCE, /starts nothing automatically/)

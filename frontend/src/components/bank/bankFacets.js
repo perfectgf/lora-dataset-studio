@@ -15,12 +15,12 @@
 import { ORIGIN_CHIPS, PROVENANCE_FLAG_LABEL } from './bankProvenance.js'
 
 export const FLAG_LABEL = {
-  blur: '🌫 Blurry', noise: '📺 Noisy', uniform: '⬜ Flat',
-  small: '📐 Small', unreadable: '❌ Unreadable',
+  blur: 'Blurry', noise: 'Noisy', uniform: 'Flat',
+  small: 'Small', unreadable: 'Unreadable',
   // Provenance pass — same CPU scan, no extras needed.
   ...PROVENANCE_FLAG_LABEL,
   // V2 scoring flags (aesthetic · NSFW · watermark passes).
-  low_aesthetic: '💔 Low aesthetic', nsfw: '🔞 NSFW', watermark: '🚩 Watermark',
+  low_aesthetic: 'Low aesthetic', nsfw: 'NSFW', watermark: 'Watermark',
 }
 
 export const FLAG_HINT = {
@@ -59,7 +59,7 @@ export const ORIGIN_BUCKETS = ORIGIN_CHIPS
 // are the character composition axes; 'unknown' is a parseable-but-unclassed shot.
 export const FRAMING_BUCKETS = [
   { id: 'face', label: '😀 Face' },
-  { id: 'bust', label: '👤 Bust' },
+  { id: 'bust', label: 'Bust' },
   { id: 'body', label: '🧍 Body' },
   { id: 'back', label: '🔙 Back' },
   { id: 'unknown', label: '❔ Unknown' },
@@ -73,9 +73,9 @@ export const STATUS_RING = {
 
 // Short pass names for the progress bar's pipeline readout.
 export const STEP_SHORT = {
-  scan: '🔎 Scan', auto_reject: '🧹 Auto-reject', score: '✨ Score',
-  semantic_index: '🧠 Semantic index',
-  semantic_dedup: '✂ Crops', watermark: '🚩 Watermarks', faces: '👥 Person',
-  framing: '📐 Framing', caption: '🏷️ Caption', medium: '🎨 Medium',
+  scan: 'Scan', auto_reject: '🧹 Auto-reject', score: 'Score',
+  semantic_index: 'Semantic index',
+  semantic_dedup: '✂ Crops', watermark: 'Watermarks', faces: 'Person',
+  framing: 'Framing', caption: 'Caption', medium: 'Medium',
   angles: '⤢ Angles',
 }

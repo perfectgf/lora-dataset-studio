@@ -593,7 +593,7 @@ export default function DatasetListPanel({
         </p>
       ) : (
         <>
-          {groups.map(({ family, label, emoji, items }) => {
+          {groups.map(({ family, label, emoji: GroupIcon, items }) => {
             const open = filterActive || !collapsed[family];
             return (
               <section key={family} className="flex flex-col gap-2">
@@ -610,7 +610,7 @@ export default function DatasetListPanel({
                       className={`text-[0.625rem] transition-transform ${open ? 'rotate-90' : ''} ${filterActive ? 'opacity-40' : ''}`}>
                       ▶
                     </span>
-                    <span aria-hidden="true">{emoji}</span> {label}
+                    <GroupIcon aria-hidden="true" className="h-3.5 w-3.5" /> {label}
                     <span className="font-normal normal-case tracking-normal">({items.length})</span>
                   </button>
                 </h2>

@@ -28,7 +28,7 @@ const sync = (over = {}) => ({
 test('a never-walked list warns that its counts can lag AND offers the walk', () => {
   const html = render(FolderCheckLine, { banks: [sync(), sync()] })
   assert.match(html, /counts below are what the app knew last time/i)
-  assert.match(html, /🔄 Rescan folders/)
+  assert.match(html, />Rescan folders/)
   assert.match(html, /<button[^>]*type="button"/)
 })
 

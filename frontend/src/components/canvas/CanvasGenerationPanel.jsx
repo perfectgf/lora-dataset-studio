@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Palette, Plug } from 'lucide-react';
 import RunSetupPanel from '../dataset/studio/RunSetupPanel';
 import CanvasBlendPanel from './CanvasBlendPanel';
 import { useCanvasStudio } from '../../hooks/useCanvasStudio';
@@ -190,7 +191,7 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
           files stacked on top of whichever checkpoints are picked above. */}
       {externalLoras.length > 0 && (
         <p className="m-0 text-cyan-200 text-[0.6875rem]">
-          <span aria-hidden>🔌</span> {externalLoras.length} external LoRA{externalLoras.length > 1 ? 's' : ''} will be stacked on this run.
+          <Plug aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{externalLoras.length} external LoRA{externalLoras.length > 1 ? 's' : ''} will be stacked on this run.
         </p>
       )}
       {selection.length > 1 && (
@@ -212,7 +213,7 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
                  lg:inset-x-auto lg:right-0 lg:top-0 lg:h-full lg:max-h-none lg:w-[26rem] lg:border-l lg:border-t-0">
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-content">
-          <span aria-hidden>🎨</span> Generate from the board
+          <Palette aria-hidden="true" className="h-4 w-4" /> Generate from the board
           {family && <span className="font-normal text-content-muted"> · {famLabel(family)}</span>}
         </h3>
         {/* The way back to the board, and the control most often reached for on a

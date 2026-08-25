@@ -61,16 +61,16 @@ test('the rejected pile is in no count', () => {
 });
 
 test('the button quotes the number it will move', () => {
-  assert.equal(captionButtonLabel(0, counts, ''), '🏷️ Caption 312 images');
-  assert.equal(captionButtonLabel(0, counts, 'keep'), '🏷️ Caption 12 kept');
-  assert.equal(captionButtonLabel(0, counts, 'pending'), '🏷️ Caption 300 undecided');
+  assert.equal(captionButtonLabel(0, counts, ''), 'Caption 312 images');
+  assert.equal(captionButtonLabel(0, counts, 'keep'), 'Caption 12 kept');
+  assert.equal(captionButtonLabel(0, counts, 'pending'), 'Caption 300 undecided');
 });
 
 test('a selection overrides the scope in the label, and says "up to"', () => {
   // The server intersects the selection with the non-rejected, uncaptioned set, so a
   // selection of 12 can run on 6. "up to" is the bound the pass really honours; a bare
   // "12" would be the same broken promise the scope counts exist to end.
-  assert.equal(captionButtonLabel(7, counts, 'keep'), '🏷️ Caption up to 7 selected');
+  assert.equal(captionButtonLabel(7, counts, 'keep'), 'Caption up to 7 selected');
 });
 
 test('"not measured yet" is not rendered as zero', () => {
@@ -79,8 +79,8 @@ test('"not measured yet" is not rendered as zero', () => {
   assert.equal(captionCountsKnown(null), false);
   assert.equal(captionCountsKnown({ keep: 3 }), false);
   assert.equal(captionCountsKnown(counts), true);
-  assert.equal(captionButtonLabel(0, null, ''), '🏷️ Caption all');
-  assert.equal(captionButtonLabel(0, {}, 'keep'), '🏷️ Caption kept');
+  assert.equal(captionButtonLabel(0, null, ''), 'Caption all');
+  assert.equal(captionButtonLabel(0, {}, 'keep'), 'Caption kept');
 });
 
 test('the scope goes inert while a selection is live, and says why', () => {
@@ -109,7 +109,7 @@ test('an empty scope says so instead of offering a pass that does nothing', () =
   assert.match(note, /Nothing to caption/i);
 });
 
-/* 🔄 RE-CAPTION — the forced pass. Two numbers, and neither may be the other:
+/* RE-CAPTION — the forced pass. Two numbers, and neither may be the other:
    what it REWRITES (the whole pile) and what it DESTROYS (the captions already there). */
 
 test('the forced run size is the PILE, not the uncaptioned part of it', () => {
@@ -136,11 +136,11 @@ test('the overwrite count never goes negative on an inconsistent payload', () =>
 });
 
 test('the re-caption button quotes the number it REWRITES', () => {
-  assert.equal(captionRecaptionLabel(counts, 'keep'), '🔄 Re-caption 40 kept');
-  assert.equal(captionRecaptionLabel(counts, 'pending'), '🔄 Re-caption 900 undecided');
-  assert.equal(captionRecaptionLabel(counts, ''), '🔄 Re-caption 940 images');
+  assert.equal(captionRecaptionLabel(counts, 'keep'), 'Re-caption 40 kept');
+  assert.equal(captionRecaptionLabel(counts, 'pending'), 'Re-caption 900 undecided');
+  assert.equal(captionRecaptionLabel(counts, ''), 'Re-caption 940 images');
   // …and never a number nobody measured.
-  assert.equal(captionRecaptionLabel(null, ''), '🔄 Re-caption');
+  assert.equal(captionRecaptionLabel(null, ''), 'Re-caption');
 });
 
 test('an inert re-caption button quotes NO number at all', () => {
@@ -149,12 +149,12 @@ test('an inert re-caption button quotes NO number at all', () => {
   // label goes back to the bare verb.
   const why = captionRecaptionDisabledReason(5, false, counts, 'keep');
   assert.notEqual(why, '');
-  assert.equal(captionRecaptionLabel(counts, 'keep', why), '🔄 Re-caption');
-  assert.equal(captionRecaptionLabel(counts, 'keep', ''), '🔄 Re-caption 40 kept');
+  assert.equal(captionRecaptionLabel(counts, 'keep', why), 'Re-caption');
+  assert.equal(captionRecaptionLabel(counts, 'keep', ''), 'Re-caption 40 kept');
 });
 
 test('the two buttons quote different numbers, on purpose', () => {
-  // 🏷️ Caption fills 12; 🔄 Re-caption rewrites 40 of which 28 already had a caption.
+  // Caption fills 12; Re-caption rewrites 40 of which 28 already had a caption.
   // If these ever collapsed into one figure, one of the two buttons would be lying.
   assert.equal(captionScopeCount(counts, 'keep'), 12);
   assert.equal(captionForcePileSize(counts, 'keep'), 40);
@@ -183,7 +183,7 @@ test('re-caption is inert when there is no caption to overwrite', () => {
   assert.match(captionRecaptionDisabledReason(0, false, fresh, 'keep'),
     /Nothing to re-caption/i);
   // …and it points at the button that CAN do something, instead of dead-ending.
-  assert.match(captionRecaptionDisabledReason(0, false, fresh, 'keep'), /🏷️ Caption/);
+  assert.match(captionRecaptionDisabledReason(0, false, fresh, 'keep'), /Caption/);
   assert.equal(captionRecaptionDisabledReason(0, false, counts, 'keep'), '');
 });
 
@@ -258,10 +258,10 @@ test('the run size is the pile MINUS what the pass spares', () => {
   // The number on the button has to be the number of rows that change. Quoting the
   // pile while sparing 5 of it is the same defect as quoting 5 930 and moving 0.
   assert.equal(captionRecaptionRunSize(mixed, 'keep'), 35);
-  assert.equal(captionRecaptionLabel(mixed, 'keep'), '🔄 Re-caption 35 kept');
+  assert.equal(captionRecaptionLabel(mixed, 'keep'), 'Re-caption 35 kept');
   // …and with the opt-out, the pile again — because that is what will really run.
   assert.equal(captionRecaptionRunSize(mixed, 'keep', true), 40);
-  assert.equal(captionRecaptionLabel(mixed, 'keep', '', true), '🔄 Re-caption 40 kept');
+  assert.equal(captionRecaptionLabel(mixed, 'keep', '', true), 'Re-caption 40 kept');
 });
 
 test('the overwrite count drops the captions the pass keeps', () => {
@@ -306,7 +306,7 @@ test('the opt-out is offered only when there is something to protect', () => {
 });
 
 test('a pile whose only captions are yours says so, and points at the way out', () => {
-  // Two different zeros. "Nothing is captioned here" sends you to 🏷️ Caption;
+  // Two different zeros. "Nothing is captioned here" sends you to Caption;
   // "the only captions here are yours" sends you to the tick box. Rendering both
   // as one message hides the protection at the moment it does all the work.
   const mineOnly = { keep: 10, pending: 0, caption_todo_keep: 7,
@@ -327,5 +327,5 @@ test('a payload with no provenance at all degrades to "never recorded"', () => {
   assert.equal(captionUnrecordedCount(counts, 'keep'), 28);
   assert.equal(captionGeneratedCount(counts, 'keep'), 0);
   // …and nothing is spared, so the button quotes the whole pile exactly as before.
-  assert.equal(captionRecaptionLabel(counts, 'keep'), '🔄 Re-caption 40 kept');
+  assert.equal(captionRecaptionLabel(counts, 'keep'), 'Re-caption 40 kept');
 });

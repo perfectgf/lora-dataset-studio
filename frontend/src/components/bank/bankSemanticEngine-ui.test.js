@@ -108,7 +108,7 @@ test('every semantic action gates on semanticReady, while Medium stays CLIP/Scor
   const medium = panel.slice(panel.indexOf("onPassOpen('medium')"),
     panel.indexOf("onPassOpen('framing')"))
   assert.match(medium, /!caps\.bank_scoring/)
-  assert.match(medium, /CLIP embeddings ✨ Score/)
+  assert.match(medium, /CLIP embeddings Score/)
 })
 
 test('semantic index is whole-Bank and always posts an explicit rescan boolean', () => {

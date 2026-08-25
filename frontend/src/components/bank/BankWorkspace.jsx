@@ -1219,7 +1219,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           Register
           <select value={captionVocab} onChange={(e) => setCaptionVocab(e.target.value)}
             disabled={live} aria-label="Caption vocabulary register"
-            title="How captions name nude or sexual content. Explicit needs an uncensored (abliterated) Ollama vision model. Richer, more explicit captions also make the 🔍 search find more."
+            title="How captions name nude or sexual content. Explicit needs an uncensored (abliterated) Ollama vision model. Richer, more explicit captions also make the search find more."
             className={`${captionSelectClass} sm:max-w-[16rem]`}>
             {VOCABULARY_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>

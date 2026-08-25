@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Camera, Palette, Plug } from 'lucide-react';
 import { buildLineageGraph, CARD_W } from '../../utils/lineageGraph';
 import {
   LANE_HEADER_H, MAX_SCALE, MIN_SCALE,
@@ -2029,7 +2030,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
           : 'Save the whole board as a PNG — every pinned picture and every run '
             + 'card, at full size. Buttons and badges are not drawn.'}
         className="flex h-10 items-center gap-1 rounded-md border border-border bg-app/60 px-2 sm:px-3 text-content-muted text-[0.6875rem] font-semibold hover:text-content disabled:opacity-40 lg:h-9">
-        <span aria-hidden>📷</span> {exporting ? 'Exporting…' : 'PNG'}
+        <Camera aria-hidden="true" className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'PNG'}
       </button>
       {/* 🔌 A LoRA that never trained on this board — pinned as a node instead
           of a pill, and stacked on top of the next run when checked. See
@@ -2045,7 +2046,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
           + (extPickerOpen
             ? 'border-cyan-400/60 bg-cyan-500/15 text-cyan-100 '
             : 'border-border bg-app/60 text-content-muted hover:text-content ')}>
-        <span aria-hidden>🔌</span> + LoRA
+        <Plug aria-hidden="true" className="h-3.5 w-3.5" /> + LoRA
         {extNodes.length > 0 && (
           <span className="rounded-full bg-cyan-500/40 px-1.5 tabular-nums">{extNodes.length}</span>
         )}
@@ -2480,7 +2481,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               + (picks.length
                 ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-100 '
                 : 'border-border bg-app/60 text-content-muted hover:text-content ')}>
-            <span aria-hidden>🎨</span> Generate
+            <Palette aria-hidden="true" className="h-3.5 w-3.5" /> Generate
             {picks.length > 0 && (
               <span className="rounded-full bg-indigo-500/40 px-1.5 tabular-nums">{picks.length}</span>
             )}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Images, Search } from 'lucide-react';
 import { selectionSummary } from '../../utils/canvasSelection';
 import { familyLabel } from '../../utils/canvasFamilyFilter';
 import { statusLabel, matchesDatasetQuery } from '../../utils/canvasFilterBar';
@@ -233,7 +234,7 @@ export default function CanvasDatasetFilter({
             // Hidden is the state worth shouting about: pinned pictures missing
             // from the board with no visible cause is a bug report.
             : 'border-amber-400/60 bg-amber-500/15 text-amber-100')}>
-        <span aria-hidden>🖼</span>
+        <Images aria-hidden="true" className="h-3.5 w-3.5" />
         {/* The word drops below `sm` like every other label in this row — but
             "off" NEVER does: pinned pictures missing from the board with no
             visible cause is a bug report, and that is precisely the state a
@@ -273,7 +274,7 @@ export default function CanvasDatasetFilter({
           + (queryActive
             ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-100'
             : 'border-border bg-app/60 text-content hover:border-indigo-400/50')}>
-        <span aria-hidden>🔍</span>
+        <Search aria-hidden="true" className="h-3.5 w-3.5" />
         {queryActive && <span className="max-w-[6rem] truncate font-normal">{query}</span>}
       </button>
 

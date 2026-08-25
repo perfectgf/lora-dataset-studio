@@ -17,6 +17,7 @@
  * image destinations keep seeing exactly what they saw before.
  */
 import { useState, useCallback, useEffect } from 'react';
+import { Globe, Search } from 'lucide-react';
 import { useToast } from '../common/Toast';
 import { postJson } from '../../hooks/useDataset';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -323,8 +324,8 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
     <section className="bg-surface rounded-xl border border-border p-3 flex flex-col gap-2">
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-content font-semibold text-sm">
-          {toVideoBank ? '🕷️ Scrape videos into the bank'
-            : toBank ? '🕷️ Scrape into the bank' : '🕷️ Build from scraped images'}
+          <><Globe aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{toVideoBank ? 'Scrape videos into the bank'
+            : toBank ? 'Scrape into the bank' : 'Build from scraped images'}</>
         </h2>
         <span className="text-content-subtle text-[0.6875rem]"
           title={toVideoBank
@@ -404,7 +405,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
       {modeInUse === 'reddit' && (
         <div className="rounded-lg border border-border bg-white/5 px-2 py-2 flex flex-col gap-1.5">
           <span className="text-content-subtle text-[0.6875rem] flex items-center gap-1">
-            <span aria-hidden>🔎</span> Search Reddit
+            <Search aria-hidden="true" className="h-3.5 w-3.5" /> Search Reddit
           </span>
           <div className="flex flex-wrap items-center gap-2">
             <input

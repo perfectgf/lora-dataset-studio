@@ -102,7 +102,7 @@ export function autoTriageEmptyReason(visible, all = null) {
   const rows = pool.filter((i) => i && i.filename);
   if (!rows.length || !rows.some((i) => i.face_state != null)) {
     return { kind: 'never_scored', count: 0,
-             message: 'No image carries a face score yet — run 🎭 Analyze faces to unlock auto-triage.' };
+             message: 'No image carries a face score yet — run Analyze faces to unlock auto-triage.' };
   }
   if (!rows.some(triageScorable)) {
     // The case the Discord report was really about: a set of wide shots came

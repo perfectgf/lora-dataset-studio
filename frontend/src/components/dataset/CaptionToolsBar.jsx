@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { FolderOpen } from 'lucide-react';
 import { captionCategoryCopy, captionFrequencyEntries } from './captionCategory';
 import SettingsLink from '../common/SettingsLink';
 
@@ -193,7 +194,7 @@ export default function CaptionToolsBar({ images, kind = 'character', mode = 'bo
                     title="Open the dataset folder in the file explorer"
                     aria-label="Open the dataset folder"
                     className="px-2 py-1 rounded-lg bg-surface-raised border border-border text-content text-xs hover:bg-surface">
-                    📂
+                    <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
                   </button>
                 )}
                 <span className="text-content-subtle text-[0.6875rem]">

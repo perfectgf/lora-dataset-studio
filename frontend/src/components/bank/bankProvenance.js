@@ -156,12 +156,12 @@ export function jpegQualitySummary(img) {
 /* Labels for the two flags this pass adds, so the chip row and the lightbox
  * cannot drift apart. Ids are user-facing filter keys — never rename them. */
 export const PROVENANCE_FLAG_LABEL = {
-  soft_detail: '🫧 Soft detail',
-  bars: '🎞 Black bars',
+  soft_detail: 'Soft detail',
+  bars: 'Black bars',
 }
 
 export const ORIGIN_CHIPS = [
-  { id: 'ai', label: '🤖 AI' },
-  { id: 'camera', label: '📷 Camera' },
+  { id: 'ai', label: 'AI' },
+  { id: 'camera', label: 'Camera' },
   { id: 'unknown', label: '❔ Unknown' },
 ]

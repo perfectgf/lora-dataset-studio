@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useState } from 'react';
+import { Plug } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import KleinLoraCombobox, { useKleinGenerationLoras } from '../settings/KleinLoraCombobox';
 import { findLora } from '../../utils/kleinLoraOptions';
@@ -33,7 +34,7 @@ export const ExternalLoraCard = forwardRef(function ExternalLoraCard(
       <div
         {...dragHandlers}
         className="flex cursor-grab items-center gap-1 border-b border-cyan-400/30 bg-cyan-500/10 px-1.5 py-1 active:cursor-grabbing">
-        <span aria-hidden>🔌</span>
+        <Plug aria-hidden="true" className="h-3.5 w-3.5" />
         <span className="min-w-0 flex-1 truncate text-[0.6875rem] font-semibold text-content" title={node.filename}>
           {baseName(node.filename)}
         </span>

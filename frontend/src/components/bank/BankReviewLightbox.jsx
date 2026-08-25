@@ -66,27 +66,27 @@ function Facts({ img }) {
     <div className="flex flex-wrap items-center justify-center gap-1.5">
       <span className="max-w-[22rem] truncate text-xs text-white/70" title={img.name}>{img.name}</span>
       {chip('res', `${img.width || '?'}×${img.height || '?'}`, 'bg-white/10 text-white/80')}
-      {detail && chip('detail', detail.soft ? `🫧 ~${detail.real} px real` : '🫧 full detail',
+      {detail && chip('detail', detail.soft ? `~${detail.real} px real` : 'full detail',
         detail.soft ? 'bg-amber-500/20 text-amber-100' : 'bg-white/10 text-white/60',
         detail.soft ? `${detail.text}. ${DETAIL_CAVEAT}` : DETAIL_CAVEAT)}
       {origin && chip('origin', `${origin.icon} ${origin.label}`, ORIGIN_CLASS[origin.state],
         `${origin.detail}${hint ? ` ${hint}` : ''}`)}
       {img.aesthetic_score != null
-        && chip('aes', `✨ ${img.aesthetic_score.toFixed(1)}`, 'bg-white/10 text-amber-200')}
+        && chip('aes', `${img.aesthetic_score.toFixed(1)}`, 'bg-white/10 text-amber-200')}
       {img.nsfw_score != null
-        && chip('nsfw', `🔞 ${Math.round(img.nsfw_score * 100)}%`, 'bg-white/10 text-rose-200')}
+        && chip('nsfw', `${Math.round(img.nsfw_score * 100)}%`, 'bg-white/10 text-rose-200')}
       {img.blur_score != null
         && chip('sharp', `sharpness ${Math.round(img.blur_score)}`, 'bg-white/10 text-white/70')}
-      {img.face_cluster != null && chip('face', `👤 #${img.face_cluster}`, 'bg-white/10 text-sky-200')}
-      {img.framing && chip('framing', `📐 ${img.framing}`, 'bg-white/10 text-teal-200')}
+      {img.face_cluster != null && chip('face', `#${img.face_cluster}`, 'bg-white/10 text-sky-200')}
+      {img.framing && chip('framing', `${img.framing}`, 'bg-white/10 text-teal-200')}
       {/* 🎨 the medium, with the margin BEHIND it in the tooltip: a verdict shown
           without its confidence is how a guess turns into a fact. 'unsure' is
           shown too — here, where the user is looking at the picture and can
           settle it, it is the most useful thing the classifier can say. */}
-      {img.medium && chip('medium', `🎨 ${img.medium}`,
+      {img.medium && chip('medium', `${img.medium}`,
         img.medium === 'unsure' ? 'bg-white/10 text-white/50' : 'bg-white/10 text-lime-200',
         img.medium_margin != null
-          ? `Zero-shot CLIP over the ✨ Score embedding — confidence gap ${img.medium_margin.toFixed(3)}.`
+          ? `Zero-shot CLIP over the Score embedding — confidence gap ${img.medium_margin.toFixed(3)}.`
           : null)}
       {img.face_yaw != null && chip('yaw',
         `⤢ ${Math.round(Math.abs(img.face_yaw))}°`, 'bg-white/10 text-cyan-200',
@@ -407,14 +407,14 @@ export default function BankReviewLightbox({
             </button>
             {img?.edit_method && (
               <button type="button" onClick={revertCurrent} disabled={busy}
-                title="Throw away the ✂ crop / ✨ upscale made in this bank and go back to the image it started from. Only a copy made by the app is deleted — your own file was never modified."
+                title="Throw away the ✂ crop / upscale made in this bank and go back to the image it started from. Only a copy made by the app is deleted — your own file was never modified."
                 className="min-h-10 lg:min-h-0 rounded-lg border border-white/25 px-4 py-2 text-sm text-white disabled:opacity-50 hover:bg-white/10">
                 ↩ Revert edit
               </button>
             )}
             {canEditMask(img) && (
               <button type="button" onClick={() => setMaskId(id)} disabled={busy}
-                title="Draw the watermark zones on this image (M) — decides nothing. Works even when the scan found nothing: what you draw becomes the flag, and 🧽 Inpaint then repaints exactly that."
+                title="Draw the watermark zones on this image (M) — decides nothing. Works even when the scan found nothing: what you draw becomes the flag, and Inpaint then repaints exactly that."
                 className="min-h-10 lg:min-h-0 rounded-lg border border-amber-400/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/30">
                 <FlagIcon aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{maskButtonLabel(img)}{shortcut('M')}
               </button>

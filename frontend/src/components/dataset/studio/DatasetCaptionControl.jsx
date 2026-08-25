@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Dices } from 'lucide-react';
 import { apiFetch, postJson } from '../../../api/fetchClient';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import {
@@ -91,7 +92,7 @@ function DatasetCaptionDialog({ open, onClose, onChoose }) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="caption-dataset-title" className="text-sm font-semibold text-content">
-              🎲 Pick a caption source
+              <Dices aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Pick a caption source
             </h2>
             <p className="mt-1 text-[0.6875rem] leading-snug text-content-subtle">
               A dataset or a bank. The choice stays locked for future runs; selecting one
@@ -262,7 +263,7 @@ export default function DatasetCaptionControl({ onCaption }) {
             ? 'Draw a random kept caption from ' + lockedLabel(lockedDataset)
             : 'Choose a dataset or a bank, then draw a random caption'}
           className="min-h-7 rounded-l border border-border bg-surface px-2 py-0.5 text-[0.625rem] text-content-subtle hover:text-content disabled:opacity-50">
-          {drawing ? '🎲 Drawing…' : '🎲 Caption'}
+          <Dices aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{drawing ? 'Drawing…' : 'Caption'}
         </button>
         <button type="button" onClick={openPicker} disabled={drawing}
           aria-label="Choose or change the caption source" aria-haspopup="dialog"

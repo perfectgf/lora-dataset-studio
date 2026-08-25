@@ -29,7 +29,7 @@ test('the unavailable Bank overview keeps the same usable header and total contr
   const html = render(BankOverview, { payload: null })
 
   assert.match(html, /<button[^>]*aria-expanded="true"[^>]*aria-controls=/)
-  assert.match(html, /📊 Bank overview/)
+  assert.match(html, /Bank overview/)
   assert.match(html, /Total unavailable/)
   assert.match(html, /role="status"/)
   assert.match(html, /Overview unavailable — waiting for bank data/)

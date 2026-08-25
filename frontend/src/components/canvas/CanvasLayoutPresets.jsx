@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Save } from 'lucide-react';
 import { apiFetch, del, postJson } from '../../api/fetchClient';
 import {
   canvasLayoutIsEmpty, canvasLayoutSnapshot, canvasPresetApplied,
@@ -112,7 +113,7 @@ export default function CanvasLayoutPresets({ positions, imageNodes, datasetIds,
             not in that toolbar below `lg` any more — it is in the board's ⋯
             shelf, which is as wide as the screen — so the word is back at every
             width, and the title still carries the sentence. */}
-        <span aria-hidden>💾</span> Layouts
+        <Save aria-hidden="true" className="h-3.5 w-3.5" /> Layouts
       </summary>
       {/* `top-full` and not just `mt-1`: an absolutely-positioned box with no
           `top` falls back to its STATIC position, which is wherever the

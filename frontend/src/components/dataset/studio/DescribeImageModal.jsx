@@ -4,6 +4,7 @@
 // `onResult`, which decides whether to overwrite a non-empty field. The model may be
 // cold (a few seconds) so the busy state uses a generous server timeout.
 import { useRef, useState } from 'react';
+import { Search } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { fetchWithCsrfRetry, getCsrfToken } from '../../../api/fetchClient';
 import useOllamaFence from '../../../hooks/useOllamaFence';
@@ -88,7 +89,7 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
       <div className="w-full max-w-md rounded-2xl border border-border bg-surface-overlay p-4 flex flex-col gap-3 shadow-xl">
         <div className="flex items-center justify-between">
           <h2 className="text-content text-sm font-semibold flex items-center gap-1.5">
-            <span aria-hidden>🔎</span> Describe an image
+            <Search aria-hidden="true" className="h-4 w-4" /> Describe an image
           </h2>
           <button type="button" onClick={onClose} disabled={busy} aria-label="Close"
             className="w-8 h-8 rounded-lg border border-border bg-app text-content-muted hover:text-content disabled:opacity-40">×</button>

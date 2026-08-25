@@ -10,6 +10,7 @@
  * possède la sélection de LoRA et déclenche le POST.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Dices } from 'lucide-react';
 import { STRENGTH_CHOICES } from './constants';
 import { fmt } from '../../../utils/studioFormat';
 import { postJson } from '../../../api/fetchClient';
@@ -129,7 +130,7 @@ export default function StudioRunSetup({
           <span className="tabular-nums text-content px-2 py-0.5 rounded border border-border bg-app/60">{seed}</span>
           <button type="button" onClick={onReroll} aria-label="New random seed"
             title="New random seed"
-            className="px-2 py-0.5 rounded border border-border bg-surface text-content hover:bg-surface-raised">🎲</button>
+            className="px-2 py-0.5 rounded border border-border bg-surface text-content hover:bg-surface-raised"><Dices aria-hidden="true" className="h-3.5 w-3.5" /></button>
         </label>
 
         <label className="flex items-center gap-1.5 text-content-muted text-[0.6875rem]">

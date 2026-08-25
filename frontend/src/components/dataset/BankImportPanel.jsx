@@ -8,6 +8,7 @@
  *  HERE, start it. It's a background job (bank_jobs), so we follow the very
  *  snapshot the bank page follows — the one embedded in the banks payload. */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Archive } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { apiFetch, postJson } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
@@ -116,7 +117,7 @@ export default function BankImportPanel({ datasetId, onImported, disabled = fals
     return (
       <button type="button" onClick={() => setOpen(true)} disabled={disabled}
         className="flex w-full items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-left text-content-muted hover:text-content hover:bg-surface-raised transition-colors disabled:opacity-50">
-        <span aria-hidden>🗃</span>
+        <Archive aria-hidden="true" className="h-4 w-4" />
         <span className="text-sm font-medium">Import from a bank</span>
         <span className="text-content-subtle text-[0.6875rem]">copy the kept images of a triaged bank into this dataset</span>
         <span aria-hidden className="ml-auto text-content-subtle">→</span>
@@ -128,7 +129,7 @@ export default function BankImportPanel({ datasetId, onImported, disabled = fals
     <div id="ds-add-bank-import" tabIndex={-1}
       className="scroll-mt-20 flex flex-col gap-2 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="flex items-center gap-2">
-        <span aria-hidden>🗃</span>
+        <Archive aria-hidden="true" className="h-4 w-4" />
         <span className="text-sm font-medium text-content">Import from a bank</span>
         <button type="button" onClick={() => setOpen(false)}
           className="ml-auto text-content-subtle text-[0.6875rem] hover:text-content">

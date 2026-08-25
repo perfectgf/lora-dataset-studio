@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Folder } from 'lucide-react';
 
 /** Where this dataset's images live on disk — shown, and copyable.
  *
@@ -27,7 +28,7 @@ export default function DatasetFolderNote({ path }) {
   return (
     <div className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2 text-xs">
       <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-content-subtle">📁 Images folder</span>
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-content-subtle"><Folder aria-hidden="true" className="h-3.5 w-3.5" /> Images folder</span>
         <code className="min-w-0 grow truncate font-mono text-content-muted" title={path}>
           {path}
         </code>
@@ -39,8 +40,8 @@ export default function DatasetFolderNote({ path }) {
       </div>
       <p className="mt-1 text-content-subtle">
         This folder belongs to the dataset — don’t use it as an image bank’s source.
-        A bank points at a live folder, so its 🗑 Delete rejected would delete these
-        images. To re-triage them, use 🗃 Import to bank below: it copies.
+        A bank points at a live folder, so its Delete rejected would delete these
+        images. To re-triage them, use Import to bank below: it copies.
       </p>
     </div>
   )
