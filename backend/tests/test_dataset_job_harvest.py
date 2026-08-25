@@ -46,6 +46,13 @@ NON_DATASET_JOB_NAMES = {
     # The finished image is never a dataset row of its own — the row it belongs
     # to already exists and keeps its filename.
     'watermark_klein_mask',
+    # 📷 Camera angles. Its rows are `lora_test_image` (the produced view lands
+    # in the gallery beside the picture it was shot from), so every job carries
+    # `is_lora_test` and takes the SAME first branch as the Test Studio grid
+    # above — checked before model_name. Listing it in DATASET_IMAGE_JOB_NAMES
+    # instead would point the dispatch at face_dataset_service and look up a
+    # dataset row that does not exist.
+    'qwen_camera_angle',
 }
 
 
