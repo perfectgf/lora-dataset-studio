@@ -9,6 +9,7 @@
  * review, ⛶ open), same badge cluster, same tooltip.
  */
 import { FLAG_LABEL, STATUS_RING } from './bankFacets.js'
+import { Tag } from 'lucide-react';
 import { editBadge, imageVersionQuery } from './bankEdits.js'
 import { angleBadge } from './bankMedium.js'
 import { detailSummary } from './bankProvenance.js'
@@ -86,19 +87,19 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
           </span>
         )}
         {img.flags.map((f) => badge(FLAG_LABEL[f]?.slice(0, 2) || f, 'bg-black/60 text-amber-200', f))}
-        {img.face_cluster != null && badge(`👤${img.face_cluster}`, 'bg-black/60 text-sky-200')}
-        {img.framing && badge(`📐${img.framing}`, 'bg-black/60 text-teal-200')}
+        {img.face_cluster != null && badge(`person ${img.face_cluster}`, 'bg-black/60 text-sky-200')}
+        {img.framing && badge(`${img.framing}`, 'bg-black/60 text-teal-200')}
         {/* A medium badge is stamped only when the classifier actually COMMITTED
             to one — 'unsure' is a real verdict but it is not a label to write on
             a thumbnail, and NULL means the pass never reached this image. */}
         {img.medium && img.medium !== 'unsure'
-          && badge(`🎨${img.medium}`, 'bg-black/60 text-lime-200')}
+          && badge(`${img.medium}`, 'bg-black/60 text-lime-200')}
         {angleBadge(img) && badge(angleBadge(img).text, 'bg-black/60 text-cyan-200')}
         {/* Only the PROVEN states get a badge. Stamping ❔ on the 80% of files
             whose metadata was stripped would be noise, not information. */}
-        {img.origin === 'ai' && badge('🤖', 'bg-black/60 text-violet-200')}
-        {img.origin === 'camera' && badge('📷', 'bg-black/60 text-emerald-200')}
-        {img.style_cluster != null && badge(`🎨${img.style_cluster}`, 'bg-black/60 text-fuchsia-200')}
+        {img.origin === 'ai' && badge('AI', 'bg-black/60 text-violet-200')}
+        {img.origin === 'camera' && badge('photo', 'bg-black/60 text-emerald-200')}
+        {img.style_cluster != null && badge(`style ${img.style_cluster}`, 'bg-black/60 text-fuchsia-200')}
         {img.dup_group != null && badge(`≈${img.dup_group}`, 'bg-black/60 text-fuchsia-200')}
         {img.semantic_dup_group != null && badge(`✂${img.semantic_dup_group}`, 'bg-black/60 text-orange-200')}
       </span>
@@ -126,16 +127,16 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
         <button type="button" onClick={onTags}
           title={`Filter the bank by this image's tags — ${img.caption}`}
           aria-label={`Use the tags of ${img.name} as a filter`}
-          className="absolute bottom-1 right-11 rounded bg-black/60 px-1 text-[11px] text-emerald-200 hover:bg-black/80">🏷️</button>
+          className="absolute bottom-1 right-11 rounded bg-black/60 px-1 text-[11px] text-emerald-200 hover:bg-black/80"><Tag aria-hidden="true" className="h-3 w-3" /></button>
       ) : (
         <span
           title={img.caption
-            ? '🏷️ Tags — this caption has no word worth filtering on (the chips are the caption\'s own words)'
-            : '🏷️ Tags (needs a caption) — run 🏷️ Caption on this bank and the chips appear here'}
+            ? 'Tags — this caption has no word worth filtering on (the chips are the caption\'s own words)'
+            : 'Tags (needs a caption) — run Caption on this bank and the chips appear here'}
           aria-label={img.caption
             ? 'Tags unavailable: this caption has no word worth filtering on'
             : 'Tags unavailable: this image has no caption yet'}
-          className="absolute bottom-1 right-11 rounded bg-black/40 px-1 text-[11px] text-white/35">🏷️</span>
+          className="absolute bottom-1 right-11 rounded bg-black/40 px-1 text-[11px] text-white/35"><Tag aria-hidden="true" className="h-3 w-3" /></span>
       )}
       <button type="button" onClick={onReview}
         title="Review from this image — full size, one at a time, with Keep/Reject/Skip"

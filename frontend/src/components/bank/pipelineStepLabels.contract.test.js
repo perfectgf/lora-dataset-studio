@@ -52,8 +52,8 @@ test('semantic and framing steps carry their button wording, not raw identifiers
   // The exact strings the pass row and the Launch all dialog use. A report that
   // paraphrases a button is the same defect one notch quieter.
   assert.match(src, /semantic_dedup: '✂ Find crops & variants'/);
-  assert.match(src, /semantic_index: '🧠 Build semantic index'/);
-  assert.match(src, /framing: '📐 Classify framing'/);
+  assert.match(src, /semantic_index: 'Build semantic index'/);
+  assert.match(src, /framing: 'Classify framing'/);
 });
 
 test('no label is left blank', () => {

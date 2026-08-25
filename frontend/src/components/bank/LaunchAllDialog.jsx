@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Rocket } from 'lucide-react';
 import { attemptModalSubmit } from '../../utils/submitOutcome.js'
 import { flagCandidateLabel, launchRejectNote } from './autoRejectReadiness.js'
 import {
@@ -19,10 +20,10 @@ import {
  * standalone button (blurry + flat) plus duplicate "keep best".
  */
 const QUALITY_FLAGS = [
-  { key: 'blur', label: '🌫 Blurry' },
-  { key: 'noise', label: '📺 Noisy' },
+  { key: 'blur', label: 'Blurry' },
+  { key: 'noise', label: 'Noisy' },
   { key: 'uniform', label: '⬜ Flat' },
-  { key: 'small', label: '📐 Small' },
+  { key: 'small', label: 'Small' },
 ]
 
 export default function LaunchAllDialog({
@@ -48,32 +49,32 @@ export default function LaunchAllDialog({
 
   const STEP_DEFS = {
     scan:
-    { key: 'scan', label: '🔎 Scan quality',
+    { key: 'scan', label: 'Scan quality',
       desc: 'Sharpness, noise, flatness, size + near-duplicate groups (CPU).' },
     auto_reject:
-    { key: 'auto_reject', label: '🧹 Auto-reject flagged',
+    { key: 'auto_reject', label: 'Auto-reject flagged',
       desc: 'Reject the images carrying the flags below — reversible, nothing deleted.' },
     score:
     { key: 'score', label: '✨ Score', needs: 'Bank scoring extra',
-      desc: 'CLIP aesthetic 1–10, NSFW, visual style and 🎨 Medium (GPU).' },
+      desc: 'CLIP aesthetic 1–10, NSFW, visual style and Medium (GPU).' },
     semantic_index:
-    { key: 'semantic_index', label: '🧠 Build SigLIP 2 semantic index', needs: 'SigLIP 2 Quality tool',
+    { key: 'semantic_index', label: 'Build SigLIP 2 semantic index', needs: 'SigLIP 2 Quality tool',
       desc: 'Build or resume the whole-Bank SigLIP 2 cache for semantic features. Existing CLIP data is preserved.' },
     semantic_dedup:
     { key: 'semantic_dedup', label: '✂ Find crops & variants',
       needs: engine === 'siglip2' ? 'SigLIP 2 Quality tool' : 'Bank scoring extra',
       desc: `Group crops/variants of the same shot from the ${engineLabel} semantic index (needs that index first).` },
     watermark:
-    { key: 'watermark', label: '🚩 Find watermarks', needs: 'Vision model',
+    { key: 'watermark', label: 'Find watermarks', needs: 'Vision model',
       desc: 'Detect overlaid watermarks/logos with the Qwen3-VL detector (GPU).' },
     faces:
-    { key: 'faces', label: '👥 Group by person', needs: 'Quality tools',
+    { key: 'faces', label: 'Group by person', needs: 'Quality tools',
       desc: 'Face embeddings + person clusters, no reference photo (CPU/GPU).' },
     framing:
-    { key: 'framing', label: '📐 Classify framing', needs: 'Vision model',
+    { key: 'framing', label: 'Classify framing', needs: 'Vision model',
       desc: 'Tag each shot face/bust/body/back — powers the framing filter & coverage advice (GPU).' },
     caption:
-    { key: 'caption', label: '🏷️ Caption', needs: 'Caption engine',
+    { key: 'caption', label: 'Caption', needs: 'Caption engine',
       desc: 'Describe every image so it becomes searchable and rides to the dataset (GPU).' },
   }
   const STEPS = pipelineStepKeys(engine).map((key) => STEP_DEFS[key])
@@ -151,7 +152,7 @@ export default function LaunchAllDialog({
       <div ref={cardRef}
         className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-border bg-surface-overlay p-5 shadow-2xl space-y-4">
         <div>
-          <h2 className="text-base font-bold text-content">🚀 Launch all</h2>
+          <h2 className="flex items-center gap-2 text-base font-bold text-content"><Rocket aria-hidden="true" className="h-4 w-4" /> Launch all</h2>
           <p className="mt-1 text-sm text-content-muted">
             Chain the whole triage in one go — start it, walk away, come back to a
             cleaned bank. Each pass runs in order; you can Stop it any time, and a
@@ -259,7 +260,7 @@ export default function LaunchAllDialog({
           </button>
           <button type="button" onClick={launch} disabled={busy || nRun === 0}
             className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
-            {busy ? 'Starting…' : `🚀 Launch${nRun ? ` ${nRun} pass${nRun > 1 ? 'es' : ''}` : ''}`}
+            <Rocket aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{busy ? 'Starting…' : `Launch${nRun ? ` ${nRun} pass${nRun > 1 ? 'es' : ''}` : ''}`}
           </button>
         </div>
       </div>

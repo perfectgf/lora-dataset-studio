@@ -17,11 +17,11 @@ import { reportHeadline, stepView } from './pipelineReportView.js'
  * the omission invisible, so pipelineStepLabels.contract.test.js now fails if a
  * step ships without its label rather than letting the fallback absorb it. */
 export const STEP_LABEL = {
-  scan: '🔎 Scan quality', auto_reject: '🧹 Auto-reject',
-  score: '✨ Score', semantic_index: '🧠 Build semantic index',
+  scan: 'Scan quality', auto_reject: 'Auto-reject',
+  score: 'Score', semantic_index: 'Build semantic index',
   semantic_dedup: '✂ Find crops & variants',
-  watermark: '🚩 Watermarks', faces: '👥 Group by person',
-  framing: '📐 Classify framing', caption: '🏷️ Caption',
+  watermark: 'Watermarks', faces: 'Group by person',
+  framing: 'Classify framing', caption: 'Caption',
 }
 function fmtWhen(ts) {
   if (!ts) return ''

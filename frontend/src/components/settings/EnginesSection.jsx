@@ -240,7 +240,7 @@ function KleinLorasCard({ config, setField }) {
     <Card
       id="klein-generation-lora-presets"
       title="Klein generation LoRA presets (optional)"
-      help={`Named combinations of your own LoRA files, chained after the consistency LoRA on the local Klein engine — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras (Klein-compatible ones are listed first; you can still type a path for a file not on disk yet) — any LoRA, any purpose. Per run, pick a preset in the workspace's 🖥️ Klein tuning panel — it opens on the default preset chosen below ("None" until you choose one), and picking something else there applies to that run only. Presets and LoRA autocomplete by @waltm (Discord).`}
+      help={`Named combinations of your own LoRA files, chained after the consistency LoRA on the local Klein engine — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras (Klein-compatible ones are listed first; you can still type a path for a file not on disk yet) — any LoRA, any purpose. Per run, pick a preset in the workspace's Klein tuning panel — it opens on the default preset chosen below ("None" until you choose one), and picking something else there applies to that run only. Presets and LoRA autocomplete by @waltm (Discord).`}
     >
       {presets.length === 0 && (
         <p className="text-sm text-content-muted">No presets yet — create your first combination below.</p>
@@ -263,7 +263,7 @@ function KleinLorasCard({ config, setField }) {
         <span className="text-xs text-content-muted">{presets.length}/{MAX_GENERATION_LORA_PRESETS}</span>
       </div>
       <DefaultPresetField
-        id="klein-default-lora-preset" engineLabel="🖥️ Klein" presets={presets}
+        id="klein-default-lora-preset" engineLabel="Klein" presets={presets}
         value={config.klein?.default_generation_lora_preset || ''}
         onChange={(v) => setField('klein', 'default_generation_lora_preset', v)} />
     </Card>
@@ -437,7 +437,7 @@ function KleinGenerationCard({ config, setField, configDefaults }) {
    `grounding_px`, THE consistency <-> prompt-adherence dial, so it is first and
    explained in plain words: a number nobody can interpret is not a setting.
    The FOUR calibration dials of this card (grounding, steps, reference pull,
-   identity LoRA strength) are the same four the workspace's "🧬 Krea 2 Edit
+   identity LoRA strength) are the same four the workspace's "Krea 2 Edit
    tuning" panel offers, on purpose: they are judged on the images that panel
    produces and configured here, and since every control writes the SAME global
    key through the same endpoint there is only ever one value to read.
@@ -512,7 +512,7 @@ function KreaCard({ config, setField, configDefaults, caps }) {
           512 px is the dataset-restaging balance: it keeps the prompt and selected shot card
           in charge while preserving identity. Raise it deliberately when reference likeness
           matters more. Also adjustable, with this exact value, from the workspace&rsquo;s
-          🧬 Krea 2 Edit tuning panel.
+          Krea 2 Edit tuning panel.
         </p>
         <ResetToDefault label="Reference grounding" section="krea" field="grounding_px" {...reset} />
       </div>
@@ -562,7 +562,7 @@ function KreaCard({ config, setField, configDefaults, caps }) {
           {refBoostDescription(refBoost)}. How hard the source latent is pushed back into the
           model at every denoising step — the lever for &ldquo;the subject does not look enough
           like my reference&rdquo;. High values also recopy the composition, pose and outfit the
-          shot card asked it to change. Also on the workspace&rsquo;s 🧬 Krea 2 Edit tuning panel,
+          shot card asked it to change. Also on the workspace&rsquo;s Krea 2 Edit tuning panel,
           where you judge the result.
         </p>
         <ResetToDefault label="Reference pull" section="krea" field="ref_boost"
@@ -588,7 +588,7 @@ function KreaCard({ config, setField, configDefaults, caps }) {
           {identityStrengthDescription(identityStrength)}. The weight of the Krea 2
           identity-edit LoRA itself — the piece that carries the face across. Below 1 loosens
           the likeness, 0 disables the face transfer, above 1 is past what the file was
-          trained for and can posterize. Also on the workspace&rsquo;s 🧬 Krea 2 Edit tuning panel.
+          trained for and can posterize. Also on the workspace&rsquo;s Krea 2 Edit tuning panel.
         </p>
         <ResetToDefault label="Identity LoRA strength" section="krea"
           field="identity_lora_strength" value={identityStrength} {...reset} />
@@ -650,7 +650,7 @@ function KreaCard({ config, setField, configDefaults, caps }) {
 
    It is not a generation engine and deliberately does not appear in the enabled-
    engines list above: nothing in the variation catalog can be produced by it. It
-   is the OTHER way to run ✨ Upscale & improve — the one that resolves detail
+   is the OTHER way to run Upscale & improve — the one that resolves detail
    without reinterpreting it — so its settings live next to the engines that feed
    the same pass, not in a section of their own. */
 function SeedVr2Card({ config, setField, configDefaults, caps }) {
@@ -696,7 +696,7 @@ function SeedVr2Card({ config, setField, configDefaults, caps }) {
     <Card
       id="seedvr2-engine"
       title="SeedVR2 upscaling (local)"
-      help="The fidelity half of ✨ Upscale & improve. Klein re-renders detail from a prompt — sharper, but skin and colour can shift; SeedVR2 resolves detail at a higher resolution and leaves the original look alone. Pick it per batch from the bulk actions in the dataset workspace, or make it the default for the single-image pass below. It needs the ComfyUI-SeedVR2_VideoUpscaler node pack in ComfyUI plus two model files — Setup ▸ ComfyUI downloads the models and says what is missing."
+      help="The fidelity half of Upscale & improve. Klein re-renders detail from a prompt — sharper, but skin and colour can shift; SeedVR2 resolves detail at a higher resolution and leaves the original look alone. Pick it per batch from the bulk actions in the dataset workspace, or make it the default for the single-image pass below. It needs the ComfyUI-SeedVR2_VideoUpscaler node pack in ComfyUI plus two model files — Setup ▸ ComfyUI downloads the models and says what is missing."
     >
       <p className={ready ? 'text-[0.6875rem] text-emerald-300' : 'text-[0.6875rem] text-amber-300'}>
         {ready
@@ -718,7 +718,7 @@ function SeedVr2Card({ config, setField, configDefaults, caps }) {
 
       <div className="mt-3 sm:max-w-md">
         <label htmlFor="improve-engine" className="block text-xs font-medium text-content">
-          Default engine for ✨ Upscale &amp; improve
+          Default engine for Upscale &amp; improve
         </label>
         <select
           id="improve-engine"
@@ -730,7 +730,7 @@ function SeedVr2Card({ config, setField, configDefaults, caps }) {
           <option value="seedvr2">SeedVR2 — resolves detail, keeps the original look</option>
         </select>
         <p className="mt-1 text-[0.6875rem] text-content-subtle">
-          Used by the ✨ button on a single tile and by ↻ Re-improve. Bulk runs always
+          Used by the button on a single tile and by ↻ Re-improve. Bulk runs always
           state their engine on the button you press, so this never decides a batch
           behind your back.
         </p>
@@ -994,7 +994,7 @@ function KreaLorasCard({ config, setField }) {
     <Card
       id="krea-generation-lora-presets"
       title="Krea 2 Edit generation LoRA presets (optional)"
-      help={`Named combinations of your own LoRA files, chained after the identity-edit LoRA when Krea 2 Edit generates dataset images — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras; Krea-compatible ones are listed first, and a LoRA of another architecture is badged because ComfyUI would load it as a silent no-op here. Strength goes to 6, or to 20 for utility LoRAs whose filename says filter-bypass — those have no effect below ~10. Per run, pick a preset in the workspace's 🧬 Krea 2 Edit tuning panel — it opens on the default preset chosen below ("None" until you choose one), and picking something else there applies to that run only. Only the model side is patched, so a LoRA's text-encoder weights are ignored. Preset mechanism by @waltm (Discord).`}
+      help={`Named combinations of your own LoRA files, chained after the identity-edit LoRA when Krea 2 Edit generates dataset images — inside a preset the order is the chain order (max ${MAX_GENERATION_LORAS} LoRAs each, ${MAX_GENERATION_LORA_PRESETS} presets). Pick each row from the LoRAs found under ComfyUI's models/loras; Krea-compatible ones are listed first, and a LoRA of another architecture is badged because ComfyUI would load it as a silent no-op here. Strength goes to 6, or to 20 for utility LoRAs whose filename says filter-bypass — those have no effect below ~10. Per run, pick a preset in the workspace's Krea 2 Edit tuning panel — it opens on the default preset chosen below ("None" until you choose one), and picking something else there applies to that run only. Only the model side is patched, so a LoRA's text-encoder weights are ignored. Preset mechanism by @waltm (Discord).`}
     >
       {presets.length === 0 && (
         <p className="text-sm text-content-muted">No presets yet — create your first combination below.</p>
@@ -1017,7 +1017,7 @@ function KreaLorasCard({ config, setField }) {
         <span className="text-xs text-content-muted">{presets.length}/{MAX_GENERATION_LORA_PRESETS}</span>
       </div>
       <DefaultPresetField
-        id="krea-default-lora-preset" engineLabel="🧬 Krea 2 Edit" presets={presets}
+        id="krea-default-lora-preset" engineLabel="Krea 2 Edit" presets={presets}
         value={config.krea?.default_generation_lora_preset || ''}
         onChange={(v) => setField('krea', 'default_generation_lora_preset', v)} />
     </Card>

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Lightbulb } from 'lucide-react';
 import { useNavigate } from 'react-router'
 import { getHelpTopic, topicGuideHref, getHelpTip, guideHref } from './helpRegistry'
 import { shouldShowTip, markTipSeen, TIP_EVENT } from './helpTips'
@@ -82,7 +83,7 @@ export function TipHost() {
     <div role="status"
       className="fixed bottom-4 right-4 z-50 max-w-xs rounded-xl border border-indigo-400/40 bg-surface-overlay/95 p-3 shadow-lg backdrop-blur">
       <div className="flex items-start gap-2">
-        <span aria-hidden className="text-base leading-none">💡</span>
+        <Lightbulb aria-hidden="true" className="h-4 w-4 shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="m-0 text-xs leading-relaxed text-content">{tip.text}</p>
           <button type="button"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { readinessSignature, overrideAck } from '../../utils/readinessOverride';
 import { HelpBadge } from '../../help/HelpMode';
 
@@ -12,9 +13,9 @@ import { HelpBadge } from '../../help/HelpMode';
    backend gate (ai-toolkit absent → 409). */
 
 const VERDICT = {
-  ready: { icon: '🟢', label: 'Ready to train', cls: 'border-emerald-400/40 bg-emerald-500/10' },
-  warnings: { icon: '🟡', label: 'Almost ready', cls: 'border-amber-400/40 bg-amber-500/10' },
-  blocked: { icon: '🔴', label: 'Not ready', cls: 'border-red-400/40 bg-red-500/10' },
+  ready: { icon: CheckCircle2, label: 'Ready to train', cls: 'border-emerald-400/40 bg-emerald-500/10', iconCls: 'text-emerald-400' },
+  warnings: { icon: AlertTriangle, label: 'Almost ready', cls: 'border-amber-400/40 bg-amber-500/10', iconCls: 'text-amber-400' },
+  blocked: { icon: XCircle, label: 'Not ready', cls: 'border-red-400/40 bg-red-500/10', iconCls: 'text-red-400' },
 };
 const ROW_ICON = { ok: '✓', warn: '⚠', fail: '✕' };
 const ROW_CLS = { ok: 'text-emerald-400', warn: 'text-amber-300', fail: 'text-red-300' };
@@ -68,7 +69,7 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
     <div className={`rounded-lg border ${v.cls}`}>
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2 text-left">
-        <span aria-hidden>{v.icon}</span>
+        <v.icon aria-hidden="true" className={`h-4 w-4 shrink-0 ${v.iconCls}`} />
         <span className="text-content text-sm font-semibold">{v.label}</span>
         <span className="text-content-subtle text-[0.6875rem]">{subtitle}</span>
         <span aria-hidden className="ml-auto text-content-subtle text-xs">{open ? '▾' : '▸'}</span>

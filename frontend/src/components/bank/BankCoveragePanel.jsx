@@ -7,6 +7,7 @@
  * Moved out of BankWorkspace.jsx by the Encre redesign, unchanged.
  */
 import { FRAMING_BUCKETS } from './bankFacets.js'
+import { AlertTriangle, BarChart3, Lightbulb } from 'lucide-react';
 import { spreadCoverageNote, spreadReadout } from './coverageVisual.js'
 // Shared with the dataset coverage panel on purpose: both render the SAME
 // caption-lexicon payload, so the row/summary logic lives in one place rather
@@ -111,7 +112,7 @@ export default function CoveragePanel({ coverage, semanticEngine, semanticLabel,
   return (
     <div className="space-y-3 rounded-lg border border-indigo-400/40 bg-indigo-500/5 px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-content">📊 Coverage advice</span>
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-content"><BarChart3 aria-hidden="true" className="h-4 w-4" /> Coverage advice</span>
         <span className="text-xs text-content-subtle">
           {coverage.total.toLocaleString()} {poolWord} image{coverage.total === 1 ? '' : 's'}
         </span>
@@ -126,7 +127,9 @@ export default function CoveragePanel({ coverage, semanticEngine, semanticLabel,
       <ul className="space-y-1 text-sm">
         {coverage.advice.map((a, i) => (
           <li key={i} className="flex items-start gap-2">
-            <span aria-hidden>{a.tone === 'warn' ? '⚠️' : '💡'}</span>
+            {a.tone === 'warn'
+            ? <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+            : <Lightbulb aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
             <span className={a.tone === 'warn' ? 'text-amber-200' : 'text-content-muted'}>{a.text}</span>
           </li>
         ))}

@@ -31,7 +31,7 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "{busy ? 'Starting…' : `🚀 Launch$",
+    "{busy ? 'Starting…' : `Launch$",
     1
   ],
   [
@@ -184,10 +184,6 @@ export const BANK_SURFACES = [
   ],
   [
     "Similar to selected…",
-    1
-  ],
-  [
-    "🏷️",
     1
   ],
   [
