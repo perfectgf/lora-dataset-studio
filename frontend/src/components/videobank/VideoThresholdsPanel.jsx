@@ -89,7 +89,7 @@ export default function VideoThresholdsPanel({ bankId, saved, totalClips, onAppl
             👁 Preview what these cuts would flag
           </button>
           <button type="button" onClick={apply} disabled={working}
-            className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+            className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-40">
             Apply cuts
           </button>
         </div>

@@ -83,7 +83,7 @@ export default function PromptEditPopover({ initialPrompt = '', onSubmit, onClos
             Cancel
           </button>
           <button type="button" onClick={submit} disabled={busy || !text.trim()}
-            className="px-3 py-1 rounded text-[11px] bg-gradient-primary text-white font-semibold disabled:opacity-40">
+            className="px-3 py-1 rounded text-[11px] bg-gradient-primary text-gray-950 font-semibold disabled:opacity-40">
             {busy ? '…' : 'OK'}
           </button>
         </div>

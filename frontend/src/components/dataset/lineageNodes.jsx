@@ -190,7 +190,7 @@ export function CheckpointPill({ pill, offX, offY, active, selected, preview, bi
       <span role="button" tabIndex={0} onClick={openResults} onKeyDown={resultsKey}
         aria-label={`Open the ${count} image${count > 1 ? 's' : ''} of step ${pill.step}`}
         title={resultsTitle}
-        className={'lds-ckcount flex shrink-0 cursor-pointer items-center gap-px rounded-full border border-indigo-400/70 bg-indigo-500/25 font-semibold leading-none tabular-nums text-indigo-100 hover:bg-indigo-500 hover:text-white '
+        className={'lds-ckcount flex shrink-0 cursor-pointer items-center gap-px rounded-full border border-indigo-400/70 bg-indigo-500/25 font-semibold leading-none tabular-nums text-indigo-100 hover:bg-indigo-500 hover:text-gray-950 '
           + (inline ? 'ml-0.5 h-3.5 px-1 text-[0.5rem] ' : 'h-4 px-1 text-[0.5625rem] shadow-sm ')}>
         <span aria-hidden>🖼</span>{count}
       </span>
@@ -285,7 +285,7 @@ export function CheckpointPill({ pill, offX, offY, active, selected, preview, bi
               : null) }}
           className={'lds-cksel flex items-center justify-center rounded-[3px] border leading-none shadow-sm '
             + (big ? 'h-5 w-5 text-[0.6875rem] ' : 'h-3 w-3 text-[0.5rem] ')
-            + (selected ? 'border-indigo-400 bg-indigo-500 text-white ' : 'border-border-strong bg-surface-overlay text-transparent hover:border-indigo-400 ')}>
+            + (selected ? 'border-indigo-400 bg-indigo-500 text-gray-950 ' : 'border-border-strong bg-surface-overlay text-transparent hover:border-indigo-400 ')}>
           ✓
         </button>
       )}

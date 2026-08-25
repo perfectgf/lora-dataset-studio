@@ -10,16 +10,17 @@
    (e.g. bg-surface, text-content, border-border — see tailwind.config.js)
    instead of hardcoding grays / white-alpha.
 
-   Token roles:
-     --bg-app          page background          (#0a0a0f)
-     --surface         base card/panel surface  (white at low alpha)
-     --surface-raised  raised surface / inputs  (white at low alpha)
-     --surface-overlay modal/backdrop panels    (near-opaque dark panel)
-     --content         primary text             (gray-100)
-     --content-muted   secondary text           (gray-400)
-     --content-subtle  tertiary / placeholder   (gray-500)
-     --border          hairline borders         (white at low alpha)
-     --border-strong   stronger borders         (white at higher alpha)
+   Token roles (Safelight: neutral OPAQUE greys, one amber accent):
+     --bg-app          page background          (#161617, hue-neutral)
+     --surface         base card/panel surface  (#1E1E20, opaque)
+     --surface-raised  raised surface / inputs  (#28282B, opaque)
+     --surface-overlay modal/backdrop panels    (#212124, opaque)
+     --content         primary text             (#E8E6E1, warm off-white)
+     --content-muted   secondary text           (#98968F)
+     --content-subtle  tertiary / placeholder   (#6E6C66)
+     --border          hairline borders         (#333338, opaque)
+     --border-strong   stronger borders         (#45454B, opaque)
+     --accent          the safelight amber      (#E1861F — dark text on fills)
    Tailwind `dark:` variants resolve via the `[data-theme="dark"]` selector
    configured in tailwind.config.js. */
 :root,
@@ -31,26 +32,38 @@
      base rule below) but an <optgroup> HEADER cannot, so group labels rendered
      as white bands with near-invisible text on the Bank's Sort menu. */
   color-scheme: dark;
-  --bg-app: 10 10 15;           /* #0a0a0f — the page-shell background that
-                                   sat over the gray-950 body in dark mode */
-  --bg-surface: 17 24 39;       /* gray-900 (legacy var, kept for scrollbar) */
-  --text-base: 243 244 246;     /* gray-100 */
-  --scrollbar-track: 17 24 39;
-  --scrollbar-thumb: 75 85 99;
+
+  /* ── Safelight ────────────────────────────────────────────────────────────
+     Neutral, OPAQUE greys — the darkroom principle: the chrome must never
+     tint the photos being judged, so every grey below is hue-neutral (no blue
+     cast) and every surface/border is solid. The old theme built its panels
+     from white at 4–10 % alpha over a blue-black page; that "glass" look is
+     exactly what these values retire. Hardcoded `bg-white/5`-style utilities
+     that remain in components now just lighten an opaque parent — acceptable
+     until the naming sweep replaces them with semantic tokens. */
+  --bg-app: 22 22 23;           /* #161617 — neutral near-black page ground */
+  --bg-surface: 30 30 32;       /* legacy var, kept for scrollbar */
+  --text-base: 232 230 225;     /* #E8E6E1 — warm off-white */
+  --scrollbar-track: 30 30 32;
+  --scrollbar-thumb: 90 90 96;
 
   /* Semantic — dark canonical */
-  --surface: 255 255 255;          /* used at low alpha → faint white on dark */
-  --surface-alpha: 0.04;
-  --surface-raised: 255 255 255;
-  --surface-raised-alpha: 0.09;
-  --surface-overlay: 17 18 27;     /* near-opaque dark panel for modals */
-  --content: 243 244 246;          /* gray-100 */
-  --content-muted: 156 163 175;    /* gray-400 */
-  --content-subtle: 107 114 128;   /* gray-500 */
-  --border: 255 255 255;           /* used at low alpha → faint white border */
-  --border-alpha: 0.10;
-  --border-strong: 255 255 255;
-  --border-strong-alpha: 0.20;
+  --surface: 30 30 32;             /* #1E1E20 — opaque card/panel surface */
+  --surface-alpha: 1;
+  --surface-raised: 40 40 43;      /* #28282B — opaque inputs / raised */
+  --surface-raised-alpha: 1;
+  --surface-overlay: 33 33 36;     /* #212124 — opaque modal panel */
+  --content: 232 230 225;          /* #E8E6E1 */
+  --content-muted: 152 150 143;    /* #98968F */
+  --content-subtle: 110 108 102;   /* #6E6C66 */
+  --border: 51 51 56;              /* #333338 — opaque hairline */
+  --border-alpha: 1;
+  --border-strong: 69 69 75;       /* #45454B */
+  --border-strong-alpha: 1;
+
+  /* Accent — the safelight amber (mirrors the `safelight` ramp in
+     tailwind.config.js; keep the two in sync by hand). */
+  --accent: 225 134 31;            /* #E1861F */
 
   /* Height of the sticky top bar (App.jsx `<header className="… sticky top-0">`),
      measured at 57 px on every width where it is the desktop bar.
@@ -102,7 +115,7 @@
     @apply rounded-full;
   }
   *:focus-visible {
-    outline: 2px solid rgb(85, 103, 213);
+    outline: 2px solid rgb(var(--accent));
     outline-offset: 2px;
   }
 }
@@ -112,8 +125,8 @@
   top: -3rem;
   left: 1rem;
   z-index: 9999;
-  background-color: rgb(79, 70, 229);
-  color: white;
+  background-color: rgb(var(--accent));
+  color: rgb(26 18 4); /* dark text on amber — white fails contrast on it */
   padding: 0.5rem 1rem;
   border-radius: 0.375rem;
   transition: top 0.2s;
@@ -338,8 +351,8 @@
 /* Deep-link landing flash: highlights the run row a "View in Runs ↗" link
    jumps to (Checkpoints panel -> Runs page). */
 @keyframes ldsRunFlash {
-  0%   { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.0); background-color: rgba(56, 189, 248, 0.16); }
-  100% { box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.0); background-color: transparent; }
+  0%   { box-shadow: 0 0 0 2px rgb(var(--accent) / 0); background-color: rgb(var(--accent) / 0.16); }
+  100% { box-shadow: 0 0 0 2px rgb(var(--accent) / 0); background-color: transparent; }
 }
 .lds-run-flash {
   animation: ldsRunFlash 2.2s ease-out;
@@ -361,7 +374,7 @@
 
 /* ◉ Lineage graph: nodes scale/fade in a depth-ordered cascade so the tree
    "grows" from its root outward, and each edge draws itself along its path.
-   The current run keeps a soft indigo glow; a card lifts a touch on hover. */
+   The current run keeps a soft amber ring; a card lifts a touch on hover. */
 @keyframes ldsGNodeIn {
   from { opacity: 0; transform: scale(0.94); }
   to   { opacity: 1; transform: scale(1); }
@@ -388,7 +401,9 @@
   transform: translateY(-2px);
 }
 .lds-gcard-current {
-  box-shadow: 0 0 0 1px rgb(129 140 248 / 0.25), 0 6px 22px -8px rgb(99 102 241 / 0.55);
+  /* Amber ring for "you are here"; the drop shadow stays neutral — Safelight
+     never lets the accent glow, it only marks. */
+  box-shadow: 0 0 0 1px rgb(var(--accent) / 0.45), 0 6px 22px -8px rgb(0 0 0 / 0.55);
 }
 .lds-lgraph-scroll { cursor: default; touch-action: pan-x pan-y; }
 .lds-lgraph-scroll.is-grabbing { cursor: grabbing; }
@@ -403,9 +418,11 @@
 
 /* MessagesPage animations */
 .msg-animated-bg {
+  /* Was two floating violet glows — the "AI app" ambient decor. Safelight
+     keeps the ground neutral: a barely-there warm drift, nothing more. */
   background:
-    radial-gradient(circle at 20% 50%, rgba(85, 103, 213, 0.1) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(118, 75, 162, 0.1) 0%, transparent 50%);
+    radial-gradient(circle at 20% 50%, rgba(255, 252, 245, 0.025) 0%, transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 252, 245, 0.02) 0%, transparent 50%);
   animation: msgFloat 15s ease-in-out infinite;
 }
 @keyframes msgFloat {
@@ -429,10 +446,10 @@
 
 /* ProfilePage animations */
 .profile-bg {
+  /* Same retirement as .msg-animated-bg: the violet gradient wash becomes a
+     neutral warm sheen so the page ground stays a darkroom grey. */
   background:
-    linear-gradient(135deg, rgba(85, 103, 213, 0.1) 0%, rgba(118, 75, 162, 0.1) 50%, rgba(85, 103, 213, 0.05) 100%),
-    radial-gradient(circle at 20% 50%, rgba(240, 147, 251, 0.08) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(85, 103, 213, 0.08) 0%, transparent 50%);
+    linear-gradient(135deg, rgba(255, 252, 245, 0.03) 0%, rgba(255, 252, 245, 0.015) 50%, transparent 100%);
   animation: gradientShift 15s ease infinite;
 }
 @keyframes gradientShift {
@@ -449,14 +466,14 @@
 /* Guided-checklist jump: flash the targeted section so the eye lands on it.
    Applied by DatasetWorkspace.jumpTo for ~1.5 s, restartable on repeat clicks. */
 @keyframes gfFlash {
-  0%   { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.75); background-color: rgba(99, 102, 241, 0.12); }
-  60%  { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.35); background-color: rgba(99, 102, 241, 0.05); }
-  100% { box-shadow: 0 0 0 3px rgba(129, 140, 248, 0);    background-color: transparent; }
+  0%   { box-shadow: 0 0 0 3px rgb(var(--accent) / 0.75); background-color: rgb(var(--accent) / 0.12); }
+  60%  { box-shadow: 0 0 0 3px rgb(var(--accent) / 0.35); background-color: rgb(var(--accent) / 0.05); }
+  100% { box-shadow: 0 0 0 3px rgb(var(--accent) / 0);    background-color: transparent; }
 }
 .gf-highlight {
   animation: gfFlash 1.4s ease-out 1;
   border-radius: 0.5rem;
 }
 @media (prefers-reduced-motion: reduce) {
-  .gf-highlight { animation: none; box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.5); }
+  .gf-highlight { animation: none; box-shadow: 0 0 0 3px rgb(var(--accent) / 0.5); }
 }

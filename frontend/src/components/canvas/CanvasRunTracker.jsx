@@ -62,7 +62,7 @@ export default function CanvasRunTracker({ run, targets, onStop, onResume, onOpe
 
       {s.phase === 'stopped' && (
         <button type="button" onClick={onResume}
-          className="ml-auto rounded-md bg-gradient-primary px-2 py-0.5 font-semibold text-white">
+          className="ml-auto rounded-md bg-gradient-primary px-2 py-0.5 font-semibold text-gray-950">
           ▶ Resume
         </button>
       )}

@@ -154,7 +154,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
           <span className="text-content text-sm">ComfyUI could not confirm whether this image started. Restart ComfyUI, confirm it here, then click Resume test.</span>
           <button type="button" disabled={studio.confirmingComfyuiRestart || !studio.confirmComfyuiRestart}
             onClick={studio.confirmComfyuiRestart}
-            className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
+            className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-xs font-semibold disabled:opacity-40">
             {studio.confirmingComfyuiRestart ? 'Confirming…' : '✓ J’ai redémarré ComfyUI'}
           </button>
         </div>
@@ -181,7 +181,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
           <span className="text-content text-sm">{d.resumable} stopped cell(s) — resumable with their settings</span>
           <button type="button" disabled={!!d.gpu_busy || studio.launching}
             onClick={() => studio.resume()}
-            className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
+            className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-xs font-semibold disabled:opacity-40">
             ▶ Resume test
           </button>
         </div>

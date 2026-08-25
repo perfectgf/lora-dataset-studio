@@ -131,7 +131,7 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
             </button>
           ) : (
             <button type="button" onClick={generate}
-              className="rounded-lg bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white">
+              className="rounded-lg bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950">
               ✨ Generate
             </button>
           )}

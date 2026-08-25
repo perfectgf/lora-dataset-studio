@@ -30,7 +30,7 @@ export default function DiagnosticReport() {
         to ~). The log/error lines can still mention file names: skim before posting.
       </p>
       <button type="button" onClick={copy} disabled={busy}
-        className="mt-3 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+        className="mt-3 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
         {busy ? 'Building…' : '📋 Copy diagnostic report'}
       </button>
     </div>

@@ -528,7 +528,7 @@ export default function SettingsPage() {
             Discard
           </button>
           <button type="button" onClick={handleSave} disabled={saving}
-            className="rounded-full bg-gradient-primary px-4 py-1 text-xs font-semibold text-white disabled:opacity-50">
+            className="rounded-full bg-gradient-primary px-4 py-1 text-xs font-semibold text-gray-950 disabled:opacity-50">
             {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>

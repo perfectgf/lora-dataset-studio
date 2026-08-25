@@ -428,7 +428,7 @@ export default function BankThresholdsPanel({
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={save} disabled={busy || dirty.length === 0}
-          className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+          className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-gray-950 hover:bg-indigo-500 disabled:opacity-50">
           {busy ? 'Saving…' : `Save${dirty.length ? ` (${dirty.length})` : ''}`}
         </button>
         {dirty.length > 0 && (

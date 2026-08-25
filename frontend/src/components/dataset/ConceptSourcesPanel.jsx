@@ -389,14 +389,14 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
               onClick={() => setSourceMode(mode)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
                 modeInUse === mode
-                  ? 'bg-indigo-500 text-white shadow-sm'
+                  ? 'bg-indigo-500 text-gray-950 shadow-sm'
                   : 'text-content-muted hover:bg-white/5 hover:text-content'}`}>
               {label}
             </button>
           ))}
         </div>
         <button type="button" onClick={handleImport} disabled={busy || importing || selected.size === 0}
-          className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
           {importing ? 'Importing…' : `⬇ Import ${selected.size || ''}`}
         </button>
       </div>
@@ -698,7 +698,7 @@ export default function ConceptSourcesPanel({ datasetId, onImport, busy,
                     )}
                     <span aria-hidden
                       className={`absolute top-1 right-1 w-4 h-4 rounded-full text-[0.625rem] leading-4 text-center font-bold
-                        ${on ? 'bg-indigo-500 text-white' : 'bg-black/50 text-white/70'}`}>
+                        ${on ? 'bg-indigo-500 text-gray-950' : 'bg-black/50 text-gray-950/70'}`}>
                       {on ? '✓' : ''}
                     </span>
                   </button>

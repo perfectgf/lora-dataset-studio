@@ -107,7 +107,7 @@ export default function ScenePromptsPanel({ value, onChange }) {
             ))}
           </select>
           <button type="button" onClick={load} disabled={!sourceId || busy}
-            className="rounded-lg bg-gradient-primary px-2.5 py-1 text-[0.6875rem] font-semibold text-white disabled:opacity-40">
+            className="rounded-lg bg-gradient-primary px-2.5 py-1 text-[0.6875rem] font-semibold text-gray-950 disabled:opacity-40">
             {busy ? 'Loading…' : scenes.length ? '⟳ Reload' : '⬇ Load scenes'}
           </button>
           {scenes.length > 0 && (

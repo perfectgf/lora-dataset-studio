@@ -123,7 +123,7 @@ export default function SetupHealthNotice() {
             <span className="font-semibold">{notice.title}</span> — {notice.body}
           </span>
           <Link to="/setup"
-            className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white no-underline transition-transform hover:-translate-y-px">
+            className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 no-underline transition-transform hover:-translate-y-px">
             Open Setup
           </Link>
           {/* Not a "close": an uninstall can be deliberate, and without a way to

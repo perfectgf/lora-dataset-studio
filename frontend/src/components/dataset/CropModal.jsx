@@ -193,8 +193,8 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
               <button key={label} type="button" onClick={() => pickAspect(value)}
                 aria-pressed={aspect === value}
                 className={`px-2 py-0.5 rounded text-xs font-semibold ${aspect === value
-                  ? 'bg-indigo-500 text-white'
-                  : 'bg-white/10 text-white/70 hover:bg-white/20'}`}>
+                  ? 'bg-indigo-500 text-gray-950'
+                  : 'bg-white/10 text-gray-950/70 hover:bg-white/20'}`}>
                 {label}
               </button>
             ))}
@@ -214,7 +214,7 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
           <button type="button" disabled={!box}
             onClick={() => onConfirm({ x: Math.round(box.x), y: Math.round(box.y),
                                        w: Math.round(box.w), h: Math.round(box.h) })}
-            className="px-4 py-2 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="px-4 py-2 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
             Crop
           </button>
         </div>

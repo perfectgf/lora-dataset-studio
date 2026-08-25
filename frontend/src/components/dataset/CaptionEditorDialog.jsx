@@ -240,7 +240,7 @@ export default function CaptionEditorDialog({
                   Cancel
                 </button>
                 <button type="button" onClick={save} disabled={busy}
-                  className="rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  className="rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-40">
                   {busy ? 'Saving…' : 'Save caption'}
                 </button>
               </div>

@@ -84,7 +84,7 @@ export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact'
         <button type="button" disabled={busy || live}
           onClick={() => resolve({ strategy: 'best' })}
           title="In every group: keep the best (aesthetic score, then resolution/sharpness) member, reject the rest"
-          className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
+          className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-50">
           Resolve ALL — keep best
         </button>
         <button type="button" disabled={busy || live}

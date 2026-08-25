@@ -631,7 +631,7 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
                 : undefined}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
                 primary
-                  ? 'bg-gradient-primary text-white'
+                  ? 'bg-gradient-primary text-gray-950'
                   : 'border border-border bg-surface-raised text-content hover:bg-surface'}`}>
               {primary ? '▶ ' : ''}{PASS_LABELS[pass]}
             </button>

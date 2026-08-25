@@ -12,13 +12,15 @@ import {
 
 // Fixed gradient palette for the dataset avatars — deterministic per name so a
 // dataset keeps its color across sessions (Tailwind needs literal class names).
+// Safelight: muted tonal pairs, not saturated two-hue gradients — distinct
+// enough to tell datasets apart, quiet enough to never compete with a photo.
 const AVATAR_GRADIENTS = [
-  'from-indigo-500 to-purple-500',
-  'from-rose-500 to-orange-400',
-  'from-emerald-500 to-teal-400',
-  'from-sky-500 to-blue-600',
-  'from-amber-500 to-pink-500',
-  'from-fuchsia-500 to-violet-600',
+  'from-[#4A4340] to-[#5C5450]',
+  'from-[#3E4650] to-[#4E5763]',
+  'from-[#464049] to-[#57505B]',
+  'from-[#414A44] to-[#525C55]',
+  'from-[#4E453F] to-[#605650]',
+  'from-[#4B4244] to-[#5D5254]',
 ];
 
 function gradientFor(name = '') {
@@ -446,7 +448,7 @@ function NewDatasetForm({ onCreate, onClose }) {
           onClick={() => canCreate && onCreate(name.trim(), trigger.trim(), kind, conceptDesc.trim(), trainType,
             (concept || style) ? undefined : fidelity)}
           disabled={!canCreate}
-          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
           Create
         </button>
       </div>
@@ -522,7 +524,7 @@ export default function DatasetListPanel({
               }}
               aria-expanded={empty ? undefined : formOpen}
               aria-controls={empty ? undefined : 'new-dataset-form'}
-              className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
+              className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-gray-950 transition-transform hover:-translate-y-px">
               {!empty && creating ? '✕ Close' : '+ New dataset'}
             </button>
             {/* Back up everything, its "include LoRAs" option and Import backup

@@ -198,7 +198,7 @@ function UpdatesCard() {
                   : `${zipUpdateHeadline(s)}.`}
               </span>
               <button type="button" onClick={apply}
-                className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white transition-transform hover:-translate-y-px">
+                className="rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-gray-950 transition-transform hover:-translate-y-px">
                 Update &amp; restart
               </button>
             </div>

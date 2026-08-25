@@ -29,7 +29,7 @@ export default function RunSelector({
       {unvotedCount > 0 && (
         <button type="button" onClick={onStartVote}
           title="Quickly vote on all unrated images (swipe or 👍/👎)"
-          className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold">
+          className="px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-[0.6875rem] font-semibold">
           🗳 Vote ({unvotedCount})
         </button>
       )}

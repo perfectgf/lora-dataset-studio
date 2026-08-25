@@ -463,7 +463,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
                 Cancel
               </button>
               <button type="button" onClick={save} disabled={saving}
-                className="px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+                className="px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </div>

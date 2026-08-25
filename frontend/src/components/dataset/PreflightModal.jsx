@@ -111,7 +111,7 @@ export default function PreflightModal({ report, datasetId, ds, onResolve }) {
           <button type="button" onClick={() => onResolve(false)}
             className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm">Cancel</button>
           <button type="button" onClick={() => onResolve(true)}
-            className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold">
+            className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold">
             Start anyway
           </button>
         </div>

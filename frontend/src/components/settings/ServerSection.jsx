@@ -354,7 +354,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
             <span className="ml-auto text-sky-300">Docker-managed bind</span>
           ) : dirty ? (
             <button type="button" onClick={restart} disabled={restarting}
-              className="ml-auto shrink-0 rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
+              className="ml-auto shrink-0 rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-50">
               {restarting ? '↻ Restarting…' : 'Save & restart to apply'}
             </button>
           ) : (

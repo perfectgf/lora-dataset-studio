@@ -437,7 +437,7 @@ function CloudLaunchDialog({
             title={hfTokenBlocked
               ? 'Configure a valid HF_CLOUD_TOKEN with the required permissions before launching'
               : !customBaseReady ? 'Push the custom base to your Hugging Face account first' : undefined}
-            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
             {launchButtonLabel({ launching, elapsedSeconds: launchElapsed, fullMode })}
           </button>
           <button type="button" onClick={onClose} disabled={launching}

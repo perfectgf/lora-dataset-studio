@@ -416,7 +416,7 @@ function UpdateBanner() {
             ) : (
               <>
                 <button type="button" onClick={apply}
-                  className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white transition-transform hover:-translate-y-px">
+                  className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 transition-transform hover:-translate-y-px">
                   Update &amp; restart
                 </button>
                 {/* Download link only for packaged builds (a git checkout updates in

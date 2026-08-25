@@ -131,7 +131,7 @@ export default function RelocateBankDialog({ bankId, bankName, sourcePath, onClo
             {busy && !ready ? 'Checking…' : '🔍 Check this folder'}
           </button>
           <button type="button" onClick={apply} disabled={busy || !ready}
-            className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40">
+            className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-gray-950 hover:bg-indigo-500 disabled:opacity-40">
             {relocationApplyLabel(preview)}
           </button>
         </div>

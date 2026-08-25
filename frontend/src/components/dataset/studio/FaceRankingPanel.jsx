@@ -27,7 +27,7 @@ export default function FaceRankingPanel({ ranking = [], onScore, scoring, hasCe
           title={hasCells
             ? 'Score every finished cell against the reference photo, then rank the checkpoints'
             : 'Run a test first — there is nothing to score yet'}
-          className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
+          className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-xs font-semibold disabled:opacity-40">
           {scoring ? 'Scoring…' : '🎯 Score faces'}
         </button>
       </div>

@@ -89,7 +89,7 @@ export default function VideoClipGrid({
               )}
               {clip.promoted_dataset_id && (
                 <span aria-hidden title="Already promoted into a dataset"
-                  className="pointer-events-none absolute right-1 top-1 rounded bg-indigo-600 px-1 text-[0.625rem] font-bold text-white">
+                  className="pointer-events-none absolute right-1 top-1 rounded bg-indigo-600 px-1 text-[0.625rem] font-bold text-gray-950">
                   ▶
                 </span>
               )}

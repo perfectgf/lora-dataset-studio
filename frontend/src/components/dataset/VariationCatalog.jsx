@@ -1988,7 +1988,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
                 <button type="button" onClick={saveEditCustomShot}
                   disabled={!customPrompt.trim() || editBusy}
                   title="Replace this card with the words above"
-                  className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+                  className="px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-[0.6875rem] font-semibold disabled:opacity-40">
                   {editBusy ? 'Saving…' : '✔ Save'}
                 </button>
                 <button type="button" onClick={cancelEditCustomShot} disabled={editBusy}
@@ -1999,7 +1999,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               </span>
             ) : (
               <button type="button" onClick={addCustomShot} disabled={!customPrompt.trim()}
-                className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+                className="px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-[0.6875rem] font-semibold disabled:opacity-40">
                 ＋ Add
               </button>
             )}
@@ -2075,7 +2075,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
               <div className="flex flex-wrap gap-1.5">
                 <button type="button" onClick={confirmImport}
                   disabled={importBusy || !importReview.result.accepted.length}
-                  className="px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-[0.6875rem] font-semibold disabled:opacity-40">
+                  className="px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-[0.6875rem] font-semibold disabled:opacity-40">
                   {importBusy ? 'Importing…' : `Import ${importReview.result.accepted.length} shot${importReview.result.accepted.length === 1 ? '' : 's'}`}
                 </button>
                 <button type="button" onClick={() => setImportReview(null)}
@@ -2170,7 +2170,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
             Klein alike — keeps this locked with a visible reason. */}
         <button type="button" onClick={go} disabled={busy || !hasRef || !!blockedReason}
           title={generating ? 'A generation batch is already running' : (blockedReason || undefined)}
-          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
           {busy
             ? (generating
                 ? `Generating…${generating.total ? ` ${generating.done}/${generating.total}` : ''}`

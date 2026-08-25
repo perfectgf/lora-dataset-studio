@@ -81,7 +81,7 @@ function BackupOverlay({ job, onDownload, onOpenFolder, onDismiss }) {
               📂 Open folder
             </button>
             <button type="button" onClick={() => onDownload(job.result?.name)}
-              className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-white">
+              className="rounded-lg bg-gradient-primary px-3.5 py-1.5 text-sm font-semibold text-gray-950">
               ⬇ Download
             </button>
             <button type="button" onClick={onDismiss}

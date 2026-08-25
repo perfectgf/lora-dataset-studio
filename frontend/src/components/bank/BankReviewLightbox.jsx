@@ -351,7 +351,7 @@ export default function BankReviewLightbox({
               </button>
             )}
             <button type="button" onClick={onClose}
-              className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+              className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
               Back to the grid
             </button>
           </div>

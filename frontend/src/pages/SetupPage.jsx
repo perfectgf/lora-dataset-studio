@@ -783,7 +783,7 @@ export default function SetupPage() {
             </div>
             <div className="flex items-center gap-4 pt-1">
               <button type="button" onClick={skipComfyui} disabled={busy}
-                className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
                 {busy ? 'Saving…' : 'Continue without ComfyUI'}
               </button>
               <button type="button" onClick={() => setSkipConfirm(false)}
@@ -1098,7 +1098,7 @@ export default function SetupPage() {
                 Start it (it listens on port 11434) to unlock captioning and auto-framing — no restart needed.
               </p>
               <button type="button" onClick={startOllama} disabled={startingOllama}
-                className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
                 {startingOllama ? 'Starting…' : '▶ Start Ollama'}
               </button>
             </div>
@@ -1214,7 +1214,7 @@ export default function SetupPage() {
           <div className="rounded-md border border-primary/40 bg-primary/10 px-3 py-3 text-sm text-content">
             <p className="mb-2">Found an ai-toolkit install at <span className="font-mono">{detectedDir}</span>. Use it?</p>
             <button type="button" onClick={() => applyDetectedPath('aitoolkit', 'dir', detectedDir)}
-              className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-white">
+              className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-gray-950">
               Use this ai-toolkit →
             </button>
           </div>
@@ -1239,7 +1239,7 @@ export default function SetupPage() {
             {verdict.candidates.map((p) => (
               <button key={p} type="button"
                 onClick={() => applyDetectedPath('aitoolkit', 'python', p)}
-                className="block w-full rounded-lg bg-gradient-primary px-3 py-2 text-left text-xs font-semibold text-white sm:w-auto">
+                className="block w-full rounded-lg bg-gradient-primary px-3 py-2 text-left text-xs font-semibold text-gray-950 sm:w-auto">
                 Use this Python: <span className="font-mono break-all">{p}</span>
               </button>
             ))}
@@ -1559,7 +1559,7 @@ export default function SetupPage() {
               everything + the one-by-one menu) comes AFTER, since several installs depend
               on a configured ComfyUI/Ollama. */}
           <button type="button" onClick={goNext}
-            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
             {allReady ? "Everything's ready — review →" : 'Start setup →'}
           </button>
         </div>
@@ -1616,7 +1616,7 @@ export default function SetupPage() {
           <button type="button" onClick={goBack} className="text-xs text-content-subtle underline hover:text-content">
             ← Back
           </button>
-          <Link to="/datasets" className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+          <Link to="/datasets" className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
             Build your first dataset →
           </Link>
         </div>
@@ -1645,7 +1645,7 @@ export default function SetupPage() {
           <div className="flex items-center gap-4">
             {skipLink}
             <button type="button" onClick={goNext}
-              className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white">
+              className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
               Finish →
             </button>
           </div>
@@ -1704,7 +1704,7 @@ export default function SetupPage() {
           {skipLink}
           <button type="button" onClick={nextWithSave} disabled={advancing}
             title={reason || ''}
-            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">
+            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950 disabled:cursor-not-allowed disabled:opacity-40">
             {nextLabel}
           </button>
         </div>

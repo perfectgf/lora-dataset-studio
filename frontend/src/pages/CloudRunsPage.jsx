@@ -1048,7 +1048,7 @@ export default function CloudRunsPage() {
                   : run.source === 'local'
                     ? 'Relaunch this run locally with the same settings'
                     : 'Relaunch this run with the same settings on a fresh pod'}
-                className="px-3 py-1.5 rounded-lg bg-primary/90 hover:bg-primary text-white text-xs font-semibold disabled:opacity-40">
+                className="px-3 py-1.5 rounded-lg bg-primary/90 hover:bg-primary text-gray-950 text-xs font-semibold disabled:opacity-40">
                 {retrying[runRetryKey(run)] ? '↻ Retrying…' : '↻ Retry'}
               </button>
             )}

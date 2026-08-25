@@ -151,7 +151,7 @@ export default function IdentityPromptModal({ onClose, subjectType = 'human' }) 
           <button type="button" onClick={onClose}
             className="ml-auto px-3 py-1.5 rounded-lg bg-surface text-content text-sm">Cancel</button>
           <button type="button" onClick={save} disabled={saving || prompts === null}
-            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>

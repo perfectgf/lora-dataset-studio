@@ -296,7 +296,7 @@ export default function PassDialog({
               Cancel
             </button>
             <button type="button" onClick={launch} disabled={busy || !!blocked}
-              className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+              className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
               {busy ? 'Starting…' : runLabel}
             </button>
           </div>

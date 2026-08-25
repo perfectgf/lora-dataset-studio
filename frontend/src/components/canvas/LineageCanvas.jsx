@@ -394,7 +394,7 @@ const LaneImages = memo(function LaneImages({ lane, layout, onGeometry, onClose,
             className="bg-indigo-300" aria-hidden />
           <span style={{ position: 'absolute', left: 0, top: -22 / Math.max(boardScale, 0.05),
             fontSize: Math.max(9, 11 / Math.max(boardScale, 0.05)) }}
-            className="whitespace-nowrap rounded bg-indigo-500 px-1.5 py-0.5 font-semibold text-white">
+            className="whitespace-nowrap rounded bg-indigo-500 px-1.5 py-0.5 font-semibold text-gray-950">
             Join — {hint.count} images side by side
           </span>
         </div>

@@ -8,7 +8,7 @@
 export default function LaunchBar({ canLaunch, onLaunch, label = null, title = null }) {
   return (
     <button type="button" disabled={!canLaunch} onClick={onLaunch} title={title || undefined}
-      className="ml-auto min-w-0 px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+      className="ml-auto min-w-0 px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
       <span aria-hidden>🚀</span> <span className="break-words">{label || 'Run test'}</span>
     </button>
   );

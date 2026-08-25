@@ -115,7 +115,7 @@ export default function VideoShotCutsPanel({ bankId, shotDetect, onChanged }) {
           </button>
           <button type="button" onClick={recut} disabled={working || !cached}
             title="Cuts every file again from what the detector already measured — no GPU, no waiting"
-            className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+            className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-40">
             Save &amp; re-cut this bank
           </button>
         </div>

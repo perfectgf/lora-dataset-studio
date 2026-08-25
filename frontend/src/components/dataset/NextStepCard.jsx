@@ -39,7 +39,7 @@ export default function NextStepCard({ step, trainMode, busy, totalImages, onAct
         <div className="mt-1 flex items-center gap-3 flex-wrap">
           <p className="text-content-muted text-sm m-0">{COPY[key]}</p>
           <button type="button" onClick={onAction} disabled={busy}
-            className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
             {actionLabel}
           </button>
         </div>

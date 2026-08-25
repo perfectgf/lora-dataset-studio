@@ -216,7 +216,7 @@ export default function PersonPreflightDialog({
           )}
           {phase === 'choose' && (
             <button type="button" onClick={accept} disabled={busy}
-              className="order-1 rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:order-3">
+              className="order-1 rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-50 sm:order-3">
               {busy ? 'Starting…' : acceptLabel(picked)}
             </button>
           )}

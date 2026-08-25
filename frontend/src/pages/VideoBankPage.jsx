@@ -142,7 +142,7 @@ export default function VideoBankPage() {
             hint="Reads .mp4, .mov, .mkv, .webm and .avi. No pass ever modifies your files: scanning, cutting and building all write elsewhere. The one thing that adds to this folder is a scrape you send to this bank yourself." />
         </div>
         <button type="submit" disabled={creating}
-          className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+          className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-50">
           {creating ? 'Inventorying…' : '➕ Create video bank'}
         </button>
       </form>

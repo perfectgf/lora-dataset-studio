@@ -133,7 +133,7 @@ export default function VideoClipTrimTools({
               </button>
             )}
             <button type="button" onClick={saveBounds} disabled={!dirty || saving}
-              className="rounded bg-indigo-600 px-2.5 py-1 text-[0.6875rem] font-semibold text-white hover:bg-indigo-500 disabled:opacity-30">
+              className="rounded bg-indigo-600 px-2.5 py-1 text-[0.6875rem] font-semibold text-gray-950 hover:bg-indigo-500 disabled:opacity-30">
               Save bounds
             </button>
           </div>

@@ -196,7 +196,7 @@ export default function VideoClipLightbox({
                   setSavingCaption(false)
                 }
               }}
-              className="rounded-md bg-gradient-primary px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-40">
+              className="rounded-md bg-gradient-primary px-2.5 py-1 text-xs font-semibold text-gray-950 disabled:opacity-40">
               {savingCaption ? 'Saving…' : 'Save caption'}
             </button>
             <span className="text-[0.6875rem] text-white/50">

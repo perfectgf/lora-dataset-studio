@@ -165,7 +165,7 @@ export function FolderBrowserModal({ initial, onPick, onClose }) {
             Cancel
           </button>
           <button type="button" disabled={busy || atRoot || loading} onClick={use}
-            className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+            className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
             {busy ? 'Using…' : 'Use this folder'}
           </button>
         </div>

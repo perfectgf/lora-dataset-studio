@@ -226,7 +226,7 @@ export default function BankPage() {
         </div>
         <button type="submit" disabled={creating || !!folderNotice}
           title={folderNotice ? 'That folder belongs to a dataset' : undefined}
-          className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+          className="rounded-md bg-gradient-primary px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-50">
           {creating ? 'Inventorying…' : '➕ Create bank'}
         </button>
         {/* basis-full: its own row inside the wrapping flex form, so the sentence

@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-25-safelight-look',
+    date: '2026-08-25',
+    title: 'A new look: neutral darkroom greys, one amber accent',
+    blurb:
+      'The whole app moves to "Safelight": neutral, opaque greys inspired by '
+      + 'photo-editing darkrooms — so the interface never tints the images you '
+      + 'are judging — with a single amber accent replacing the old purple '
+      + 'gradient, and a crisper typeface (Archivo). Same layout, same '
+      + 'controls, calmer room.',
+  },
+  {
     id: '2026-08-25-comfyui-submit-patience',
     date: '2026-08-25',
     title: 'Far fewer false "paused ComfyUI job" banners',

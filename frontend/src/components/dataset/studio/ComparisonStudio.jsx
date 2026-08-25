@@ -407,7 +407,7 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
             <span className="text-content text-sm">A ComfyUI submission has an unknown outcome. Restart ComfyUI first, then confirm it here; the paused cell will become resumable.</span>
             <button type="button" disabled={run.confirmingComfyuiRestart}
               onClick={run.confirmComfyuiRestart}
-              className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
+              className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-xs font-semibold disabled:opacity-40">
               {run.confirmingComfyuiRestart ? 'Confirming…' : '✓ J’ai redémarré ComfyUI'}
             </button>
           </div>
@@ -430,7 +430,7 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
             <span aria-hidden>⏸</span>
             <span className="text-content text-sm">{data.resumable} stopped cell(s) — resumable with their settings</span>
             <button type="button" disabled={!!data?.gpu_busy} onClick={run.resume}
-              className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-white text-xs font-semibold disabled:opacity-40">
+              className="ml-auto px-2.5 py-1 rounded-lg bg-gradient-primary text-gray-950 text-xs font-semibold disabled:opacity-40">
               ▶ Resume the test
             </button>
           </div>

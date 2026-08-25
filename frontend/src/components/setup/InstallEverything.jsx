@@ -231,7 +231,7 @@ export default function InstallEverything({ plan, caps, onDone }) {
               </p>
             ) : (
               <button type="button" onClick={start} disabled={phase === 'running'}
-                className="mt-4 rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                className="mt-4 rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950 disabled:opacity-50">
                 {phase === 'running' ? 'Installing…' : `Install everything (${(plan || []).length})`}
               </button>
             )}

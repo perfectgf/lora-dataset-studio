@@ -177,7 +177,7 @@ export default function ExportGridModal({ open, onClose, datasetId, family, run,
             Cancel
           </button>
           <button type="button" onClick={doExport} disabled={busy}
-            className="px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-[0.75rem] font-semibold disabled:opacity-60">
+            className="px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-[0.75rem] font-semibold disabled:opacity-60">
             {busy ? 'Composing…' : '⬇ Export'}
           </button>
         </div>

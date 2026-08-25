@@ -1423,7 +1423,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           </button>
           <button type="button" onClick={() => setLaunchOpen(true)} disabled={live || !(counts?.total > 0)}
             title={`Run the whole triage in one go — scan, auto-reject, Score${semanticState.engine === 'siglip2' ? ', SigLIP 2 semantic index' : ''}, crops/variants, watermarks, group by person and (optionally) caption. Start it and walk away. If the person pass is in, it checks your folders first and asks once, before the run.`}
-            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-white shadow disabled:opacity-50">
+            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-gray-950 shadow disabled:opacity-50">
             🚀 Launch all…
           </button>
           <span className="ml-auto" />
@@ -1431,7 +1431,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             title={canPromote
               ? 'Copy the kept selection into a dataset — or into a brand-new bank, to keep working on a shortlist apart'
               : 'Keep some images first'}
-            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
             ⬆ Promote…
           </button>
           {/* Disabled outright when this bank's folder belongs to a dataset: the
@@ -1677,7 +1677,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                     </p>
                   )}
                   <button type="button" onClick={applyAutoReject} disabled={!rejectFlags.size}
-                    className="min-h-10 lg:min-h-0 w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
+                    className="min-h-10 lg:min-h-0 w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-50">
                     Reject them
                   </button>
                 </div>
@@ -1777,7 +1777,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                       : 'Images that look like nothing else in the bank (memes, screenshots, someone else) stop winning on isolation alone. Variety inside your subject is untouched.'}
                   </p>
                   <button type="button" onClick={pickDiverse} disabled={diverseBusy}
-                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-60">
+                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
                     {diverseBusy ? 'Sampling…' : `Select ${diverseN} most diverse`}
                   </button>
                 </div>
@@ -1834,7 +1834,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                     🎨 Pick diverse ({diverseTypicality === 0 ? 'off' : `${Math.round(diverseTypicality * 100)}%`}).
                   </p>
                   <button type="button" onClick={pickBalanced} disabled={balanceBusy}
-                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-60">
+                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
                     {balanceBusy ? 'Sampling…' : `Select ${balanceN}, balanced`}
                   </button>
                 </div>
@@ -1870,7 +1870,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                       className="w-20 rounded-md border border-border bg-surface px-2 py-0.5 text-sm text-content" />
                   </label>
                   <button type="button" onClick={findSimilar} disabled={similarBusy}
-                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-60">
+                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
                     {similarBusy ? 'Ranking…' : `Select ${similarN} most similar`}
                   </button>
                 </div>
@@ -1972,7 +1972,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                   </p>
                   <button type="button" onClick={runTextSearch}
                     disabled={textPending || !textQuery.trim()}
-                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">
+                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-50">
                     {textPending ? pendingLabel(textStatus) : `Rank the closest ${textN}`}
                   </button>
                 </div>

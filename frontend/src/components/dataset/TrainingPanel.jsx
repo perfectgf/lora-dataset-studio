@@ -2033,7 +2033,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             }
             refreshStatus();
           }}
-          className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
           <span aria-hidden>🚀</span> Train the LoRA
         </button>}
         {!fullMode && <HelpBadge topic="action-training-launch" />}
@@ -3250,7 +3250,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 Base “{baseLabel}” — if another training is running at that time, it waits in the queue.
               </span>
               <button type="button" onClick={schedule} disabled={!schedAt}
-                className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+                className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
                 Schedule
               </button>
             </div>
@@ -3440,7 +3440,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 title="See this dataset's runs and their checkpoints as a graph — continuations shown, import / generate / download / continue from any checkpoint"
                 className={'px-3 py-1 rounded-md text-xs font-semibold transition-colors '
                   + (checkpointsView === 'graph'
-                    ? 'bg-indigo-500 text-white shadow-sm '
+                    ? 'bg-indigo-500 text-gray-950 shadow-sm '
                     : 'text-content-muted hover:text-content ')}>
                 ◉ Graph
               </button>
@@ -3849,7 +3849,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             </p>
             <div className="flex items-center gap-2 flex-wrap">
               <button type="button" onClick={() => resolveResume('fresh')}
-                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold">
+                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold">
                 ↺ Start fresh
               </button>
               <button type="button" onClick={() => resolveResume('continue')}

@@ -106,7 +106,7 @@ export default function PublishHfModal({ datasetId, onClose }) {
               className="text-indigo-300 underline break-all text-sm">{result.repo_url}</a>
             <div className="flex justify-end pt-2">
               <button type="button" onClick={onClose}
-                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold">Done</button>
+                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold">Done</button>
             </div>
           </div>
         ) : (
@@ -177,7 +177,7 @@ export default function PublishHfModal({ datasetId, onClose }) {
                 Cancel
               </button>
               <button type="button" onClick={publish} disabled={!consent || !repoId.trim() || busy}
-                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40 flex items-center gap-2">
+                className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40 flex items-center gap-2">
                 {busy && <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
                 {busy ? 'Publishing…' : 'Publish'}
               </button>

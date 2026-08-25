@@ -1034,7 +1034,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
         )}
         <div className="ml-auto flex items-center gap-2">
           <button type="button" disabled={!kept} onClick={exportZipGuarded}
-            className="min-h-10 lg:min-h-0 px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="min-h-10 lg:min-h-0 px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
             ⬇ Export ZIP ({kept})
           </button>
           {/* summary en display:flex → pas de marqueur natif ; les items restent
@@ -1708,7 +1708,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 )}
                 <button type="button" data-workspace-focus
                   onClick={() => ds.caption(effCaptionMode)} disabled={ds.busy}
-                  className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+                  className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
                   {ds.captioning ? `✨ ${keptCaptioned}/${kept} captioned…` : '✨ Caption the kept ones'}
                 </button>
                 <HelpBadge topic="action-caption-generate" />
@@ -2018,7 +2018,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   className="flex items-center gap-2 flex-wrap scroll-mt-20">
                   <button type="button" data-workspace-focus={kept ? '' : undefined}
                     disabled={!kept} onClick={exportZipGuarded}
-                    className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+                    className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
                     ⬇ Export ZIP ({kept})
                   </button>
                   <span className="text-content-subtle text-[0.6875rem]">
@@ -2136,7 +2136,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       ★ {fmt(d.best_settings.strength)}
                     </span>
                   )}
-                  <span className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-xs font-semibold">
+                  <span className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-xs font-semibold">
                     ⤢ Open Studio
                   </span>
                 </button>

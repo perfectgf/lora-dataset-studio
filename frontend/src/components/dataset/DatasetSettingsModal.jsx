@@ -222,7 +222,7 @@ export default function DatasetSettingsModal({ d, busy, onSave, onClose }) {
             Cancel
           </button>
           <button type="button" onClick={save} disabled={!canSave || busy}
-            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
             {kindChanged ? 'Change kind & save' : 'Save'}
           </button>
         </div>

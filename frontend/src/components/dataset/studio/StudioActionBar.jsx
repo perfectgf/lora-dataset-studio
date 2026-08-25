@@ -36,7 +36,7 @@ export default function StudioActionBar({ shortcuts = [], canRun, running, onRun
           </button>
         ))}
         <button type="button" onClick={onRun} disabled={!canRun}
-          className="min-h-10 lg:min-h-0 ml-auto shrink-0 px-4 py-1.5 rounded-lg bg-gradient-primary text-white text-sm font-semibold disabled:opacity-40">
+          className="min-h-10 lg:min-h-0 ml-auto shrink-0 px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
           {running ? '…' : runLabel}
         </button>
       </div>

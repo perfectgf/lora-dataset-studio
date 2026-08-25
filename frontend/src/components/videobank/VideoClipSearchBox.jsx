@@ -89,7 +89,7 @@ export default function VideoClipSearchBox({
               cannot run CLIP is not one click away from being able to. */}
           {status?.available !== false && (Number(counts?.clips) || 0) > 0 && (
             <button type="button" onClick={onRunPass} disabled={busy}
-              className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+              className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-40">
               🔎 Find scenes
             </button>
           )}
@@ -105,7 +105,7 @@ export default function VideoClipSearchBox({
               aria-label="Describe the scene to look for"
               className="min-w-[12rem] flex-1 rounded-md border border-border bg-app px-2.5 py-1.5 text-sm text-content placeholder:text-content-subtle" />
             <button type="submit" disabled={searching || !query.trim()}
-              className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+              className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-40">
               {searching ? pendingLabel(status) : 'Search'}
             </button>
             {result && (

@@ -106,7 +106,7 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={start} disabled={busy}
-          className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+          className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
           {state === 'queued' ? 'Queued…' : running ? 'Installing…' : buttonLabel}
         </button>
         {action === 'ollama_model' && running && (
