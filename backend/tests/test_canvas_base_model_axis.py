@@ -77,7 +77,8 @@ def _canvas_launch(app_ctx_tmp, monkeypatch):
             LOCAL_USER,
             [{'dataset_id': ds_a.id, 'checkpoint': cp_a},
              {'dataset_id': ds_b.id, 'checkpoint': cp_b}],
-            kw.pop('strengths', [1.0]), prompt='on a rooftop', **kw)
+            kw.pop('strengths', [1.0]),
+            lts.StudioGenSettings(prompt='on a rooftop', **kw))
 
     return launch, models
 

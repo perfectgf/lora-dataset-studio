@@ -578,8 +578,7 @@ def test_create_comparison_run_krea_enqueues_all_zero_cells_before_stable_nonzer
             [{'dataset_id': ds.id, 'checkpoint': checkpoint}
              for checkpoint in checkpoints],
             [1.0, 0.0, -0.5, 0.75],
-            prompt='p',
-            count=1,
+            lts.StudioGenSettings(prompt='p', count=1),
         )
 
         expected = [(None, checkpoint, 0.0) for checkpoint in checkpoints]
@@ -620,7 +619,7 @@ def test_create_comparison_run_commits_rows_before_enqueue(app, monkeypatch, tmp
         monkeypatch.setattr(lts, '_enqueue_cell', fake_enqueue)
         monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
         out = lts.create_comparison_run(LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': cks[0]}],
-                                        [1.0], prompt='p', count=1)
+                                        [1.0], lts.StudioGenSettings(prompt='p', count=1))
         rows = LoraTestImage.query.filter_by(dataset_id=ds.id).all()
         assert out['created'] == len(rows) >= 1
         assert seen and all(j for j in seen)
@@ -656,7 +655,8 @@ def test_comparison_run_failure_keeps_previous_cells_and_marks_the_failed_one(ap
         monkeypatch.setattr(lts, '_preflight_run', lambda *a, **k: None)
         with pytest.raises(RuntimeError, match='comfy exploded'):
             lts.create_comparison_run(LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': cks[0]}],
-                                      [0.6, 0.8, 1.0, 1.2, 1.4], prompt='p', count=1)
+                                      [0.6, 0.8, 1.0, 1.2, 1.4],
+                                      lts.StudioGenSettings(prompt='p', count=1))
         rows = LoraTestImage.query.filter_by(dataset_id=ds.id).order_by(LoraTestImage.id).all()
         assert len(rows) == 3                       # the 2 survivors + the failed one
         queued = {j.job_id for j in ImageGenerationQueue.query.all()}
@@ -696,7 +696,7 @@ def test_comparison_run_writes_one_transaction_per_cell_and_scans_loras_once(app
         try:
             out = lts.create_comparison_run(
                 LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': c} for c in cks],
-                [0.8, 1.0], prompt='p', count=1)
+                [0.8, 1.0], lts.StudioGenSettings(prompt='p', count=1))
         finally:
             event.remove(Session, 'after_commit', _count)
         assert out['created'] == 6
@@ -1714,7 +1714,7 @@ def test_combine_run_stacks_every_lora_with_its_own_weight_and_all_triggers(
             [{'dataset_id': ds_a.id, 'checkpoint': cks_a[0], 'weight': 0.9},
              {'dataset_id': ds_b.id, 'checkpoint': cp_b, 'weight': 0.55}],
             [0.6, 0.8, 1.0],            # sweep axis: meaningless here, must be dropped
-            prompt='on a rooftop', count=1, combine=True)
+            lts.StudioGenSettings(prompt='on a rooftop', count=1), combine=True)
 
         # ONE cell: the strength sweep is replaced by the per-LoRA weights.
         assert out['created'] == 1 and len(built) == 1
@@ -1809,7 +1809,7 @@ def test_a_blend_weight_above_two_survives_the_whole_launch_path(app, monkeypatc
             LOCAL_USER,
             [{'dataset_id': ds_a.id, 'checkpoint': cks_a[0], 'weight': 4.5},
              {'dataset_id': ds_b.id, 'checkpoint': cks_b[0], 'weight': 5.0}],
-            [1.0], prompt='p', count=1, combine=True)
+            [1.0], lts.StudioGenSettings(prompt='p', count=1), combine=True)
         assert out['created'] == 1
         cell = db.session.get(LoraTestImage, out['ids'][0])
         assert cell.strength == 4.5, 'the head weight reaches the cell unclamped'
@@ -1827,7 +1827,7 @@ def test_combine_of_a_single_selection_stays_a_normal_run(app, monkeypatch, tmp_
         monkeypatch.setattr(lts, '_enqueue_cell', lambda *a, job_id=None, **k: job_id)
         out = lts.create_comparison_run(
             LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': cks[0]}],
-            [0.6, 0.8], prompt='p', count=1, combine=True)
+            [0.6, 0.8], lts.StudioGenSettings(prompt='p', count=1), combine=True)
         assert out['created'] == 2
 
 
@@ -1885,7 +1885,8 @@ def _stack_run(lts, svc, LOCAL_USER, tmp_path, monkeypatch, weights):
             LOCAL_USER,
             [{'dataset_id': ds_a.id, 'checkpoint': cks_a[0], 'weight': w_a},
              {'dataset_id': ds_b.id, 'checkpoint': cp_b, 'weight': w_b}],
-            [1.0], prompt='on a rooftop', count=1, combine=True)['run_id']
+            [1.0], lts.StudioGenSettings(prompt='on a rooftop', count=1),
+            combine=True)['run_id']
 
     return launch, ds_a, ds_b, cks_a[0], cp_b
 
@@ -1947,7 +1948,7 @@ def test_stack_variants_line_up_the_relaunches_of_the_same_stack(
         # A run of the SAME head LoRA alone is not a variant of this stack.
         solo = lts.create_comparison_run(
             LOCAL_USER, [{'dataset_id': ds_a.id, 'checkpoint': cp_a}],
-            [1.0], prompt='p', count=1)['run_id']
+            [1.0], lts.StudioGenSettings(prompt='p', count=1))['run_id']
         assert solo not in {v['run_id'] for v in
                             lts.studio_payload_run(LOCAL_USER, second)['stack_variants']}
         # And a comparison run has no stack block at all.

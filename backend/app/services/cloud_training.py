@@ -7534,14 +7534,15 @@ def checkpoint_previews_for(record_id) -> dict:
     return out
 
 
-def canvas_generate(user_id, selections, **knobs) -> dict:
+def canvas_generate(user_id, selections, strengths, settings=None, *,
+                    prompts=None, external_loras=None, combine=None) -> dict:
     """◉ Launch from the LoRA Canvas: the EXACT Test-Studio engine, told which
     checkpoints to run by the pills the user ticked instead of by a picker.
 
     `selections` = [{dataset_id, checkpoint, record_id, step}] — possibly across
     SEVERAL datasets, which is the point of the canvas
     (``LoraTestImage.run_id`` has always grouped cells of different datasets).
-    Every other setting rides through untouched to ``create_comparison_run``,
+    The settings object rides through untouched to ``create_comparison_run``,
     because it IS the same call the comparison grid makes: no second engine, so
     no drift between the two screens.
 
@@ -7555,7 +7556,9 @@ def canvas_generate(user_id, selections, **knobs) -> dict:
     from ..models import CheckpointPreview, LoraTestImage
     from . import lora_test_studio as studio
 
-    res = studio.create_comparison_run(user_id, selections, **knobs)
+    res = studio.create_comparison_run(
+        user_id, selections, strengths, settings,
+        prompts=prompts, external_loras=external_loras, combine=combine)
     ids = res.get('ids') or []
     if ids:
         rows = LoraTestImage.query.filter(LoraTestImage.id.in_(ids)).all()

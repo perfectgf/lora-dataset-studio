@@ -94,7 +94,7 @@ def test_external_lora_reaches_every_cell(app, tmp_path, monkeypatch):
 
         lts.create_comparison_run(
             LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-            prompt='p', external_loras=[{'filename': 'detail-tweaker.safetensors',
+            lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': 'detail-tweaker.safetensors',
                                          'strength': 0.7}])
         row_extras = json.loads(seen['img'].extra_loras)
         assert {'filename': 'detail-tweaker.safetensors', 'strength': 0.7,
@@ -115,7 +115,7 @@ def test_external_lora_missing_file_is_a_hard_error(app, tmp_path, monkeypatch):
         with pytest.raises(ValueError, match='external LoRA not found'):
             lts.create_comparison_run(
                 LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-                prompt='p', external_loras=[{'filename': 'ghost.safetensors',
+                lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': 'ghost.safetensors',
                                              'strength': 1.0}])
         assert LoraTestImage.query.count() == 0
 
@@ -141,7 +141,7 @@ def test_external_lora_wrong_arch_409s_before_any_row(app, tmp_path, monkeypatch
         with pytest.raises(lts.StudioArchMismatch):
             lts.create_comparison_run(
                 LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-                prompt='p', external_loras=[{'filename': 'wrong-arch.safetensors',
+                lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': 'wrong-arch.safetensors',
                                              'strength': 1.0}])
         assert LoraTestImage.query.count() == 0
 
@@ -164,7 +164,7 @@ def test_external_strength_clamped_and_defaulted(app, tmp_path, monkeypatch):
 
         lts.create_comparison_run(
             LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-            prompt='p', external_loras=[
+            lts.StudioGenSettings(prompt='p'), external_loras=[
                 {'filename': 'a.safetensors', 'strength': 9},
                 {'filename': 'a.safetensors', 'strength': 0.3},  # dup, ignored
                 {'filename': 'b.safetensors', 'strength': 'x'}])
@@ -206,7 +206,7 @@ def test_external_lora_reaches_the_real_krea_graph(app, tmp_path, monkeypatch):
 
         lts.create_comparison_run(
             LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-            prompt='p', external_loras=[{'filename': 'outside-krea.safetensors',
+            lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': 'outside-krea.safetensors',
                                          'strength': 0.6}])
         assert len(submitted) == 1
         wf = submitted[0]
@@ -230,7 +230,7 @@ def test_canvas_route_forwards_external_loras(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, selections, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen['external_loras'] = kwargs.get('external_loras')
         return {'created': 1, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
@@ -248,7 +248,7 @@ def test_studio_route_forwards_external_loras(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, selections, strengths, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen['external_loras'] = kwargs.get('external_loras')
         return {'created': 1, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
@@ -323,7 +323,7 @@ def test_external_lora_rejects_path_traversal_names(app, tmp_path, monkeypatch):
             with pytest.raises(ValueError, match='invalid external LoRA name'):
                 lts.create_comparison_run(
                     LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-                    prompt='p', external_loras=[{'filename': bad, 'strength': 1.0}])
+                    lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': bad, 'strength': 1.0}])
         assert LoraTestImage.query.count() == 0
 
 
@@ -358,7 +358,7 @@ def test_external_loras_capped_at_16(app, tmp_path, monkeypatch):
 
         lts.create_comparison_run(
             LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-            prompt='p', external_loras=[{'filename': n, 'strength': 1.0} for n in names])
+            lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': n, 'strength': 1.0} for n in names])
         row_extras = json.loads(seen['img'].extra_loras)
         assert len(row_extras) == 16
         assert {e['filename'] for e in row_extras} == set(names[:16])

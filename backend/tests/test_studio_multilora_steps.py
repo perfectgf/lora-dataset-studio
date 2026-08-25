@@ -61,8 +61,10 @@ def test_the_run_route_forwards_steps_and_cfg(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, selections, strengths, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen.update(kwargs)
+        seen['steps_list'] = settings.steps_list if settings else None
+        seen['cfgs'] = settings.cfgs if settings else None
         return {'created': 1, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
     monkeypatch.setattr('app.services.lora_test_studio.create_comparison_run', fake)
@@ -102,7 +104,10 @@ def _two_lora_run(app, monkeypatch, tmp_path, suffix, **knobs):
         LOCAL_USER,
         [{'dataset_id': ds_a.id, 'checkpoint': cp_a, 'weight': 0.9},
          {'dataset_id': ds_b.id, 'checkpoint': cp_b, 'weight': 0.6}],
-        strengths=[1.0], seed=11, prompt='on a rooftop', count=1, **knobs)
+        [1.0],
+        lts.StudioGenSettings(seed=11, prompt='on a rooftop', count=1,
+                              **{k: v for k, v in knobs.items() if k != 'combine'}),
+        combine=knobs.get('combine'))
     return out, submitted
 
 

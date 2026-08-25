@@ -52,10 +52,10 @@ def test_canvas_generate_forwards_combine_and_every_weight(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, selections, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen['selections'] = selections
         seen['combine'] = kwargs.get('combine')
-        seen['strengths'] = kwargs.get('strengths')
+        seen['strengths'] = strengths
         return {'created': 1, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
     monkeypatch.setattr('app.services.cloud_training.canvas_generate', fake)
@@ -80,8 +80,9 @@ def test_canvas_generate_without_combine_is_unchanged(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, selections, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen.update(kwargs)
+        seen['strengths'] = strengths
         return {'created': 2, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
     monkeypatch.setattr('app.services.cloud_training.canvas_generate', fake)
@@ -136,8 +137,8 @@ def test_canvas_blend_submits_one_workflow_chaining_every_lora_at_its_weight(
               'record_id': 11, 'step': 2000, 'weight': 0.9},
              {'dataset_id': ds_b.id, 'checkpoint': cp_b,
               'record_id': 22, 'step': 1000, 'weight': 0.55}],
-            strengths=[0.6, 0.8, 1.0],     # the sweep a blend has no use for
-            prompt='on a rooftop', count=1, combine=True)
+            [0.6, 0.8, 1.0],               # the sweep a blend has no use for
+            lts.StudioGenSettings(prompt='on a rooftop', count=1), combine=True)
 
         # ONE generation, not one per pick and per strength.
         assert out['created'] == 1
@@ -181,7 +182,7 @@ def test_canvas_blend_refuses_to_mix_families_and_names_them(app, monkeypatch):
                 LOCAL_USER,
                 [{'dataset_id': 1, 'checkpoint': 'krea' + chr(92) + 'a.safetensors'},
                  {'dataset_id': 2, 'checkpoint': 'sdxl' + chr(92) + 'b.safetensors'}],
-                strengths=[1.0], combine=True)
+                [1.0], combine=True)
         assert 'one family per run' in str(excinfo.value)
 
 

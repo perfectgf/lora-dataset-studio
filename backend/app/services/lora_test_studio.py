@@ -3132,15 +3132,8 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
     return ids
 
 
-def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None,
-                          z_model=None, z_models=None, aspects=None, cfgs=None,
-                          steps_list=None, steps2_list=None,
-                          count=1, permanent_loras=None, batch_loras=None, rebalance=None, rebalance_strength=None,
-                          negative=None, sampler=None, scheduler=None, weight_dtype=None,
-                          enhancer=None, enhancer_strength=None, detail_amount=None,
-                          resolution_tier=None, resolution_multiplier=None,
-                          init_image=None, denoise=None, combine=None,
-                          prompts=None, external_loras=None) -> dict:
+def create_comparison_run(user_id, selections, strengths, settings=None, *,
+                          combine=None, prompts=None, external_loras=None) -> dict:
     """Lance UN run de comparaison sur plusieurs LoRA. `selections` =
     [{dataset_id, checkpoint}] — chaque entrée peut aussi porter `record_id`/`step`
     (le LoRA Canvas les connaît : ce sont l'identité de la pastille cliquée), ce qui
@@ -3167,6 +3160,33 @@ def create_comparison_run(user_id, selections, strengths, seed=None, prompt=None
     `extra_loras` que les always-on — mais sans restriction au pool de la famille :
     un nom introuvable est une erreur dure (jamais un skip silencieux), et l'arch
     preflight le couvre comme un checkpoint normal."""
+    # Same door as create_run: one object in, the verbatim body below keeps
+    # reading the locals it always has.
+    settings = settings or StudioGenSettings()
+    seed = settings.seed
+    prompt = settings.prompt
+    z_model = settings.z_model
+    z_models = settings.z_models
+    aspects = settings.aspects
+    cfgs = settings.cfgs
+    steps_list = settings.steps_list
+    steps2_list = settings.steps2_list
+    count = settings.count
+    permanent_loras = settings.permanent_loras
+    batch_loras = settings.batch_loras
+    rebalance = settings.rebalance
+    rebalance_strength = settings.rebalance_strength
+    negative = settings.negative
+    sampler = settings.sampler
+    scheduler = settings.scheduler
+    weight_dtype = settings.weight_dtype
+    enhancer = settings.enhancer
+    enhancer_strength = settings.enhancer_strength
+    detail_amount = settings.detail_amount
+    resolution_tier = settings.resolution_tier
+    resolution_multiplier = settings.resolution_multiplier
+    init_image = settings.init_image
+    denoise = settings.denoise
     run_type, models = _cmp_resolve_run_family(selections)
     valid_models, seed, count, seeds, prompt_axis = _cmp_seed_and_prompts(
         models, z_model, z_models, seed, count, prompt, prompts)

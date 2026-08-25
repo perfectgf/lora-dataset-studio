@@ -2946,28 +2946,15 @@ def train_canvas_generate():
         return gate
     d = request.get_json(silent=True) or {}
     try:
+        from ..services.lora_test_studio import StudioGenSettings
         res = ct.canvas_generate(
             LOCAL_USER, d.get('selections') or [],
-            strengths=d.get('strengths') or [1.0],
-            seed=d.get('seed'), prompt=d.get('prompt'),
-            # 📝 Lot : une passe par prompt coché dans l'historique du panneau.
-            prompts=d.get('prompts'), z_model=d.get('z_model'),
-            # ◉ La base est un AXE : le panneau du board dit « BASE MODEL (MULTI) ».
-            z_models=d.get('z_models'),
-            aspects=d.get('aspects'), cfgs=d.get('cfgs'), steps_list=d.get('steps'),
-            steps2_list=d.get('steps2'), count=d.get('count'),
-            permanent_loras=d.get('permanent_loras'), batch_loras=d.get('batch_loras'),
-            external_loras=d.get('external_loras'),
-            rebalance=d.get('rebalance'),
-            rebalance_strength=d.get('rebalance_strength'),
-            negative=d.get('negative'), sampler=d.get('sampler'),
-            scheduler=d.get('scheduler'), weight_dtype=d.get('weight_dtype'),
-            enhancer=d.get('enhancer'), enhancer_strength=d.get('enhancer_strength'),
-            detail_amount=d.get('detail_amount'),
-            resolution_tier=d.get('resolution_tier'),
-            resolution_multiplier=d.get('resolution_multiplier'),
-            init_image=d.get('init_image'), denoise=d.get('denoise'),
-            combine=d.get('combine'))
+            d.get('strengths') or [1.0],
+            # Réglages partagés (mêmes clés wire que le Studio) ; 📝 Lot : une
+            # passe par prompt coché. ◉ La base est un AXE (z_models).
+            StudioGenSettings.from_payload(d),
+            prompts=d.get('prompts'),
+            external_loras=d.get('external_loras'), combine=d.get('combine'))
     except Exception as e:
         from ..services.lora_test_studio import StudioArchMismatch, StudioAssetsMissing
         if isinstance(e, StudioArchMismatch):

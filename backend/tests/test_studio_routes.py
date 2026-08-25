@@ -760,7 +760,7 @@ def test_studio_run_forwards_the_combine_flag_and_per_lora_weights(client, monke
     _comfy(monkeypatch, True)
     seen = {}
 
-    def fake(user_id, selections, strengths, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen['selections'] = selections
         seen['strengths'] = strengths
         seen['combine'] = kwargs.get('combine')

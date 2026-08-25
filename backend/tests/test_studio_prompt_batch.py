@@ -223,7 +223,7 @@ def test_canvas_batch_submits_one_workflow_per_ticked_prompt(
             LOCAL_USER,
             [{'dataset_id': ds_a.id, 'checkpoint': cp_a, 'record_id': 11, 'step': 2000},
              {'dataset_id': ds_b.id, 'checkpoint': cp_b, 'record_id': 22, 'step': 1000}],
-            strengths=[1.0], count=1,
+            [1.0], lts.StudioGenSettings(count=1),
             prompts=['on a rooftop', 'in the snow', 'at night'])
 
         assert out['created'] == 6
@@ -262,7 +262,7 @@ def test_canvas_batch_without_prompts_still_falls_back_per_dataset(
             LOCAL_USER,
             [{'dataset_id': ds_a.id, 'checkpoint': cp_a},
              {'dataset_id': ds_b.id, 'checkpoint': cp_b}],
-            strengths=[1.0], count=1)
+            [1.0], lts.StudioGenSettings(count=1))
 
         assert out['created'] == 2
         rows = LoraTestImage.query.filter_by(run_id=out['run_id']).all()
@@ -276,7 +276,7 @@ def test_canvas_route_forwards_the_prompt_batch(client, monkeypatch):
     _comfy(monkeypatch)
     seen = {}
 
-    def fake(user_id, selections, **kwargs):
+    def fake(user_id, selections, strengths, settings=None, **kwargs):
         seen.update(kwargs)
         return {'created': 3, 'seed': 7, 'count': 1, 'run_id': 'r1', 'ids': []}
 
