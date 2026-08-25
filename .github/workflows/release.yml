@@ -48,15 +48,29 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Build the release notes from 🎁 What's new
         shell: pwsh
         working-directory: frontend
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Runs BEFORE the 10-minute build on purpose: a release that announces
-          # nothing must fail in seconds, not after packaging a ZIP nobody will
-          # read notes for. Needs no npm install - node builtins only.
+          # Runs before the test suites, the rebuild and the ZIP on purpose: a
+          # release that announces nothing must fail early, not after packaging
+          # an archive nobody will read notes for.
+          #
+          # It runs AFTER `npm ci` though, and that ordering is load-bearing.
+          # This step used to boast "no npm install, node builtins only" and sat
+          # above it — until the icon wave gave settings/registry.js an import of
+          # `lucide-react`. The generator imports whatsNew.js, which imports that
+          # registry to validate deep-link targets, so the notes died on
+          # ERR_MODULE_NOT_FOUND and took v2026.08.25 with them. Nothing was
+          # wrong with the notes; the data file simply has React neighbours now.
+          # Installing first costs a cached `npm ci` and makes this immune to the
+          # next import somebody adds to any registry whatsNew.js reads.
           # A deliberate plumbing-only release opts out in-band, by putting
           # [no-notes] in the annotated tag message.
           $msg = git tag -l --format='%(contents)' "$env:RELEASE_REF_NAME"
@@ -81,10 +95,6 @@ jobs:
           # from the Actions page without downloading anything.
           Get-Content ../release-notes.md -Raw | Write-Host
           Get-Content ../release-notes.md -Raw >> $env:GITHUB_STEP_SUMMARY
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
 
       - name: Run all frontend tests
         working-directory: frontend
