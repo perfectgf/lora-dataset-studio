@@ -29,7 +29,7 @@ export const WORKSPACE_SECTION_TOPICS = [
     guide: { chapter: 'using-the-app', anchor: 'concept-datasets-an-object-or-action-not-a-person' },
     app: { route: '/datasets?section=scrape&panel=scan' },
     tip: { trigger: 'add-images-visit',
-      text: 'Scraping now lives in its own 🕸 Scrape section of the sidebar.' } },
+      text: 'Scraping now lives in its own Scrape section of the sidebar.' } },
   { id: 'workspace-curation', kind: 'section', title: 'Curation',
     keywords: ['curation', 'quality', 'face', 'watermark', 'clean', 'cleanup', 'rescue'],
     guide: { chapter: 'using-the-app', anchor: 'the-character-walkthrough-reference-photo-trained-lora' },

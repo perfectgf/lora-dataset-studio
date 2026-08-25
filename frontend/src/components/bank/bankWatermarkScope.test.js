@@ -64,7 +64,7 @@ test('each scope line quotes the pool that scope really walks', () => {
   assert.equal(passLaunchLabel({
     verb: BANK_PASSES.watermark_inpaint.verb, payload, passId: 'watermark_inpaint',
     scopeId: 'keep',
-  }), '🧽 Repaint 5 images');
+  }), 'Repaint 5 images');
 });
 
 test('a scope with nothing in it refuses to launch instead of reporting success', () => {

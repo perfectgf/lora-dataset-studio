@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { Ruler } from 'lucide-react';
 import { HelpBadge } from '../../help/HelpMode';
 import { classifyFramingState } from './classifyFramingGate';
 
@@ -20,7 +21,7 @@ export default function ClassifyFramingButton({
           onClick={() => onClassify?.(s.count)}
           disabled={s.disabled} title={s.title}
           className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
-          {s.label}
+          <Ruler aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{s.label}
         </button>
         <HelpBadge topic="action-classify-framing" className="self-center" />
         {!s.running && (

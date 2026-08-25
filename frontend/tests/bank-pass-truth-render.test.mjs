@@ -83,5 +83,5 @@ test('the bin line, whose images ARE scored, gains nothing', () => {
 })
 
 test('the window states the dependency on ✨ Score where the scope is chosen', () => {
-  assert.match(dialog(''), /✨ Score never runs on the bin/)
+  assert.match(dialog(''), /Score never runs on the bin/)
 })

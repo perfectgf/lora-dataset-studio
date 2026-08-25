@@ -62,8 +62,8 @@ export function classifyFramingState({
     blockedReason,
     disabled: running || busy || capsLoading || !!blockedReason,
     label: running
-      ? `📐 Classifying framing… ${done}/${total || count}`
-      : `📐 Classify framing (${count})`,
+      ? `Classifying framing… ${done}/${total || count}`
+      : `Classify framing (${count})`,
     title: blockedReason
       || (running
         ? 'A framing pass is already running on this dataset'
