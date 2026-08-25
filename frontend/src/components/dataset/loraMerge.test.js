@@ -387,7 +387,7 @@ test('the merge disclosure is controlled, so a remount cannot close it', () => {
   // `open` on a <details> is DOM state. The block sits inside CheckpointPortal,
   // and every swap of that portal's host unmounts it — which is how rotating a
   // phone closed the tool on top of emptying it.
-  const summary = panel.indexOf('🧬 Merge a LoRA into a base checkpoint');
+  const summary = panel.indexOf('Merge a LoRA into a base checkpoint');
   assert.notEqual(summary, -1, 'the merge disclosure is gone');
   const block = panel.slice(panel.lastIndexOf('<details', summary), summary);
   assert.match(block, /open=\{mergeOpen\}/);

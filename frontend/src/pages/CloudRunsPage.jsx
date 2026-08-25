@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Cloud, Dumbbell, Eraser, FlaskConical, Folder, HardDrive, Image as ImageIcon, Monitor, Save } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router';
 import { postJson } from '../api/fetchClient';
 import { useToast } from '../components/common/Toast';
@@ -145,7 +146,7 @@ function RunThumb({ run, broken, onBroken }) {
   return (
     <div aria-hidden
       className="flex h-16 w-16 sm:h-20 sm:w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-border bg-app/60 text-content-subtle">
-      <span className="text-base opacity-50">🖼</span>
+      <ImageIcon aria-hidden="true" className="h-4 w-4 opacity-50" />
       <span className="px-1 text-center text-[0.5625rem] uppercase tracking-wide leading-tight">
         {FAMILY_SHORT[run.train_type] || 'LoRA'}
       </span>
@@ -188,7 +189,7 @@ function DenseLocalStatus({ run, onFetch, fetching = false }) {
       <span className="block opacity-90">{view.detail}</span>
       {view.dir && (
         <span className="block break-all opacity-80" title="Folder on this computer">
-          📁 <span className="font-mono">{view.dir}</span>
+          <Folder aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" /><span className="font-mono">{view.dir}</span>
         </span>
       )}
       {/* Which of the two files to take. They are not interchangeable: the fp8
@@ -936,7 +937,7 @@ export default function CloudRunsPage() {
               <RunIdChip source={ident.source} id={ident.id} />
             ) : (
               <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
-                {run.source === 'cloud' ? '☁️' : '💻'}
+                {run.source === 'cloud' ? <Cloud aria-hidden="true" className="h-3.5 w-3.5" /> : <Monitor aria-hidden="true" className="h-3.5 w-3.5" />}
               </span>
             )}
             <button type="button" onClick={() => openDataset(run.dataset_id)}
@@ -979,7 +980,7 @@ export default function CloudRunsPage() {
             {run.steps ? <span className="tabular-nums">{run.steps} steps</span> : null}
             {!fullModel && run.source === 'cloud' && run.saves > 0 && (
               <span className="tabular-nums" title="Checkpoints this run saved (synced locally)">
-                💾 {run.saves} save{run.saves > 1 ? 's' : ''}
+                <Save aria-hidden="true" className="mr-1 inline h-3 w-3 align-[-1px]" />{run.saves} save{run.saves > 1 ? 's' : ''}
               </span>
             )}
             {/* What this run still costs in DISK — the figure a targeted cleanup
@@ -988,7 +989,7 @@ export default function CloudRunsPage() {
             {cleanup.size && (
               <span className="tabular-nums text-content-subtle"
                 title="Disk this run's staging folder still holds (dataset copy, samples, logs)">
-                🗄 {cleanup.size} on disk
+                <HardDrive aria-hidden="true" className="mr-1 inline h-3 w-3 align-[-1px]" />{cleanup.size} on disk
               </span>
             )}
             {run.gpu && <span>{run.gpu}</span>}
@@ -1084,7 +1085,7 @@ export default function CloudRunsPage() {
               <button type="button" onClick={() => openTestStudio(run.dataset_id)}
                 title="Open Test Studio with this run's dataset selected"
                 className="rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-2 py-1 text-indigo-100 hover:bg-indigo-500/20 text-xs font-semibold">
-                🧪 Test in Studio
+                <FlaskConical aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Test in Studio
               </button>
             )}
             {/* The graph opens for ANY run with saved checkpoints (a single run
@@ -1121,7 +1122,7 @@ export default function CloudRunsPage() {
                 disabled={!!purgingRun[run.run_id]}
                 title={cleanup.title}
                 className={`rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-200 hover:bg-red-500/20 text-xs font-semibold disabled:opacity-40 ${run.share_key ? '' : 'ml-auto'}`}>
-                {purgingRun[run.run_id] ? '🧹 Cleaning…' : `🧹 Clean ${cleanup.size}`}
+                <Eraser aria-hidden="true" className="mr-1 inline h-3 w-3 align-[-1px]" />{purgingRun[run.run_id] ? 'Cleaning…' : `Clean ${cleanup.size}`}
               </button>
             )}
           </div>
@@ -1150,7 +1151,7 @@ export default function CloudRunsPage() {
       <header className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="m-0 flex items-center gap-2 text-content text-xl font-bold">
-            <span><span aria-hidden>🏋️</span> Training runs</span>
+            <span className="inline-flex items-center gap-1.5"><Dumbbell aria-hidden="true" className="h-4 w-4" /> Training runs</span>
             <HelpBadge topic="page-cloud" />
           </h1>
           {/* Escape hatch to the provider: see the pod's own console (billing,
@@ -1204,7 +1205,7 @@ export default function CloudRunsPage() {
             <div className="flex flex-wrap items-center gap-2">
               {data.local_active.record_id != null
                 ? <RunIdChip source="local" id={data.local_active.record_id} />
-                : <span aria-hidden>💻</span>}
+                : <Monitor aria-hidden="true" className="h-3.5 w-3.5" />}
               <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
                 title="Open this dataset"
                 className="text-content font-semibold text-sm hover:underline">
@@ -1246,7 +1247,7 @@ export default function CloudRunsPage() {
                   <button type="button" onClick={() => openTestStudio(data.local_active.current.dataset_id)}
                     title="Open Test Studio with this run's dataset selected"
                     className="px-2 py-1 rounded-lg text-indigo-200 hover:bg-indigo-500/10 hover:text-indigo-100 text-xs font-semibold">
-                    🧪 Test in Studio
+                    <FlaskConical aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Test in Studio
                   </button>
                 )}
               </span>
@@ -1360,7 +1361,7 @@ export default function CloudRunsPage() {
                     <button type="button" onClick={() => openTestStudio(run.dataset_id)}
                       title="Open Test Studio with this run's dataset selected"
                       className="px-2 py-1 rounded-lg text-indigo-200 hover:bg-indigo-500/10 hover:text-indigo-100 text-xs font-semibold">
-                      🧪 Test in Studio
+                      <FlaskConical aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Test in Studio
                     </button>
                   )}
                 </span>
@@ -1413,7 +1414,7 @@ export default function CloudRunsPage() {
                   poll();
                 }}
                 className="ml-auto px-2.5 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-200 text-xs font-semibold">
-                🧹 Clean finished runs
+                <Eraser aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Clean finished runs
               </button>
             )}
           </div>
@@ -1451,7 +1452,7 @@ export default function CloudRunsPage() {
                       <button type="button" onClick={() => openTestStudio(group.datasetId)}
                         title="Open Test Studio with this run's dataset selected"
                         className="whitespace-nowrap rounded-lg px-2 py-0.5 text-indigo-200 hover:bg-indigo-500/10 hover:text-indigo-100 text-[0.6875rem] font-semibold">
-                        🧪 Test in Studio
+                        <FlaskConical aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Test in Studio
                       </button>
                     )}
                   </div>

@@ -14,6 +14,7 @@
  * and "what can I measure" are the same question asked twice.
  */
 import BankOverview from './BankOverview.jsx'
+import { Palette, Ruler, Search, Users } from 'lucide-react';
 import BankEditPanel from './BankEditPanel.jsx'
 import BankSemanticEngine from './BankSemanticEngine.jsx'
 import BankWatermarkPanel from './BankWatermarkPanel'
@@ -52,7 +53,7 @@ export default function BankPassesPanel({
   return (
     <div className="grid gap-4 xl:grid-cols-12 xl:items-start">
       <div className="min-w-0 space-y-3 xl:col-span-7">
-        <Fold compact={compact} title="🧠 Semantic engine">
+        <Fold compact={compact} title="Semantic engine">
         <BankSemanticEngine state={semanticState} capsLoading={capsLoading}
           switching={semanticSwitching} disabled={semanticOperationBusy} live={live}
           gpuPresent={scoreGpuPresent}
@@ -81,13 +82,13 @@ export default function BankPassesPanel({
                 “Rescore all” went the same way, into ✨ Score's window. */}
             <PassButton onClick={() => onPassOpen('scan')} disabled={live}
               title="Measure sharpness, noise, flatness, size and detail, hash every image and group the exact duplicates — CPU only. Opens the launch window.">
-              🔎 Scan quality…
+              <Search aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Scan quality…
             </PassButton>
             <PassButton onClick={() => onPassOpen('faces')} disabled={live || !caps.face_scoring}
               title={caps.face_scoring
                 ? 'Detect the dominant face of every non-rejected image and cluster the bank by person (no reference needed). CPU, can take a while on thousands of images. It samples your subfolders first and offers the ones that look like a single person, so you can skip them.'
                 : 'Install the Quality tools (Setup) to sort by person'}>
-              👥 Group by person…
+              <Users aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Group by person…
             </PassButton>
             <PassButton onClick={() => onPassOpen('score')} disabled={live || !caps.bank_scoring}
               title={caps.bank_scoring
@@ -99,14 +100,14 @@ export default function BankPassesPanel({
             <PassButton onClick={() => onPassOpen('medium')} disabled={live || !caps.bank_scoring}
               title={caps.bank_scoring
                 ? 'Sort every scored image into photograph / anime / 3D render / illustration — read off the CLIP embeddings ✨ Score already computed, so no image is looked at again and the GPU stays free. It answers “unsure” rather than guessing: measured on a real 23 500-image bank, it named 2 anime drawings and no wrong verdict.'
-                : 'Install the Bank scoring extra (Setup ▸ Quality tools) — 🎨 Medium reads the embeddings ✨ Score produces'}>
-              🎨 Classify medium…{!caps.bank_scoring && ' (needs setup)'}
+                : 'Install the Bank scoring extra (Setup ▸ Quality tools) — Medium reads the embeddings the Score pass produces'}>
+              <Palette aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Classify medium…{!caps.bank_scoring && ' (needs setup)'}
             </PassButton>
             <PassButton onClick={() => onPassOpen('framing')} disabled={live || !visionReady}
               title={visionReady
                 ? 'Classify every non-rejected image by shot type — face close-up, bust, full body, back view — with the same Qwen3-VL classifier the datasets use. Powers the 📐 Framing filter and the coverage advice. GPU vision pass.'
                 : 'Pull the vision model (Settings ▸ Local tools) to classify framing'}>
-              📐 Classify framing…{!visionReady && ' (needs setup)'}
+              <Ruler aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Classify framing…{!visionReady && ' (needs setup)'}
             </PassButton>
             <PassButton onClick={() => onPassOpen('semantic_dedup')} disabled={live || !semanticReady}
               title={semanticReady
@@ -144,7 +145,7 @@ export default function BankPassesPanel({
           {/* Watermark CLEANING — the two manual levels (crop, then inpaint), with
               their own per-level progress. Lives in its own component so the
               "which level can run, and why not" logic stays unit-tested. */}
-          <Fold compact={compact} title="🧽 Watermarks">
+          <Fold compact={compact} title="Watermarks">
           <BankWatermarkPanel bankId={bankId} live={live}
             onFind={() => onPassOpen('watermark')}
             payload={payload} selectedIds={[...selected]}
@@ -155,7 +156,7 @@ export default function BankPassesPanel({
               the watermark cleaning because they are the same KIND of thing: the
               three actions that produce new pixels, each undone by throwing away
               a copy the app made (nofaceman, Discord). */}
-          <Fold compact={compact} title="✂ Edits">
+          <Fold compact={compact} title="Edits">
           <BankEditPanel bankId={bankId} live={live}
             payload={payload} selectedIds={[...selected]}
             onChanged={onChanged} />
@@ -203,13 +204,13 @@ export default function BankPassesPanel({
               Pick another one in <b>Caption vision model</b> above, or pull one from{' '}
               <SettingsLink section="local-tools" focus="ollama-vision-model" tone="warning">
                 Settings ▸ Local tools
-              </SettingsLink>. Richer captions also feed the 🔍 search.
+              </SettingsLink>. Richer captions also feed the search.
             </p>
           )}
         </div>
       </div>
       <div className="min-w-0 xl:col-span-5">
-        <Fold compact={compact} title="📊 Bank overview">
+        <Fold compact={compact} title="Bank overview">
         <BankOverview payload={payload} />
         </Fold>
       </div>

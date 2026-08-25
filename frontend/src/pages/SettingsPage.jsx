@@ -430,7 +430,7 @@ export default function SettingsPage() {
         {!chip && isActive && (
           <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary" />
         )}
-        <span aria-hidden>{s.icon}</span>
+        <s.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
         <span>{s.title}</span>
         {!chip && <StatusLed status={sectionStatus(s.id, caps)} />}
       </button>

@@ -40,11 +40,11 @@ test('both notes name a button rendered in the failure block itself', () => {
   // training.log (wannadecryptor, Discord). The note must point at the button
   // sitting right next to it.
   for (const note of [NO_ERROR_NOTE, FULL_LOG_NOTE]) {
-    assert.match(note, /📂 Open run folder/)
+    assert.match(note, /Open run folder/)
   }
   // node:test runs cases after the module has evaluated, so `block` (read at the
   // bottom of this file) is available here.
-  assert.ok(block.includes('📂 Open run folder'),
+  assert.ok(block.includes('/>Open run folder'),
     'the button the notes point at must live in the failure block')
 })
 
@@ -52,7 +52,7 @@ test('the failure block opens the folder of the run that DIED, not the browsed o
   // No trainingRunSelection here on purpose: the persisted family/base/variant
   // are the crashed run's, whereas the checkpoint browser can be showing any
   // other run.
-  const call = block.slice(block.indexOf('📂 Open run folder') - 900,
+  const call = block.slice(block.indexOf('/>Open run folder') - 900,
                            block.indexOf('📂 Open run folder'))
   assert.match(call, /train\/open-folder/)
   assert.match(call, /\{ target: 'run' \}/)

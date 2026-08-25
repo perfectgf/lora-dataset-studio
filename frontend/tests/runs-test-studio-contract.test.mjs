@@ -26,7 +26,7 @@ test('Runs uses one dataset-aware helper for every Test Studio surface', () => {
     /const openTestStudio = \(id\) => \{\s*if \(id == null\) return;\s*navigate\(`\/dataset\/studio\/\$\{id\}`\);/);
   assert.equal((source.match(/onClick=\{\(\) => openTestStudio\(/g) || []).length, 4,
     'history cards, active local/cloud runs, and folded recent groups stay covered');
-  assert.equal((source.match(/🧪 Test in Studio/g) || []).length, 4,
+  assert.equal((source.match(/\/>Test in Studio/g) || []).length, 4,
     'each Runs surface keeps a visible, text-labelled Studio action');
   assert.match(source, /data\.local_active\.current\.dataset_id != null/);
   assert.match(source, /group\.datasetId != null/);

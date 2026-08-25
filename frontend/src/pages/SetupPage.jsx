@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Dna, Lock, PartyPopper } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router'
 import { apiFetch, getCsrfToken, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
@@ -1482,7 +1483,7 @@ export default function SetupPage() {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="text-center">
-          <div className="text-3xl" aria-hidden="true">🧬</div>
+          <Dna aria-hidden="true" className="mx-auto h-8 w-8 text-primary" />
           <h1 className="mt-2 text-2xl font-bold text-content">Welcome to LoRA Dataset Studio</h1>
           <p className="mt-2 text-sm text-content-muted">
             Let's set up your machine. I'll scan what's already installed and help you install the rest —
@@ -1572,7 +1573,7 @@ export default function SetupPage() {
     return (
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="text-center">
-          <div className="text-3xl" aria-hidden="true">🎉</div>
+          <PartyPopper aria-hidden="true" className="mx-auto h-8 w-8 text-primary" />
           <h1 className="mt-2 text-2xl font-bold text-content">You're all set</h1>
           <p className="mt-1 text-sm text-content-muted">{readyCount} of {summary.length} capabilities ready.</p>
         </div>
@@ -1693,7 +1694,7 @@ export default function SetupPage() {
 
       {reason && (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-          🔒 {reason}
+          <Lock aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{reason}
         </p>
       )}
       <div className="flex items-center justify-between">

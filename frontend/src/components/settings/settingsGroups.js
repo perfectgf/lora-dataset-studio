@@ -19,62 +19,63 @@
 
 /** The Image engines groups, in display order. `id` is stored in localStorage
  *  and used in DOM anchors — never rename one without an alias. */
+import { BarChart3, Bot, Box, Cloud, Drama, Dumbbell, Eraser, ImageDown, KeyRound, Map, Package, PenLine, Puzzle, SlidersHorizontal, SlidersVertical, Trash2, ZoomIn } from 'lucide-react';
 export const ENGINES_GROUPS = [
-  { id: 'engines-keys', title: 'Engines & API keys', icon: '🔑',
+  { id: 'engines-keys', title: 'Engines & API keys', icon: KeyRound,
     blurb: 'Which engines are on, which one opens preselected, their API keys and models.' },
-  { id: 'klein', title: 'Klein (local)', icon: '🎛️',
+  { id: 'klein', title: 'Klein (local)', icon: SlidersHorizontal,
     blurb: 'Model file pins and generation quality for the local Klein engine.' },
-  { id: 'krea', title: 'Krea 2 Edit (local)', icon: '🎚️',
+  { id: 'krea', title: 'Krea 2 Edit (local)', icon: SlidersVertical,
     blurb: 'The second local engine — base model, identity LoRA and its dials.' },
-  { id: 'lora-presets', title: 'Generation LoRA presets', icon: '🧩',
+  { id: 'lora-presets', title: 'Generation LoRA presets', icon: Puzzle,
     blurb: 'Named LoRA chains you pick per run — one list per local engine.' },
-  { id: 'seedvr2', title: 'Upscaling — SeedVR2', icon: '🔍',
+  { id: 'seedvr2', title: 'Upscaling — SeedVR2', icon: ZoomIn,
     blurb: 'The restoration upscaler: tiling, resolution and VRAM behaviour.' },
-  { id: 'prompts', title: 'Prompts & improve tuning (advanced)', icon: '✍️',
+  { id: 'prompts', title: 'Prompts & improve tuning (advanced)', icon: PenLine,
     blurb: 'Identity prompts per subject type, the improve instruction and its strength knobs.' },
 ]
 
 /** 🖥️ Local tools — three tools, three long cards; the group is the tool. */
 export const LOCAL_TOOLS_GROUPS = [
-  { id: 'comfyui', title: 'ComfyUI', icon: '🧩',
+  { id: 'comfyui', title: 'ComfyUI', icon: Puzzle,
     blurb: 'The local generation backend — API URL, install folder, model paths.' },
-  { id: 'ollama', title: 'Ollama', icon: '🦙',
+  { id: 'ollama', title: 'Ollama', icon: Bot,
     blurb: 'Local vision & text models — captions, descriptions, prompt help.' },
-  { id: 'aitoolkit', title: 'ai-toolkit', icon: '🏋️',
+  { id: 'aitoolkit', title: 'ai-toolkit', icon: Dumbbell,
     blurb: 'The local trainer — install folder and its Python.' },
 ]
 
 /** ✍️ Captioning & quality. */
 export const CAPTIONING_GROUPS = [
-  { id: 'import', title: 'Import & image size', icon: '📥',
+  { id: 'import', title: 'Import & image size', icon: ImageDown,
     blurb: 'What happens to a photo as it enters — stored format, resolution budgets.' },
-  { id: 'captioning', title: 'Captioning', icon: '✍️',
+  { id: 'captioning', title: 'Captioning', icon: PenLine,
     blurb: 'Which captioner writes the training captions, and how.' },
-  { id: 'watermarks', title: 'Watermark inpainting', icon: '🧽',
+  { id: 'watermarks', title: 'Watermark inpainting', icon: Eraser,
     blurb: 'The clean-watermarks pass — engine and behaviour.' },
-  { id: 'quality', title: 'Quality scoring & triage', icon: '📊',
+  { id: 'quality', title: 'Quality scoring & triage', icon: BarChart3,
     blurb: 'Face similarity and the bank triage thresholds.' },
 ]
 
 /** 🏋️ Training. */
 export const TRAINING_GROUPS = [
-  { id: 'defaults', title: 'Defaults', icon: '🎛️',
+  { id: 'defaults', title: 'Defaults', icon: SlidersHorizontal,
     blurb: 'The model family new runs start on.' },
-  { id: 'cloud', title: 'Cloud training (vast.ai)', icon: '☁️',
+  { id: 'cloud', title: 'Cloud training (vast.ai)', icon: Cloud,
     blurb: 'The API key that unlocks cloud runs, and every guardrail on spend and stalls.' },
-  { id: 'masking', title: 'Concept face masking', icon: '🎭',
+  { id: 'masking', title: 'Concept face masking', icon: Drama,
     blurb: 'Masking faces out of concept training.' },
 ]
 
 /** 💾 Storage. */
 export const STORAGE_GROUPS = [
-  { id: 'overview', title: 'What lives where', icon: '🗺️',
+  { id: 'overview', title: 'What lives where', icon: Map,
     blurb: 'Every folder the app writes to, with sizes on demand.' },
-  { id: 'locations', title: 'Movable folders', icon: '📦',
+  { id: 'locations', title: 'Movable folders', icon: Package,
     blurb: 'The three relocatable roots — dataset images, cloud staging, checkpoints.' },
-  { id: 'housekeeping', title: 'Cleanup & trash', icon: '🧹',
+  { id: 'housekeeping', title: 'Cleanup & trash', icon: Trash2,
     blurb: 'Cloud-run housekeeping, the trash, and the run image archive.' },
-  { id: 'models', title: 'Model files', icon: '🧊',
+  { id: 'models', title: 'Model files', icon: Box,
     blurb: 'fp8 quantization and the Hugging Face cache.' },
 ]
 

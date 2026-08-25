@@ -3,7 +3,7 @@
  *
  * One full-size image at a time with ✓ Keep / ✕ Reject / ⏭ Skip; every button
  * (and its keyboard shortcut) decides AND moves on, so a 3 000-image dump is
- * worked through without ever going back to the grid. "🎲 Random order"
+ * worked through without ever going back to the grid. "Random order"
  * shuffles what's left instead of walking the folder sequentially — on a dump
  * that means a representative sample straight away rather than 200 near-
  * identical frames in a row.
@@ -17,6 +17,7 @@
  * cursor with the error visible, so a decision is never silently dropped.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Flag as FlagIcon, PartyPopper, Shuffle } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import {
@@ -39,9 +40,9 @@ import ShortcutKey from '../shared/ShortcutKey'
 const META_WINDOW = 40
 
 const FLAG_TEXT = {
-  blur: '🌫 Blurry', noise: '📺 Noisy', uniform: '⬜ Flat', small: '📐 Small',
-  unreadable: '❌ Unreadable', low_aesthetic: '💔 Low aesthetic', nsfw: '🔞 NSFW',
-  watermark: '🚩 Watermark', ...PROVENANCE_FLAG_LABEL,
+  blur: 'Blurry', noise: 'Noisy', uniform: 'Flat', small: 'Small',
+  unreadable: 'Unreadable', low_aesthetic: 'Low aesthetic', nsfw: 'NSFW',
+  watermark: 'Watermark', ...PROVENANCE_FLAG_LABEL,
 }
 
 // Origin chip colours, one per state. 'unknown' is deliberately the quiet grey
@@ -89,7 +90,7 @@ function Facts({ img }) {
           : null)}
       {img.face_yaw != null && chip('yaw',
         `⤢ ${Math.round(Math.abs(img.face_yaw))}°`, 'bg-white/10 text-cyan-200',
-        'How far the head is turned, measured by the 🎭 Faces pass.')}
+        'How far the head is turned, measured by the Faces pass.')}
       {img.dup_group != null && chip('dup', `≈ dup #${img.dup_group}`, 'bg-white/10 text-fuchsia-200')}
       {img.semantic_dup_group != null
         && chip('sdup', `✂ same shot #${img.semantic_dup_group}`, 'bg-white/10 text-orange-200')}
@@ -330,7 +331,7 @@ export default function BankReviewLightbox({
         <label className="flex items-center gap-1.5 text-xs text-white/80"
           title="Walk what's left in random order instead of folder order — on a big dump that shows you a representative sample straight away instead of 200 near-identical shots. Nothing you have already seen comes back.">
           <input type="checkbox" checked={session.shuffle} onChange={toggleShuffle} />
-          🎲 Random order
+          <Shuffle aria-hidden="true" className="h-3.5 w-3.5" /> Random order
         </label>
         <button type="button" onClick={onClose} title="Close (Esc)" aria-label="Close review"
           className="ml-auto h-10 w-10 lg:h-9 lg:w-9 rounded-full bg-white/10 text-lg leading-none text-white hover:bg-white/20">✕</button>
@@ -338,7 +339,7 @@ export default function BankReviewLightbox({
 
       {done ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-          <p className="text-2xl font-bold text-white">🎉 All {p.total.toLocaleString()} image{p.total === 1 ? '' : 's'} reviewed</p>
+          <p className="text-2xl font-bold text-white"><PartyPopper aria-hidden="true" className="mr-2 inline h-6 w-6 align-[-3px]" />All {p.total.toLocaleString()} image{p.total === 1 ? '' : 's'} reviewed</p>
           <p className="text-sm text-white/70">
             {p.kept} kept · {p.rejected} rejected
             {p.skipped ? ` · ${p.skipped} skipped (still undecided)` : ''}
@@ -415,7 +416,7 @@ export default function BankReviewLightbox({
               <button type="button" onClick={() => setMaskId(id)} disabled={busy}
                 title="Draw the watermark zones on this image (M) — decides nothing. Works even when the scan found nothing: what you draw becomes the flag, and 🧽 Inpaint then repaints exactly that."
                 className="min-h-10 lg:min-h-0 rounded-lg border border-amber-400/60 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 disabled:opacity-50 hover:bg-amber-500/30">
-                🚩 {maskButtonLabel(img)}{shortcut('M')}
+                <FlagIcon aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{maskButtonLabel(img)}{shortcut('M')}
               </button>
             )}
             <button type="button" onClick={() => sendDecision('keep')} disabled={busy}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Archive, BarChart3, FolderInput, FolderOpen, Lightbulb, Palette, Rocket, Search, Target, Trash2, Type, Undo2, Wand2 } from 'lucide-react';
 import { apiFetch, patchJson, postJson } from '../../api/fetchClient'
 import { useFolderPersons } from './useFolderPersons'
 import { useReviewLightbox } from './useReviewLightbox'
@@ -950,7 +951,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const runPipeline = async (config) => {
     let error = null
     const d = await act(() => postJson(`/api/bank/${bankId}/pipeline`, config),
-      '🚀 Launch all started — you can walk away; Stop any time.',
+      'Launch all started — you can walk away; Stop any time.',
       { onRefusal: (m) => { error = m } })
     if (!d) return { ok: false, error }
     setLaunchOpen(false)
@@ -1353,7 +1354,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             className="min-h-10 lg:min-h-0 rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content hover:bg-surface-raised">
             ← Banks
           </button>
-          <h1 className="text-lg text-content">🗃️ {payload?.name || `Bank #${bankId}`}</h1>
+          <h1 className="flex items-center gap-2 text-lg text-content"><Archive aria-hidden="true" className="h-4 w-4" /> {payload?.name || `Bank #${bankId}`}</h1>
           {payload?.source_path && (
             /* hidden below sm: opening or moving the folder is a gesture on the
                machine that serves the app, and on a 360-px screen this row alone
@@ -1367,7 +1368,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                 disabled={openingSourceFolder} aria-busy={openingSourceFolder}
                 title="Open this Bank's source folder in the system file explorer."
                 className="min-h-10 lg:min-h-0 shrink-0 rounded border border-border px-2 py-0.5 text-xs text-content-muted hover:bg-surface-raised hover:text-content disabled:cursor-wait disabled:opacity-60">
-                {openingSourceFolder ? 'Opening…' : '📂 Open folder'}
+                <FolderOpen aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{openingSourceFolder ? 'Opening…' : 'Open folder'}
               </button>
               {/* Cold path. The folder-sync note below offers this too, but only once
                   the folder is already gone — and the real move is PLANNED: you look
@@ -1376,7 +1377,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               <button type="button" onClick={() => setRelocating(true)}
                 title="Moving this folder to another disk? Point the bank at its new location."
                 className="min-h-10 lg:min-h-0 shrink-0 rounded border border-border px-2 py-0.5 text-xs text-content-muted hover:bg-surface-raised hover:text-content">
-                📦 Move folder…
+                <FolderInput aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Move folder…
               </button>
             </div>
           )}
@@ -1424,7 +1425,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           <button type="button" onClick={() => setLaunchOpen(true)} disabled={live || !(counts?.total > 0)}
             title={`Run the whole triage in one go — scan, auto-reject, Score${semanticState.engine === 'siglip2' ? ', SigLIP 2 semantic index' : ''}, crops/variants, watermarks, group by person and (optionally) caption. Start it and walk away. If the person pass is in, it checks your folders first and asks once, before the run.`}
             className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-gray-950 shadow disabled:opacity-50">
-            🚀 Launch all…
+            <Rocket aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Launch all…
           </button>
           <span className="ml-auto" />
           <button type="button" onClick={() => setPromoteOpen(true)} disabled={live || !canPromote}
@@ -1445,7 +1446,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                 ? 'Delete the rejected images from your disk (OS trash when available). Irreversible — asks you to type DELETE first. Kept images are untouched.'
                 : 'No rejected images to delete'}
             className="min-h-10 lg:min-h-0 rounded-md border border-rose-500/50 px-3 py-1.5 text-sm text-rose-300 disabled:opacity-40 hover:bg-rose-500/10">
-            🗑 Delete rejected from disk{(counts?.reject > 0) ? ` (${counts.reject})` : ''}
+            <Trash2 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Delete rejected from disk{(counts?.reject > 0) ? ` (${counts.reject})` : ''}
           </button>
         </div>
       </header>
@@ -1461,7 +1462,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           <p className="font-semibold">⛔ This bank sits on a dataset’s image folder</p>
           <p className="text-rose-100/90">{payload.dataset_conflict.message}</p>
           <p className="text-rose-100/90">
-            🗑 Delete rejected is disabled here. Use 📦 Move folder… to point this
+            Delete rejected is disabled here. Use Move folder… to point this
             bank at a folder of its own, or remove the bank — removing a bank never
             touches files.
           </p>
@@ -1605,7 +1606,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               aria-expanded={showAutoReject}
               title="Bulk-reject the still-undecided images carrying the chosen quality flags"
               className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-2 py-0.5 text-xs text-content disabled:opacity-50 hover:bg-surface">
-              🧹 Auto-reject…
+              <Wand2 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Auto-reject…
             </button>
             {showAutoReject && (
               <>
@@ -1693,7 +1694,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               className={`rounded-md border px-2 py-0.5 text-xs font-medium ${showSelected
                 ? 'border-indigo-400/60 bg-indigo-500/20 text-indigo-200'
                 : 'border-border text-content-muted hover:text-content hover:bg-surface-raised'}`}>
-              {showSelected ? '↩ Show all' : `🔎 Show selected (${selected.size})`}
+              {showSelected ? <><Undo2 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Show all</> : <><Search aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Show selected ({selected.size})</>}
             </button>
           )}
           {selected.size > 0 && (
@@ -1738,7 +1739,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                 ? `Pick the N images that best COVER the visual variety of the current filter (varied angles/outfits/scenes) using the ${semanticState.label} semantic index.`
                 : semanticBlocked}
               className={CURATE_BTN}>
-              🎨 Pick diverse…{!semanticReady && ` (needs ${semanticState.label})`}{diverseBusy && ' (sampling…)'}
+              <Palette aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Pick diverse…{!semanticReady && ` (needs ${semanticState.label})`}{diverseBusy && ' (sampling…)'}
             </button>
             {curateOpen === 'diverse' && (
               <>
@@ -1831,7 +1832,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                   <p className="text-[11px] leading-snug text-content-muted">
                     Framing is the reliable axis on a one-subject bank: person groups there tend to be
                     few, sparse and arbitrary. It uses the same “Skip the odd ones out” setting as
-                    🎨 Pick diverse ({diverseTypicality === 0 ? 'off' : `${Math.round(diverseTypicality * 100)}%`}).
+                    Pick diverse ({diverseTypicality === 0 ? 'off' : `${Math.round(diverseTypicality * 100)}%`}).
                   </p>
                   <button type="button" onClick={pickBalanced} disabled={balanceBusy}
                     className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
@@ -1852,7 +1853,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                   ? `Rank the current filter against the ONE selected image with the ${semanticState.label} semantic index and select the closest N.`
                   : 'Select exactly one image to use as the reference'}
               className={CURATE_BTN}>
-              🎯 Similar to selected…{similarBusy && ' (ranking…)'}
+              <Target aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Similar to selected…{similarBusy && ' (ranking…)'}
             </button>
             {curateOpen === 'similar' && (
               <>
@@ -1885,7 +1886,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                 ? `Describe what you are looking for in words ("brunette outdoors, wide shot") and rank the current filter with ${semanticState.label}.`
                 : semanticBlocked}
               className={CURATE_BTN}>
-              🔤 Find by text…{!semanticReady && ` (needs ${semanticState.label})`}
+              <Type aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Find by text…{!semanticReady && ` (needs ${semanticState.label})`}
             </button>
             {curateOpen === 'text' && (
               <>
@@ -1986,7 +1987,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             aria-expanded={coverageOpen}
             title="See what your kept set leans on and what's thin for a good LoRA — advice only, nothing is kept or rejected."
             className={CURATE_BTN}>
-            📊 Coverage advice{coverageOpen ? ' ▲' : ' ▼'}
+            <BarChart3 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Coverage advice{coverageOpen ? ' ▲' : ' ▼'}
           </button>
         </div>
 
@@ -1999,7 +2000,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           {textResult && (
             <div className="mt-2 space-y-1 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-xs text-content">
               <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-                <span aria-hidden>🔤</span>
+                <Type aria-hidden="true" className="h-3.5 w-3.5" />
                 <span className="min-w-0 flex-1">
                   {summarize(textResult, semanticState.engine)}
                 </span>
@@ -2050,7 +2051,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               </ul>
               {balanceNotes(balanceResult).map((note, i) => (
                 <p key={i} className={note.tone === 'warn' ? 'text-amber-300/90' : 'text-content-subtle'}>
-                  {note.tone === 'warn' ? '⚠️ ' : '💡 '}{note.text}
+                  {note.tone === 'warn' ? <AlertTriangle aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" /> : <Lightbulb aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />}{note.text}
                 </p>
               ))}
             </div>

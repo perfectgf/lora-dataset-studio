@@ -1,5 +1,6 @@
 /** Variation catalog: presets + per-entry toggles + multiplier + Klein picker. */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Clapperboard, Dna, Download, Monitor } from 'lucide-react';
 import KleinModelSetting from '../shared/KleinModelSetting';
 import GlobalModelPicker from '../shared/GlobalModelPicker';
 import { useToast } from '../common/Toast';
@@ -542,7 +543,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
       <div key={c.id} className={`relative flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[0.625rem] border transition-colors ${cls} ${blocked ? 'opacity-40' : ''} ${editing ? 'ring-2 ring-amber-400/70' : ''}`}>
         <button type="button" onClick={() => !blocked && toggle(c.id)} aria-pressed={on}
           disabled={blocked}
-          title={blocked ? '🔞 shot — check Klein alone to generate it' : c.prompt}
+          title={blocked ? 'NSFW shot — check Klein alone to generate it' : c.prompt}
           className="flex items-center gap-1.5 flex-1 min-w-0 text-left disabled:cursor-not-allowed">
           <ShotIllustration framing={c.framing} label={c.label} className="w-7 h-7 shrink-0" />
           {/* Wraps like a catalog card instead of truncating: an imported label is
@@ -1124,7 +1125,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
       <div className="flex items-center gap-2">
-        <span aria-hidden="true">🎬</span>
+        <Clapperboard aria-hidden="true" className="h-4 w-4" />
         <h2 className="text-content font-semibold text-sm">Generate variations</h2>
         <span className="text-content-subtle text-[0.6875rem]">
           pick the shots to synthesize from the reference photo
@@ -1374,7 +1375,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
         <details className="rounded-lg border border-border bg-app/30 open:pb-2"
           onToggle={(e) => { if (e.currentTarget.open) requestHelpTip('klein-tuning-open'); }}>
           <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-            🖥️ Klein tuning
+            <Monitor aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Klein tuning
             <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
               model file · consistency LoRA {loraStrength <= 0 ? 'off' : loraStrength.toFixed(2)}
               {' · '}{kleinStepsValue} steps
@@ -1507,7 +1508,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
       {isKrea && krAvailable && (
         <details className="rounded-lg border border-border bg-app/30 open:pb-2">
           <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-            🧬 Krea 2 Edit tuning
+            <Dna aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Krea 2 Edit tuning
             <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
               reference grounding {groundingDescription(groundingValue)}
               {` · ${stepsValue} steps · reference pull ${refBoostValue} · identity ${identityStrengthValue}`}
@@ -1872,7 +1873,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
         {importedShots.length > 0 && (
           <div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
-              <span aria-hidden="true">📥</span>
+              <Download aria-hidden="true" className="h-4 w-4" />
               <span className="text-[0.6875rem] uppercase font-semibold text-content-muted">Imported</span>
               <span className="text-content-subtle text-[0.625rem]">
                 {importedShots.length} shot{importedShots.length === 1 ? '' : 's'} from your JSON catalog — ✏️ edits one, saved on this machine, not in the browser
@@ -1904,7 +1905,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
           ? 'border-rose-500/40 bg-rose-500/5' : 'border-border bg-app/30'}`}>
           <button type="button" onClick={() => setNsfwMode((v) => !v)} aria-pressed={nsfwMode}
             className="flex items-center gap-2 text-left">
-            <span aria-hidden="true">🔞</span>
+            <span aria-hidden="true" className="text-[10px] font-bold tracking-tight">18+</span>
             <span className={`text-[0.75rem] font-semibold ${nsfwMode ? 'text-rose-300' : 'text-content-muted'}`}>
               NSFW mode {nsfwMode ? 'ON' : 'OFF'}
             </span>
@@ -1962,7 +1963,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
           <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
             {editingShot
               ? 'change the words or the framing, then Save — the card keeps its place'
-              : `write your own prompt — it becomes a reusable card in the Custom group above${nsfwMode && localOnlyRun ? ' — 🔞 register active' : ''}`}
+              : `write your own prompt — it becomes a reusable card in the Custom group above${nsfwMode && localOnlyRun ? ' — 18+ register active' : ''}`}
           </span>
         </summary>
         <div className="px-2.5 pt-1 flex flex-col gap-1">
@@ -2013,7 +2014,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
           without an example of it. Collapsed by default. */}
       <details className="rounded-lg border border-border bg-app/30 open:pb-2">
         <summary className="cursor-pointer select-none px-2.5 py-1.5 text-[0.75rem] text-content font-semibold">
-          📥 Shot catalog (JSON)
+          <Download aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Shot catalog (JSON)
           <span className="ml-2 font-normal text-content-subtle text-[0.625rem]">
             import your own shots — export first to get the format
           </span>

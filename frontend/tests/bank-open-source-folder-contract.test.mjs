@@ -28,7 +28,7 @@ test('the source-path row carries a clear, request-busy button', () => {
   assert.match(sourceRow, /onClick=\{openSourceFolder\}/)
   assert.match(sourceRow, /disabled=\{openingSourceFolder\}/)
   assert.match(sourceRow, /aria-busy=\{openingSourceFolder\}/)
-  assert.match(sourceRow, /openingSourceFolder \? 'Opening…' : '📂 Open folder'/)
+  assert.match(sourceRow, /openingSourceFolder \? 'Opening…' : 'Open folder'/)
 })
 
 test('a failed native-folder launch is visible and always clears busy state', () => {

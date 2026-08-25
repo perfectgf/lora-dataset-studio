@@ -64,7 +64,7 @@ test('the dial sits outside both engine tuning blocks', () => {
   const marker = 'variation-output-size-dial';
   assert.ok(panel.includes(marker), 'the dial must be rendered by the panel');
   const dial = panel.indexOf(marker);
-  const kleinBlock = panel.indexOf('🖥️ Klein tuning');
+  const kleinBlock = panel.indexOf('/>Klein tuning');
   const presets = panel.indexOf("uppercase\">Presets</span>");
   assert.ok(dial < kleinBlock,
     'a shared setting cannot live inside the Klein-only <details>');
@@ -75,6 +75,6 @@ test('the panel shows the dial for either local engine, never only for one', () 
   const guard = panel.indexOf('{(isKlein || isKrea)');
   assert.ok(guard > -1, 'the shared dial needs a guard naming BOTH local engines');
   const dial = panel.indexOf('variation-output-size-dial');
-  assert.ok(guard < dial && dial < panel.indexOf('🖥️ Klein tuning'),
+  assert.ok(guard < dial && dial < panel.indexOf('/>Klein tuning'),
     'the dial must sit inside that shared guard, above the engine tuning blocks');
 });

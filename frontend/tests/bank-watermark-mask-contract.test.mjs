@@ -50,8 +50,8 @@ test('the review lightbox offers the editor on any image it can still act on', (
   // never saw there is no box to "edit", and promising one is how the miss stayed
   // unanswerable. What each state reads is asserted on the helper's VALUES in
   // src/components/bank/bankWatermarkMask.test.js.
-  assert.match(lightbox, /🚩 \{maskButtonLabel\(img\)\}/)
-  assert.doesNotMatch(lightbox, /🚩 Edit mask/)
+  assert.match(lightbox, /<FlagIcon [^>]*\/>\{maskButtonLabel\(img\)\}/)
+  assert.doesNotMatch(lightbox, />Edit mask/)
   // M is the Bank's OWN key, read off the same event once the shared review
   // grammar (K/R/S, ← , Esc) has declined it — and still behind the same
   // "does this field own the keystroke?" guard.

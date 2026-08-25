@@ -11,6 +11,7 @@
  * stability guarantees.
  */
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Flag as FlagIcon } from 'lucide-react';
 import RepairDialog from '../shared/RepairDialog';
 import KleinImproveNote from './KleinImproveNote';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
@@ -741,7 +742,7 @@ export default function DatasetLightbox({
             title={refused || 'Draw the watermark zones on this image — works even when the scan found nothing. What you draw becomes the flag, and 🧽 Clean then repaints exactly that.'}
             aria-label={refused || watermarkMaskButtonLabel(img)}
             className="min-h-10 lg:min-h-9 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
-            🚩 {watermarkMaskButtonLabel(img)}
+            <FlagIcon aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{watermarkMaskButtonLabel(img)}
           </button>
         )}
         {/* ✦ TWO INTENTIONS, TWO BUTTONS — AND NOW TWO DESTINATIONS. 🚩 above

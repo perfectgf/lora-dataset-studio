@@ -100,7 +100,7 @@ test('the panel admits the sliders change EVERY future run', () => {
   // A control that quietly rewrites a global setting from a per-batch screen is
   // only acceptable while it says so. Keep the warning, whatever its wording —
   // but it must not say "two" now that there are four.
-  const panel = SRC.slice(SRC.indexOf('🧬 Krea 2 Edit tuning'));
+  const panel = SRC.slice(SRC.indexOf('Krea 2 Edit tuning'));
   assert.match(panel, /apply to <b>every<\/b> Krea\s*\n?\s*run/);
   assert.doesNotMatch(panel, /These two save straight/);
 });

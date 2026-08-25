@@ -76,7 +76,7 @@ test('lightbox offers a per-image crop/inpaint choice only when a safe crop exis
   assert.match(lightbox, /\{canCrop && !\(oc && oc\.terminal\) && \(/);
   assert.match(lightbox, /aria-label="Removal method"/);
   assert.match(lightbox, /✂ Crop/);
-  assert.match(lightbox, /🖌 Inpaint/);
+  assert.match(lightbox, /<Brush [^>]*\/>Inpaint/);
 });
 
 test('the chosen method flows into the planned route and the clean call', () => {

@@ -39,7 +39,7 @@ export function SettingsGroupsToc({ sectionId, groups }) {
             <button type="button" onClick={() => jump(g.id)}
               data-testid={`settings-toc-${g.id}`}
               className="min-h-10 lg:min-h-0 flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-surface-raised">
-              <span aria-hidden className="shrink-0 text-sm">{g.icon}</span>
+              <g.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-content">{g.title}</span>
                 <span className="block text-xs text-content-muted">{g.blurb}</span>
@@ -70,7 +70,7 @@ export function SettingsGroup({ sectionId, group, defaultOpen = false, children 
         className="flex min-h-10 lg:min-h-0 cursor-pointer list-none items-baseline gap-2 rounded-xl px-4 py-3 hover:bg-surface-raised [&::-webkit-details-marker]:hidden">
         <span aria-hidden
           className="shrink-0 text-xs text-content-subtle transition-transform group-open:rotate-90">▸</span>
-        <span aria-hidden className="shrink-0 text-sm">{group.icon}</span>
+        <group.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-content">{group.title}</span>
           {/* The blurb hides once the group is open — it described what you

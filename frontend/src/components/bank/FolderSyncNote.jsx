@@ -1,4 +1,5 @@
 import { folderSyncNote } from './bankSync'
+import { AlertTriangle, FolderInput, Info } from 'lucide-react';
 
 /** 🗃️ The state of a bank's SOURCE FOLDER as of the last automatic walk.
  *
@@ -22,12 +23,14 @@ export default function FolderSyncNote({ sync, onRelocate, onForget }) {
     : 'border-amber-400/40 bg-amber-500/10 text-amber-200'
   return (
     <div className={`rounded-md border px-2 py-1 text-xs ${tone}`}>
-      <p>{note.tone === 'error' ? '⚠️ ' : 'ℹ️ '}{note.text}</p>
+      <p>{note.tone === 'error'
+        ? <AlertTriangle aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+        : <Info aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />}{note.text}</p>
       <div className="mt-1 flex flex-wrap gap-2">
         {note.canRelocate && onRelocate && (
           <button type="button" onClick={onRelocate}
             className="rounded border border-current px-2 py-0.5 text-xs font-semibold hover:bg-white/10">
-            📦 Move folder…
+            <FolderInput aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Move folder…
           </button>
         )}
         {note.canForget && onForget && (

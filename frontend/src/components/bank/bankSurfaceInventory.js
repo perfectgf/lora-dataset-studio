@@ -171,19 +171,11 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "🎚",
-    1
-  ],
-  [
     "🎞",
     1
   ],
   [
-    "🎨",
-    1
-  ],
-  [
-    "🎨 Pick diverse…",
+    "Pick diverse…",
     1
   ],
   [
@@ -191,7 +183,7 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "🎯 Similar to selected…",
+    "Similar to selected…",
     1
   ],
   [
@@ -211,11 +203,11 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "📊 Coverage advice",
+    "Coverage advice",
     1
   ],
   [
-    "📦 Move folder…",
+    "Move folder…",
     2
   ],
   [
@@ -227,7 +219,7 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "🔤 Find by text…",
+    "Find by text…",
     1
   ],
   [
@@ -235,19 +227,15 @@ export const BANK_SURFACES = [
     1
   ],
   [
-    "🗑 Delete rejected from disk",
+    "Delete rejected from disk",
     1
   ],
   [
-    "🧹 Auto-reject…",
+    "Auto-reject…",
     1
   ],
   [
-    "🚀 Launch all…",
-    1
-  ],
-  [
-    "🚩",
+    "Launch all…",
     1
   ],
   [

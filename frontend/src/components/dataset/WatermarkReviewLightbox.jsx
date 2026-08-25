@@ -21,6 +21,7 @@
  * grid counts underneath and shows a recap toast on close.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Brush, Eraser, Eye, Palette } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
@@ -39,9 +40,9 @@ import RepairDialog from '../shared/RepairDialog';
 // The action Clean WILL take, per backend route (watermark_route in the payload).
 const ROUTE_LABEL = {
   crop: { icon: '✂', text: 'Crop the watermarked border', cls: 'text-sky-300' },
-  lama: { icon: '🖌', text: 'Inpaint the mark (LaMa)', cls: 'text-emerald-300' },
-  review: { icon: '👁', text: 'On the subject — needs manual review', cls: 'text-amber-300' },
-  klein: { icon: '🎨', text: 'Masked Klein inpaint (crop-and-stitch)', cls: 'text-emerald-300' },
+  lama: { icon: Brush, text: 'Inpaint the mark (LaMa)', cls: 'text-emerald-300' },
+  review: { icon: Eye, text: 'On the subject — needs manual review', cls: 'text-amber-300' },
+  klein: { icon: Palette, text: 'Masked Klein inpaint (crop-and-stitch)', cls: 'text-emerald-300' },
 };
 
 // Per-image outcome after an action. Terminal ones leave the 'detected' set (badge
@@ -52,7 +53,7 @@ const OUTCOME = {
   cleaned: { icon: '✨', text: 'Cleaned', cls: 'text-emerald-300', terminal: true },
   dismissed: { icon: '⊘', text: 'Marked “not a watermark”', cls: 'text-content-subtle', terminal: true },
   rejected: { icon: '✕', text: 'Rejected — removed from the set', cls: 'text-red-300', terminal: true },
-  review: { icon: '👁', text: 'Left for manual review', cls: 'text-amber-300', terminal: false },
+  review: { icon: Eye, text: 'Left for manual review', cls: 'text-amber-300', terminal: false },
   skipped: { icon: '⬇', text: 'Skipped — inpainting not installed', cls: 'text-amber-300', terminal: false },
   failed: { icon: '⚠', text: 'Clean failed', cls: 'text-red-300', terminal: false },
 };
@@ -399,7 +400,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
       if (d.error) {
         return { key: 'failed', note: { tone: 'err',
           text: d.error.kind === 'unavailable'
-            ? 'Inpainting isn’t installed — install it (next to the 🧽 tools) or reject/crop this one.'
+            ? 'Inpainting isn’t installed — install it (next to the watermark tools) or reject/crop this one.'
             : `Inpainting failed: ${d.error.detail || d.error.kind}` } };
       }
       if (d.cropped || d.inpainted || d.inpainted_klein) {
@@ -485,7 +486,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   // pixel) regardless of engine; every OTHER mark follows the selected engine — and
   // under Klein the on-subject ('review') mark becomes actionable instead of blocked.
   const kleinInpaintLabel = (n) => ({
-    icon: '🎨',
+    icon: Palette,
     text: manual ? `Klein inpaint ${n} selected zone${n === 1 ? '' : 's'}` : ROUTE_LABEL.klein.text,
     cls: 'text-emerald-300',
   });
@@ -493,7 +494,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
   if (manual) {
     route = kleinSelected
       ? kleinInpaintLabel(regions.length)
-      : { icon: '🖌', text: `Inpaint ${regions.length} selected zone${regions.length === 1 ? '' : 's'}`,
+      : { icon: Brush, text: `Inpaint ${regions.length} selected zone${regions.length === 1 ? '' : 's'}`,
           cls: 'text-emerald-300' };
   } else if (item) {
     // effectiveRoute already folds in the per-image crop/inpaint choice ('crop' when the
@@ -604,7 +605,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
               exact pixels the user needs to judge after a clean. */}
           {oc && (
             <span className={`px-2 py-1 rounded-lg bg-black/60 font-semibold ${oc.cls}`}>
-              {oc.icon} {ocText}
+              <oc.icon aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{ocText}
             </span>
           )}
           <span className="text-white/70 tabular-nums">
@@ -662,7 +663,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
         <div className="flex items-center justify-center gap-2 text-sm flex-wrap">
           <span className="text-white/50">Planned:</span>
           {route ? (
-            <span className={`font-semibold ${route.cls}`}>{route.icon} {route.text}</span>
+            <span className={`font-semibold ${route.cls}`}><route.icon aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{route.text}</span>
           ) : (
             <span className="text-white/60">— unknown (missing box)</span>
           )}
@@ -675,7 +676,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             <span className="text-amber-300/90 text-xs">
               {kleinSelected
                 ? '· Klein inpaint isn’t ready → start ComfyUI + install the Klein models (Setup ▸ ComfyUI)'
-                : '· LaMa inpainting isn’t installed → install it from the 🧽 tools before Clean'}
+                : '· LaMa inpainting isn’t installed → install it from the watermark tools before Clean'}
             </span>
           )}
           {automaticLamaMissing && (
@@ -710,7 +711,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
                 title="Repaint the mark instead of cropping — keeps the full frame (uses the engine below)."
                 className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${!useCrop
                   ? 'bg-amber-500/25 text-amber-100' : 'text-white/60 hover:text-white'}`}>
-                🖌 Inpaint
+                <Brush aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Inpaint
               </button>
             </div>
           </div>
@@ -777,7 +778,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
                       ? 'Save correction zones before cleaning'
                 : "Apply this image's watermark removal now (crop / inpaint / manual review) — shortcut c"}
               className={`${btn} bg-amber-500/20 border border-amber-400/50 text-amber-100 hover:bg-amber-500/30`}>
-              {cleaning ? '🧽 Cleaning…' : <>🧽 Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
+              <Eraser aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{cleaning ? 'Cleaning…' : <>Clean <kbd className="text-[10px] text-white/50">c</kbd></>}
             </button>
           )}
           {/* ✦ REPAIR opens the SAME fullscreen dialog the generated-image lane

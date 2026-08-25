@@ -25,7 +25,7 @@ test('every shot card tooltip carries the prompt, and nothing displaces it', () 
     'the catalog cards must show their prompt')
   assert.equal((SRC.match(/title=\{e\.prompt\}/g) || []).length, 2,
     'both catalogs (built-in and 🔞) must show it, not just one')
-  assert.match(SRC, /title=\{blocked \? '🔞 shot[^']*' : c\.prompt\}/,
+  assert.match(SRC, /title=\{blocked \? 'NSFW shot[^']*' : c\.prompt\}/,
     'a user card shows its prompt, except when it is blocked and must say why')
 
   // The message that used to displace it must not come back as a title.
