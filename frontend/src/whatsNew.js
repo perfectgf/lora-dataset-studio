@@ -83,6 +83,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-klein-in-the-test-studio',
+    date: '2026-08-26',
+    title: 'Test Studio can finally generate with your FLUX.2 Klein LoRAs',
+    blurb:
+      'Klein LoRAs trained and deployed, but the Test Studio had no Klein '
+      + 'generation lane, so clicking Generate from the board answered "no '
+      + 'Z-Image model available" about a family you never picked. Klein now '
+      + 'has a lane of its own: fixed-seed checkpoint and strength grids, the '
+      + 'same as Krea and Z-Image, built on your configured Klein model, text '
+      + 'encoder and VAE. Guidance is pinned where a distilled model wants it, '
+      + 'so a swept CFG cannot burn a cell and make a good checkpoint look bad. '
+      + 'FLUX.1 and Anima still have no lane, and now say so plainly instead of '
+      + 'blaming Z-Image. Reported by lunchingfriar.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-26-klein-loras-report-as-deployed',
     date: '2026-08-26',
     title: 'Klein, FLUX.1 and Anima LoRAs finally report as deployed',

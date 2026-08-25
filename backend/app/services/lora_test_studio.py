@@ -174,6 +174,7 @@ WORKFLOW_ZTURBO_PATH = cfg.BACKEND_DIR / 'workflows' / 'ZImage_bigLove_ZT3_optim
 WORKFLOW_HQ_PATH = cfg.BACKEND_DIR / 'workflows' / 'image_real_HQ.json'
 WORKFLOW_KREA_TURBO_PATH = cfg.BACKEND_DIR / 'workflows' / 'krea2_turbo.json'
 WORKFLOW_KREA_IMG2IMG_PATH = cfg.BACKEND_DIR / 'workflows' / 'krea2_turbo_img2img.json'
+WORKFLOW_FLUX2KLEIN_PATH = cfg.BACKEND_DIR / 'workflows' / 'flux2_klein_t2i.json'
 
 
 def _comfy_output_dir():
@@ -536,6 +537,39 @@ def _prompt_with_triggers(prompt, trigger_words):
 # sélecteur du Test Studio, via available_families().
 FAMILIES = ('zimage', 'sdxl', 'krea', 'flux', 'flux2klein', 'anima')
 
+# DEUX QUESTIONS, DEUX LISTES. « Quelles familles le studio sait-il VOIR » (au-
+# dessus : toute famille déployable, sinon son LoRA se lit comme jamais déployé,
+# cf. GitHub #52) n'est PAS « avec quelles familles sait-il GÉNÉRER » (ici :
+# celles qui ont une voie complète — un workflow, un applicateur de réglages,
+# une whitelist de bases).
+#
+# Les confondre a coûté GitHub #53 : réparer #52 a mis Klein dans FAMILIES, donc
+# dans le sélecteur, donc à portée d'un bouton Generate qui n'a aucun workflow
+# Klein derrière — et l'utilisateur a reçu « no Z-Image model available », une
+# famille qu'il n'avait jamais choisie. Une liste répondait à la mauvaise
+# question ; ce n'est pas un `if` de plus qu'il fallait, c'est de cesser de
+# faire dire à une liste ce qu'elle ne sait pas.
+GENERATION_FAMILIES = ('zimage', 'sdxl', 'krea', 'flux2klein')
+
+
+def can_generate_with(family: str) -> bool:
+    """Le studio a-t-il une voie de génération pour cette famille ?"""
+    return (family or 'zimage').lower() in GENERATION_FAMILIES
+
+
+def _no_generation_lane(family: str) -> ValueError:
+    """L'erreur à lever quand on demande à générer dans une famille sans voie.
+
+    Elle NOMME la famille demandée. L'ancien message accusait Z-Image parce que
+    le repli silencieux y menait, ce qui envoyait chercher un modèle manquant
+    dans une famille sans rapport (GitHub #53, lunchingfriar)."""
+    label = FAMILY_LABELS.get((family or '').lower(), family or 'this family')
+    return ValueError(
+        f'generating from the board is not supported for {label} yet — its '
+        'LoRAs train, deploy and show up as deployed, but the studio has no '
+        f'{label} generation workflow. Use a family that has one, or generate '
+        'from the dataset instead.')
+
 
 def _pool_for_family(family: str) -> list[dict]:
     """Pool de LoRA d'une famille : SDXL → loras/sdxl, Krea → loras/krea,
@@ -655,9 +689,17 @@ def available_families(ds) -> list[dict]:
     """Familles (pipelines) sous lesquelles CE dataset a effectivement été entraîné =
     celles dont le pool contient ≥1 checkpoint testable (trigger match).
     Le même dataset peut apparaître sous plusieurs familles (ex. lola2 en ZIT+SDXL+Krea).
-    Returns [{family, label, count}], ordre FAMILIES. Vide si aucun LoRA déployé."""
+    Returns [{family, label, count}], ordre FAMILIES. Vide si aucun LoRA déployé.
+
+    Ne propose QUE les familles avec lesquelles le studio sait générer : ce
+    retour remplit un sélecteur, et offrir un choix qui échouera au clic est pire
+    que ne pas l'offrir. Un LoRA Klein reste parfaitement visible comme déployé
+    ailleurs (c'est FAMILIES qui répond à ça) — il n'est simplement pas proposé
+    comme base d'un run de test tant qu'il n'a pas sa voie."""
     out = []
     for fam in FAMILIES:
+        if not can_generate_with(fam):
+            continue
         n = len(list_test_checkpoints(ds, fam))
         if n:
             out.append({'family': fam, 'label': FAMILY_LABELS.get(fam, fam), 'count': n})
@@ -1342,6 +1384,72 @@ def krea_alt_base_models() -> list:
     return [m for m in get_krea_models() if not bare or _basename(m).lower() != bare]
 
 
+def apply_klein_lora_test_settings(workflow, *, lora_name, strength, prompt, seed,
+                                   width, height, cfg=None, steps=None, batch_size=1,
+                                   filename_prefix=None, allowed_loras=None,
+                                   base_model=None, allowed_bases=None):
+    """Configure une cellule de test sur le workflow FLUX.2 Klein texte-vers-image.
+
+    Klein est le moteur d'ÉDITION de l'app partout ailleurs (variations, improve,
+    inpaint), et cette voie est la seule qui lui demande de générer depuis un
+    simple prompt : le Test Studio compare des checkpoints à prompt et seed
+    identiques, il n'a aucune image source à éditer. Le graphe est donc bâti sur
+    EmptyFlux2LatentImage, et il est ENTIÈREMENT composé de nœuds vanilla — aucun
+    pack tiers, contrairement à la voie Krea (cf. test_workflow_portability).
+
+    Les assets (UNET, encodeur de texte, VAE) sont résolus par les MÊMES fonctions
+    que le reste de la voie Klein plutôt que lus dans le JSON : les noms figés
+    dans un workflow livré ne valent que sur la machine où il a été capturé, et
+    c'est exactement ce qui a fait mentir d'autres graphes ici.
+
+    Le LoRA testé est chargé en model-only (node 29) : les LoRA de personnage
+    produits par ai-toolkit pour Klein n'entraînent que le transformer.
+
+    `base_model` : UNET Klein local à charger à la place de celui que la config
+    élit, même mécanique que Krea/SDXL/Z-Image. Validé contre `allowed_bases`
+    (anti path-injection), comme le LoRA. cfg est CLAMPÉ à 1.0 : Klein 9B est
+    guidance-distillé, une valeur au-dessus le fait diverger."""
+    if allowed_loras is not None and lora_name not in allowed_loras:
+        raise ValueError(f'unknown Klein LoRA: {lora_name}')
+    if base_model and allowed_bases is not None and base_model not in allowed_bases:
+        raise ValueError(f'unknown Klein base model: {base_model}')
+
+    def _set(node_id, key, value):
+        n = workflow.get(node_id)
+        if isinstance(n, dict) and key in n.get('inputs', {}):
+            n['inputs'][key] = value
+
+    from . import klein_edit_helper as keh
+    unet = base_model or keh.unet_for_job()
+    if unet:
+        _set('20', 'unet_name', unet)
+        _set('20', 'weight_dtype', keh._unet_weight_dtype(unet))
+    te = keh.resolve_klein_text_encoder()
+    if te:
+        _set('21', 'clip_name', te)
+    vae = keh.resolve_klein_vae()
+    if vae:
+        _set('22', 'vae_name', vae)
+
+    _set('29', 'lora_name', lora_name)
+    _set('29', 'strength_model', float(strength))
+    _set('23', 'text', prompt)
+    for node in ('25', '31'):                    # latent ET ModelSamplingFlux
+        _set(node, 'width', int(width))
+        _set(node, 'height', int(height))
+    _set('25', 'batch_size', int(batch_size))
+    _set('26', 'seed', int(seed))
+    if steps is not None:
+        _set('26', 'steps', max(1, min(50, int(steps))))
+    # Pas de `if cfg is not None` : la valeur vient d'un AXE de balayage du studio,
+    # et laisser passer un cfg > 1 sur un modèle guidance-distillé rendrait des
+    # cellules brûlées que l'utilisateur lirait comme un mauvais checkpoint.
+    _set('26', 'cfg', 1.0)
+    if filename_prefix is not None:
+        _set('28', 'filename_prefix', filename_prefix)
+    return workflow
+
+
 def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed,
                                   width, height, cfg=None, steps=None, batch_size=1,
                                   filename_prefix=None, allowed_loras=None, extra_loras=None,
@@ -1594,6 +1702,28 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
         # Krea2RebalanceConditioning), réécrire le class_type vers le nom réel pour que
         # le graphe enqueué valide. available_classes None = on garde le canonique.
         return _resolve_workflow_node_classes(workflow, available_classes)
+    if (train_type or 'zimage').lower() == 'flux2klein':
+        workflow = load_workflow_local(str(WORKFLOW_FLUX2KLEIN_PATH))
+        if not workflow:
+            raise ValueError('FLUX.2 Klein workflow not found/unreadable')
+        from ..utils.comfyui import get_flux2_klein_models
+        apply_klein_lora_test_settings(
+            workflow, lora_name=checkpoint, strength=strength, prompt=prompt,
+            seed=seed, width=width, height=height, cfg=cfg, steps=steps,
+            batch_size=1, filename_prefix=fname,
+            allowed_loras={l['filename'] for l in _pool_for_family('flux2klein')},
+            base_model=z_model,
+            allowed_bases={m['filename'] if isinstance(m, dict) else m
+                           for m in get_flux2_klein_models()},
+        )
+        return _resolve_workflow_node_classes(workflow, available_classes)
+    # Troisième repli silencieux vers Z-Image de ce fichier, fermé pour la même
+    # raison que les deux autres : une famille sans voie repartait avec le
+    # WORKFLOW d'une autre, donc un graphe Z-Image chargé d'un LoRA Klein. Les
+    # dispatchers de bases refusent déjà en amont ; cette garde est là pour que
+    # l'ajout d'une famille ne puisse pas se glisser ici en silence.
+    if not can_generate_with(train_type):
+        raise _no_generation_lane(train_type)
     workflow = load_workflow_local(str(WORKFLOW_ZTURBO_PATH))
     if not workflow:
         raise ValueError('ZTurbo workflow not found/unreadable')
@@ -2629,6 +2759,17 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
         # None en tête = UNET câblé du workflow (défaut historique et repli) ; les
         # checkpoints Krea locaux deviennent un axe de base optionnel comme ailleurs.
         models = [None] + get_krea_models()
+    elif run_family == 'flux2klein':
+        # None en tête = l'UNET que la config élit (apply_klein_lora_test_settings
+        # le résout), les Klein locaux devenant un axe de base optionnel — même
+        # mécanique que Krea.
+        from ..utils.comfyui import get_flux2_klein_models
+        models = [None] + [m['filename'] for m in get_flux2_klein_models()]
+    elif not can_generate_with(run_family):
+        # AVANT le repli Z-Image, et c'est tout l'objet du correctif : une famille
+        # sans voie tombait ici en silence et repartait avec l'erreur d'une AUTRE
+        # famille (GitHub #53).
+        raise _no_generation_lane(run_family)
     else:
         models = get_zimage_models()
         if not models:
@@ -2818,6 +2959,11 @@ def _cmp_resolve_run_family(selections):
         # None en tête = UNET câblé (node 20), repli des runs sans base explicite ;
         # les checkpoints Krea locaux sont désormais sélectionnables.
         models = [None] + get_krea_models()
+    elif run_type == 'flux2klein':
+        from ..utils.comfyui import get_flux2_klein_models
+        models = [None] + [m['filename'] for m in get_flux2_klein_models()]
+    elif not can_generate_with(run_type):
+        raise _no_generation_lane(run_type)      # cf. create_run, même raison
     else:
         models = get_zimage_models()
         if not models:
