@@ -314,12 +314,18 @@ export default function GalleryPage() {
                   title={picking
                     ? (isPicked ? 'Selected — tap to unselect' : 'Tap to select')
                     : imageFactsLine(img)}
-                  className={`block aspect-square w-full overflow-hidden rounded-md border ${isPicked
+                  className={`block aspect-square w-full overflow-hidden rounded-md border bg-black/40 ${isPicked
                     ? 'border-rose-400 ring-2 ring-rose-400/70'
                     : 'border-border hover:border-indigo-400/60'}`}>
+                  {/* object-CONTAIN, not cover: the cell stays square (row
+                      order, ‹ › navigation and the selection grid all read
+                      row-major), but the picture inside is never cropped — a
+                      9:16 render used to lose its head and feet to the cell.
+                      The dark cell background is what makes the letterbox
+                      read as a mat, not a broken thumbnail. */}
                   <img src={img.url} alt={imageFactsLine(img) || 'Generated image'}
                     loading="lazy"
-                    className={`h-full w-full object-cover ${isPicked ? 'opacity-60' : ''}`} />
+                    className={`h-full w-full object-contain ${isPicked ? 'opacity-60' : ''}`} />
                 </button>
                 {picking && (
                   <span aria-hidden
