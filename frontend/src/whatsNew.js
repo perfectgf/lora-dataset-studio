@@ -128,6 +128,7 @@ export const WHATS_NEW = [
       + 'are judging — with a single amber accent replacing the old purple '
       + 'gradient, and a crisper typeface (Archivo). Same layout, same '
       + 'controls, calmer room.',
+    image: 'docs/screenshots/release/2026-08-25-safelight.png',
   },
   {
     id: '2026-08-25-comfyui-submit-patience',
