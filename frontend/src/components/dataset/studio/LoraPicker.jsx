@@ -18,20 +18,14 @@
  * réinitialise le verrou.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { familyBadgeClass, familyLabel } from '../../../utils/familyBadges';
 import { useToast } from '../../common/Toast';
 
 // Famille de l'entrée (le backend la fournit ; `train_type` = alias rétro-compat).
 const famOf = (l) => l.family || l.train_type || 'zimage';
 // Clé composite d'une ligne (dataset × famille) — identité stable dans `picked`.
 const keyOf = (l) => `${l.dataset_id}:${famOf(l)}`;
-// Badge de famille : libellé + couleur DISTINCTE par pipeline (toutes taguées, y
-// compris Z-Image — sinon une ligne zimage d'un dataset multi-famille reste ambiguë).
-const FAMILY_BADGE_LABEL = { zimage: 'Z-Image', sdxl: 'SDXL', krea: 'Krea' };
-const familyBadgeClass = (fam) => ({
-  zimage: 'border-sky-400/40 bg-sky-500/10 text-sky-300',
-  sdxl: 'border-violet-400/40 bg-violet-500/10 text-violet-300',
-  krea: 'border-amber-400/40 bg-amber-500/10 text-amber-300',
-}[fam] || 'border-border-strong bg-white/5 text-content-muted');
+
 
 export default function LoraPicker({ preselectDataset, preselectFamily = null, onSelectionChange }) {
   const toast = useToast();
@@ -157,7 +151,7 @@ export default function LoraPicker({ preselectDataset, preselectFamily = null, o
             choisi juste en dessous (LoraStackPanel). On n'annonce plus que le FAIT
             d'avoir plusieurs LoRA, pas ce qu'on va en faire. */}
         {count >= 2 && (
-          <span className="px-2 py-0.5 rounded-full text-[0.625rem] font-semibold bg-amber-400/15 border border-amber-400/40 text-amber-200">
+          <span className="px-2 py-0.5 rounded-full text-[0.625rem] font-semibold border border-border-strong bg-surface-raised text-content">
             Multi-LoRA ({count})
           </span>
         )}
@@ -204,7 +198,7 @@ export default function LoraPicker({ preselectDataset, preselectFamily = null, o
                       un dataset multi-famille a une ligne par pipeline, une ligne sans
                       badge serait ambiguë. Couleur distincte par famille. */}
                   <span className={`px-1.5 py-0.5 rounded border text-[0.5625rem] font-semibold uppercase ${familyBadgeClass(lType)}`}>
-                    {FAMILY_BADGE_LABEL[lType] || lType}
+                    {familyLabel(lType)}
                   </span>
                   <span className="ml-auto text-content-subtle text-[0.625rem] truncate max-w-[120px]" title={l.dataset_name}>
                     {l.dataset_name}

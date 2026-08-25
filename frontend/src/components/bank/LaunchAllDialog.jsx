@@ -214,7 +214,7 @@ export default function LaunchAllDialog({
           ))}
         </ul>
 
-        <div className="rounded-md border border-indigo-400/40 bg-indigo-500/10 p-3 text-sm">
+        <div className="rounded-md border border-border bg-surface-raised p-3 text-sm">
           <p className="font-semibold text-content">What will run</p>
           {nRun === 0 ? (
             <p className="text-content-muted">Nothing selected yet — pick at least one pass.</p>

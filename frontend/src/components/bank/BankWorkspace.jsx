@@ -1998,7 +1998,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             a screen reader hears the outcome — the grid change is silent. */}
         <div aria-live="polite">
           {textResult && (
-            <div className="mt-2 space-y-1 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2 text-xs text-content">
+            <div className="mt-2 space-y-1 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-content">
               <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
                 <Type aria-hidden="true" className="h-3.5 w-3.5" />
                 <span className="min-w-0 flex-1">

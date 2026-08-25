@@ -414,7 +414,7 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
         )}
 
         {data?.pending > 0 && (
-          <div className="flex items-center gap-2 rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2" role="status">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2" role="status">
             <span className="inline-block w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" aria-hidden />
             <span className="text-content text-sm">
               {data.generating ?? data.running ?? 0} generating · {data.queued ?? data.pending} queued

@@ -9,6 +9,7 @@
  * review, ⛶ open), same badge cluster, same tooltip.
  */
 import { FLAG_LABEL, STATUS_RING } from './bankFacets.js'
+import SelectionMark from '../shared/SelectionMark';
 import { Tag } from 'lucide-react';
 import { editBadge, imageVersionQuery } from './bankEdits.js'
 import { angleBadge } from './bankMedium.js'
@@ -66,7 +67,11 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
           className={`w-full object-cover ${size === 'S' ? 'h-24' : 'h-36'}`} />
       </button>
       {selected && (
-        <span aria-hidden className="absolute inset-0 bg-indigo-500/30 ring-2 ring-indigo-400 rounded-lg pointer-events-none" />
+        <>
+          {/* The ring marks the FRAME; nothing is laid over the picture. */}
+          <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-primary" />
+          <SelectionMark />
+        </>
       )}
       <span className="absolute left-1 top-1 flex flex-wrap gap-0.5 max-w-[85%]">
         {img.status === 'keep' && badge('✓', 'bg-emerald-500/80 text-white')}

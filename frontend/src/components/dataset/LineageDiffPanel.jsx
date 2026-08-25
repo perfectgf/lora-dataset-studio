@@ -103,7 +103,7 @@ export default function LineageDiffPanel({ a, b, onClose }) {
             {data?.a ? sideLabel(data.a) : `#${a.record_id}`}
           </div>
         </div>
-        <div className="rounded-md border border-indigo-400/40 bg-indigo-500/10 px-2 py-1.5">
+        <div className="rounded-md border border-border bg-surface-raised px-2 py-1.5">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-content-subtle">Run B</div>
           <div className="break-words font-mono text-content">
             {data?.b ? sideLabel(data.b) : `#${b.record_id}`}

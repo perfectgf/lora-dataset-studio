@@ -1,5 +1,6 @@
 /** One curation tile: image + keep/reject + source/framing badges + caption + crop. */
 import { improvementBadge } from './improveCandidates.js';
+import SelectionMark from '../shared/SelectionMark';
 import { Eye, Flag, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { displayLabel } from '../../utils/labels';
@@ -202,8 +203,9 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
 
   return (
     <div tabIndex={0} aria-label={`${displayLabel(img.variation_label) || 'Dataset image'} card`}
-      className={`dataset-grid-item rounded-lg ${borderCls} ${selected ? 'ring-2 ring-indigo-400' : ''} bg-app/40 overflow-hidden flex flex-col`}>
+      className={`dataset-grid-item rounded-lg ${borderCls} ${selected ? 'ring-2 ring-primary' : ''} bg-app/40 overflow-hidden flex flex-col`}>
       <div className="relative aspect-square bg-black">
+        {selected && <SelectionMark />}
         {onToggleSelect && img.filename && (
           <label
             className="dataset-grid-item__actions absolute bottom-1 left-1 z-10 flex items-center justify-center w-6 h-6 rounded bg-black/60 cursor-pointer"

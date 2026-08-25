@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-25-selection-stops-tinting',
+    date: '2026-08-25',
+    title: 'Selecting an image no longer puts a colour film over it',
+    blurb:
+      'A selected image in the Bank used to be covered by a coloured overlay — '
+      + 'which is a problem when the thing you are deciding on is the colour of '
+      + 'the photo. Selection is now marked the way an editor marks a contact '
+      + 'sheet: a pencil stroke in the corner and a ring around the frame, with '
+      + 'the picture left alone. Same mark in the dataset grid, so the gesture '
+      + 'reads the same on both.',
+  },
+  {
     id: '2026-08-25-review-resumes-where-you-clicked',
     date: '2026-08-25',
     title: 'Review picks up where you left off',

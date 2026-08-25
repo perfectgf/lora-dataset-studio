@@ -15,7 +15,7 @@ export default function ClassifyFramingButton({
 
   return (
     <div id="ds-classify-framing" tabIndex={-1}
-      className="scroll-mt-20 flex flex-col gap-1 rounded-lg border border-amber-400/40 bg-amber-500/5 px-3 py-2">
+      className="scroll-mt-20 flex flex-col gap-1 rounded-lg border border-border bg-surface-raised px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" data-workspace-focus
           onClick={() => onClassify?.(s.count)}

@@ -23,9 +23,9 @@ export default function NextStepCard({ step, trainMode, busy, totalImages, onAct
   const key = step.id === 'finish' ? (trainMode ? 'finish_train' : 'finish_export') : step.id;
 
   return (
-    <div role="status" className="rounded-lg border border-indigo-400/40 bg-indigo-500/10 px-3 py-2">
+    <div role="status" className="rounded-lg border border-border bg-surface-raised px-3 py-2">
       <div className="flex items-center gap-2">
-        <Lightbulb aria-hidden="true" className="h-4 w-4 shrink-0" />
+        <Lightbulb aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
         <span className="text-content text-sm font-semibold">Next step: {step.label}</span>
         {!forceOpen && (
           <button type="button" onClick={() => setCollapsed((v) => !v)} aria-expanded={open}
