@@ -216,9 +216,9 @@ _SEEDVR2_DOWNLOADS = {
 # are engine-agnostic; only the catalog entries differ.
 _MODEL_DOWNLOADS = {**_KLEIN_DOWNLOADS, **_KREA_DOWNLOADS, **_SEEDVR2_DOWNLOADS}
 
-# Custom-node packs the app can install itself. THE ONLY ONE TODAY — and the
-# first git-cloned dependency this app installs at all, so the rules are written
-# down rather than implied:
+# Custom-node packs the app can install itself. The first git-cloned
+# dependencies this app installs at all, so the rules are written down rather
+# than implied:
 #   * the URL is a CONSTANT here, never derived from user input, and the clone
 #     runs as an argument list (no shell) with a timeout;
 #   * the destination is <validated ComfyUI>/custom_nodes/<folder> — resolved
@@ -239,6 +239,19 @@ _NODE_PACKS = {
         'repo': 'https://github.com/lbouaraba/comfyui-krea2edit',
         'zip': 'https://codeload.github.com/lbouaraba/comfyui-krea2edit/zip/refs/heads/main',
         'folder': 'comfyui-krea2edit',
+    },
+    # LanPaint: the training-free inpainting sampler the masked Repair lane
+    # runs on (services/lanpaint_helper explains why it replaced
+    # InpaintModelConditioning — GitHub #43). GPL-3.0, like ComfyUI itself and
+    # installed the same way every ComfyUI custom node is: into the USER'S
+    # ComfyUI, at their click. pyproject declares zero dependencies (checked
+    # 2026-08-25, v2.1.0), so a clone is enough — same contract as the pack
+    # above.
+    'lanpaint_nodes': {
+        'pack': 'LanPaint',
+        'repo': 'https://github.com/scraed/LanPaint',
+        'zip': 'https://codeload.github.com/scraed/LanPaint/zip/refs/heads/master',
+        'folder': 'LanPaint',
     },
 }
 
@@ -1135,11 +1148,19 @@ def _execute(action):
             except Exception:
                 logger.debug('clear_model_caches failed after %s', action, exc_info=True)
         if action in _NODE_PACKS and rc == 0:
+            # Both node caches only ever hold a POSITIVE answer, so clearing
+            # them regardless of which pack just landed costs one probe each
+            # and can never turn a present pack into a missing one.
             try:
                 from .services import krea_edit_helper
                 krea_edit_helper.clear_nodes_cache()
             except Exception:
                 logger.debug('krea node-cache clear failed after %s', action, exc_info=True)
+            try:
+                from .services import lanpaint_helper
+                lanpaint_helper.clear_nodes_cache()
+            except Exception:
+                logger.debug('lanpaint node-cache clear failed after %s', action, exc_info=True)
     except Cancelled:
         _append(action, 'cancelled by user')
         _finish_run(action, None, 'cancelled')

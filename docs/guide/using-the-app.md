@@ -2046,15 +2046,26 @@ area:
   that crop, so it is quick and its memory use does not depend on how large the
   photo is. Right for a mark in a corner.
 - **🖌 Brush** — paint over the thing itself, with a size slider, an eraser and
-  Clear. The *whole* picture goes to the model together with what you painted,
-  so it reconstructs while seeing the face around the necklace instead of only a
-  square of skin. Right for jewelry, glasses, straps — anything a rectangle
-  would only enclose by taking a lot of its surroundings with it. Very large
-  photos are scaled down for this pass; the result is composited back at full
-  size, and pixels you did not paint are copied from your file either way.
+  Clear. The model sees your paint plus a generous ring of context around it —
+  a localized touch-up travels as a native-resolution crop, and only a paint
+  job that spans most of the frame sends the whole (size-capped) picture.
+  Right for jewelry, glasses, straps — anything a rectangle would only enclose
+  by taking a lot of its surroundings with it. Pixels you did not paint are
+  copied from your file either way.
 
 Both work under a finger, so this is usable from a phone. The brush was
 contributed by OneCodingDude on GitHub.
+
+**The brush needs one small install.** The masked pass runs on **LanPaint**, a
+training-free inpainting sampler (a ~1 MB ComfyUI node pack, no Python
+dependencies): Klein is an edit model, not an inpaint-trained one, and
+conditioning it like one is what used to hand back a smeary patch — reported by
+charlesangus on GitHub, and exactly what LanPaint exists to fix. Setup ▸ the
+**LanPaint sampler** row installs it; restart ComfyUI afterwards so it loads.
+Your paint is also grown by a few pixels before the model sees it, so the
+edges of the removed thing get rebuilt instead of leaving a halo — and the
+best prompts describe **what should be behind** (*"bare skin"*, *"plain
+wall"*) rather than naming what to remove.
 
 The 🚩 button next to it opens the same editor from the other intention — you
 spotted a watermark the scan missed. Same screen, same zones; what differs is

@@ -162,12 +162,16 @@ def test_an_oversized_mask_is_refused_before_it_is_decoded():
 # level lower — at ComfyUI's door.
 
 def _klein_ready(monkeypatch):
+    from app.services import lanpaint_helper
     monkeypatch.setattr(wk, 'is_available', lambda: True)
     monkeypatch.setattr(wk.keh, 'unet_for_job', lambda *a, **k: 'klein.safetensors')
     monkeypatch.setattr(wk.keh, '_unet_weight_dtype', lambda *a, **k: 'fp8_e4m3fn')
     monkeypatch.setattr(wk.keh, 'resolve_klein_vae', lambda *a, **k: 'vae.safetensors')
     monkeypatch.setattr(wk.keh, 'resolve_klein_text_encoder', lambda *a, **k: 'te.safetensors')
     monkeypatch.setattr(wk.keh, 'klein_missing_assets', lambda *a, **k: [])
+    # The LanPaint preflight answers "present" — the tests below are about the
+    # job plumbing, and the preflight has tests of its own further down.
+    monkeypatch.setattr(lanpaint_helper, 'lanpaint_missing_nodes', lambda: [])
 
 
 def test_the_masked_lane_can_actually_enqueue_a_job(app, tmp_path, monkeypatch):
@@ -225,3 +229,168 @@ def test_the_staged_copies_are_removed_even_when_the_job_fails(app, tmp_path, mo
                                Image.new('L', (32, 32), 255), seed=1)
     leftovers = [f.name for f in tmp_path.iterdir() if f.name.startswith('wmklein_')]
     assert leftovers == [], f'staged copies left behind: {leftovers}'
+
+
+# --- the LanPaint move (GitHub #43) ---------------------------------------------
+# InpaintModelConditioning is for inpaint-TRAINED checkpoints; Klein is an edit
+# model, and conditioning it that way smeared the painted area. The lane now
+# runs LanPaint (training-free inpainting sampler) with the edit lane's proven
+# ReferenceLatent conditioning, dilates the paint so edges rebuild, and sends a
+# LOCALIZED mask as a native-resolution context crop.
+
+def test_the_masked_graph_runs_lanpaint_not_inpaint_conditioning():
+    """The shipped graph IS the fix: LanPaint sampler over a latent noise mask,
+    the edit lane's ReferenceLatent pair, and no Fill-model conditioning."""
+    import json
+    graph = json.loads(wk.KLEIN_MASK_INPAINT_WORKFLOW_PATH.read_text(encoding='utf-8'))
+    classes = {n['class_type'] for n in graph.values()}
+    assert 'LanPaint_KSampler' in classes
+    assert 'SetLatentNoiseMask' in classes
+    assert 'ReferenceLatent' in classes
+    assert 'InpaintModelConditioning' not in classes
+    # Every node the service rewires must exist, or the guard fires at runtime.
+    for node in wk._REQUIRED_MASK_NODES:
+        assert node in graph, f'_REQUIRED_MASK_NODES names {node}, graph lacks it'
+    # The mask must actually reach the sampler: LoadImageMask -> noise mask ->
+    # the LanPaint latent input. A graph that loads the mask and wires it
+    # nowhere would repaint the whole frame.
+    assert graph['105']['inputs']['mask'] == ['51', 0]
+    assert graph['77']['inputs']['latent_image'] == ['105', 0]
+
+
+def test_missing_lanpaint_blocks_before_the_queue_with_the_fix_named(app, monkeypatch):
+    """No LanPaint in this ComfyUI -> the job is refused BEFORE anything is
+    staged or queued, and the message names the Setup install."""
+    from app.services import lanpaint_helper
+    _klein_ready(monkeypatch)
+    monkeypatch.setattr(lanpaint_helper, 'lanpaint_missing_nodes',
+                        lambda: ['LanPaint_KSampler'])
+    monkeypatch.setattr(lanpaint_helper, 'lanpaint_node_pack_installed', lambda: False)
+
+    def _boom(**kw):
+        raise AssertionError('nothing may be queued when the sampler is absent')
+    monkeypatch.setattr(wk.queue_manager, 'add_job', _boom)
+
+    with app.app_context():
+        out, err = wk._run_klein_mask_job(
+            'u', Image.new('RGB', (64, 64)), Image.new('L', (64, 64), 255), seed=1)
+    assert out is None and err['kind'] == 'nodes_missing'
+    assert 'Setup' in err['detail'] and 'LanPaint' in err['detail']
+
+
+def test_installed_but_not_restarted_says_restart_not_install(app, monkeypatch):
+    """The pack on disk but not loaded is a RESTART — telling someone to install
+    what they just watched install is the failure the Krea pack already fixed."""
+    from app.services import lanpaint_helper
+    _klein_ready(monkeypatch)
+    monkeypatch.setattr(lanpaint_helper, 'lanpaint_missing_nodes',
+                        lambda: ['LanPaint_KSampler'])
+    monkeypatch.setattr(lanpaint_helper, 'lanpaint_node_pack_installed', lambda: True)
+    with app.app_context():
+        out, err = wk._run_klein_mask_job(
+            'u', Image.new('RGB', (64, 64)), Image.new('L', (64, 64), 255), seed=1)
+    assert out is None and err['kind'] == 'nodes_missing'
+    assert 'restart ComfyUI' in err['detail']
+    assert 'install it from' not in err['detail']
+
+
+def test_the_paint_is_dilated_so_edges_can_rebuild():
+    """BFL's own Erase dilates ~10 px for the same reason: a mask that stops on
+    the anti-aliased boundary leaves a halo of the removed thing."""
+    mask = Image.new('L', (200, 200), 0)
+    mask.paste(255, (90, 90, 110, 110))
+    grown = wk._dilate_mask(mask, wk.KLEIN_MASK_DILATE_PX)
+    px = wk.KLEIN_MASK_DILATE_PX
+    assert grown.getpixel((90 - px, 100)) == 255      # grew by exactly the margin
+    assert grown.getpixel((90 - px - 2, 100)) == 0    # and no further
+    assert grown.getpixel((100, 100)) == 255          # the paint itself survives
+
+
+def test_a_localized_mask_travels_as_a_context_crop():
+    """The point of the crop: a fingertip of paint on a large photo keeps its
+    native pixels instead of riding a frame scaled to KLEIN_MASK_MAX_MP."""
+    mask = Image.new('L', (4000, 3000), 0)
+    mask.paste(255, (1900, 1400, 2100, 1600))         # 200 px of paint, centered
+    box = wk._mask_crop_box(mask)
+    l, t, r, b = box
+    assert (l, t, r, b) != (0, 0, 4000, 3000)
+    # The crop contains the paint plus real context on every side…
+    assert l < 1900 and t < 1400 and r > 2100 and b > 1600
+    # …and is small enough that _mask_frame_size will not scale it down.
+    assert ((r - l) * (b - t)) / 1_000_000 <= wk.KLEIN_MASK_MAX_MP
+
+
+def test_a_frame_wide_mask_still_sends_the_whole_frame():
+    mask = Image.new('L', (1000, 800), 0)
+    mask.paste(255, (50, 50, 950, 750))
+    assert wk._mask_crop_box(mask) == (0, 0, 1000, 800)
+
+
+def test_a_tiny_mark_still_gets_the_minimum_context():
+    mask = Image.new('L', (4000, 3000), 0)
+    mask.paste(255, (2000, 1500, 2010, 1510))         # 10 px speck
+    l, t, r, b = wk._mask_crop_box(mask)
+    assert (r - l) >= wk.KLEIN_MIN_CROP and (b - t) >= wk.KLEIN_MIN_CROP
+
+
+def test_crop_composite_keeps_bytes_outside_the_paint(tmp_path, monkeypatch):
+    """The preservation guarantee, re-proven on the NEW crop geometry: with a
+    localized mask the model only ever sees a crop, and every pixel outside the
+    (dilated, feathered) paint keeps its original bytes."""
+    src = tmp_path / 'shot.png'
+    Image.new('RGB', (1600, 1200), (10, 200, 30)).save(src)
+    mask = Image.new('L', (1600, 1200), 0)
+    mask.paste(255, (700, 500, 900, 700))
+
+    seen = {}
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+
+    def _capture(user_id, frame, m, **k):
+        seen['frame'] = frame.size
+        return Image.new('RGB', frame.size, (255, 0, 0)), None
+    monkeypatch.setattr(wk, '_run_klein_mask_job', _capture)
+
+    ok, err = wk.inpaint_mask_klein('u', str(src), mask=mask, seed=1)
+    assert ok and err is None
+    # The model saw a crop, not the frame.
+    assert seen['frame'][0] < 1600 and seen['frame'][1] < 1200
+    out = Image.open(src).convert('RGB')
+    assert out.getpixel((800, 600)) == (255, 0, 0)
+    for probe in [(10, 10), (1590, 1190), (200, 1000), (1400, 100)]:
+        assert out.getpixel(probe) == (10, 200, 30), f'pixel {probe} was rewritten'
+
+
+def test_helper_pack_constants_match_the_installer():
+    """lanpaint_helper detects the folder setup_installer clones — the two are
+    pinned together so a rename in one cannot silently strand the other."""
+    from app import setup_installer
+    from app.services import lanpaint_helper
+    spec = setup_installer._NODE_PACKS['lanpaint_nodes']
+    assert spec['folder'] == lanpaint_helper.LANPAINT_NODE_PACK['pack']
+    assert spec['repo'] == lanpaint_helper.LANPAINT_NODE_PACK['url']
+    assert 'lanpaint_nodes' in setup_installer.INSTALL_ACTIONS
+
+
+def test_the_sent_frame_is_prefilled_where_the_paint_is():
+    """The frame is both the noise latent and the ReferenceLatent, and a
+    reference that still shows the object makes cfg-1 Klein reproduce it —
+    proven live on this lane (an earring came back almost untouched without the
+    prefill, and removed clean with it). Masked pixels must change; unpainted
+    pixels must not."""
+    import numpy as np
+    frame = Image.new('RGB', (128, 128), (40, 120, 60))
+    frame.paste((250, 20, 20), (50, 50, 80, 80))       # the "object"
+    mask = Image.new('L', (128, 128), 0)
+    mask.paste(255, (48, 48, 82, 82))
+    out = wk._prefill_mask(frame, mask)
+    a, b = np.asarray(frame, dtype=int), np.asarray(out, dtype=int)
+    # Inside the mask the object is gone (no longer saturated red)…
+    assert b[64, 64, 0] < 200, 'the object survived the prefill'
+    # …and outside it the frame is untouched.
+    assert (a[:40, :] == b[:40, :]).all() and (a[:, 100:] == b[:, 100:]).all()
+
+
+def test_an_empty_prefill_mask_returns_the_frame_unchanged():
+    frame = Image.new('RGB', (32, 32), (1, 2, 3))
+    out = wk._prefill_mask(frame, Image.new('L', (32, 32), 0))
+    assert list(out.getdata()) == list(frame.getdata())

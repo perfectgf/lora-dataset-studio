@@ -116,6 +116,10 @@ DECLARED_THIRD_PARTY_NODES = {
     'ConditioningKrea2Rebalance': 'comfyui-krea2edit',
     'Krea2EditModelPatch': 'comfyui-krea2edit',
     'Krea2EditGroundedEncode': 'comfyui-krea2edit',
+    # Masked Repair's sampler. Gated by lanpaint_helper.lanpaint_missing_nodes(),
+    # checked by _run_klein_mask_job before it queues anything, and installable
+    # from Setup's "LanPaint sampler" row.
+    'LanPaint_KSampler': 'LanPaint',
 }
 
 # The Klein lane is the one that broke, and the one the app leans on hardest
@@ -223,6 +227,6 @@ VANILLA_NODE_ALLOWLIST = frozenset({
     'LoraLoader',
     'LoraLoaderModelOnly', 'ModelSamplingFlux', 'PatchModelAddDownscale',
     'PreviewImage', 'PrimitiveInt', 'RandomNoise', 'ReferenceLatent',
-    'SamplerCustomAdvanced', 'SaveImage', 'UNETLoader', 'VAEDecode', 'VAEEncode',
-    'VAELoader',
+    'SamplerCustomAdvanced', 'SaveImage', 'SetLatentNoiseMask', 'UNETLoader',
+    'VAEDecode', 'VAEEncode', 'VAELoader',
 })

@@ -24,7 +24,7 @@
   "52": {
     "inputs": { "image": "wm_crop.png" },
     "class_type": "LoadImage",
-    "_meta": { "title": "Load crop" }
+    "_meta": { "title": "Load frame" }
   },
   "51": {
     "inputs": {
@@ -42,27 +42,38 @@
     "class_type": "CLIPTextEncode",
     "_meta": { "title": "Prompt" }
   },
-  "101": {
-    "inputs": { "conditioning": ["6", 0] },
-    "class_type": "ConditioningZeroOut",
-    "_meta": { "title": "Conditioning Zero Out" }
+  "100": {
+    "inputs": {
+      "text": "",
+      "clip": ["90", 0]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Empty negative" }
   },
   "53": {
-    "inputs": {
-      "noise_mask": true,
-      "positive": ["6", 0],
-      "negative": ["101", 0],
-      "vae": ["10", 0],
-      "pixels": ["52", 0],
-      "mask": ["51", 0]
-    },
-    "class_type": "InpaintModelConditioning",
-    "_meta": { "title": "InpaintModelConditioning" }
+    "inputs": { "pixels": ["52", 0], "vae": ["10", 0] },
+    "class_type": "VAEEncode",
+    "_meta": { "title": "VAE Encode frame" }
+  },
+  "92": {
+    "inputs": { "conditioning": ["6", 0], "latent": ["53", 0] },
+    "class_type": "ReferenceLatent",
+    "_meta": { "title": "ReferenceLatent (positive)" }
+  },
+  "110": {
+    "inputs": { "conditioning": ["100", 0], "latent": ["53", 0] },
+    "class_type": "ReferenceLatent",
+    "_meta": { "title": "ReferenceLatent (negative)" }
+  },
+  "105": {
+    "inputs": { "samples": ["53", 0], "mask": ["51", 0] },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": { "title": "Set Latent Noise Mask" }
   },
   "175": {
     "inputs": { "image": ["52", 0] },
     "class_type": "GetImageSize",
-    "_meta": { "title": "Crop size" }
+    "_meta": { "title": "Frame size" }
   },
   "102": {
     "inputs": {
@@ -83,13 +94,17 @@
       "sampler_name": "euler",
       "scheduler": "simple",
       "denoise": 1.0,
+      "LanPaint_NumSteps": 5,
+      "LanPaint_PromptMode": "Image First",
+      "LanPaint_Info": "LanPaint KSampler.",
+      "Inpainting_mode": "🖼️ Image Inpainting",
       "model": ["102", 0],
-      "positive": ["53", 0],
-      "negative": ["53", 1],
-      "latent_image": ["53", 2]
+      "positive": ["92", 0],
+      "negative": ["110", 0],
+      "latent_image": ["105", 0]
     },
-    "class_type": "KSampler",
-    "_meta": { "title": "KSampler (masked inpaint)" }
+    "class_type": "LanPaint_KSampler",
+    "_meta": { "title": "LanPaint KSampler (masked inpaint)" }
   },
   "8": {
     "inputs": { "samples": ["77", 0], "vae": ["10", 0] },

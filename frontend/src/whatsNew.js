@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-25-repair-lanpaint',
+    date: '2026-08-25',
+    title: '✦ Repair stops smearing — a real inpainting sampler under the mask',
+    blurb:
+      'Masked Repair used to condition Klein like an inpaint-trained model, which '
+      + 'it is not, and the painted area came back a smeary mess (reported by '
+      + 'charlesangus on GitHub). It now runs on LanPaint, a training-free '
+      + 'inpainting sampler; the mask grows a few pixels so edges rebuild '
+      + 'cleanly, and a localized repair travels as a native-resolution crop '
+      + 'instead of a scaled-down full frame. One small install in Setup — the '
+      + 'new "LanPaint sampler" row — then restart ComfyUI.',
+    to: '/setup',
+  },
+  {
     id: '2026-08-24-crop-clears-dataset-framing',
     date: '2026-08-24',
     title: 'Crop a shot, and Composition forgets the old framing',

@@ -99,11 +99,13 @@ KLEIN_INPAINT_PROMPT = ('Reconstruct this photo as a clean, natural image: repla
 # (VAEEncode of the pre-filled crop) is the latent for BOTH the ReferenceLatent and the
 # KSampler now (full-edit), so it is checked too even though its wiring is fixed in the JSON.
 _REQUIRED_NODES = ('114', '10', '90', '52', '53', '6', '77', '9')
-# Masked graph: LoadImageMask (51) + InpaintModelConditioning (53) + the size
-# probe (175) its latent is built from. Same guard as above — a hand-edited
-# workflow must fail loudly here rather than silently repaint the wrong thing.
-_REQUIRED_MASK_NODES = ('114', '10', '90', '52', '51', '6', '101', '53', '175',
-                        '102', '77', '8', '9')
+# Masked graph: LoadImageMask (51) feeding SetLatentNoiseMask (105) on the
+# frame's own latent (53), sampled by LanPaint (77) with the proven edit-lane
+# conditioning (prompt + empty-negative ReferenceLatents, 92/110). Same guard
+# as above — a hand-edited workflow must fail loudly here rather than silently
+# repaint the wrong thing.
+_REQUIRED_MASK_NODES = ('114', '10', '90', '52', '51', '6', '100', '53', '92',
+                        '110', '105', '175', '102', '77', '8', '9')
 
 # --- Tunables (calibrated at the GPU smoke; the study left these open) ---------
 # Crop = a square this many times the mark's larger side, so the model gets real
@@ -135,6 +137,19 @@ KLEIN_MASK_STEPS = 4            # this graph is distilled harder than the crop o
 # detail only INSIDE the painted area, and only on images large enough to risk
 # an out-of-memory failure halfway through an in-place edit.
 KLEIN_MASK_MAX_MP = 2.0
+# Grow the painted mask before the model sees it — BFL's own Erase (the closest
+# thing to an official reference for mask-driven Klein removal) recommends
+# dilating ~10 px so the sampler has room to rebuild the object's edges; without
+# it the reconstruction stops exactly on the anti-aliased boundary and leaves a
+# halo of the removed thing. The composite pastes the dilated footprint, so the
+# preservation guarantee moves out by the same 10 px — that is the point.
+KLEIN_MASK_DILATE_PX = 10
+# A LOCALIZED painted mask goes through crop-and-stitch: the crop (mask bbox ×
+# KLEIN_CONTEXT_FACTOR) keeps native detail that a full-frame pass would scale
+# away under KLEIN_MASK_MAX_MP. Above this fraction of the frame the crop stops
+# paying for itself (it IS most of the frame) and the full frame is sent, as the
+# contributed lane always did.
+KLEIN_MASK_CROP_FRACTION = 0.6
 KLEIN_HARMONIZE_RING_PX = 24    # width (crop-native) of the seam ring sampled to estimate
                                 # Klein's tonal drift — local enough to track the neighbour
                                 # tone, wide enough for a stable per-channel mean/std
@@ -581,10 +596,27 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
 def _run_klein_mask_job(user_id, frame_img, mask_img, *, seed, steps=KLEIN_MASK_STEPS,
                         denoise=KLEIN_DENOISE, timeout=KLEIN_TIMEOUT, klein_model=None,
                         prompt=None):
-    """Enqueue ONE InpaintModelConditioning job: Klein sees `frame_img` whole and
-    denoises only where `mask_img` is white. No prefill — unlike the crop lane
-    there is nothing to hide, the mask already says what to replace. Kept as its
-    own seam so tests can stand in for the GPU round-trip."""
+    """Enqueue ONE LanPaint masked-inpaint job: Klein sees `frame_img` whole and
+    the LanPaint sampler regenerates only where `mask_img` is white. The caller
+    neutralizes the masked region first (_prefill_mask) so the ReferenceLatent
+    does not hand the object back. LanPaint replaced InpaintModelConditioning here
+    because Klein is an edit model, not an inpaint-trained checkpoint, and the
+    Fill-model conditioning smeared the masked region (GitHub #43); the sampler
+    enforces the mask itself, so no inpaint training is needed. Kept as its own
+    seam so tests can stand in for the GPU round-trip."""
+    from . import lanpaint_helper
+    missing = lanpaint_helper.lanpaint_missing_nodes()
+    if missing:
+        if lanpaint_helper.lanpaint_node_pack_installed():
+            detail = ('the LanPaint sampler is installed but this ComfyUI has '
+                      'not been restarted since — restart ComfyUI, then run the '
+                      'repair again')
+        else:
+            detail = ('masked repair runs on the LanPaint sampler, which this '
+                      'ComfyUI does not have yet — install it from Setup ▸ '
+                      'Image generation ▸ LanPaint sampler nodes, restart '
+                      'ComfyUI, then run the repair again')
+        return None, {'kind': 'nodes_missing', 'detail': detail}
     workflow = load_workflow_local(str(KLEIN_MASK_INPAINT_WORKFLOW_PATH))
     if not workflow:
         return None, {'kind': 'failed',
@@ -657,17 +689,94 @@ def _run_klein_mask_job(user_id, frame_img, mask_img, *, seed, steps=KLEIN_MASK_
         return None, {'kind': 'failed', 'detail': f'unreadable klein output: {e}'}
 
 
+def _dilate_mask(mask, px):
+    """Grow the white region by `px` (see KLEIN_MASK_DILATE_PX). MaxFilter runs
+    on a bbox-sized window only: on a large frame with a fingertip of paint the
+    full-frame filter would spend seconds on pixels that are all zero anyway."""
+    if px <= 0:
+        return mask
+    bbox = mask.getbbox()
+    if not bbox:
+        return mask
+    l, t, r, b = bbox
+    l, t = max(0, l - px), max(0, t - px)
+    r, b = min(mask.width, r + px), min(mask.height, b + px)
+    region = mask.crop((l, t, r, b)).filter(ImageFilter.MaxFilter(px * 2 + 1))
+    out = mask.copy()
+    out.paste(region, (l, t))
+    return out
+
+
+def _mask_crop_box(mask, *, factor=KLEIN_CONTEXT_FACTOR, min_side=KLEIN_MIN_CROP,
+                   fraction=KLEIN_MASK_CROP_FRACTION):
+    """The region worth SENDING for this mask: its bbox grown by the context
+    factor, clamped to the frame — or the whole frame when that region would
+    cover more than `fraction` of it (the crop then buys no detail back).
+    Native detail is the point: a localized repair on a large photo used to
+    travel at KLEIN_MASK_MAX_MP and come back soft inside the paint; cropped,
+    the same pixels fit under the cap at (or near) native resolution."""
+    W, H = mask.size
+    bbox = mask.getbbox()
+    if not bbox:
+        return (0, 0, W, H)
+    l, t, r, b = bbox
+    cx, cy = (l + r) / 2.0, (t + b) / 2.0
+    side = max((r - l) * factor, (b - t) * factor, float(min_side))
+    half = side / 2.0
+    cl, ct = int(max(0.0, cx - half)), int(max(0.0, cy - half))
+    cr, cb = int(min(float(W), cx + half)), int(min(float(H), cy + half))
+    if (cr - cl) * (cb - ct) > fraction * W * H:
+        return (0, 0, W, H)
+    return (cl, ct, cr, cb)
+
+
+def _prefill_mask(frame, mask):
+    """Neutralize the masked region of the SENT frame before it is encoded.
+
+    The frame is both the noise latent AND the ReferenceLatent, and a reference
+    that still shows the object makes cfg-1 Klein reproduce it — the exact
+    ghost the crop lane's prefill kills (see "WHY the prefill is mandatory"
+    above). Proven live on this lane too: asked to remove a small earring,
+    LanPaint without a prefill handed the earring back almost untouched, and
+    with one the same job removed it clean. cv2 TELEA on the mask's own shape
+    (the rectangle prefill above cannot follow a painted stroke). When cv2 is
+    not installed the frame goes as-is: a large mask still repairs well, only
+    small-object removal degrades, and blocking the whole lane on the ML
+    extras would cost more than it protects."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return frame
+    try:
+        rgb = np.array(frame.convert('RGB'))
+        m = (np.array(mask.convert('L')) > 127).astype('uint8') * 255
+        if not m.any():
+            return frame
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        filled = cv2.inpaint(bgr, m, 5, cv2.INPAINT_TELEA)
+        return Image.fromarray(cv2.cvtColor(filled, cv2.COLOR_BGR2RGB))
+    except Exception:   # noqa: BLE001 — a prefill failure degrades, never blocks
+        logger.debug('mask prefill failed; sending the frame unprefilled', exc_info=True)
+        return frame
+
+
 def inpaint_mask_klein(user_id, image_path, boxes=None, *, mask=None, seed=None,
                        device='cpu', timeout=KLEIN_TIMEOUT,
                        klein_model=None, prompt=None) -> tuple[bool, dict | None]:
-    """Masked Klein inpaint on the FULL image, in place.
+    """Masked Klein inpaint, in place, on the smallest region worth sending.
 
     `mask` is an 'L' image (white = repaint); `boxes` (normalized) are
     rasterized onto the full frame when no mask is given, so the drawn-box
-    gesture can use this lane too. No crop, no 1 MP magnifying glass, no
-    prefill. Every unpainted pixel is composited back from the original, so the
-    file keeps its original bytes outside the painted area — the same guarantee
-    the crop lane makes, reached on a different geometry.
+    gesture can use this lane too. The mask is dilated (KLEIN_MASK_DILATE_PX)
+    so the sampler can rebuild the removed thing's edges, then a LOCALIZED
+    mask travels as a context crop (_mask_crop_box) and a frame-wide one as
+    the whole frame — either way capped at KLEIN_MASK_MAX_MP, never
+    magnified — and the painted region is neutralized before encoding
+    (_prefill_mask) so the reference no longer shows the object. Every
+    unpainted pixel is composited back from the original, so the file keeps
+    its original bytes outside the (dilated) painted area — the same
+    guarantee the watermark crop lane makes.
     `device` is ignored; it exists so the two lanes share one call shape.
     """
     if not is_available():
@@ -689,20 +798,28 @@ def inpaint_mask_klein(user_id, image_path, boxes=None, *, mask=None, seed=None,
         hard = _full_frame_mask(W, H, norm)
     if hard.getextrema()[1] == 0:
         return False, {'kind': 'failed', 'detail': 'inpaint mask is empty'}
+    hard = _dilate_mask(hard, KLEIN_MASK_DILATE_PX)
 
-    sent_size = _mask_frame_size(W, H)
-    frame = original if original.size == sent_size else original.resize(sent_size, Image.LANCZOS)
-    sent_mask = hard if hard.size == sent_size else hard.resize(sent_size, Image.BILINEAR)
+    box = _mask_crop_box(hard)
+    full_frame = box == (0, 0, W, H)
+    region = original if full_frame else original.crop(box)
+    region_mask = hard if full_frame else hard.crop(box)
+
+    sent_size = _mask_frame_size(*region.size)
+    frame = region if region.size == sent_size else region.resize(sent_size, Image.LANCZOS)
+    sent_mask = (region_mask if region_mask.size == sent_size
+                 else region_mask.resize(sent_size, Image.BILINEAR))
+    frame = _prefill_mask(frame, sent_mask)
 
     seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
     filled, err = _run_klein_mask_job(user_id, frame, sent_mask, seed=seed, timeout=timeout,
                                       klein_model=klein_model, prompt=prompt)
     if err:
         return False, err
-    if filled.size != (W, H):
-        filled = filled.resize((W, H), Image.LANCZOS)
-    paste_mask = hard.filter(ImageFilter.GaussianBlur(KLEIN_COMPOSITE_FEATHER_PX))
-    result = composite_inpaint(original, filled, (0, 0, W, H), paste_mask)
+    if filled.size != region.size:
+        filled = filled.resize(region.size, Image.LANCZOS)
+    paste_mask = region_mask.filter(ImageFilter.GaussianBlur(KLEIN_COMPOSITE_FEATHER_PX))
+    result = composite_inpaint(original, filled, box, paste_mask)
     try:
         image_encoding.save_edit(
             result, image_path, image_encoding.format_for_path(image_path, original),

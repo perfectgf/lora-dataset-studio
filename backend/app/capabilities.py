@@ -1870,6 +1870,7 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
     dict, moved verbatim: reachability with its honest hint, directory
     validity, launcher support, the model scan, and every per-engine gap
     list the Setup screen turns into a button."""
+    from .services import lanpaint_helper as _lph
     return {
         'reachable': comfy['ok'],
         # WHY it isn't reachable, when it isn't: 'ok' | 'slow' | 'unreachable'
@@ -1937,6 +1938,15 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         'seedvr2_tiling_ready': seedvr2_tiling_ready,
         'seedvr2_tiling_nodes_missing': seedvr2_tiling_nodes_missing,
         'seedvr2_ceiling_mp': seedvr2_ceiling_mp,
+        # LanPaint — the masked Repair lane's sampler (services/lanpaint_helper).
+        # Same two-part shape as the other node packs, computed here rather
+        # than in a probe of its own because it has no assets, pins or invalid
+        # files: which classes /object_info lacks (fail-open when ComfyUI is
+        # down — `reachable` already says that), and whether the pack is on
+        # disk, which turns "install the pack" into "restart ComfyUI".
+        'lanpaint_nodes_missing': (_lph.lanpaint_missing_nodes()
+                                   if comfy['ok'] else []),
+        'lanpaint_nodes_installed': _lph.lanpaint_node_pack_installed(),
         # Klein assets PRESENT on disk but not real, loadable weights:
         # [{asset, filename, verdict, blocking, reason}]. Distinct from
         # klein_missing (the file exists, it just can't load) — drives the Setup

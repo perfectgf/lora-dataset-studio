@@ -631,6 +631,7 @@ export const INSTALL_ALL_ACTION_LABELS = {
   krea_identity_lora: 'Krea 2 Identity Edit LoRA',
   seedvr2_model: 'SeedVR2 model (3B FP8)',
   seedvr2_vae: 'SeedVR2 VAE',
+  lanpaint_nodes: 'LanPaint sampler (masked Repair)',
 }
 
 // The Krea 2 Edit engine, installable in ONE click but deliberately NOT part of
@@ -675,6 +676,14 @@ export function kreaNeedsComfyuiRestart(caps) {
   const cu = (caps || {}).comfyui || {}
   return !!(cu.krea_nodes_installed
     && Array.isArray(cu.krea_nodes_missing) && cu.krea_nodes_missing.length)
+}
+
+/** Same restart rule for the LanPaint pack (masked Repair's sampler): on disk
+ *  but absent from /object_info means "restart ComfyUI", never "install it". */
+export function lanpaintNeedsComfyuiRestart(caps) {
+  const cu = (caps || {}).comfyui || {}
+  return !!(cu.lanpaint_nodes_installed
+    && Array.isArray(cu.lanpaint_nodes_missing) && cu.lanpaint_nodes_missing.length)
 }
 
 /** What the "Install SeedVR2" button would queue — the missing weights only.
@@ -779,6 +788,10 @@ export function installCatalog(caps) {
   const kreaNodesPresent = !!cu.krea_nodes_installed
     || !!(cu.reachable && !(Array.isArray(cu.krea_nodes_missing) && cu.krea_nodes_missing.length))
   const kreaRestart = kreaNeedsComfyuiRestart(c)
+  const lanpaintNodesPresent = !!cu.lanpaint_nodes_installed
+    || !!(cu.reachable
+      && !(Array.isArray(cu.lanpaint_nodes_missing) && cu.lanpaint_nodes_missing.length))
+  const lanpaintRestart = lanpaintNeedsComfyuiRestart(c)
   const item = (action, present, available, hint) => {
     const bad = brokenBy[action]
     // A THIRD state, like the Krea node pack's: neither ✓ (it cannot load) nor a
@@ -861,5 +874,14 @@ export function installCatalog(caps) {
     },
     ...['krea_model', 'krea_text_encoder', 'krea_vae', 'krea_identity_lora'].map(
       (a) => item(a, dirValid && !kreaMissing.includes(a), dirValid, kleinHint)),
+    // LanPaint — the sampler the masked ✦ Repair lane runs on (a ~1 MB clone,
+    // zero pip dependencies). Same present/restart logic as the Krea pack: a
+    // reachable ComfyUI that exposes the node counts as present whatever the
+    // folder is called, and on-disk-but-not-loaded is a restart, not an install.
+    {
+      ...item('lanpaint_nodes', dirValid && lanpaintNodesPresent && !lanpaintRestart,
+        dirValid, kleinHint),
+      ...(lanpaintRestart ? { state: 'restart', stateLabel: '⟳ Restart ComfyUI' } : {}),
+    },
   ]
 }
