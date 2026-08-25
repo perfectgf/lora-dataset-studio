@@ -23,6 +23,7 @@
  * riche identique à avant (et le LoRA est pré-coché dans le picker).
  */
 import { useCallback, useEffect, useState } from 'react';
+import { FlaskConical } from 'lucide-react';
 import { HelpBadge } from '../../../help/HelpMode';
 import LoraPicker from './LoraPicker';
 import LegacyDatasetStudio from './LegacyDatasetStudio';
@@ -86,7 +87,7 @@ export default function StudioShell({ preselectDataset = null, preselectFamily =
     <div className="flex flex-col gap-3">
       <header data-probe-chrome="header"
         className="flex items-center gap-2 flex-wrap sticky top-0 z-10 bg-app/80 backdrop-blur py-2">
-        <h1 className="text-content font-bold flex items-center gap-2">🧪 Test Studio<HelpBadge topic="page-studio" /></h1>
+        <h1 className="text-content font-bold flex items-center gap-2"><FlaskConical aria-hidden="true" className="h-4 w-4" />Test Studio<HelpBadge topic="page-studio" /></h1>
         {comparison && (
           <span className="px-2 py-0.5 rounded-lg border border-amber-400/40 bg-amber-400/10 text-amber-200 text-[0.6875rem] font-semibold">
             {/* Neutre : le mode réel (⚖ Compare / 🧬 Blend) est choisi et affiché
