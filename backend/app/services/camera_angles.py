@@ -30,6 +30,18 @@ character-for-character from the model card; a synonym that reads better in
 English ("side view" for "right side view") is a token the LoRA never saw.
 `test_camera_angles.py` pins every one of them for that reason.
 
+WHICH SURFACE, AND WHY ONLY ONE (the Bank/Dataset parity rule, answered rather
+than skipped). This verb lands on the 🖼 Gallery and the ◉ Canvas, which are the
+two views of `lora_test_image` — the table whose rows carry a `record_id`/`step`,
+so a produced view appears next to the picture it was made from with no second
+delivery path to invent. The Bank keeps `BankImage` rows and a dataset keeps
+`FaceDatasetImage` ones: three tables, three INDEPENDENT id spaces, three
+completion callbacks. Sending a Bank id to this route would not 404 — it would
+re-shoot a real but unrelated picture, which is the exact bug ✨ improve's own
+route note describes. So the other two surfaces are a deliberate NOT-YET, not an
+oversight: each needs its own route, its own ownership check and its own
+ingestion, and the pose vocabulary in this module is already the shared part.
+
 ⚠️ The ids below are written into user databases (a produced picture stores the
 pose it was asked for) and into localStorage on the frontend. Renaming one
 strands every row already there — they only ever change WITH an alias path,
