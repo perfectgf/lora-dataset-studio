@@ -329,9 +329,15 @@ def _submit(workflow, client_id):
     result, error = queue_prompt_to_comfyui(workflow, client_id)
     if error:
         message = str(error)
-        if message.startswith('WORKFLOW_INVALIDE'):
+        # COMFYUI_UNREACHABLE means the request provably never left this
+        # machine (pre-POST refusal, connect timeout, connection never
+        # established) — ComfyUI cannot own the prompt, so this is the
+        # "unavailable local submit seam" _ComfySubmitRejected always
+        # documented: a clean terminal fail the user simply retries once
+        # ComfyUI is up, never the human-confirm recovery barrier (GitHub #51).
+        if message.startswith(('WORKFLOW_INVALIDE', 'COMFYUI_UNREACHABLE')):
             raise _ComfySubmitRejected(message)
-        # A timeout, a reset, malformed JSON, or any non-validation HTTP
+        # A READ timeout, a reset, malformed JSON, or any non-validation HTTP
         # response can happen after ComfyUI accepted the POST. Do not let a
         # caller collapse that unknown remote ownership into an ordinary fail.
         raise _ComfySubmitUnknown(message)

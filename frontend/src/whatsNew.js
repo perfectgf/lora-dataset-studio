@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-25-comfyui-submit-patience',
+    date: '2026-08-25',
+    title: 'Far fewer false "paused ComfyUI job" banners',
+    blurb:
+      'Sending a job to a busy ComfyUI used to give up after 10 seconds — and '
+      + 'because the app could no longer tell whether the job had been accepted, '
+      + 'it raised the paused-job banner that asks you to restart ComfyUI, often '
+      + 'again on the very next try (reported by charlesangus on GitHub). The app '
+      + 'now waits up to two minutes for a busy server to answer, and a ComfyUI '
+      + 'that is simply not running fails the job cleanly so you can just retry — '
+      + 'the banner is reserved for jobs whose outcome is genuinely unknown.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-25-repair-lanpaint',
     date: '2026-08-25',
     title: '✦ Repair stops smearing — a real inpainting sampler under the mask',

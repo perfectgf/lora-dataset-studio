@@ -403,6 +403,26 @@ def _ensure_comfyui_before_generation():
         return None
 
 
+def _request_never_sent(exc) -> bool:
+    """True when this requests exception PROVES no request reached the server.
+
+    Only two shapes qualify. A connect timeout: the TCP handshake never
+    finished. A ConnectionError whose urllib3 reason is NewConnectionError (or
+    a connect-phase timeout): the socket was refused or unroutable. Everything
+    else — read timeouts, resets, protocol errors — can postdate an accepted
+    POST and must keep flowing into the unknown-submit recovery barrier.
+    Checked by type name so no urllib3 import is pinned here; both names are
+    stable public urllib3 exceptions."""
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(exc, requests.exceptions.ConnectionError) \
+            and not isinstance(exc, requests.exceptions.ReadTimeout):
+        inner = exc.args[0] if getattr(exc, 'args', None) else None
+        reason = getattr(inner, 'reason', None)
+        return type(reason).__name__ in ('NewConnectionError', 'ConnectTimeoutError')
+    return False
+
+
 def queue_prompt_to_comfyui(prompt_workflow, client_id, worker_url=None):
     """Envoie un workflow à ComfyUI pour exécution.
 
@@ -426,7 +446,10 @@ def queue_prompt_to_comfyui(prompt_workflow, client_id, worker_url=None):
             success, message = result
             if not success:
                 logger.error(f"ComfyUI is not available: {message}")
-                return None, f"ComfyUI service unavailable: {message}"
+                # Pre-POST: nothing has been submitted, so this is provably
+                # barrier-free — same tag as the connect-phase failures below.
+                return None, ("COMFYUI_UNREACHABLE (nothing was submitted): "
+                              f"ComfyUI service unavailable: {message}")
             logger.info(f"ComfyUI service check: {message}")
 
     # Check for Ollama usage in the workflow (local only)
@@ -520,9 +543,18 @@ def queue_prompt_to_comfyui(prompt_workflow, client_id, worker_url=None):
     try:
         payload = {"prompt": prompt_workflow, "client_id": client_id}
         headers = {'Content-Type': 'application/json'}
+        # (connect, read). Connect stays short — nobody listening must fail
+        # fast, and it is PROOF the request never went out. The read budget is
+        # deliberately long: /prompt VALIDATES the whole graph synchronously on
+        # the same event loop the executor blocks, so a ComfyUI that is loading
+        # a 9 GB model on a VRAM-starved card can sit far past 10 s before it
+        # answers — and a flat timeout=10 turned every such wait into the
+        # human-confirm recovery barrier, on every attempt (GitHub #51,
+        # charlesangus: "restarting does not seem to help", because the next
+        # try timed out the same way).
         response = requests.post(
-            urljoin(api_addr, "/prompt"), json=payload, headers=headers, timeout=10,
-            allow_redirects=False)
+            urljoin(api_addr, "/prompt"), json=payload, headers=headers,
+            timeout=(10, 120), allow_redirects=False)
         response.raise_for_status()
         status = getattr(response, 'status_code', None)
         if type(status) is not int or not 200 <= status < 300:
@@ -555,6 +587,17 @@ def queue_prompt_to_comfyui(prompt_workflow, client_id, worker_url=None):
         # ComfyUI accepted the first request; retrying would create an untracked
         # second prompt. The queue stores this outcome as a client-id recovery
         # barrier; recovery requires an externally verified ComfyUI restart.
+        #
+        # EXCEPT when the request provably never left this machine: a connect
+        # timeout, or a connection that was never established (refused /
+        # unroutable — urllib3's NewConnectionError). No TCP session existed,
+        # so ComfyUI cannot own the prompt, and turning that into the
+        # human-confirm barrier made a simply-stopped ComfyUI read as a scary
+        # paused job requiring a restart nobody needed (GitHub #51). Those fail
+        # the job cleanly; the user starts ComfyUI and just retries.
+        if _request_never_sent(e):
+            return None, (f"COMFYUI_UNREACHABLE (nothing was submitted): could not "
+                          f"connect to ComfyUI at {api_addr}: {e}")
 
         detail = f": {e}" + (f" | ComfyUI: {err_body}" if err_body else '')
         return None, f"Failed to connect or communicate with ComfyUI API ({api_addr}){detail}"
