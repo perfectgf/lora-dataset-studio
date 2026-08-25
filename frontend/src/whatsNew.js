@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-25-safelight-icons',
+    date: '2026-08-25',
+    title: 'Real icons everywhere, instead of emoji',
+    blurb:
+      'Buttons, the navigation, the settings and workspace rails, the review '
+      + 'lightboxes and the tile badges now use one drawn icon set instead of '
+      + 'emoji. They look the same on every machine — emoji were rendered by '
+      + 'your operating system, so the app never looked twice alike — and they '
+      + 'stay legible at small sizes. Nothing moved: same buttons, same words, '
+      + 'same places.',
+  },
+  {
     id: '2026-08-25-safelight-look',
     date: '2026-08-25',
     title: 'A new look: neutral darkroom greys, one amber accent',
