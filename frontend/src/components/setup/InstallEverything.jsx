@@ -3,6 +3,7 @@ import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { INSTALL_ALL_ACTION_LABELS, installCatalog } from '../../hooks/useSetupSteps'
 import InstallRunner from './InstallRunner'
+import CameraInstallCard from './CameraInstallCard'
 import KreaInstallCard from './KreaInstallCard'
 import SeedVr2InstallCard from './SeedVr2InstallCard'
 import { HelpBadge } from '../../help/HelpMode'
@@ -249,6 +250,7 @@ export default function InstallEverything({ plan, caps, onDone }) {
           when it is asked for rather than by the unattended shortcut above. */}
       <KreaInstallCard caps={caps} onDone={onDone} />
       <SeedVr2InstallCard caps={caps} onDone={onDone} />
+      <CameraInstallCard caps={caps} onDone={onDone} />
 
       {/* Path 3 — the one-by-one menu, always visible (install/repair a single component). */}
       <section className="rounded-xl border border-border bg-surface p-5">

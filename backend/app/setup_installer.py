@@ -1103,6 +1103,14 @@ _INSTALL_GROUPS = {
     'krea': ('krea_nodes', 'krea_model', 'krea_text_encoder', 'krea_vae',
              'krea_identity_lora'),
     'seedvr2': ('seedvr2_model', 'seedvr2_vae'),
+    # 📷 Camera angles — the Gallery's re-shoot lane. No node pack (the graph is
+    # stock ComfyUI nodes only, asserted by test_workflow_portability), so like
+    # SeedVR2 it is weights-only. `krea_vae` is a member ON PURPOSE: the lane
+    # runs on the same Qwen VAE the Krea 2 lane installs, and
+    # qwen_camera_helper.camera_missing_assets reports it under that key — one
+    # file, one action, whichever engine asks for it first.
+    'camera': ('camera_model', 'camera_lora', 'camera_speed_lora',
+               'camera_text_encoder', 'krea_vae'),
 }
 
 # Which capabilities keys hold each group's gaps, and which member (if any) is
@@ -1115,6 +1123,12 @@ _GROUP_CAPS_KEYS = {
     'seedvr2': {'missing': 'seedvr2_missing', 'invalid': 'seedvr2_invalid',
                 'pack_action': None, 'nodes_missing': 'seedvr2_nodes_missing',
                 'nodes_installed': 'seedvr2_nodes_installed'},
+    # No integrity lane yet (`camera_invalid` is not a capability): the key is
+    # named anyway so _broken_or_missing reads None today and the verdicts the
+    # day the validator learns these files — same shape as the others, no branch.
+    'camera': {'missing': 'camera_missing', 'invalid': 'camera_invalid',
+               'pack_action': None, 'nodes_missing': None,
+               'nodes_installed': None},
 }
 
 

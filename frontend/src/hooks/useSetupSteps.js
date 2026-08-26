@@ -506,6 +506,16 @@ export function deriveCapabilitySummary(caps) {
       ...(!e.krea && !kreaDiskGap && kreaRestartPending
         ? { pending: true, note: 'restart ComfyUI to load its nodes' }
         : !e.krea && !kreaDiskGap && comfyOff ? { pending: true, note: NOTE } : {}) },
+    // 📷 Same counting rule as Krea, for the same reason: the Gallery ships
+    // this verb to every install, so a machine without the weights must read
+    // "not ready, here is the install" — never a shorter list that certifies
+    // completeness by omission. `camera_ready` is asset-only (no node pack, no
+    // per-run process), so unlike the two engines above there is no restart
+    // state — just installed or not, plus the shared "ComfyUI is off" note.
+    { label: '📷 Camera angles (local)', ok: !!cu.camera_ready,
+      topic: 'setup-camera-install', waitingTopic: WAITING,
+      ...(!cu.camera_ready && !(Array.isArray(cu.camera_missing) && cu.camera_missing.length)
+        && comfyOff ? { pending: true, note: NOTE } : {}) },
     { label: 'Captioning', ok: !!(cap.joycaption || cap.ollama), topic: 'setup-ollama' },
     { label: 'Auto-framing & head-crop', ok: !!(o.reachable && o.vision_model_ready),
       topic: 'setup-ollama' },
@@ -632,6 +642,12 @@ export const INSTALL_ALL_ACTION_LABELS = {
   seedvr2_model: 'SeedVR2 model (3B FP8)',
   seedvr2_vae: 'SeedVR2 VAE',
   lanpaint_nodes: 'LanPaint sampler (masked Repair)',
+  // 📷 Camera angles. The lane's VAE has no row of its own on purpose: it is
+  // the Krea 2 VAE (same file, same destination), listed once above.
+  camera_model: 'Camera angles model (Qwen-Image-Edit 2511)',
+  camera_lora: 'Camera angles LoRA (96 positions)',
+  camera_speed_lora: 'Camera angles speed LoRA (4-step)',
+  camera_text_encoder: 'Camera angles text encoder (Qwen 2.5-VL)',
 }
 
 // The Krea 2 Edit engine, installable in ONE click but deliberately NOT part of
@@ -704,6 +720,24 @@ export function seedvr2InstallPlan(caps) {
   return SEEDVR2_INSTALL_ORDER.filter((a) => missing.includes(a))
 }
 
+// 📷 Camera angles — weights only, like SeedVR2 (the graph is stock ComfyUI
+// nodes, so there is no pack to clone and no restart state). Mirrors the
+// backend's setup_installer._INSTALL_GROUPS['camera'], which stays the
+// authority. `krea_vae` is a member on purpose: the lane runs on the Krea 2
+// VAE, and camera_missing reports that file under the action that installs it —
+// one file, one button, whichever engine asked first.
+export const CAMERA_INSTALL_ORDER = [
+  'camera_model', 'camera_lora', 'camera_speed_lora', 'camera_text_encoder',
+  'krea_vae',
+]
+
+export function cameraInstallPlan(caps) {
+  const cu = (caps || {}).comfyui || {}
+  if (!cu.dir_valid) return []
+  const missing = brokenOrMissing(cu.camera_missing, cu.camera_invalid)
+  return CAMERA_INSTALL_ORDER.filter((a) => missing.includes(a))
+}
+
 /** The one thing an install cannot do: ComfyUI registers custom nodes at STARTUP
  *  only, so a pack on disk but absent from /object_info means "restart ComfyUI".
  *  Same rule as Krea's — here it also covers the case where the pack's Python
@@ -765,6 +799,7 @@ export function installCatalog(caps) {
   const kleinMissing = Array.isArray(cu.klein_missing) ? cu.klein_missing : []
   const kleinHint = 'Point the app at a valid ComfyUI folder first (the ComfyUI step).'
   const kreaMissing = Array.isArray(cu.krea_missing) ? cu.krea_missing : []
+  const cameraMissing = Array.isArray(cu.camera_missing) ? cu.camera_missing : []
   // action -> the blocking integrity verdict for a file that IS on disk. This row
   // used to read "✓ Installed" purely because the file existed — which is how a
   // truncated 9.5 GB UNET certified itself on the very screen the user opened to
@@ -874,6 +909,13 @@ export function installCatalog(caps) {
     },
     ...['krea_model', 'krea_text_encoder', 'krea_vae', 'krea_identity_lora'].map(
       (a) => item(a, dirValid && !kreaMissing.includes(a), dirValid, kleinHint)),
+    // 📷 Camera angles — the Gallery's re-shoot lane. Four rows, not five: the
+    // Qwen VAE is the krea_vae row above (one file, one button). These rows
+    // exist for the same reason the Krea ones do — the weights were installable
+    // through the 409 and NOWHERE on this screen, which is the exact "engine
+    // invisible where the user decides they are done" gap the menu closes.
+    ...['camera_model', 'camera_lora', 'camera_speed_lora', 'camera_text_encoder'].map(
+      (a) => item(a, dirValid && !cameraMissing.includes(a), dirValid, kleinHint)),
     // LanPaint — the sampler the masked ✦ Repair lane runs on (a ~1 MB clone,
     // zero pip dependencies). Same present/restart logic as the Krea pack: a
     // reachable ComfyUI that exposes the node counts as present whatever the

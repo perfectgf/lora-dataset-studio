@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-camera-setup-card',
+    date: '2026-08-26',
+    title: 'Install 📷 Camera angles from Setup, before the first click',
+    blurb:
+      'The camera weights used to install only when you pressed 📷 with them '
+      + 'missing. Setup now shows the lane properly: a one-click install card '
+      + 'on the Install screen (~21.6 GB, shared parts skipped when another '
+      + 'engine already brought them), a row per weight in the repair menu so '
+      + 'a broken download can be fixed alone, and Camera angles is counted on '
+      + 'the readiness screen — a machine without it reads "not ready, here is '
+      + 'the install", never a shorter list that certifies completeness by '
+      + 'leaving it out.',
+    to: '/setup',
+  },
+  {
     id: '2026-08-26-gallery-download-files',
     date: '2026-08-26',
     title: 'Download a Gallery selection as plain files — no ZIP to unpack',

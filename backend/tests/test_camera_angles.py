@@ -300,3 +300,30 @@ def test_an_unknown_image_is_a_404_not_a_crash(client, app):
     r = client.post('/api/canvas/image/999999/camera',
                     json={'poses': ['back/eye/medium']})
     assert r.status_code == 404
+
+
+# --- Setup: the group install -------------------------------------------------
+
+def test_the_camera_group_plans_only_what_is_missing(app):
+    """One click installs the lane; a user who already placed files by hand
+    sees a shorter list, never a re-download."""
+    from app import setup_installer
+    # No caps: the whole group, in order, VAE included (it is the Krea file).
+    assert setup_installer.install_group_plan('camera') == [
+        'camera_model', 'camera_lora', 'camera_speed_lora',
+        'camera_text_encoder', 'krea_vae']
+    # A live payload: only the gaps, and no ComfyUI folder means NO plan —
+    # never a guessed path.
+    caps = {'comfyui': {'dir_valid': True,
+                        'camera_missing': ['camera_lora', 'krea_vae']}}
+    assert setup_installer.install_group_plan('camera', caps) == [
+        'camera_lora', 'krea_vae']
+    assert setup_installer.install_group_plan(
+        'camera', {'comfyui': {'dir_valid': False,
+                               'camera_missing': ['camera_model']}}) == []
+
+
+def test_every_camera_group_member_is_a_real_install_action(app):
+    from app import setup_installer
+    for action in setup_installer._INSTALL_GROUPS['camera']:
+        assert action in setup_installer.INSTALL_ACTIONS, action
