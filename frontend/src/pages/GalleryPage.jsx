@@ -234,7 +234,14 @@ export default function GalleryPage() {
   return (
     <div className="space-y-3">
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="m-0 flex items-center gap-2 text-lg font-bold text-content"><Images aria-hidden="true" className="h-4 w-4" /> Gallery</h1>
+        {/* The Beta chip marks what the page CAN DO, not how old it is: the feed
+            itself has been stable for weeks, but 📷 Camera angles ships today and
+            brings a second 20 GB engine with it. Same amber chip as the ◉ Canvas
+            and the Slider trainer, so "beta" means one thing across the app. */}
+        <h1 className="m-0 flex items-center gap-2 text-lg font-bold text-content">
+          <Images aria-hidden="true" className="h-4 w-4" /> Gallery
+          <span className="rounded border border-amber-400/50 bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-amber-300">Beta</span>
+        </h1>
         <p className="m-0 text-content-muted text-[0.75rem]">
           {status === 'ready'
             ? gallerySummaryLine({ count: feed.count, shown: images.length })

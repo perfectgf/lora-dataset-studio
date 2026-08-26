@@ -230,7 +230,14 @@ function NavBar() {
           it reachable even while the studio gate is down. */}
       {(caps.studio_visible || caps.cloud_training || caps.training_visible) && (
         <NavLink to="/gallery" className={navItemClass} onClick={() => setOpen(false)}>
-          <span className="inline-flex items-center gap-1"><Images aria-hidden="true" className="h-3.5 w-3.5" /> Gallery</span>
+          <span className="inline-flex items-center gap-1"><Images aria-hidden="true" className="h-3.5 w-3.5" /> Gallery
+            {/* Same rule and the same hiding as the ◉ Canvas chip above: gone on
+                the tight desktop bar (md→lg) where the row already overflows,
+                kept in the mobile panel, which is where this app is actually
+                browsed — a beta warning that vanishes on the reader's own screen
+                warns nobody. */}
+            <span className="px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.5625rem] font-semibold uppercase tracking-wide leading-none md:hidden lg:inline">Beta</span>
+          </span>
         </NavLink>
       )}
     </>

@@ -94,7 +94,10 @@ export const WHATS_NEW = [
       + 'view. This is not the "profile view" shot the catalog already had: '
       + 'that one turns the person and leaves the room where it was. Eight '
       + 'sides of a subject at eye level is one gesture and about two minutes. '
-      + 'First use downloads the weights from Setup ▸ ComfyUI.',
+      + 'First use downloads the weights from Setup ▸ ComfyUI. The Gallery '
+      + 'carries a Beta chip while this settles: distance is a hint the model '
+      + 'mostly honours, and whatever the original photo never showed is '
+      + 'plausible rather than real.',
     to: '/gallery',
   },
   {
