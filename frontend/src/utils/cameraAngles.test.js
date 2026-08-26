@@ -101,12 +101,14 @@ test('the reference pose is a real pose and is the picture\'s own viewpoint', ()
   assert.notEqual(parsePose(REFERENCE_POSE), null);
 });
 
-test('a camera view cannot be re-shot, and neither can an improve result', () => {
+test('a camera view cannot be re-shot — but an improve result CAN', () => {
   assert.equal(cameraRefusal({ id: 7, status: 'done' }), null);
   assert.match(cameraRefusal({ id: 7, derivation_kind: CAMERA_ANGLE }),
     /cannot itself be re-shot/);
-  assert.match(cameraRefusal({ id: 7, derivation_kind: 'canvas_image_improve' }),
-    /Only an original render/);
+  // ✨ Allowed on purpose: an upscale is the same scene from the same viewpoint,
+  // only cleaner — the best source this lane can get. Refusing it greyed the verb
+  // out on the newest six tiles of a real library, which were all improves.
+  assert.equal(cameraRefusal({ id: 7, derivation_kind: 'canvas_image_improve' }), null);
   assert.match(cameraRefusal({ id: 7, status: 'pending' }), /still rendering/);
   // A picture the board holds only as a URL — no row, no id to send.
   assert.match(cameraRefusal({ id: 'ref' }), /no library entry/);

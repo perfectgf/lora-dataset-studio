@@ -172,9 +172,11 @@ export function cameraRefusal(img) {
     // sells the result as a photograph of the original scene.
     return 'A camera view cannot itself be re-shot from another angle.'
   }
-  if (img.derivation_kind) {
-    return 'Only an original render can be re-shot from another angle.'
-  }
+  // ✨ An improve result IS allowed, deliberately. It is the same scene from the
+  // same viewpoint, only cleaner — the best source this lane can be handed, not
+  // a compounded guess. This used to refuse every derived row, and one look at a
+  // real library settled it: the newest six tiles were all improve results, so
+  // the verb was greyed out on exactly the pictures people keep.
   if (img.status && img.status !== 'done') return 'This image is still rendering.'
   return null
 }

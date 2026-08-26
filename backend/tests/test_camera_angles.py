@@ -207,6 +207,27 @@ def test_a_camera_view_cannot_be_re_shot_from_another_angle(client, app):
             lts.camera_views_for_canvas_image('local', row.id, ['back/eye/medium'])
 
 
+def test_an_improve_result_IS_allowed_as_a_source(client, app, monkeypatch, tmp_path):
+    """✨ is the same scene from the same viewpoint, only cleaner — the best
+    source this lane can be handed, not a compounded guess.
+
+    The first guard refused every `derivation_kind`, and one look at a real
+    library settled it: the newest six tiles were all improve results, so the
+    verb was greyed out on exactly the pictures people keep."""
+    from app.services import lora_test_studio as lts
+    from app.services import qwen_camera_helper as qch
+    ds = _dataset(client)
+    with app.app_context():
+        row = _row(ds, derivation_kind='canvas_image_improve')
+        (tmp_path / 'x.png').write_bytes(b'x')
+        monkeypatch.setattr(lts.fds, '_dataset_dir', lambda _id: str(tmp_path))
+        # It must get PAST the derivation guard; the weights preflight is what
+        # stops it here, which is proof the source itself was accepted.
+        monkeypatch.setattr(qch, 'camera_missing_assets', lambda: ['camera_model'])
+        with pytest.raises(qch.CameraModelsMissing):
+            lts.camera_views_for_canvas_image('local', row.id, ['back/eye/medium'])
+
+
 def test_an_unfinished_render_is_refused_before_anything_is_queued(client, app):
     from app.services import lora_test_studio as lts
     ds = _dataset(client)

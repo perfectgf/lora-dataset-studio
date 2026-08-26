@@ -4055,12 +4055,18 @@ def camera_views_for_canvas_image(user_id, image_id, poses):
     ds = fds.get_dataset(user_id, row.dataset_id)
     if not ds:
         return None
-    if row.derivation_kind:
-        # A view of a view compounds two hallucinated backdrops: the second pass
+    if row.derivation_kind == CAMERA_ANGLE:
+        # A view of a view compounds two invented backdrops: the second pass
         # re-invents what the first pass already invented, and the result is
-        # sold as a photograph of the original scene. Same guard as improve, for
-        # a stronger reason.
+        # sold as a photograph of the original scene.
         raise ValueError(ca.ALREADY_DERIVED)
+    # ✨ An improve result is NOT refused, and the distinction is the point: an
+    # upscale is the SAME scene from the SAME viewpoint, only cleaner — which
+    # makes it the best source this lane can get, not a compounded guess. The
+    # first version of this guard refused every `derivation_kind`, and pointed
+    # at a real library it was wrong on sight: the newest six tiles were all
+    # improve results, so the verb read as broken on the pictures people
+    # actually keep.
     if row.status != 'done' or not row.filename:
         raise ValueError(ca.SOURCE_NOT_DONE)
     source_path = os.path.join(fds._dataset_dir(row.dataset_id), row.filename)
