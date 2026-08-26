@@ -83,6 +83,25 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-camera-angles-dataset',
+    date: '2026-08-26',
+    title: 'Camera angles inside a dataset — with the angle already captioned',
+    blurb:
+      'Open any kept image of a dataset and press 📷 Camera angles: the views '
+      + 'arrive as pending candidates in the ordinary keep/reject cycle, and '
+      + 'each one is born knowing its own caption fragment — "seen from '
+      + 'behind, low camera angle" — which the captioner then completes and '
+      + 're-injects on every later pass. That phrase is the point: an angle '
+      + 'left undescribed binds to the trigger word, and the angle is the one '
+      + 'fact a vision model cannot reliably see while the app knows it '
+      + 'exactly, because you asked for it. Imports and ✨ results are valid '
+      + 'sources; camera views are not re-shot from camera views. The Bank '
+      + 'deliberately does not carry the button — it is the reservoir of real '
+      + 'photos; promote to a dataset first, and the views are born as '
+      + 'candidates, never filed as real.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-08-26-camera-setup-card',
     date: '2026-08-26',
     title: 'Install 📷 Camera angles from Setup, before the first click',

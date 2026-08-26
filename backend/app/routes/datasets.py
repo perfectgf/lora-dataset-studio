@@ -1721,6 +1721,33 @@ def canvas_image_camera_angles(image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.post('/dataset/image/<int:image_id>/camera')
+def dataset_image_camera_angles(image_id):
+    """📷 Re-shoot ONE dataset image from other camera positions.
+
+    The dataset twin of the canvas route — its own route because `image_id`
+    here is a `face_dataset_image.id` and the two tables have independent id
+    spaces (the same reason ✨ improve keeps two routes). Same body, same
+    answers, same installing 409. Results arrive as PENDING dataset candidates
+    in the ordinary keep/reject cycle, each born with its angle phrase as the
+    caption seed."""
+    gate = _require_no_stalled_comfyui()
+    if gate:
+        return gate
+    data = request.get_json(silent=True) or {}
+    try:
+        result = svc.camera_views_for_dataset_image(LOCAL_USER, image_id,
+                                                    data.get('poses'))
+    except Exception as e:
+        from ..services.qwen_camera_helper import CameraModelsMissing
+        if isinstance(e, CameraModelsMissing):
+            return _camera_missing_response(e)
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
 @bp.get('/camera/catalog')
 def camera_catalog():
     """The camera vocabulary the picker draws, plus whether the lane can run.

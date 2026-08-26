@@ -30,17 +30,22 @@ character-for-character from the model card; a synonym that reads better in
 English ("side view" for "right side view") is a token the LoRA never saw.
 `test_camera_angles.py` pins every one of them for that reason.
 
-WHICH SURFACE, AND WHY ONLY ONE (the Bank/Dataset parity rule, answered rather
-than skipped). This verb lands on the 🖼 Gallery and the ◉ Canvas, which are the
-two views of `lora_test_image` — the table whose rows carry a `record_id`/`step`,
-so a produced view appears next to the picture it was made from with no second
-delivery path to invent. The Bank keeps `BankImage` rows and a dataset keeps
-`FaceDatasetImage` ones: three tables, three INDEPENDENT id spaces, three
-completion callbacks. Sending a Bank id to this route would not 404 — it would
-re-shoot a real but unrelated picture, which is the exact bug ✨ improve's own
-route note describes. So the other two surfaces are a deliberate NOT-YET, not an
-oversight: each needs its own route, its own ownership check and its own
-ingestion, and the pose vocabulary in this module is already the shared part.
+WHICH SURFACES (the Bank/Dataset parity rule, answered rather than skipped).
+The verb lives on the 🖼 Gallery / ◉ Canvas (`lora_test_image`) and on the
+DATASET (`face_dataset_image`) — two routes, because the tables have
+independent id spaces and a Bank id sent to either would re-shoot a real but
+unrelated picture. The dataset lane adds the one thing the gallery cannot:
+the pose feeds the CAPTION (pose_caption_phrase below), because a back view
+left undescribed binds "back-facing" to the trigger word.
+
+THE BANK DOES NOT CARRY THIS VERB, deliberately. The Bank's promise is that it
+holds REAL material — scraped and imported photographs — and that promise is
+what makes it trustworthy as a source. A camera view is the model's hypothesis
+about a scene, and landing hypotheses in the reservoir of real would quietly
+break the one distinction the whole curation flow leans on. The path that
+respects it already exists and costs one extra gesture: promote the Bank image
+into a dataset, then 📷 from there — the view is then born as a dataset
+CANDIDATE, reviewed like every other generated tile, never filed as real.
 
 ⚠️ The ids below are written into user databases (a produced picture stores the
 pose it was asked for) and into localStorage on the frontend. Renaming one
@@ -183,6 +188,49 @@ def pose_prompt(azimuth, elevation, distance):
     except KeyError:
         raise ValueError(UNKNOWN_POSE)
     return f"{TRIGGER} {a['token']} {e['token']} {d['token']}"
+
+
+def pose_caption_phrase(pose):
+    """The training-caption fragment for a pose — or None when it adds nothing.
+
+    THE POINT: what a caption does not describe binds to the trigger word. A
+    back view left uncaptioned teaches the LoRA that the character IS
+    back-facing; describing the angle is what keeps it promptable. And the
+    angle is the one thing the captioner cannot be trusted to see — measured on
+    this repo's own probes, VLMs mis-describe viewpoints even when they are
+    told — while WE know it exactly, because it was requested.
+
+    Azimuth and elevation only, never the distance: framing is visible in the
+    picture and the captioner already describes it; the camera position behind
+    the picture is what it cannot know.
+
+    None for the front/eye components (the reference pose is how ordinary
+    photos already look — "seen from the front" on every image is noise, and a
+    caption of pure noise would still block nothing).
+    """
+    parsed = parse_pose(pose) if isinstance(pose, str) else (
+        tuple(pose) if pose else None)
+    if parsed is None:
+        return None
+    az, el, _di = parsed
+    parts = []
+    if az != 'front':
+        parts.append({
+            'front_right': 'seen from the front-right',
+            'right': 'seen from the right side',
+            'back_right': 'seen from the back-right',
+            'back': 'seen from behind',
+            'back_left': 'seen from the back-left',
+            'left': 'seen from the left side',
+            'front_left': 'seen from the front-left',
+        }[az])
+    if el != 'eye':
+        parts.append({
+            'low': 'low camera angle',
+            'elevated': 'slightly elevated camera angle',
+            'high': 'high camera angle',
+        }[el])
+    return ', '.join(parts) or None
 
 
 def pose_label(azimuth, elevation, distance):

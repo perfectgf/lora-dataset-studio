@@ -57,22 +57,47 @@ NON_DATASET_JOB_NAMES = {
 
 
 def _stamped_job_names():
-    """{model_name literal: module} for every `'model_name': '<literal>'` a
-    service writes into job metadata.
+    """{model_name literal: module} for every model_name a service stamps.
 
     AST, not a regex over a hardcoded module list: the whole point is that a
-    module nobody thought to name is found anyway."""
+    module nobody thought to name is found anyway. TWO shapes count, because
+    both exist in the tree:
+
+      * a dict literal — ``{'model_name': 'klein_edit_dataset', ...}``;
+      * a call keyword — ``enqueue_camera_view(..., model_name='qwen_camera_dataset')``
+        (one helper serving two lanes stamps through its parameter, and the
+        caller's literal IS the stamp — invisible to the dict walk alone, which
+        is how the dataset camera lane briefly read as stamped by nobody).
+    """
     found = {}
     for path in sorted(SERVICES.glob('*.py')):
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Dict):
-                continue
-            for key, value in zip(node.keys, node.values):
-                if (isinstance(key, ast.Constant) and key.value == 'model_name'
-                        and isinstance(value, ast.Constant)
-                        and isinstance(value.value, str)):
-                    found.setdefault(value.value, path.name)
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values):
+                    if (isinstance(key, ast.Constant) and key.value == 'model_name'
+                            and isinstance(value, ast.Constant)
+                            and isinstance(value.value, str)):
+                        found.setdefault(value.value, path.name)
+            elif isinstance(node, ast.Call):
+                for kw in node.keywords:
+                    if (kw.arg == 'model_name'
+                            and isinstance(kw.value, ast.Constant)
+                            and isinstance(kw.value.value, str)):
+                        found.setdefault(kw.value.value, path.name)
+            elif isinstance(node, ast.arg):
+                pass
+            # A parameter DEFAULT is a stamp too: the lane that calls the
+            # helper without the keyword runs under it.
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                args = node.args
+                names = [a.arg for a in args.args + args.kwonlyargs]
+                defaults = list(args.defaults) + list(args.kw_defaults)
+                for name, default in zip(names[-len(defaults):] if defaults else [],
+                                         defaults):
+                    if (name == 'model_name' and isinstance(default, ast.Constant)
+                            and isinstance(default.value, str)):
+                        found.setdefault(default.value, path.name)
     return found
 
 

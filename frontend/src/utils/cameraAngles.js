@@ -203,6 +203,33 @@ export function cameraRefusal(img) {
   return null
 }
 
+/** Why 📷 cannot be offered for THIS dataset image, or null when it can.
+ *
+ *  The dataset's own statuses, not the gallery's: a row here is keep / pending
+ *  / reject / failed, and what qualifies it as a source is having its FILE —
+ *  a pending row still rendering has none, a failed one never got one. An
+ *  import qualifies (a real photo is the best source there is) and so does an
+ *  ✨ improve result; only a camera view is refused, for the compounding
+ *  reason the backend states. */
+export function datasetCameraRefusal(img) {
+  if (!img || !Number.isInteger(Number(img.id))) {
+    return 'This picture has no dataset entry to re-shoot.'
+  }
+  if (isCameraView(img)) {
+    return 'A camera view cannot itself be re-shot from another angle.'
+  }
+  if (!img.filename) return 'This image has no file yet.'
+  return null
+}
+
+/** The dataset toast: results land as pending candidates HERE, in the
+ *  keep/reject cycle — naming that is what stops "queued" reading as a dead
+ *  click on a grid where nothing moves for a minute. */
+export function datasetCameraLaunchMessage(queued) {
+  return `${queued} camera view${queued > 1 ? 's' : ''} queued — they arrive in this `
+    + 'dataset as pending candidates, with the angle already in the caption'
+}
+
 /** Roughly how long a selection will take, in words. Never a countdown: the
  *  queue is shared and a promise this cannot keep is worse than a range. */
 export function costSentence(count, opts) {

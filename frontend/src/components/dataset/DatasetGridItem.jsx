@@ -15,6 +15,7 @@ import { ENGINE_ACCENTS, ENGINE_LABELS } from './engineSelection.js';
 import { canRegenerateGeneric, improveRerunAffordance, isImageImproveRow } from './improveRerun.js';
 import { rememberImageRatio } from './lightboxActionPlacement.js';
 import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
+import { poseLabel } from '../../utils/cameraAngles.js';
 import { FACE_BADGE_CLASS, PROVENANCE_BADGE_CLASS, TILE_BADGE_STACK_CLASS,
   WATERMARK_BADGE_CLASS } from './tileBadgeLayout.js';
 
@@ -28,6 +29,7 @@ const DERIVATION_LABEL = {
   klein_small_image: 'Klein rescue',
   small_image_source: 'rescue original',
   klein_image_improve: 'upscale candidate',
+  camera_angle: 'camera view',
 };
 
 const STATUS_CLS = {
@@ -195,7 +197,13 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
   // 'ready' | 'generating' | undefined, decided once for the whole grid
   // (DatasetGrid) so each tile is a lookup, not a scan of every sibling.
   const improvementBadgeInfo = improvementBadge(improvementState);
-  const originText = DERIVATION_LABEL[img.derivation_kind]
+  // 📷 A camera view names its ANGLE, not just its kind: eight of them side by
+  // side in a grid are unreadable as eight "camera view" chips, and the angle
+  // is the one fact that tells them apart. poseLabel degrades to null on an
+  // unreadable pose, and then the bare kind is still the truth.
+  const originText = (img.derivation_kind === 'camera_angle'
+    && poseLabel(img.camera_pose))
+    || DERIVATION_LABEL[img.derivation_kind]
     || (img.source === 'import' ? 'real' : 'generated');
   const engineLabel = ENGINE_ACCENTS[img.engine] ? ENGINE_LABELS[img.engine] : null;
   const provenanceTitle = [originText, img.framing, engineLabel && `made with ${engineLabel}`]

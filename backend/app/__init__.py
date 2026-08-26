@@ -314,6 +314,7 @@ _SCHEMA_ADDITIONS = (
     ('lora_test_image', 'improve_profile', 'TEXT'),
     # 📷 The camera position a view was rendered at ('right/low/medium').
     ('lora_test_image', 'camera_pose', 'VARCHAR(64)'),
+    ('face_dataset_image', 'camera_pose', 'VARCHAR(64)'),
     # Bank V2 scoring pass — the image_bank/bank_image tables shipped in the Beta,
     # so these columns need the additive path (db.create_all never ALTERs an
     # existing table).

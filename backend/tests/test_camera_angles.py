@@ -327,3 +327,142 @@ def test_every_camera_group_member_is_a_real_install_action(app):
     from app import setup_installer
     for action in setup_installer._INSTALL_GROUPS['camera']:
         assert action in setup_installer.INSTALL_ACTIONS, action
+
+
+# --- the dataset lane ---------------------------------------------------------
+
+def test_the_caption_phrase_names_the_angle_and_only_the_angle():
+    """Azimuth and elevation, never the distance: framing is visible in the
+    picture and the captioner describes it; the camera position is what it
+    cannot know. front/eye phrases to None — 'seen from the front' on every
+    ordinary photo is noise, and noise binds nothing."""
+    assert ca.pose_caption_phrase('back/low/medium') == \
+        'seen from behind, low camera angle'
+    assert ca.pose_caption_phrase('left/eye/close') == 'seen from the left side'
+    assert ca.pose_caption_phrase('front/high/wide') == 'high camera angle'
+    assert ca.pose_caption_phrase('front/eye/medium') is None
+    for bad in (None, '', 'nope', 'a/b/c'):
+        assert ca.pose_caption_phrase(bad) is None
+    # Every non-reference pose yields a phrase, and no phrase leaks a token.
+    for a in ca.AZIMUTHS:
+        for e in ca.ELEVATIONS:
+            p = ca.pose_caption_phrase(ca.pose_id(a['id'], e['id'], 'medium'))
+            if a['id'] == 'front' and e['id'] == 'eye':
+                assert p is None
+            else:
+                assert p and '<sks>' not in p and 'shot' not in p
+
+
+def test_the_captioner_reinjects_the_angle_on_every_pass(client, app):
+    """Seeding the phrase at row creation lasts exactly until the first batch
+    pass overwrites it — the stamp-site injection is what makes it survive."""
+    from app.services.face_dataset_service import _with_camera_pose_phrase
+
+    class Row:
+        camera_pose = 'back/low/medium'
+    r = Row()
+    out = _with_camera_pose_phrase(r, 'a woman in a red jacket in a loft')
+    assert out == ('seen from behind, low camera angle, '
+                   'a woman in a red jacket in a loft')
+    # Idempotent: a caption that already carries the phrase is not doubled.
+    assert _with_camera_pose_phrase(r, out) == out
+    # Inert without a pose, and on the reference pose.
+    r2 = Row(); r2.camera_pose = None
+    assert _with_camera_pose_phrase(r2, 'text') == 'text'
+    r3 = Row(); r3.camera_pose = 'front/eye/medium'
+    assert _with_camera_pose_phrase(r3, 'text') == 'text'
+    # An empty caption still gets the one fact we know.
+    assert _with_camera_pose_phrase(r, '') == 'seen from behind, low camera angle'
+
+
+def _kept_image(client, tmp_path, monkeypatch):
+    from app.extensions import db
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as fds
+    ds_id = _dataset(client, name='CamDs')
+    img = FaceDatasetImage(dataset_id=ds_id, source='generated', status='keep',
+                           filename='src.png')
+    db.session.add(img)
+    db.session.commit()
+    (tmp_path / 'src.png').write_bytes(b'x')
+    monkeypatch.setattr(fds, '_dataset_dir', lambda _id: str(tmp_path))
+    return ds_id, img
+
+
+def test_dataset_views_are_pending_candidates_with_pose_and_caption_seed(
+        client, app, monkeypatch, tmp_path):
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as fds
+    from app.services import qwen_camera_helper as qch
+    with app.app_context():
+        ds_id, img = _kept_image(client, tmp_path, monkeypatch)
+        monkeypatch.setattr(qch, 'camera_missing_assets', lambda: [])
+        enqueued = []
+
+        def fake_enqueue(**kw):
+            enqueued.append(kw)
+            return f'job-{len(enqueued)}'
+        monkeypatch.setattr(qch, 'enqueue_camera_view', fake_enqueue)
+        res = fds.camera_views_for_dataset_image(
+            'local', img.id, ['back/low/medium', 'front/eye/medium'])
+        assert res['queued'] == 2
+        rows = (FaceDatasetImage.query
+                .filter_by(parent_image_id=img.id).all())
+        by_pose = {r.camera_pose: r for r in rows}
+        assert set(by_pose) == {'back/low/medium', 'front/eye/medium'}
+        for r in rows:
+            assert r.status == 'pending'            # the keep/reject cycle
+            assert r.derivation_kind == fds.CAMERA_ANGLE
+            assert r.source == 'generated'
+            assert r.job_id                          # linked for completion
+            assert r.caption_origin is None          # the captioner may complete it
+        assert by_pose['back/low/medium'].caption == \
+            'seen from behind, low camera angle'
+        # The reference pose seeds NO caption — nothing worth binding.
+        assert by_pose['front/eye/medium'].caption is None
+        # The jobs went out on the DATASET stamp, or their results would come
+        # home to the wrong table.
+        assert all(kw['model_name'] == 'qwen_camera_dataset' for kw in enqueued)
+        assert all(kw['extra_metadata']['is_dataset'] for kw in enqueued)
+
+
+def test_a_dataset_camera_view_cannot_be_reshot_but_an_import_can(
+        client, app, monkeypatch, tmp_path):
+    from app.extensions import db
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as fds
+    from app.services import qwen_camera_helper as qch
+    with app.app_context():
+        ds_id, img = _kept_image(client, tmp_path, monkeypatch)
+        view = FaceDatasetImage(dataset_id=ds_id, source='generated',
+                                status='keep', filename='v.png',
+                                derivation_kind=fds.CAMERA_ANGLE,
+                                camera_pose='left/eye/medium')
+        db.session.add(view)
+        db.session.commit()
+        with pytest.raises(ValueError, match=ca.ALREADY_DERIVED):
+            fds.camera_views_for_dataset_image('local', view.id, ['back/eye/medium'])
+        # An import is a legitimate source (real photo, best source there is).
+        imp = FaceDatasetImage(dataset_id=ds_id, source='import', status='keep',
+                               filename='src.png')
+        db.session.add(imp)
+        db.session.commit()
+        monkeypatch.setattr(qch, 'camera_missing_assets', lambda: ['camera_model'])
+        with pytest.raises(qch.CameraModelsMissing):
+            fds.camera_views_for_dataset_image('local', imp.id, ['back/eye/medium'])
+
+
+def test_the_dataset_route_answers_like_its_canvas_twin(client, app,
+                                                        monkeypatch, tmp_path):
+    from app.services import qwen_camera_helper as qch
+    with app.app_context():
+        ds_id, img = _kept_image(client, tmp_path, monkeypatch)
+        img_id = img.id
+    monkeypatch.setattr(qch, 'camera_missing_assets', lambda: ['camera_model'])
+    r = client.post(f'/api/dataset/image/{img_id}/camera',
+                    json={'poses': ['back/eye/medium']})
+    assert r.status_code == 409
+    assert r.get_json()['camera_missing'] == ['camera_model']
+    r = client.post('/api/dataset/image/999999/camera',
+                    json={'poses': ['back/eye/medium']})
+    assert r.status_code == 404

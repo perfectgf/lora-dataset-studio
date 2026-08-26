@@ -490,6 +490,7 @@ DATASET_IMAGE_JOB_NAMES = frozenset({
     'klein_edit_dataset',           # Klein (FLUX.2)
     'krea_identity_edit_dataset',   # Krea 2 Identity Edit
     'seedvr2_upscale',              # SeedVR2 (fidelity upscale)
+    'qwen_camera_dataset',          # 📷 Camera angles, dataset lane
 })
 # It happened a SECOND time, with SeedVR2, for the same reason and with the same
 # clean logs: rendered, `execution_success`, 2.2 MB PNG on disk, candidate row

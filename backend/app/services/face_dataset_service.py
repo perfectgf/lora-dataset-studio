@@ -296,6 +296,11 @@ _ACTIVE_RUN_MESSAGE = _ACTIVE_RUN_TEMPLATE.format(action='deleting')
 SMALL_IMAGE_SOURCE = 'small_image_source'
 KLEIN_SMALL_IMAGE = 'klein_small_image'
 KLEIN_IMAGE_IMPROVE = 'klein_image_improve'
+# 📷 A camera view — the same scene re-photographed from another position
+# (services/camera_angles.py owns the why). Same value as the gallery table's
+# lora_test_studio.CAMERA_ANGLE on purpose: one word for one thing, two tables.
+# ⚠️ Written into user databases — never renamed without an alias path.
+CAMERA_ANGLE = 'camera_angle'
 
 # The three "Upscale & improve" knobs live in config (klein.improve_*). Read
 # through clamps: a hand-edited config with a string, a negative or a wild value
@@ -5455,6 +5460,11 @@ def dataset_payload(user_id, dataset_id):
                     'fail_kind': i.fail_kind,
                     'parent_image_id': i.parent_image_id,
                     'derivation_kind': i.derivation_kind,
+                    # 📷 Same two reasons as the gallery payload: the tile says
+                    # WHICH angle it shows (eight views side by side are
+                    # unreadable otherwise), and the surface refuses to re-shoot
+                    # a view before the click instead of through a 400 after it.
+                    'camera_pose': i.camera_pose,
                     'source_metadata': normalize_source_metadata(i.source_metadata),
                     'upscale_ratio': i.upscale_ratio,
                     # Core creative prompt (generated tiles) → seeds the ✏️ edit
@@ -7519,7 +7529,8 @@ def _cc_store_joy_drafts(ds, refine_targets, remaining, jc_errors, concept_desc,
         except OSError:
             data = b''
         final = _enforce_concept_omission(joycap, leak_re, data, concept_desc) or joycap
-        caption_origin.stamp(img, _cap_caption(final), caption_origin.JOYCAPTION)
+        caption_origin.stamp(img, _cap_caption(_with_camera_pose_phrase(img, final)),
+                             caption_origin.JOYCAPTION)
         db.session.commit()
         n += 1
         _writer(report, CAPTION_WRITER_JOYCAPTION)
@@ -7616,7 +7627,8 @@ def _cc_refine_joy_drafts(ds, refine_targets, describe, leak_re, cap_prompt,
                 logger.info('caption concept: no usable caption for image %s '
                             '-> left blank', image_id)
                 continue
-        caption_origin.stamp(img, _cap_caption(final), origin)
+        caption_origin.stamp(img, _cap_caption(_with_camera_pose_phrase(img, final)),
+                             origin)
         db.session.commit()
         n += 1
         _writer(report, writer)
@@ -7654,7 +7666,8 @@ def _cc_direct_captions(ds, remaining, describe, leak_re, cap_prompt,
             spared += 1
             continue
         if _usable_caption(cap):
-            caption_origin.stamp(img, _cap_caption(cap), caption_origin.OLLAMA)
+            caption_origin.stamp(img, _cap_caption(_with_camera_pose_phrase(img, cap)),
+                                 caption_origin.OLLAMA)
             db.session.commit()
             n += 1
             _writer(report, CAPTION_WRITER_OLLAMA)
@@ -8000,8 +8013,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                         dataset_activity.bump(token)
                         continue
                     cleaned = cleaner(cap) or cap
-                    caption_origin.stamp(img, _cap_caption(cleaned),
-                                         caption_origin.JOYCAPTION)
+                    caption_origin.stamp(
+                        img, _cap_caption(_with_camera_pose_phrase(img, cleaned)),
+                        caption_origin.JOYCAPTION)
                     db.session.commit()
                     n += 1
                     _writer(report, CAPTION_WRITER_JOYCAPTION)
@@ -8068,8 +8082,9 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                         cleaned = cleaner(cap) or cap
                         # Which engine wrote THIS row, not which backend was asked
                         # for: in 'auto' the two branches both write inside one run.
-                        caption_origin.stamp(img, _cap_caption(cleaned),
-                                             caption_origin.OLLAMA)
+                        caption_origin.stamp(
+                            img, _cap_caption(_with_camera_pose_phrase(img, cleaned)),
+                            caption_origin.OLLAMA)
                         db.session.commit()
                         n += 1
                         _writer(report, CAPTION_WRITER_OLLAMA)
@@ -10232,6 +10247,128 @@ def generate_variations(user_id, dataset_id, variations, multiplier, klein_model
     finally:
         _sync_generate_activity(dataset_id)
     return ids
+
+
+def camera_views_for_dataset_image(user_id, image_id, poses):
+    """📷 Queue one render per requested camera position, from ONE dataset image.
+
+    The dataset twin of lora_test_studio.camera_views_for_canvas_image — same
+    shape on purpose (one job per view, rows before enqueue, weights preflight
+    BEFORE any row) with the two differences this table imposes:
+
+      * results are dataset CANDIDATES: status 'pending', reviewed through the
+        exact keep/reject cycle every generated tile already gets;
+      * the caption starts as the pose's angle phrase (origin NULL, so the
+        captioner completes it rather than being locked out) — and the captioner
+        re-injects that phrase on every later pass (_with_camera_pose_phrase),
+        because a back view left undescribed binds "back-facing" to the trigger.
+
+    An ✨ improve result and an import are valid sources; a camera view is not
+    (a view of a view compounds two invented backdrops). Returns
+    ``{'views': [{'candidate_id','job_id','pose','label'}], 'queued'}``, or
+    None when the image is not the caller's.
+    """
+    from . import camera_angles as ca
+    from . import qwen_camera_helper as qch
+
+    img = _owned_image(user_id, image_id)
+    if img is None:
+        return None
+    _guard_not_bank_export(img.dataset_id)
+    if img.derivation_kind == CAMERA_ANGLE:
+        raise ValueError(ca.ALREADY_DERIVED)
+    if not img.filename:
+        raise ValueError(ca.SOURCE_NOT_DONE)
+    source_path = _img_path(img)
+    if not os.path.isfile(source_path):
+        raise ValueError(ca.SOURCE_FILE_GONE)
+
+    wanted = ca.normalize_requested(poses)   # raises on empty / unknown
+
+    # Weights BEFORE rows — the Klein lane's lesson, already paid for once: a
+    # preflight that ran too late left a dataset full of failed tiles.
+    missing = qch.camera_missing_assets()
+    if any(a in missing for a in qch.CAMERA_REQUIRED):
+        raise qch.CameraModelsMissing(missing)
+
+    # Same anti-DoS shape as generate_variations: the fan-out shares one GPU.
+    in_flight = (FaceDatasetImage.query
+                 .filter_by(dataset_id=img.dataset_id, status='pending')
+                 .filter(FaceDatasetImage.filename.is_(None)).count())
+    if in_flight + len(wanted) > MAX_FANOUT:
+        raise ValueError(f'too many generations in flight ({in_flight}), wait or cancel')
+
+    views = []
+    try:
+        for azimuth, elevation, distance in wanted:
+            pose = ca.pose_id(azimuth, elevation, distance)
+            row = FaceDatasetImage(
+                dataset_id=img.dataset_id, source='generated', status='pending',
+                parent_image_id=img.id,
+                derivation_kind=CAMERA_ANGLE,
+                camera_pose=pose,
+                # The LoRA's own sentence — what regenerate would re-send, and
+                # what the tile's ✏️ bubble shows as the real prompt.
+                variation_prompt=ca.pose_prompt(azimuth, elevation, distance),
+                # The angle phrase seeds the caption from birth (origin NULL →
+                # the captioner may complete or rewrite it; its own passes then
+                # re-inject the phrase). front/eye poses phrase to None and
+                # that is correct: nothing worth binding, nothing written.
+                caption=ca.pose_caption_phrase(pose),
+            )
+            db.session.add(row)
+            db.session.commit()             # row BEFORE enqueue: no orphan job
+            candidate_id = row.id
+            try:
+                job_id = qch.enqueue_camera_view(
+                    user_id=str(user_id), source_filename=img.filename,
+                    source_path=source_path,
+                    pose_prompt=ca.pose_prompt(azimuth, elevation, distance),
+                    model_name='qwen_camera_dataset',
+                    extra_metadata={'is_dataset': True,
+                                    'dataset_id': img.dataset_id,
+                                    'camera_pose': pose})
+            except Exception:
+                stale = _live_image_row(candidate_id)
+                if stale is not None:
+                    stale.status = 'failed'
+                    stale.fail_reason = 'The camera view could not be queued.'
+                    db.session.commit()
+                if views:
+                    logger.warning('camera dataset: %d queued before %s failed',
+                                   len(views), pose)
+                    break
+                raise
+            live = _live_image_row(candidate_id)
+            if live is None:
+                continue                    # ⏹ Stop removed it mid-enqueue
+            live.job_id = job_id
+            db.session.commit()
+            views.append({'candidate_id': candidate_id, 'job_id': job_id,
+                          'pose': pose,
+                          'label': ca.pose_label(azimuth, elevation, distance)})
+    finally:
+        _sync_generate_activity(img.dataset_id)
+    return {'views': views, 'queued': len(views)}
+
+
+def _with_camera_pose_phrase(img, text):
+    """The caption a camera view gets to keep: the model's words PLUS the angle.
+
+    Applied at the VLM stamp sites, so the phrase survives every re-caption —
+    seeding it only at row creation would last exactly until the first batch
+    pass overwrote it. Idempotent (never doubled), inert for every row without
+    a pose, and it prefixes rather than appends: the angle is the one fact the
+    captioner cannot see, so it must not end up trailing a sentence that reads
+    as complete without it."""
+    from . import camera_angles as ca
+    phrase = ca.pose_caption_phrase(getattr(img, 'camera_pose', None))
+    if not phrase:
+        return text
+    body = (text or '').strip()
+    if phrase.lower() in body.lower():
+        return body or phrase
+    return f'{phrase}, {body}' if body else phrase
 
 
 def generate_variations_krea(user_id, dataset_id, variations, multiplier,

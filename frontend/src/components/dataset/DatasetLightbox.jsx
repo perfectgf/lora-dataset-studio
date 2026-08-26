@@ -13,6 +13,7 @@
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Flag as FlagIcon } from 'lucide-react';
 import RepairDialog from '../shared/RepairDialog';
+import CameraAnglePicker from '../shared/CameraAnglePicker';
 import KleinImproveNote from './KleinImproveNote';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -167,6 +168,11 @@ export default function DatasetLightbox({
   onMirror,
   onRotate,
   onImprove,
+  /* 📷 Re-shoot this image from other camera positions. Optional like the rest,
+     and the CALLER decides eligibility (datasetCameraRefusal) — same pattern as
+     onImprove, so a picture that cannot take it simply shows no button. Results
+     land as pending candidates of this dataset, not as edits of this file. */
+  onCameraAngles,
   // Opens the watermark mask editor on THIS image, flagged or not. Optional like
   // the rest: a caller that does not pass it simply shows no button.
   onMarkWatermark,
@@ -236,7 +242,7 @@ export default function DatasetLightbox({
      slot the guarantee is structural: a foreign stamp yields a fresh state, so
      moving image closes the comparison with no reset effect to get right. */
   const {
-    full, compareMode, improving, actionsOpen, repairOpen, deciding,
+    full, compareMode, improving, actionsOpen, repairOpen, cameraOpen, deciding,
   } = lightboxImageState(storedState, imageId);
   /* Which image is on screen when a setter actually RUNS — a ref, because the
      `finally` of an improve resolves long after the render that created its
@@ -486,6 +492,7 @@ export default function DatasetLightbox({
       patchImageState({ improving: false });
     }
   };
+
 
   const mirror = async (event) => {
     event.stopPropagation();
@@ -822,6 +829,20 @@ export default function DatasetLightbox({
             )}
           </Fragment>
         ))}
+        {/* 📷 With the improve group because it answers the same question from
+            the other side: ✨ makes THIS picture better, 📷 makes MORE pictures
+            of this scene. The results are new pending candidates, so the button
+            must not read as an edit of the file on screen — the title says
+            where they land. */}
+        {onCameraAngles && (
+          <button type="button" data-testid="dataset-camera-angles"
+            onClick={(e) => { e.stopPropagation(); patchImageState({ cameraOpen: true }); }}
+            disabled={actionsLocked}
+            title="Re-shoot this scene from other camera positions — the views arrive as new pending candidates of this dataset, with the angle already in the caption"
+            className="min-h-10 lg:min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
+            <span aria-hidden>📷</span> Camera angles
+          </button>
+        )}
         {/* Bottom bar only: the note takes its OWN line under the buttons.
             `sm:w-auto` used to let it sit INLINE beside them, which was fine
             with a single improve button and is not with two — the paragraph
@@ -854,6 +875,17 @@ export default function DatasetLightbox({
         onClose={() => patchImageState({ repairOpen: false })}
         onSubmit={({ boxes, mask, prompt }) => onRepair(img.id, prompt, boxes, mask)}
         onUndo={onUndoRepair ? () => onUndoRepair(img.id) : null} />
+      {/* 📷 Above the lightbox (its z-index outranks this dialog's), so the
+          picture stays visible behind the dial while positions are chosen —
+          picking an angle of something you cannot see is guesswork. */}
+      {cameraOpen && onCameraAngles && (
+        <CameraAnglePicker
+          onClose={() => patchImageState({ cameraOpen: false })}
+          onShoot={async (poses) => {
+            const ok = await onCameraAngles(img.id, poses);
+            if (ok) patchImageState({ cameraOpen: false });
+          }} />
+      )}
     </div>
   );
 }

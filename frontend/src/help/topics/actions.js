@@ -166,6 +166,17 @@ export const ACTION_TOPICS = [
     { trigger: 'camera-angles-picker',
       text: 'Pick axes, not pictures: the sides you tick times the heights times '
         + 'the distances is the run — the count under the button is what it will cost.' }),
+  /* 📷 In a dataset the same verb answers a different question — "how do I get
+     training coverage of the back of my character" — and adds the captioning
+     angle, so it earns its own topic with the dataset vocabulary. */
+  action('action-dataset-camera-angles', 'Cover a dataset subject from more angles',
+    ['camera angles dataset', 'multi-angle dataset', 'coverage', 'training coverage',
+     'back of my character', 'more angles', 'angle caption', 'seen from behind',
+     'caption angle', 'pending candidates', 'camera view candidate',
+     'why is the caption pre-filled', 'bank camera', 'why not in the bank',
+     'promote then camera', 're-shoot dataset image'],
+    '/datasets?section=images', 'using-the-app',
+    'the-character-walkthrough-reference-photo-trained-lora'),
   action('action-reimprove-tile', 'Re-run Upscale & improve after changing its settings',
     ['improve', 'upscale', 'reimprove', 're-improve', 'rerun', 're-run', 'redo', 'again',
      'regenerate', 'no regenerate button', 'missing button', 'klein improve', 'candidate',

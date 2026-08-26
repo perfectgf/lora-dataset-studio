@@ -198,6 +198,14 @@ class FaceDatasetImage(db.Model):
     # que ce qu'elle sait, elle ne devine pas. Colonne additive (migration
     # create_app). Valeurs = clés stockées en base : ne jamais les renommer.
     fail_kind = db.Column(String(16), nullable=True)
+    # 📷 The camera position this row was rendered AT ('azimuth/elevation/
+    # distance', services/camera_angles.pose_id) — same contract as
+    # LoraTestImage.camera_pose: stored rather than re-parsed from the prompt,
+    # NULL everywhere else, component ids frozen (user databases). On THIS
+    # table it also feeds the caption: the captioner injects the angle phrase
+    # for any row carrying a pose, because a back view left undescribed binds
+    # "back-facing" to the trigger word. Additive column (_SCHEMA_ADDITIONS).
+    camera_pose = db.Column(String(64), nullable=True)
     # De combien la box recadrée (head-crop auto à l'import OU recadrage manuel) est
     # en-dessous de la résolution d'entraînement : size / côté_de_la_box. NULL =
     # jamais croppé (import plein cadre) ou pas encore recalculé (anciennes lignes).

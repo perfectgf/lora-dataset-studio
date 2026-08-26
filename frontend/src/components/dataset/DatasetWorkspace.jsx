@@ -72,6 +72,8 @@ import { postJson, putJson } from '../../api/fetchClient';
 import { datasetToBankRequest, datasetToBankUrl } from './datasetToBank';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
+import { useDatasetCameraAngles } from '../../hooks/useDatasetCameraAngles';
+import { datasetCameraRefusal } from '../../utils/cameraAngles';
 import { openCollapsedAncestors } from '../../help/revealTarget';
 import {
   PANEL_STATUS,
@@ -252,6 +254,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const navigate = useNavigate();
   const toast = useToast();
   const { caps, loading: capsLoading, refresh: refreshCaps } = useCapabilities();
+  // 📷 With the other hooks, above the loading return — rules-of-hooks.
+  const shootDatasetViews = useDatasetCameraAngles();
   const d = ds.data;
   // 🎭 Analyze faces: state + tooltip derived from the SERVER's verdict
   // (`face_scoring_blocked`, a sentence or null) — see faceScoringGate.js. The UI
@@ -759,6 +763,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
     && !viewImgLive._rescueReviewPreview
     && !isSmallImageRescueRow(viewImgLive)
     && viewImgLive.derivation_kind !== 'klein_image_improve';
+  // 📷 Eligibility decided HERE like improve's, so an ineligible picture shows
+  // no button at all. The rescue preview is excluded for the same reason it is
+  // everywhere: it is half of a Curation decision, not a library picture.
+  const canCameraViewImg = !!viewImgLive
+    && !viewImgLive._rescueReviewPreview
+    && !isSmallImageRescueRow(viewImgLive)
+    && datasetCameraRefusal(viewImgLive) === null;
 
   // Import to bank — the reverse of promoting bank images into a dataset. Both
   // choices retain Dataset-owned metadata; the default restores compatible
@@ -2231,6 +2242,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           onImprove={canImproveViewImg
             ? ((imageId, engine) => ds.improveImage(imageId, { engine }))
             : undefined}
+          onCameraAngles={canCameraViewImg ? shootDatasetViews : undefined}
           /* ⟨ / ⟩ walk `gridImages` — the filtered, sorted list the grid shows,
              the SAME array it is handed below. Not `images` (the raw payload):
              ⟩ would then land on a picture the current filters hide, behind an

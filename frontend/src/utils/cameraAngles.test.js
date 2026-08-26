@@ -19,7 +19,8 @@ import test from 'node:test';
 import {
   AZIMUTHS, CAMERA_ANGLE, DISTANCES, ELEVATIONS, LONG_RUN_SECONDS, MAX_VIEWS,
   POSE_COUNT, REFERENCE_POSE, SECONDS_PER_VIEW, TRIGGER, cameraLaunchMessage,
-  cameraRefusal, costSentence, isCameraView, isLongRun, parsePose, poseId,
+  cameraRefusal, costSentence, datasetCameraLaunchMessage, datasetCameraRefusal,
+  isCameraView, isLongRun, parsePose, poseId,
   poseLabel, posePrompt, posesFor, runSeconds, selectionRefusal,
 } from './cameraAngles.js';
 
@@ -152,4 +153,26 @@ test('the cost is stated before it is spent, and the toast says where', () => {
   assert.match(cameraLaunchMessage(1), /^1 camera view queued/);
   assert.match(cameraLaunchMessage(4), /^4 camera views queued/);
   assert.match(cameraLaunchMessage(4), /arrive here/);
+});
+
+test('the dataset refusal speaks the dataset\'s own statuses', () => {
+  // keep, pending-with-file and IMPORT are all valid sources; an improve
+  // result too. Only a camera view is refused, plus a row with no file yet.
+  assert.equal(datasetCameraRefusal({ id: 3, status: 'keep', filename: 'a.png' }), null);
+  assert.equal(datasetCameraRefusal({ id: 3, status: 'reject', filename: 'a.png' }), null);
+  assert.equal(datasetCameraRefusal(
+    { id: 3, source: 'import', status: 'keep', filename: 'a.png' }), null);
+  assert.equal(datasetCameraRefusal(
+    { id: 3, derivation_kind: 'klein_image_improve', filename: 'a.png' }), null);
+  assert.match(datasetCameraRefusal(
+    { id: 3, derivation_kind: 'camera_angle', filename: 'a.png' }),
+  /cannot itself be re-shot/);
+  assert.match(datasetCameraRefusal({ id: 3, status: 'pending' }), /no file yet/);
+  assert.match(datasetCameraRefusal(null), /no dataset entry/);
+});
+
+test('the dataset toast names the keep/reject cycle, not just "queued"', () => {
+  assert.match(datasetCameraLaunchMessage(1), /^1 camera view queued/);
+  assert.match(datasetCameraLaunchMessage(6), /pending candidates/);
+  assert.match(datasetCameraLaunchMessage(6), /angle already in the caption/);
 });
