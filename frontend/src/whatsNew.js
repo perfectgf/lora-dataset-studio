@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-klein-enhancement-repair-row',
+    date: '2026-08-26',
+    title: 'The Klein enhancement LoRA can finally be repaired from Setup',
+    blurb:
+      'The detail LoRA behind ✨ Upscale & improve installed itself on demand '
+      + 'but appeared nowhere on Setup — so a broken or deleted file could '
+      + 'only be fixed by triggering an improve and hoping. It now has its own '
+      + 'row in the Install screen\'s repair menu, like every other weight. '
+      + 'Found by a new internal guard that walks every install the app can '
+      + 'run and fails when one is offered on no screen — so the next engine '
+      + 'cannot ship half-visible the way three lanes did before it.',
+    to: '/setup',
+  },
+  {
     id: '2026-08-26-camera-angles-dataset',
     date: '2026-08-26',
     title: 'Camera angles inside a dataset — with the angle already captioned',

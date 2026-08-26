@@ -634,6 +634,7 @@ export const INSTALL_ALL_ACTION_LABELS = {
   klein_text_encoder: 'Klein text encoder',
   klein_vae: 'Klein VAE',
   klein_lora: 'Klein consistency LoRA',
+  klein_enhancement_lora: 'Klein enhancement LoRA (✨ improve detail)',
   krea_nodes: 'Krea 2 Edit node pack',
   krea_model: 'Krea 2 base model (Turbo)',
   krea_text_encoder: 'Krea 2 text encoder',
@@ -891,7 +892,12 @@ export function installCatalog(caps) {
     item('ollama_model', o.vision_model_ready, o.reachable && modelName,
       !o.reachable ? 'Start Ollama first (the Captioning step).'
         : !modelName ? 'Set a vision model name first (the Captioning step).' : ''),
-    ...['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora'].map(
+    // klein_enhancement_lora included: it was installable through the improve
+    // 409 for weeks and offered by NO surface — the first thing the setup
+    // coverage contract caught on its first run. Optional (the improve pass
+    // degrades without it), which is exactly why a silent gap hid so long.
+    ...['klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora',
+      'klein_enhancement_lora'].map(
       (a) => item(a, dirValid && !kleinMissing.includes(a), dirValid, kleinHint)),
     // Krea 2 Edit. Same per-component repair path as everything else — the group
     // button above installs the whole engine, this row is for fixing ONE piece.

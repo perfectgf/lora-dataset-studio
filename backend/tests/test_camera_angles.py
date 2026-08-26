@@ -323,10 +323,16 @@ def test_the_camera_group_plans_only_what_is_missing(app):
                                'camera_missing': ['camera_model']}}) == []
 
 
-def test_every_camera_group_member_is_a_real_install_action(app):
+def test_every_group_member_of_every_group_is_a_real_install_action(app):
+    """Generalised from the camera-only check: a group member that is not an
+    INSTALL_ACTION is a button that 404s when its card posts the group."""
     from app import setup_installer
-    for action in setup_installer._INSTALL_GROUPS['camera']:
-        assert action in setup_installer.INSTALL_ACTIONS, action
+    for group, members in setup_installer._INSTALL_GROUPS.items():
+        for action in members:
+            assert action in setup_installer.INSTALL_ACTIONS, f'{group}: {action}'
+        assert group in setup_installer._GROUP_CAPS_KEYS, (
+            f'group {group} has no _GROUP_CAPS_KEYS row — install_group_plan '
+            'would KeyError on the first planned install')
 
 
 # --- the dataset lane ---------------------------------------------------------
