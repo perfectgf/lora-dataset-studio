@@ -395,6 +395,13 @@ export default function DatasetLightbox({
          zone. Escape-only was not enough: watermark review already returns on
          every key for the same reason, and the Bank does it for crop/mask. */
       if (repairOpen) return;
+      // 📷 The picker is a layer like ✦ Repair: while it is open, every key
+      // belongs to it — a stray R must not reject the picture behind the dial.
+      // Escape peels IT first, before the panel and before the lightbox.
+      if (cameraOpen) {
+        if (reviewKeyAction(e) === 'close') patchImageState({ cameraOpen: false });
+        return;
+      }
       const action = reviewKeyAction(e);
       /* Escape peels ONE layer: an open actions panel first, the lightbox only
          once it is closed. Closing everything at once would throw the user out
@@ -420,7 +427,8 @@ export default function DatasetLightbox({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, onNavigate, onStatus, decide, prev, nextImage, panelOpen, closePanel, repairOpen]);
+  }, [onClose, onNavigate, onStatus, decide, prev, nextImage, panelOpen, closePanel,
+    repairOpen, cameraOpen, patchImageState]);
   useEffect(() => { closeRef.current?.focus(); }, []);
   /* No "close the comparison when the image changes" effect on purpose: the id
      stamp above already guarantees it, for BOTH comparison modes, without a

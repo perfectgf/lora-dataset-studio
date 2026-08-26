@@ -179,6 +179,6 @@ test('Escape peels one layer, not two', () => {
 test('the guards are re-read when the dialog opens, not captured stale', () => {
   // A listener registered once with repairOpen=false would keep closing forever.
   assert.match(review, /doDismiss, doReject, repairOpen\]\);/);
-  assert.match(lightbox, /panelOpen, closePanel, repairOpen\]\);/);
+  assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, patchImageState\]\);/);
   assert.match(generated, /\}, \[img, onClose, repairOpen, zoom, onPrev, onNext\]\);/);
 });

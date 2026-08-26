@@ -139,7 +139,16 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
   return (
     <div data-probe-layer className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 p-3 sm:p-6"
       role="dialog" aria-modal="true" aria-label="Choose camera positions"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+      /* stopPropagation ALWAYS, then the backdrop test. This picker mounts in
+         two hosts, and one of them (the dataset lightbox) closes ITSELF on any
+         click that reaches its root — without the stop, every tap on a dial
+         dot bubbled up and quit the whole viewer, picker included. Found on a
+         phone, not by the probe: the probe opens the picker on the Gallery,
+         where the picker is a sibling and nothing bubbles. */
+      onClick={(e) => {
+        e.stopPropagation();
+        if (e.target === e.currentTarget) onClose?.();
+      }}>
       {/* `bg-surface-overlay`, not `bg-surface`: the latter is 4 % alpha and the
           page would read through the card. The contract test enforces it. */}
       <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-white/10 bg-surface-overlay shadow-2xl">

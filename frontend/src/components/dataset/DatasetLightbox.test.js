@@ -135,7 +135,7 @@ test('✦ Repair owns every shortcut while it is open, not just Escape', () => {
   assert.ok(guard < grammar,
     'a close-only guard still lets R reject the picture under the dialog');
   // A listener registered once with repairOpen=false would keep judging forever.
-  assert.match(lightbox, /panelOpen, closePanel, repairOpen\]\);/);
+  assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, patchImageState\]\);/);
 });
 
 test('a verdict advances only once the write has landed, and skip touches nothing', () => {
