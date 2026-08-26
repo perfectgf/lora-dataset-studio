@@ -1665,6 +1665,22 @@ def test_embedded_workflow_model_refs_are_all_layout_independent():
             ('qwen3vl_4b_fp8_scaled.safetensors', 'DORMANT'),
         ('krea2_turbo_img2img.json', '22', 'vae_name'):
             ('qwen_image_vae.safetensors', 'DORMANT'),
+        # The Test Studio's FLUX.2 Klein lane (GitHub #53). Its three engine
+        # assets go through the SAME resolvers as the Klein inpaint graphs above
+        # — apply_klein_lora_test_settings calls unet_for_job /
+        # resolve_klein_text_encoder / resolve_klein_vae before enqueue — so the
+        # spellings below are a readable default, never a dependency.
+        ('flux2_klein_t2i.json', '20', 'unet_name'):
+            ('klein\\flux-2-klein-9b-fp8.safetensors', 'RESOLVED'),
+        ('flux2_klein_t2i.json', '21', 'clip_name'):
+            ('qwen_3_8b_fp8mixed.safetensors', 'RESOLVED'),
+        ('flux2_klein_t2i.json', '22', 'vae_name'):
+            ('flux2-vae.safetensors', 'RESOLVED'),
+        # Never loaded: the cell's own LoRA always replaces it, and the name is
+        # deliberately one no install can hold, so a builder that forgot to set
+        # it fails loudly instead of quietly testing somebody else's LoRA.
+        ('flux2_klein_t2i.json', '29', 'lora_name'):
+            ('flux2klein\\placeholder.safetensors', 'OVERRIDDEN'),
     }
     assert all(cat in ALLOWED for _ref, cat in EXPECTED.values())
     actual = {}

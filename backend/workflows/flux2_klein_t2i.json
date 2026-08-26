@@ -1,0 +1,85 @@
+{
+  "20": {
+    "inputs": {
+      "unet_name": "klein\\flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    },
+    "class_type": "UNETLoader",
+    "_meta": { "title": "Load Diffusion Model (Klein)" }
+  },
+  "21": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": { "title": "Load CLIP" }
+  },
+  "22": {
+    "inputs": { "vae_name": "flux2-vae.safetensors" },
+    "class_type": "VAELoader",
+    "_meta": { "title": "Load VAE" }
+  },
+  "29": {
+    "inputs": {
+      "lora_name": "flux2klein\\placeholder.safetensors",
+      "strength_model": 1.0,
+      "model": ["20", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": { "title": "Tested LoRA" }
+  },
+  "31": {
+    "inputs": {
+      "max_shift": 1.15,
+      "base_shift": 0.6,
+      "width": 1024,
+      "height": 1024,
+      "model": ["29", 0]
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": { "title": "ModelSamplingFlux" }
+  },
+  "23": {
+    "inputs": { "text": "a photo", "clip": ["21", 0] },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Prompt" }
+  },
+  "24": {
+    "inputs": { "text": "", "clip": ["21", 0] },
+    "class_type": "CLIPTextEncode",
+    "_meta": { "title": "Empty negative" }
+  },
+  "25": {
+    "inputs": { "width": 1024, "height": 1024, "batch_size": 1 },
+    "class_type": "EmptyFlux2LatentImage",
+    "_meta": { "title": "Empty latent" }
+  },
+  "26": {
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["31", 0],
+      "positive": ["23", 0],
+      "negative": ["24", 0],
+      "latent_image": ["25", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": { "title": "KSampler" }
+  },
+  "27": {
+    "inputs": { "samples": ["26", 0], "vae": ["22", 0] },
+    "class_type": "VAEDecode",
+    "_meta": { "title": "VAE Decode" }
+  },
+  "28": {
+    "inputs": { "filename_prefix": "Flux2Klein_LoraTest", "images": ["27", 0] },
+    "class_type": "SaveImage",
+    "_meta": { "title": "Save Image" }
+  }
+}
