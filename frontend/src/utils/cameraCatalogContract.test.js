@@ -63,8 +63,11 @@ for (const [name, js] of PAIRS) {
 test('the trigger, the ceiling and the reference pose agree', () => {
   assert.ok(source.includes(`TRIGGER = '${TRIGGER}'`),
     `camera_angles.py must define TRIGGER = '${TRIGGER}'`);
-  assert.ok(source.includes(`MAX_VIEWS_PER_RUN = ${MAX_VIEWS}`),
-    `camera_angles.py must define MAX_VIEWS_PER_RUN = ${MAX_VIEWS}`);
+  // The ceiling is the vocabulary itself on both sides — Python spells it
+  // `= POSE_COUNT`, and POSE_COUNT is pinned to 8*4*3 a few lines up.
+  assert.ok(source.includes('MAX_VIEWS_PER_RUN = POSE_COUNT'),
+    'camera_angles.py must define MAX_VIEWS_PER_RUN = POSE_COUNT');
+  assert.equal(MAX_VIEWS, 96, 'the JS ceiling must equal the vocabulary size');
   const [az, el, di] = REFERENCE_POSE.split('/');
   assert.ok(source.includes(`REFERENCE_POSE = ('${az}', '${el}', '${di}')`),
     `camera_angles.py must define REFERENCE_POSE = ('${az}', '${el}', '${di}')`);

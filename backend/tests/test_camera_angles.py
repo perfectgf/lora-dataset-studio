@@ -72,7 +72,7 @@ def test_a_repeated_pose_is_one_picture_not_two():
         ('right', 'low', 'medium'), ('back', 'eye', 'wide')]
 
 
-def test_the_selection_refuses_to_be_empty_or_unbounded():
+def test_the_selection_refuses_only_to_be_empty():
     for empty in ([], (), 'not a list', None):
         with pytest.raises(ValueError, match=ca.NO_VIEWS_PICKED):
             ca.normalize_requested(empty)
@@ -82,10 +82,15 @@ def test_the_selection_refuses_to_be_empty_or_unbounded():
     # Deduplicated first: eight uniques is UNDER the ceiling, so a doubled list
     # of the same eight must pass rather than read as sixteen.
     assert len(ca.normalize_requested(too_many)) == 8
-    over = [ca.pose_id(a['id'], e['id'], 'medium')
-            for a in ca.AZIMUTHS for e in ca.ELEVATIONS][:ca.MAX_VIEWS_PER_RUN + 1]
-    with pytest.raises(ValueError, match='more than'):
-        ca.normalize_requested(over)
+    # The regression this pins: 8 sides x 2 distances = 16 was refused by an
+    # arbitrary 12-view cap. Length is a cost, not an error — the FULL
+    # vocabulary must normalize.
+    sixteen = [ca.pose_id(a['id'], 'eye', d) for a in ca.AZIMUTHS
+               for d in ('close', 'medium')]
+    assert len(ca.normalize_requested(sixteen)) == 16
+    everything = [ca.pose_id(a['id'], e['id'], d['id']) for a in ca.AZIMUTHS
+                  for e in ca.ELEVATIONS for d in ca.DISTANCES]
+    assert len(ca.normalize_requested(everything)) == ca.POSE_COUNT == ca.MAX_VIEWS_PER_RUN
 
 
 def test_the_catalog_carries_everything_the_picker_draws():

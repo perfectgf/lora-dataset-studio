@@ -63,10 +63,21 @@ export const DISTANCE_CAVEAT = 'Framing is approximate — the model treats dist
  *  lane works) and simply says what it is. */
 export const REFERENCE_POSE = 'front/eye/medium'
 
-/** Mirrors camera_angles.MAX_VIEWS_PER_RUN. Not a technical ceiling: 96 poses
- *  at ~12 s each is twenty minutes of GPU, and a button that can spend that
- *  without saying so is the kind of control this app has refused before. */
-export const MAX_VIEWS = 12
+/** Every pose that exists: 8 azimuths × 4 heights × 3 distances. */
+export const POSE_COUNT = 96
+
+/** The only ceiling is the vocabulary. There WAS an arbitrary 12 here, and it
+ *  was wrong in the most ordinary case: eight sides at two distances is 16, so
+ *  the cap refused a request nobody would call excessive. A limit that blocks
+ *  the normal case to prevent a rare one is a bug with a justification.
+ *
+ *  What the button owed was to say what it costs, not to decide it — hence
+ *  LONG_RUN_SECONDS below, and the view count that moves while you choose. */
+export const MAX_VIEWS = POSE_COUNT
+
+/** Past this, the cost line stops being a note and starts being a warning
+ *  (~5 minutes). Nothing is blocked at any length. */
+export const LONG_RUN_SECONDS = 300
 
 /** Measured on a 4090: 12–16 s once the model is resident, ~54 s for the first
  *  view of a session (a 20 GB model loads from disk). Used to say what a
@@ -155,10 +166,21 @@ export function posesFor({ azimuths = [], elevations = [], distances = [] }) {
 export function selectionRefusal(selection) {
   const poses = posesFor(selection)
   if (!poses.length) return 'pick at least one camera position'
-  if (poses.length > MAX_VIEWS) {
-    return `that is ${poses.length} views — ${MAX_VIEWS} is the most one run can queue`
-  }
+  // Nothing else is refused. Length is a COST, not an error, and the footer
+  // states it before the click.
   return null
+}
+
+/** Seconds a selection will take, model load included when it is not resident. */
+export function runSeconds(count, { modelResident = false } = {}) {
+  if (!count) return 0
+  return count * SECONDS_PER_VIEW + (modelResident ? 0 : FIRST_VIEW_LOAD_SECONDS)
+}
+
+/** True when the run is long enough that the cost line should read as a
+ *  warning rather than a note. Never blocks anything. */
+export function isLongRun(count, opts) {
+  return runSeconds(count, opts) >= LONG_RUN_SECONDS
 }
 
 /** Why 📷 cannot be offered for this picture, or null when it can. Mirrors the
@@ -183,11 +205,13 @@ export function cameraRefusal(img) {
 
 /** Roughly how long a selection will take, in words. Never a countdown: the
  *  queue is shared and a promise this cannot keep is worse than a range. */
-export function costSentence(count, { modelResident = false } = {}) {
+export function costSentence(count, opts) {
   if (!count) return ''
-  const seconds = count * SECONDS_PER_VIEW + (modelResident ? 0 : FIRST_VIEW_LOAD_SECONDS)
+  // Same arithmetic as isLongRun, on purpose: a warning that fires at a
+  // different number from the one on screen is worse than no warning.
+  const seconds = runSeconds(count, opts)
   const mins = Math.round(seconds / 60)
-  const time = seconds < 90 ? `about a minute` : `about ${mins} minutes`
+  const time = seconds < 90 ? 'about a minute' : `about ${mins} minutes`
   return `${count} view${count > 1 ? 's' : ''}, ${time}`
 }
 

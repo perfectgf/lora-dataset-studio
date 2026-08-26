@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  galleryZipPlanUrl, galleryZipUrl, imageDownloadUrl, nameFromDisposition,
-  planNotice, zipButtonState, ZIP_SCOPE_ALL, ZIP_SCOPE_SELECTION,
+  downloadImagesAsFiles, filesDownloadSummary, galleryZipPlanUrl, galleryZipUrl,
+  imageDownloadUrl, nameFromDisposition, planNotice, zipButtonState,
+  ZIP_SCOPE_ALL, ZIP_SCOPE_SELECTION,
 } from './galleryDownload.js';
 
 /* ⬇ Taking the pictures away.
@@ -153,4 +154,66 @@ test('a missing or unparseable header falls back rather than throwing', () => {
   // A percent sequence that is not valid UTF-8 must not take the download down.
   assert.equal(nameFromDisposition("attachment; filename*=UTF-8''%E0%A4%A"),
     'image.png');
+});
+
+// --- ⬇ the selection as plain files -----------------------------------------
+
+const okResponse = (name) => ({
+  ok: true,
+  headers: { get: () => `attachment; filename="${name}"` },
+  blob: async () => ({ size: 1 }),
+});
+
+test('files download one at a time, in selection order, under server names', async () => {
+  const fetched = [];
+  const saved = [];
+  const result = await downloadImagesAsFiles([11, 22, 33], {
+    fetchImpl: async (url) => { fetched.push(url); return okResponse(`img${fetched.length}.png`); },
+    saveBlob: async (_blob, name) => saved.push(name),
+  });
+  assert.deepEqual(fetched, ['/api/train/image/11/download',
+    '/api/train/image/22/download', '/api/train/image/33/download']);
+  assert.deepEqual(saved, ['img1.png', 'img2.png', 'img3.png']);
+  assert.deepEqual(result, { saved: 3, skipped: 0, stopped: 0 });
+});
+
+test('a missing file SKIPS and the others still land', async () => {
+  // The gallery legitimately lists rows whose file a resume or a trash sweep
+  // took off the disk; one of them must not cost the user the other two.
+  const saved = [];
+  const result = await downloadImagesAsFiles([1, 2, 3], {
+    fetchImpl: async (url) => (url.includes('/2/') ? { ok: false } : okResponse('x.png')),
+    saveBlob: async () => saved.push(1),
+  });
+  assert.equal(saved.length, 2);
+  assert.deepEqual(result, { saved: 2, skipped: 1, stopped: 0 });
+});
+
+test('a thrown fetch counts as skipped, never as a crash', async () => {
+  const result = await downloadImagesAsFiles([1, 2], {
+    fetchImpl: async (url) => { if (url.includes('/1/')) throw new Error('net'); return okResponse('x.png'); },
+    saveBlob: async () => {},
+  });
+  assert.deepEqual(result, { saved: 1, skipped: 1, stopped: 0 });
+});
+
+test('leaving Select mode stops AFTER the file in flight, and says how many never started', async () => {
+  let stop = false;
+  const saved = [];
+  const result = await downloadImagesAsFiles([1, 2, 3, 4], {
+    fetchImpl: async () => okResponse('x.png'),
+    saveBlob: async (_b, n) => { saved.push(n); if (saved.length === 2) stop = true; },
+    shouldStop: () => stop,
+  });
+  assert.equal(result.saved, 2);
+  assert.equal(result.stopped, 2);
+});
+
+test('the summary names every branch it can end on', () => {
+  assert.equal(filesDownloadSummary({ saved: 3, skipped: 0, stopped: 0 }), '3 files saved');
+  assert.equal(filesDownloadSummary({ saved: 1, skipped: 0, stopped: 0 }), '1 file saved');
+  assert.equal(filesDownloadSummary({ saved: 2, skipped: 1, stopped: 0 }),
+    '2 files saved, 1 skipped (file no longer on disk)');
+  assert.equal(filesDownloadSummary({ saved: 2, skipped: 0, stopped: 2 }),
+    '2 files saved, 2 not started');
 });

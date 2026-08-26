@@ -456,14 +456,20 @@ export const VIDEO_LANE_TOPICS = [
      'pinned image is soft', 'canvas image quality', 'image looks compressed',
      'thumbnail instead of the real image', 'show the full resolution image'],
     '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
-  action('canvas-download-images', '⬇ Download images (one, or a gallery as ZIP)',
+  action('canvas-download-images', '⬇ Download images (one, a selection as files, or a ZIP)',
     ['download an image', 'download image', 'save an image', 'save the picture',
      'export generated images', 'download all images', 'download the gallery',
      'zip', 'download as zip', 'download a run', 'get my images out',
      'save to disk', 'keep this render', 'file name', 'which checkpoint made this',
      'rename downloaded images', 'download selected images', 'download 500',
      'why only 500', 'zip is smaller than the gallery', 'missing from the zip',
-     'image no longer on disk', 'download does nothing'],
+     'image no longer on disk', 'download does nothing',
+     // 🖼 Gallery's ⬇ Files — the un-ZIP. Asked about in both directions:
+     // people who want it, and people whose browser just prompted about it.
+     'without zip', 'no zip', 'individual files', 'separate files',
+     'download each file', 'files not archive', 'plain files',
+     'allow multiple downloads', 'browser asked to download multiple files',
+     'downloads one by one'],
     '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
   // 🖼🖼 A gesture nobody can guess: it earns a topic of its own, not a clause
   // buried in the one above. Half these keywords are how someone who has

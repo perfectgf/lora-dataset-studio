@@ -17,9 +17,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  AZIMUTHS, CAMERA_ANGLE, DISTANCES, ELEVATIONS, MAX_VIEWS, REFERENCE_POSE,
-  TRIGGER, cameraLaunchMessage, cameraRefusal, costSentence, isCameraView,
-  parsePose, poseId, poseLabel, posePrompt, posesFor, selectionRefusal,
+  AZIMUTHS, CAMERA_ANGLE, DISTANCES, ELEVATIONS, LONG_RUN_SECONDS, MAX_VIEWS,
+  POSE_COUNT, REFERENCE_POSE, SECONDS_PER_VIEW, TRIGGER, cameraLaunchMessage,
+  cameraRefusal, costSentence, isCameraView, isLongRun, parsePose, poseId,
+  poseLabel, posePrompt, posesFor, runSeconds, selectionRefusal,
 } from './cameraAngles.js';
 
 test('the grammar is the LoRA\'s, character for character', () => {
@@ -67,7 +68,7 @@ test('poses walk a full ring at one height before changing height', () => {
   ]);
 });
 
-test('the selection refuses to be empty, or to exceed the ceiling', () => {
+test('an empty selection is the ONLY thing refused', () => {
   assert.match(selectionRefusal({ azimuths: [], elevations: ['eye'], distances: ['medium'] }),
     /pick at least one/);
   assert.match(selectionRefusal({ azimuths: ['front'], elevations: [], distances: ['medium'] }),
@@ -75,11 +76,30 @@ test('the selection refuses to be empty, or to exceed the ceiling', () => {
   assert.equal(selectionRefusal({
     azimuths: ['front', 'right'], elevations: ['eye'], distances: ['medium'],
   }), null);
-  const tooMany = selectionRefusal({
-    azimuths: AZIMUTHS.map((a) => a.id), elevations: ['eye', 'high'], distances: ['medium'],
-  });
-  assert.match(tooMany, /16 views/);
-  assert.match(tooMany, new RegExp(`${MAX_VIEWS} is the most`));
+  // The regression this pins: eight sides at two distances is 16 views — an
+  // ordinary request that an arbitrary 12-view cap used to refuse.
+  assert.equal(selectionRefusal({
+    azimuths: AZIMUTHS.map((a) => a.id), elevations: ['eye'], distances: ['close', 'medium'],
+  }), null);
+  // And nothing refuses the whole vocabulary either. Length is a cost, not an error.
+  assert.equal(selectionRefusal({
+    azimuths: AZIMUTHS.map((a) => a.id),
+    elevations: ELEVATIONS.map((e) => e.id),
+    distances: DISTANCES.map((d) => d.id),
+  }), null);
+  assert.equal(MAX_VIEWS, POSE_COUNT, 'the only ceiling is the vocabulary itself');
+});
+
+test('a long run warns instead of being blocked, on the SAME arithmetic', () => {
+  // A warning that fires at a different number from the one on screen is worse
+  // than no warning — both read runSeconds.
+  assert.equal(isLongRun(1, { modelResident: true }), false);
+  assert.equal(isLongRun(96, { modelResident: true }), true);
+  const n = Math.ceil(LONG_RUN_SECONDS / SECONDS_PER_VIEW);
+  assert.equal(isLongRun(n, { modelResident: true }), true);
+  assert.equal(isLongRun(n - 1, { modelResident: true }), false);
+  assert.equal(runSeconds(0), 0);
+  assert.equal(costSentence(0), '');
 });
 
 test('pose ids parse back, and a broken one degrades instead of throwing', () => {

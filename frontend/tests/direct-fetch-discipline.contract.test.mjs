@@ -73,6 +73,7 @@ test('the set of files allowed to raw-fetch is closed', () => {
     'utils/connectionStatus.js',                           // the offline indicator's own probe
     'hooks/useDataset.js',                                 // legacy raw GETs with local error handling
     'hooks/useImageDownload.js',                           // blob download - needs the raw Response, own error copy
+    'utils/galleryDownload.js',                            // same blob download, looped: raw Response for Content-Disposition + blob; a miss SKIPS by design
     'hooks/useLoraTestStudio.js',                          // status poll, silent retry on transient errors
     'hooks/useStudioRun.js',                               // run-status poll, silent retry on transient errors
     'pages/CloudRunsPage.jsx',                             // history/lineage GETs render their own error states

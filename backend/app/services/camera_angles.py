@@ -103,11 +103,19 @@ POSE_COUNT = len(AZIMUTHS) * len(ELEVATIONS) * len(DISTANCES)   # 96
 # below keeps the UI honest about a request that would re-render what you have.
 REFERENCE_POSE = ('front', 'eye', 'medium')
 
-# How many views one press may queue. Not a technical ceiling — 96 poses at
-# ~12 s each is twenty minutes of GPU, and a Generate button that can silently
-# spend that is the kind of control this repo has refused before. The picker
-# counts up to it and says what it will cost.
-MAX_VIEWS_PER_RUN = 12
+# The only ceiling is the vocabulary itself: 96 distinct poses exist, and a
+# request repeating one asked for one picture.
+#
+# There WAS an arbitrary 12 here, on the reasoning that a button which can spend
+# twenty minutes of GPU should not do it quietly. The reasoning was half right
+# and the remedy was wrong: eight sides at two distances is 16 — an ordinary,
+# obviously reasonable request — and the cap refused it. A limit that blocks the
+# normal case to prevent a rare one is not a safeguard, it is a bug with a
+# justification. What the button actually owed was to say what it will cost, not
+# to decide it: the picker states the view count and the minutes BEFORE the
+# click, loudly past LONG_RUN_SECONDS, and every queued view is cancellable one
+# by one from the system queue.
+MAX_VIEWS_PER_RUN = POSE_COUNT
 
 _BY_ID = {
     'azimuth': {a['id']: a for a in AZIMUTHS},
@@ -118,7 +126,9 @@ _BY_ID = {
 # Refusals, worded as the surface should say them (the frontend mirrors these in
 # utils/cameraAngles.js so a picture explains itself BEFORE the click).
 NO_VIEWS_PICKED = 'pick at least one camera position'
-TOO_MANY_VIEWS = f'that is more than {MAX_VIEWS_PER_RUN} views in one go'
+# Only reachable from a malformed request: after de-duplication a selection
+# cannot exceed the number of poses that exist.
+TOO_MANY_VIEWS = f'there are only {POSE_COUNT} camera positions'
 UNKNOWN_POSE = 'that camera position does not exist'
 SOURCE_GONE = 'that image is no longer in the library'
 SOURCE_FILE_GONE = 'that image file is no longer on disk'

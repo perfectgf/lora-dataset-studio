@@ -83,6 +83,23 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-26-gallery-download-files',
+    date: '2026-08-26',
+    title: 'Download a Gallery selection as plain files — no ZIP to unpack',
+    blurb:
+      'Select images in the Gallery and press ⬇ Files: each one saves to your '
+      + 'Downloads as its own file, under the same lineage name the ZIP would '
+      + 'have used — dataset, run, step and seed. Built for the places an '
+      + 'archive is a chore: grabbing three pictures, a phone, or a training '
+      + 'tool watching a folder. Files save one at a time (your browser may ask '
+      + 'once to allow multiple downloads), a picture whose file was cleaned '
+      + 'off the disk is skipped and counted rather than stopping the rest, '
+      + 'and leaving Select mode stops the run. The camera picker also lost '
+      + 'its 12-view cap: pick as many angles as you want — the button states '
+      + 'the cost, and long runs warn instead of being blocked.',
+    to: '/gallery',
+  },
+  {
     id: '2026-08-26-camera-angles',
     date: '2026-08-26',
     title: 'Walk around your subject: re-shoot any picture from another camera position',

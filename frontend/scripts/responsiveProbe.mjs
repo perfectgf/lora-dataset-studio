@@ -196,6 +196,14 @@ const PAGES = {
       { name: 'lightbox', open: ['[data-testid="gallery-zoom"]'] },
       // Select mode: the sticky bar grows its count / select-all / delete half.
       { name: 'select', open: ['[data-testid="gallery-select-toggle"]'] },
+      // Select mode WITH a pick — the bar at its widest: toggle, ZIP, ⬇ Files,
+      // count, select-all and Delete all at once. This is the worst case the
+      // bare 'select' state cannot see, because ZIP and Files only exist once
+      // something is picked.
+      // The tile's testid CHANGES with the mode (gallery-zoom → gallery-pick),
+      // which is what a first draft of this state tripped on.
+      { name: 'select-picked', open: ['[data-testid="gallery-select-toggle"]',
+        '[data-testid="gallery-pick"]'] },
       // 📷 The camera picker, reached the way a user reaches it: open the
       // viewer, then press the verb in its footer. Its own state because it is
       // the densest thing this page can put on a 360 px screen — a dial, three

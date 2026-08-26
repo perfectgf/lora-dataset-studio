@@ -89,6 +89,79 @@ export function nameFromDisposition(header, fallback = 'image.png') {
 }
 
 /**
+ * ⬇ The selection as PLAIN FILES — one save per picked image, no archive.
+ *
+ * The ZIP next to it answers "give me these to move around as one thing"; this
+ * answers "put these in my Downloads as themselves", which is what a phone's
+ * photo picker, a training tool watching a folder, or someone grabbing three
+ * pictures actually wants — unzipping on a phone is a chore that costs more
+ * than the download. Both reuse the SAME single-image route, so every file
+ * lands under its lineage name from Content-Disposition; nothing here invents
+ * a second naming path.
+ *
+ * SEQUENTIAL on purpose. Firing N programmatic saves in one tick is how
+ * browsers decide you are an attack: Chrome swallows everything past the first
+ * ten or so unless the user grants "download multiple files", and the grants
+ * prompt fires mid-burst so half the burst is already lost. One at a time, each
+ * save waiting for its bytes, stays inside every browser's tolerance — the
+ * permission prompt still appears once (that is the browser talking, not us)
+ * and nothing is lost while it waits.
+ *
+ * A missing file SKIPS, it does not stop: the gallery legitimately lists rows
+ * whose file a resume or a trash sweep took off the disk, and one such row must
+ * not cost the user the other eleven. The summary names the count either way.
+ *
+ * `deps` exists for `node --test`: fetch and the save step are injectable, so
+ * the loop's order, its skip-on-404 and its stop flag are pinned without a DOM.
+ */
+export async function downloadImagesAsFiles(ids, {
+  onProgress = () => {},
+  shouldStop = () => false,
+  fetchImpl = null,
+  saveBlob = null,
+} = {}) {
+  const doFetch = fetchImpl || ((url) => fetch(url, { credentials: 'same-origin' }));
+  const doSave = saveBlob || ((blob, name) => {
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Next tick: revoking synchronously races Safari's own read of the blob
+    // and the save silently produces nothing (same rule as useImageDownload).
+    setTimeout(() => URL.revokeObjectURL(href), 0);
+  });
+  let saved = 0;
+  let skipped = 0;
+  const total = ids.length;
+  for (const id of ids) {
+    if (shouldStop()) break;
+    onProgress({ done: saved + skipped, total });
+    try {
+      const res = await doFetch(imageDownloadUrl(id));
+      if (!res.ok) { skipped += 1; continue; }
+      const name = nameFromDisposition(res.headers.get('Content-Disposition'));
+      await doSave(await res.blob(), name);
+      saved += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+  return { saved, skipped, stopped: shouldStop() ? total - saved - skipped : 0 };
+}
+
+/** The sentence the bar shows when the loop ends. Honest about every branch:
+ *  a run someone cancelled mid-way says so instead of pretending it finished. */
+export function filesDownloadSummary({ saved, skipped, stopped }) {
+  const parts = [`${saved} file${saved === 1 ? '' : 's'} saved`];
+  if (skipped) parts.push(`${skipped} skipped (file no longer on disk)`);
+  if (stopped) parts.push(`${stopped} not started`);
+  return parts.join(', ');
+}
+
+/**
  * Everything the ⬇ button in the gallery's action bar shows and does.
  *
  * ONE button, two meanings, taken from the mode already on screen: outside

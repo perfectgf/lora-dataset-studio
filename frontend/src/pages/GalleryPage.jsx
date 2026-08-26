@@ -14,7 +14,8 @@ import {
   galleryDeleteSummary, pruneGallerySelection, toggleGalleryImage,
 } from '../utils/gallerySelection';
 import {
-  galleryZipPlanUrl, galleryZipUrl, planNotice, zipButtonState,
+  downloadImagesAsFiles, filesDownloadSummary, galleryZipPlanUrl, galleryZipUrl,
+  planNotice, zipButtonState,
 } from '../utils/galleryDownload';
 import {
   GALLERY_KINDS, datasetFilterOptions, galleryEmptyMessage, galleryFeedUrl,
@@ -215,6 +216,30 @@ export default function GalleryPage() {
     }
   }, [selected, zipping]);
 
+  // ⬇ The picks as plain files — the un-ZIP. Sequential by design (a burst of
+  // programmatic saves is what browsers treat as an attack), so it is
+  // interruptible: leaving Select mode mid-run stops after the file in flight,
+  // via the ref rather than state — the loop closes over the render it started
+  // in, and state read there would be forever stale.
+  const [filesProgress, setFilesProgress] = useState(null);   // {done,total} | null
+  const filesStopRef = useRef(false);
+  const runFiles = useCallback(async () => {
+    if (filesProgress || selected.size === 0) return;
+    filesStopRef.current = false;
+    setNotice(null);
+    setFilesProgress({ done: 0, total: selected.size });
+    try {
+      const result = await downloadImagesAsFiles([...selected], {
+        onProgress: setFilesProgress,
+        shouldStop: () => filesStopRef.current,
+      });
+      setNotice({ kind: result.skipped ? 'warn' : 'ok',
+        text: filesDownloadSummary(result) });
+    } finally {
+      setFilesProgress(null);
+    }
+  }, [selected, filesProgress]);
+
   const bar = galleryActionBar({
     status, picking, imageCount: images.length,
     selectedCount: selected.size, busy,
@@ -401,7 +426,7 @@ export default function GalleryPage() {
         <div data-testid="gallery-action-bar" data-probe-chrome="gallery-bar"
           className="sticky bottom-0 z-30 -mx-3 flex flex-wrap items-center gap-2 border-t border-border bg-surface-overlay px-3 py-2 sm:-mx-4 sm:px-4">
           <button type="button" data-testid="gallery-select-toggle"
-            onClick={() => { setPicking((v) => !v); setSelected(new Set()); setNotice(null); }}
+            onClick={() => { filesStopRef.current = true; setPicking((v) => !v); setSelected(new Set()); setNotice(null); }}
             aria-pressed={bar.togglePressed}
             aria-label={picking ? 'Leave selection mode' : 'Select images to delete or download'}
             title={picking ? 'Leave selection mode' : 'Select images to delete or download'}
@@ -415,6 +440,24 @@ export default function GalleryPage() {
               onClick={runZip} disabled={zipBtn.disabled} title={zipBtn.title}
               className="min-h-10 lg:min-h-0 shrink-0 rounded-md border border-border px-2.5 py-1.5 text-content-muted text-[0.75rem] hover:border-indigo-400/50 hover:text-content disabled:opacity-40">
               {zipBtn.label}
+            </button>
+          )}
+          {/* ⬇ Beside the ZIP because they answer the same gesture two ways:
+              the archive to move around as one thing, the files to have as
+              themselves (a phone's photo pickers and folder-watching tools
+              read files, not archives). Same picks, same lineage names —
+              only the wrapping differs, and the browser may ask once to
+              allow multiple downloads: that prompt is the browser's, not a
+              failure. The count on the button is the progress bar. */}
+          {picking && selected.size > 0 && (
+            <button type="button" data-testid="gallery-download-files"
+              onClick={runFiles} disabled={!!filesProgress}
+              aria-busy={!!filesProgress}
+              title="Save each selected image as its own file — no archive to unpack; your browser may ask once to allow multiple downloads"
+              className="min-h-10 lg:min-h-0 shrink-0 rounded-md border border-border px-2.5 py-1.5 text-content-muted text-[0.75rem] hover:border-indigo-400/50 hover:text-content disabled:opacity-40">
+              {filesProgress
+                ? `Saving ${Math.min(filesProgress.done + 1, filesProgress.total)}/${filesProgress.total}…`
+                : `⬇ Files (${selected.size})`}
             </button>
           )}
           {bar.showsDelete && (
