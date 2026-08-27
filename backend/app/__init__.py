@@ -264,6 +264,9 @@ _SCHEMA_ADDITIONS = (
     # route at random (same rule the bank's identical pair already follows).
     ('face_dataset_image', 'watermark_source', 'VARCHAR(16)'),
     ('face_dataset_image', 'watermark_score', 'REAL'),
+    # 🔤 Find text pass memory (NULL | 'none' | 'detected' | 'error'). Existing
+    # rows stay NULL — "never scanned", which is true of them.
+    ('face_dataset_image', 'text_state', 'VARCHAR(16)'),
     ('face_dataset_image', 'source_metadata', 'TEXT'),
     # Back-link to the bank_image a promotion copied here. Existing rows keep
     # NULL: a bank that was promoted before this column existed still relies on
@@ -347,6 +350,9 @@ _SCHEMA_ADDITIONS = (
     # "unknown" for them rather than inventing a source.
     ('bank_image', 'watermark_source', 'VARCHAR(16)'),
     ('bank_image', 'watermark_score', 'REAL'),
+    # 🔤 Find text pass memory (NULL | 'none' | 'detected' | 'error'). Existing
+    # rows stay NULL — "never scanned", which is true of them.
+    ('bank_image', 'text_state', 'VARCHAR(16)'),
     # Bank provenance pass — effective resolution, letterbox, JPEG quality and the
     # ai/camera/unknown origin. Same additive path: existing banks keep every row
     # and simply carry NULLs until the next quality scan fills them in.

@@ -2054,6 +2054,11 @@ def _bp_pass_scopes(bank_id, counts, th, todo_keep, todo_pending,
         # every 'all' here is a measured query rather than a reused total.
         'watermark': {'todo': _todo_by_status(bank_id, _watermark_todo_clause()),
                       'all': _todo_by_status(bank_id, _watermark_not_dismissed())},
+        # 🔤 Find text — same two figures, same dismissed exclusion as the
+        # watermark scan: even its rescan line never re-examines a row the user
+        # ruled on, so quoting the pile size would offer images the run skips.
+        'text_scan': {'todo': _todo_by_status(bank_id, _text_todo_clause()),
+                      'all': _todo_by_status(bank_id, _watermark_not_dismissed())},
         # ✂ AUTO-CROP AND 🧽 REPAINT — the two levels that produce a new IMAGE.
         # Their pool is not "the images in that pile": it is the flagged rows
         # that carry an authorised geometry (_clean_todo_clause), which is why
@@ -7811,6 +7816,209 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None):
     return run
 
 
+# --- 🔤 Find text: the OCR pass that feeds the same funnel -------------------
+# Burned-in text — speech bubbles, subtitles, captions, sound effects — is the
+# same problem as a watermark once found: pixels stamped over the picture that a
+# LoRA would learn. So this pass does NOT grow a second funnel. It reads the
+# text with the SAME RapidOCR engine the Video bank's 🔳 Safe zone pass ships
+# (capability `video_text`: Apache-2.0, CPU-only, weights inside the wheel),
+# folds the per-line boxes into zones (services/text_regions.py), and writes
+# those zones into the one channel the cleaning levels already consume —
+# watermark_regions + watermark_state='detected'. From there 🧽 Inpaint, the
+# mask editor, ↩ Undo, dismiss and promote all behave as if the user had drawn
+# the zones by hand, which is the intent: "repaint exactly these" (and ✂
+# Auto-crop skips them BY CONSTRUCTION — _crop_todo_clause excludes region-
+# carrying rows — because cropping a bubble out of the middle of a page is not
+# a thing).
+#
+# The machine-into-the-hand-channel worry (see _watermark_detector_job, which
+# refuses to do this for the WATERMARK box) does not apply here: for text the
+# two effects that refusal protects against are exactly the wanted behaviour —
+# no crop routing, every zone repainted.
+#
+# `text_state` is the pass's own memory (resume + report), never a state the
+# cleaning levels read. 'dismissed' rows are excluded like every other machine
+# pass: dismiss means the MACHINE must stop asking (set_watermark_regions says
+# so in as many words), and the hand editor remains the way back in.
+TEXT_SCAN_CHUNK = 40   # images per OCR child — the video lane's measured chunk
+
+
+def _text_todo_clause():
+    """Rows the plain 🔤 button still owes an answer: never scanned, or errored
+    (a retry adopts those, same as every other pass's todo)."""
+    return and_(_watermark_not_dismissed(),
+                or_(BankImage.text_state.is_(None),
+                    BankImage.text_state == 'error'))
+
+
+def _text_scan_query(bank_id, rescan, statuses=None, ids=None):
+    """The rows the text pass should look at. Not a rescan = finish the job;
+    rescan = re-read everything except 'dismissed' (the user already ruled on
+    those, and this pass would re-flag them — the exact frustration dismiss
+    exists to end)."""
+    q = _scoped_pool(bank_id, statuses, ids).filter(_watermark_not_dismissed())
+    if not rescan:
+        q = q.filter(_text_todo_clause())
+    return q
+
+
+def start_text_scan(app, user_id, bank_id, rescan=False, statuses=None, ids=None):
+    """Launch the 🔤 burned-in text scan over the bank's non-rejected images.
+
+    CPU only, by construction: RapidOCR runs on the onnxruntime this app
+    installs, so this pass NEVER takes the GPU window — it can measure a bank
+    while a training run owns the card, exactly like the video lane's safe-zone
+    pass. That is also why there is no _gpu_busy_reason() gate here."""
+    from ..capabilities import probe_video_text
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    if bank_jobs.running(bank_id):
+        raise bank_jobs.BankJobBusy((bank_jobs.get(bank_id) or {}).get('kind') or 'background')
+    probe = probe_video_text()
+    if not probe.get('ok'):
+        detail = probe.get('detail')
+        raise RuntimeError('the text reader is not installed'
+                           + (f' — {detail}' if detail else '')
+                           + '. Install "Burned-in text" from Setup, then run it again.')
+    want = normalize_pass_statuses(statuses)
+    return bank_jobs.start(app, bank_id, 'text_scan',
+                           _text_scan_job(bank_id, rescan, want, ids),
+                           total=_text_scan_query(bank_id, rescan, want, ids).count())
+
+
+def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
+    """Same discipline as the two watermark scan jobs, deliberately: paths are
+    resolved on the owning thread, verdicts commit per image, a deletion
+    mid-pass is counted and skipped, and a stop keeps everything already
+    learned. The one structural difference is the engine seam — the video
+    lane's `read_text_boxes` (one child per chunk of 40, the measured shape),
+    borrowed rather than re-derived so the two surfaces cannot drift."""
+    def run(job):
+        import json as _json
+        from .text_regions import text_mask_regions
+        from .video_safe_zone import read_text_boxes
+        bank = _detach_bank(db.session.get(ImageBank, bank_id))
+        if not bank:
+            return
+        rows = _text_scan_query(bank_id, rescan, statuses, ids).order_by(BankImage.id.asc()).all()
+        bank_jobs.progress(job, done=0, total=len(rows), detail='text scan')
+        if not rows:
+            return
+        found = clean = errors = vanished = stale = 0
+        uncovered = 0     # zones past the 32-zone mask cap, summed — never silent
+        planned = []
+        for row_id in [r.id for r in rows]:
+            row = _live_image(row_id)
+            if row is None:      # deleted since the pass started — see _live_image
+                logger.info('bank text scan: image %s was deleted mid-pass, '
+                            'skipping it', row_id)
+                vanished += 1
+                bank_jobs.bump(job)
+                continue
+            path = abs_image_path(bank, row)
+            if not path:
+                vanished += 1
+                bank_jobs.bump(job)
+                continue
+            planned.append((row_id, path))
+        db.session.commit()
+        if not planned:
+            bank_jobs.progress(
+                job, detail='done — nothing left to scan'
+                + (f' ({vanished} skipped: gone while the pass ran)' if vanished else ''))
+            return
+        stopped_early = False
+        for chunk_start in range(0, len(planned), TEXT_SCAN_CHUNK):
+            if bank_jobs.cancelled(job):
+                break
+            chunk = planned[chunk_start:chunk_start + TEXT_SCAN_CHUNK]
+            frames = [{'key': str(rid), 'path': path} for rid, path in chunk]
+            try:
+                boxes_by_key = read_text_boxes(
+                    frames, should_stop=lambda: bank_jobs.cancelled(job))
+            except RuntimeError as e:
+                # The engine could not run (uninstalled mid-pass, a broken
+                # onnxruntime DLL). Say so and leave every unscanned row
+                # untouched — a retry finishes the job. Same shape as the
+                # watermark scan's DetectorUnavailable exit.
+                db.session.commit()
+                logger.warning('bank text scan: reader unavailable (%s)', e)
+                bank_jobs.progress(
+                    job, detail=f'stopped — the text reader could not run ({e}). '
+                                'Nothing was mis-flagged; the images it had not '
+                                'reached are still unscanned.')
+                return
+            for rid, path in chunk:
+                key = str(rid)
+                if key not in boxes_by_key:
+                    # The child never reached this frame (a Stop landed on the
+                    # chunk). Absent ≠ empty is the child's own contract; these
+                    # rows stay unscanned and a later run finishes them.
+                    stopped_early = True
+                    continue
+                row = _live_image(rid)
+                if row is None:
+                    logger.info('bank text scan: image %s was deleted while it '
+                                'was being read, skipping it', rid)
+                    vanished += 1
+                    bank_jobs.bump(job)
+                    continue
+                fingerprint = bank_transfer_metadata.content_fingerprint_path(path)
+                if not _prepare_watermark_write(row, path, fingerprint):
+                    stale += 1      # same silent skip as both watermark routes
+                    bank_jobs.bump(job)
+                    db.session.commit()
+                    continue
+                existing, _manual, problem = _clean_regions(row)
+                if problem:
+                    # An unreadable stored mask is a broken state, not a value —
+                    # this pass replaces it with valid geometry rather than
+                    # merging into garbage.
+                    existing = []
+                regions, dropped = text_mask_regions(
+                    boxes_by_key[key], [list(b) for b in existing])
+                if not regions:
+                    row.text_state = 'none'
+                    clean += 1
+                else:
+                    if row.watermark_clean_method:
+                        # Re-flagging a cleaned image: the next repaint restarts
+                        # from the SOURCE pixels, so the already-cleaned blob is
+                        # dropped now — keeping it would show a "cleaned" badge
+                        # over an image the funnel says needs work. The old
+                        # zones were folded into `regions` above, so nothing the
+                        # previous clean covered is lost on the way back.
+                        _discard_clean_blob(bank_id, row)
+                        _invalidate_effective_analysis(row)
+                    row.watermark_regions = _json.dumps(regions)
+                    row.watermark_state = 'detected'
+                    row.text_state = 'detected'
+                    found += 1
+                    uncovered += dropped
+                bank_jobs.bump(job)
+                # Per image, same reason as every scan here: never hold the one
+                # SQLite write lock across an unbounded run.
+                db.session.commit()
+        db.session.commit()
+        skipped = _skipped_note(vanished=vanished, stale=stale, unreadable=errors)
+        if bank_jobs.cancelled(job) or stopped_early:
+            bank_jobs.progress(job, detail=f'cancelled — {found} with text so far'
+                                           + skipped)
+            return
+        detail = f'done — {found} with text, {clean} without'
+        if uncovered:
+            # The mask channel holds 32 zones per image; a text-heavy page can
+            # produce more. The kept zones are the biggest blocks — say what the
+            # cap left out rather than reporting "done" over a partial mask.
+            detail += (f', {uncovered} zone(s) beyond the 32-zone mask cap '
+                       '(draw them in ▶ Review if they matter)')
+        detail += skipped
+        detail += _scope_note(bank_id, _text_todo_clause(), statuses, ids)
+        bank_jobs.progress(job, detail=detail)
+    return run
+
+
 # --- watermark cleaning: two MANUAL levels ----------------------------------
 # The bank's folder belongs to the user and is never written to, so "cleaning a
 # watermark" here means writing a SEPARATE cleaned blob under the bank's own
@@ -8909,6 +9117,15 @@ def watermark_levels(user_id, bank_id) -> dict | None:
         'cleaned_sample': [r.id for r in
                            base.filter(BankImage.watermark_clean_method.isnot(None))
                            .order_by(BankImage.id.asc()).limit(8).all()],
+        # 🔤 Find text — the OCR pass's own tallies, next to the levels it
+        # feeds. `found` rows are also counted in `flagged` above (their zones
+        # went into the same funnel); this block is what lets the panel say the
+        # pass's own progress and label its button, nothing routes on it.
+        'text': {
+            'scanned': base.filter(BankImage.text_state.isnot(None)).count(),
+            'found': base.filter(BankImage.text_state == 'detected').count(),
+            'unscanned': _text_scan_query(bank_id, rescan=False).count(),
+        },
     }
 
 

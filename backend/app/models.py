@@ -244,6 +244,13 @@ class FaceDatasetImage(db.Model):
     # migration); rows written before them stay NULL and read as 'unknown'.
     watermark_source = db.Column(String(16), nullable=True)
     watermark_score = db.Column(Float, nullable=True)
+    # 🔤 Find text — the OCR pass's own memory: NULL (never scanned) | 'none'
+    # (scanned, no text) | 'detected' (text found → its zones were folded into
+    # watermark_regions and the row was flagged) | 'error'. Deliberately NOT a
+    # second flag the cleaning levels read: the ACTIONABLE state stays
+    # watermark_state + watermark_regions (one funnel, one undo, one editor);
+    # this column only lets the pass resume and report. Additive (create_app).
+    text_state = db.Column(String(16), nullable=True)
     # Métadonnées de provenance génériques, sérialisées en JSON. La première
     # intégration prise en charge est Pexels : plateforme, page photo et crédit
     # photographe. Toute écriture passe par la validation stricte du service.
@@ -422,6 +429,15 @@ class BankImage(db.Model):
     # of the whole bank to answer "what would 0.92 have flagged?", and the
     # threshold is the one knob this feature offers.
     watermark_score = db.Column(Float, nullable=True)
+    # 🔤 Find text — the OCR pass's own memory: NULL (never scanned) | 'none'
+    # (scanned, no burned-in text) | 'detected' (text found → its zones were
+    # folded into watermark_regions and the row was flagged) | 'error'. NOT a
+    # second flag the cleaning levels read — the actionable state stays
+    # watermark_state + watermark_regions (one funnel, one ↩ Undo, one mask
+    # editor). This column is what lets the pass resume where it stopped and
+    # report per route. Same meaning as face_dataset_image.text_state (one
+    # feature, two surfaces). Additive column (see _SCHEMA_ADDITIONS).
+    text_state = db.Column(String(16), nullable=True)
     # Caption pass — a plain DESCRIPTIVE caption (no trigger, no identity omission:
     # a bank has no trigger word and nothing to protect). It doubles as the bank's
     # search text (the search bar matches caption + relpath) AND rides along to the
