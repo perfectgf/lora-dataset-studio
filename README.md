@@ -95,6 +95,11 @@ The cuts are measured rather than guessed: the aesthetic and near-duplicate thre
 | **Safe bulk work** | Undo the last bulk decision, tune thresholds where you work, move a bank without losing analysis, or run the full chain overnight |
 | **The one destructive action** | Everything above leaves your files alone — 🗑 **Delete rejected** is the single bank action that touches the source folder. It sends the rejected files to the OS trash (or the app's own, or deletes them) behind a type-DELETE confirmation that first states how many files, where they go, and which other banks share that folder. It refuses outright when the folder is also a dataset's |
 
+<p align="center">
+  <a href="docs/screenshots/bank/find-text-launch.png"><img src="docs/screenshots/bank/find-text-launch.png" alt="The Find text launch window: scope choices with live counts, a try-on-a-sample-first dial, and the Scan button — over the bank's Watermarks panel" width="680"></a><br>
+  <sub><strong>🔤 Find text</strong> — burned-in lettering becomes mask zones the same 🧽 Repaint erases. In a bank's Watermarks panel (datasets carry it too); try a sample first, then commit the pile.</sub>
+</p>
+
 ### Video Bank *(Beta — first release, read the limits)*
 
 Turns long source videos into a **video training set**: a flat folder of `.mp4`
@@ -209,6 +214,21 @@ the target model accepts.
 | **📷 Camera angles** | Re-photograph a generated image (Gallery viewer) or a kept dataset image from other camera positions — pick azimuths on a dial plus a camera height and a distance, read the exact prompts and the cost before you shoot, cancel any view from the queue. Runs locally on Qwen-Image-Edit with a Multiple-Angles LoRA through ComfyUI; Setup installs the whole stack from one card. On a dataset image the angle is written into the caption at birth ("seen from behind, low camera angle") and re-injected on every later captioning pass, because an angle left undescribed binds to the trigger word. New views land as pending candidates of the normal keep/reject cycle. The Bank stays out on purpose — it is the reservoir of real photos; promote first, then re-shoot |
 | **🌐 Civitai top prompts** | Browse Civitai's most-reacted images of the day, week, month, year or all time, each shown next to the generation prompt it was posted with, and reuse one in a click — the same button on the dataset Test Studio, the multi-LoRA comparison and the board's 🎨 Generate. Not every image publishes its prompt (the browser keeps the ones that do by default), and reading prompts needs the free Civitai API key from Settings → Scraping & sources — the same single key the scraper uses. The content-level select is a ceiling, Safe by default |
 | **Studio shortcuts and recovery** | Open Studio directly from a run, draw prompts from kept dataset captions, and pause safely when ComfyUI drops instead of launching later cells against changed state |
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="The Camera angles dialog: an azimuth dial, camera height and distance choices, the exact prompts that will be sent and the cost of the run" width="100%"></a>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/studio/civitai-prompt-browser.png"><img src="docs/screenshots/studio/civitai-prompt-browser.png" alt="The Civitai top prompts browser: most-reacted images of the week, each next to the generation prompt it was posted with, with Copy and Use prompt buttons" width="100%"></a>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top"><sub><strong>📷 Camera angles</strong> — pick positions on the dial, read the exact prompts and the cost <em>before</em> you shoot. Lives in the Gallery viewer and on every kept dataset image.</sub></td>
+    <td valign="top"><sub><strong>🌐 Civitai top prompts</strong> — the most-reacted images next to the prompt they were posted with; ⤵ drops one into your prompt field. Next to the prompt box on every generation surface.</sub></td>
+  </tr>
+</table>
 
 ### Keep control of the files
 
