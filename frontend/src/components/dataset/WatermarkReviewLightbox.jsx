@@ -669,7 +669,21 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
           )}
           {manual && regions.length > 0 && (
             <span className="text-emerald-200/70 text-xs">
-              · {kleinSelected ? 'one Klein inpaint per zone' : 'one composite LaMa pass'}
+              {/* An image 🔤 Find text flagged ALWAYS takes the outline-safe
+                  filler first (backend rule — the engine toggle governs
+                  watermarks, and leftovers go to LaMa either way), so saying
+                  “LaMa pass” or “Klein” here would name an
+                  engine that only sees the leftovers. Asked from live use:
+                  “why is LaMa used there?” — because this line
+                  used to say so whatever the real plan was. */}
+              · {item?.text_state === 'detected'
+                ? 'outline-safe text fill — bubbles emptied with their own background, the inpaint engine only sees leftovers on art'
+                : kleinSelected ? 'one Klein inpaint per zone' : 'one composite LaMa pass'}
+            </span>
+          )}
+          {manual && regions.length > 0 && item?.text_state !== 'detected' && (
+            <span className="text-white/40 text-xs">
+              · run 🔤 Find text to give this page the outline-safe fill (keeps bubble outlines)
             </span>
           )}
           {engineMissing && (
