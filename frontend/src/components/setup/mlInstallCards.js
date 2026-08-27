@@ -36,8 +36,8 @@ export const ML_INSTALL_CARDS = [
     title: 'Shot detection (triage shots, not whole rushes)',
     body: 'Cuts each video at its shot boundaries (TransNetV2) so a two-hour file becomes hundreds of individually reviewable shots. Installs torch (CPU is fine — the network reads 48×27 frames) and one small package into the scoring Python it shares with ✨ Score. Without it you can still watch and triage whole files; you just cannot split them.' },
   { action: 'video_text', cap: 'video_text', icon: '🔳',
-    title: 'Burned-in text (the 🔳 Safe zone pass reads subtitles)',
-    body: 'Lets the Video bank\'s 🔳 Safe zone pass find subtitles, chyrons and text watermarks burned into your footage, and work out how much of each frame a crop would leave you. One small Apache-2.0 package (RapidOCR) into the app\'s own Python — CPU only, no torch, no GPU, and its ~16 MB of weights ride inside the wheel so it works with no internet. Without it the pass still runs and still measures letterbox and pillarbox bands; it just reports "bands only" and never flags text.' },
+    title: 'Burned-in text (🔤 Find text + the 🔳 Safe zone pass)',
+    body: 'One OCR engine, two jobs. On Banks and Datasets it powers 🔤 Find text: speech bubbles, subtitles, captions and sound effects become zones 🧽 Repaint can erase. On the Video bank it lets the 🔳 Safe zone pass find subtitles, chyrons and text watermarks and work out how much of each frame a crop would leave you. One small Apache-2.0 package (RapidOCR) into the app\'s own Python — CPU only, no torch, no GPU, and its ~16 MB of weights ride inside the wheel so it works with no internet. Without it the Safe zone pass still measures letterbox bands ("bands only"), and 🔤 Find text stays greyed with this card as the fix.' },
   // This card is the fix for the exact gap the others already closed: the
   // Concept Sources panel (Datasets ▸ Sources) offers the same install action
   // through its own amber banner, but Setup — the screen a new user actually

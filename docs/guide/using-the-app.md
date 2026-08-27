@@ -2161,6 +2161,40 @@ could not place it — stay flagged and are counted separately in the pass's rep
 Draw a zone on them with **🚩 Edit mask** below, or leave them as a filter.
 
 
+## Erase burned-in text — bubbles, subtitles, captions
+
+A comic page carries its dialogue, a screencap its subtitle, a meme its
+caption — and a LoRA trained on them learns the lettering along with the
+subject. **🔤 Find text** reads that text and feeds the exact same cleaning
+funnel as the watermarks: every block of text becomes a zone in the image's
+mask, the image is flagged, and **🧽 Inpaint** repaints the zones. One funnel,
+one ↩ Undo, one mask editor — a text zone behaves exactly like a zone you drew
+by hand. **✂ Auto-crop never touches them**, on purpose: cropping a speech
+bubble out of the middle of a page is not a thing.
+
+The reading is done by the same OCR engine as the Video bank's **🔳 Safe
+zone** pass (one Setup install serves both — *Burned-in text*, a small
+Apache-2.0 package that works offline). It runs on the **CPU only**, never the
+GPU, so it can scan a bank while a training run owns the card. Script does not
+matter: Latin, Korean, Japanese and Chinese lettering are all boxes to it.
+
+What it does *not* do, said plainly:
+
+- it reads **positions, not words** — no transcript of your images is stored
+  anywhere, the boxes are all that is kept;
+- the mask holds at most **32 zones per image**; a text-heavy page that
+  produces more keeps the 32 biggest blocks and the pass's report says how
+  many were left out (draw those in **🚩 Edit mask** if they matter);
+- images you **dismissed** stay dismissed — this pass never re-flags a row you
+  already ruled on, exactly like a watermark re-scan;
+- a **🚩 Find watermarks** run afterwards will not undo it: text zones survive
+  the scan, and a watermark box found on the same image joins them.
+
+It works on both surfaces — a bank's Watermarks panel carries the **🔤 Find
+text** card next to 🚩 Find, and a dataset's curation row carries the same
+button next to its watermark scan.
+
+
 ## Fix a watermark mask — or mark one the scan missed
 
 The detector draws **one** box, and it is a guess: it can miss a second logo,

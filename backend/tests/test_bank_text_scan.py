@@ -14,7 +14,6 @@ onnxruntime; the seam's own child is covered by the video lane's tests.
 import json
 import os
 
-import pytest
 from PIL import Image
 
 

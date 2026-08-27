@@ -836,6 +836,48 @@ export function useDataset() {
   }, currentId), [wrap, currentId, refresh, toast,
                    beginLocalActivityRun, finishLocalActivityRun]);
 
+  // 🔤 Text scan — the other detection feeding the same clean funnel. Reads
+  // burned-in text (speech bubbles, subtitles, captions, sound effects) with
+  // the RapidOCR engine the video lane ships (CPU only, never the GPU) and
+  // folds the zones into the watermark mask channel, so the SAME Clean button
+  // repaints them. { rescan: true } re-reads already-scanned rows; dismissed
+  // rows are never re-examined, like every machine pass.
+  const findText = useCallback((options) => wrap(async () => {
+    const rescan = !!(options && options.rescan);
+    const run = beginLocalActivityRun('text', currentId);
+    try {
+      const d = await postJson(`/api/dataset/${run.datasetId}/text/detect`,
+        rescan ? { rescan: true } : undefined);
+      if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+      const head = d.stopped ? 'Stopped —' : '';
+      toast.success(`${head} ${d.found || 0} image(s) with text · ${d.none || 0} without `
+        + `(of ${d.checked || 0})`.trim());
+      // The mask channel holds 32 zones per image; a text-heavy page can carry
+      // more. Named out loud — a silently partial mask reads as a clean pass.
+      if (d.uncovered) {
+        toast.info(`${d.uncovered} zone(s) beyond the 32-zone mask cap — open `
+          + '🔍 Review flagged and draw them if they matter.');
+      }
+      await refresh(run.datasetId);
+    } finally {
+      finishLocalActivityRun(run);
+    }
+  }, currentId), [wrap, currentId, refresh, toast,
+                   beginLocalActivityRun, finishLocalActivityRun]);
+
+  // Graceful Stop for a running 🔤 text scan — same contract as the watermark
+  // Stop below: the pass polls between images, judged rows are kept, a later
+  // run finishes the rest.
+  const cancelTextScan = useCallback(async () => {
+    const d = await postJson(`/api/dataset/${currentId}/text/detect/cancel`, {});
+    if (d.ok) {
+      toast.info('Stopping after the current image… what is already flagged is kept.');
+      await refresh();
+    } else {
+      toast.error(d.error || 'Nothing to stop');
+    }
+  }, [currentId, refresh, toast]);
+
   // Graceful Stop for a running watermark scan — same contract as the captioning
   // Stop: the worker checks a flag between images, so the current image finishes,
   // every verdict already written is KEPT, and a later 🧽 Find picks up the rest
@@ -1678,6 +1720,8 @@ export function useDataset() {
     || actKind === 'analyze_faces';
   const watermarkingLive = localActivityRuns.has(`watermark:${currentId}`)
     || actKind === 'watermark_detect' || actKind === 'watermark_clean';
+  const textScanningLive = localActivityRuns.has(`text:${currentId}`)
+    || actKind === 'text_detect';
   const busyLive = busy || !!activity;
   // GitHub #44 — `busyLive` is the CONSERVATIVE union and stays the gate for
   // everything that owns the dataset's rows. Starting a job that merely becomes
@@ -1709,12 +1753,13 @@ export function useDataset() {
   return { datasets, currentId, data, busy: busyLive, localBusy: busy,
            generationBusy, improveBusy, curationBusy, captioning: captioningLive,
            lastCaptionRun,
-           analyzing: analyzingLive, watermarking: watermarkingLive, activity,
+           analyzing: analyzingLive, watermarking: watermarkingLive,
+           textScanning: textScanningLive, activity,
            nonces, mirroringIds, refNonce, scoringFaceIds, recaptioningIds, create, open,
            deleteDataset, updateSettings, setCurrentId, setRef, addExtraRef, removeExtraRef,
            generate, importFiles, scrapeImport, resolveSmallImageRescue, improveImage, reimproveImage, improveBatch, classify, caption, recaption, recaptionImages,
            setStatus, setCaption, mirrorImage, rotateImage, crop, cropRef, cropExtraRef, recropRefAuto, editReference, retryReferenceEdit, canRetryReferenceEdit, keepEditedReference, discardEditedReference, setDatasetTrainType, setDatasetFidelity, deleteImage, batchImages, replaceCaptions, writeCaptionFiles, openDatasetFolder, cancelPending, cancelCaption, regenerate, analyzeFaces, scoreFace,
-           findWatermarks, cancelWatermarkScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, repairImageRegion, undoImageRepair, dismissWatermarks, saveWatermarkRegions,
+           findWatermarks, cancelWatermarkScan, findText, cancelTextScan, cleanWatermarks, cleanWatermarkImages, restoreWatermarkImage, repairImageRegion, undoImageRepair, dismissWatermarks, saveWatermarkRegions,
            purgeUnused, exportZip, exportBackup, exportZipFor, exportBackupFor, importBackup, importDatasetZip, importDatasetFolder,
            backupEverything, backupJob, downloadBackup, openBackupsFolder, dismissBackup, restoreJob, dismissRestore,
            refresh, train, stopTraining, continueTraining, continueTrainingInCloud,

@@ -52,6 +52,7 @@ export const JOB_LABELS = {
   watermark: '🚩 Watermark scan',
   watermark_crop: '🚩 Watermark crop',
   watermark_inpaint: '🚩 Watermark repaint',
+  text_scan: '🔤 Text scan',
   improve: '✨ Upscale & improve',
   framing: '📐 Framing pass',
   medium: 'Medium pass',

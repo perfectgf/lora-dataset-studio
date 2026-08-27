@@ -38,6 +38,37 @@ export function levelCounts(levels) {
     // neither may stay invisible.
     handMasked: num(l.hand_masked),
     emptyMasks: num(l.empty_masks),
+    // 🔤 Find text — the OCR pass's own tallies (its flagged rows are already
+    // inside `flagged` above; these only drive its card's label and progress).
+    textScanned: num(l.text?.scanned),
+    textFound: num(l.text?.found),
+    textUnscanned: num(l.text?.unscanned),
+  };
+}
+
+/** 🔤 Find text — the OTHER detection on the same rung as 🚩 Find. Same ladder,
+ * different instrument: it reads burned-in text (bubbles, subtitles, captions,
+ * sound effects) with the RapidOCR engine the video lane ships and folds the
+ * zones into the mask channel 🧽 Inpaint repaints. CPU-only by construction, so
+ * the one install it can be missing is the `video_text` extra. */
+export function textLevelState(levels, { live = false, ocrReady = false } = {}) {
+  const c = levelCounts(levels);
+  const reason = live
+    ? 'A pass is already running on this bank — wait for it to finish.'
+    : !ocrReady
+      // The SAME extra the Video bank's Safe zone pass uses — one install
+      // serves both, and naming the card is what makes the fix one click.
+      ? 'Install “Burned-in text” (Setup ▸ Quality tools) to read text — '
+        + 'a small CPU-only package, no GPU, works offline.'
+      : null;
+  return {
+    done: c.textScanned,
+    remaining: c.textUnscanned,
+    disabled: reason !== null,
+    reason,
+    label: c.textUnscanned > 0 && c.textScanned > 0
+      ? `🔤 Read the remaining ${c.textUnscanned}`
+      : c.textScanned > 0 ? '🔤 Scan again' : '🔤 Find text',
   };
 }
 

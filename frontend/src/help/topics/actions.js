@@ -38,6 +38,12 @@ export const ACTION_TOPICS = [
      'watermark source', 'detector', 'vision model', 'why is this flagged',
      'watermark score', 'sensitivity', 'threshold', 'false positive'],
     '/bank', 'using-the-app', 'clean-the-watermarks-a-bank-found'),
+  action('action-find-text', 'Erase burned-in text (bubbles, subtitles, captions)',
+    ['find text', 'text', 'ocr', 'burned-in', 'burned in', 'speech bubble',
+     'bubble', 'subtitle', 'subtitles', 'caption', 'sound effect', 'sfx',
+     'manga', 'comic', 'webtoon', 'lettering', 'erase text', 'remove text',
+     'clean text', 'rapidocr', 'korean', 'japanese', 'meme'],
+    '/bank', 'using-the-app', 'erase-burned-in-text-bubbles-subtitles-captions'),
   /* ✂ and ✨ share one guide section but get a topic EACH, for the same reason
      🎨 Medium and ⤢ Angle do below: they are two different gestures asked about
      in two different vocabularies ("how do I crop in the bank?" vs "can I

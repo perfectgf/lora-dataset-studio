@@ -10,7 +10,6 @@ dataset clean REPLACED the file's pixels (the bank keeps a separate blob).
 import json
 import os
 
-import pytest
 from PIL import Image
 
 

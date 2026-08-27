@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cropLevelState, findLevelState, hasCleanedImages, inpaintLevelState, levelCounts,
-  maskNote, progressSummary, rescanNote, sourceNote,
+  maskNote, progressSummary, rescanNote, sourceNote, textLevelState,
 } from './bankWatermark.js';
 
 const levels = (over = {}) => ({
@@ -15,8 +15,35 @@ test('levelCounts: a missing payload reads as zeros, never NaN', () => {
     scanned: 0, unscanned: 0, flagged: 0, croppable: 0, inpaintable: 0,
     cropped: 0, inpainted: 0, dismissed: 0, needsRescan: 0,
     handMasked: 0, emptyMasks: 0,
+    textScanned: 0, textFound: 0, textUnscanned: 0,
   });
   assert.equal(levelCounts({ flagged: 'x' }).flagged, 0);
+});
+
+test('🔤 text card: fresh → Find text, resumes by the remainder, rescans when done', () => {
+  const fresh = textLevelState(levels({ text: { scanned: 0, found: 0, unscanned: 12 } }),
+    { ocrReady: true });
+  assert.equal(fresh.disabled, false);
+  assert.equal(fresh.label, '🔤 Find text');
+  assert.equal(fresh.remaining, 12);
+  const partial = textLevelState(
+    levels({ text: { scanned: 30, found: 4, unscanned: 8 } }), { ocrReady: true });
+  assert.equal(partial.label, '🔤 Read the remaining 8');
+  const done = textLevelState(
+    levels({ text: { scanned: 38, found: 6, unscanned: 0 } }), { ocrReady: true });
+  assert.equal(done.label, '🔤 Scan again');
+  assert.equal(done.done, 38);
+});
+
+test('🔤 text card: the OCR extra missing names the Setup card, live blocks it', () => {
+  const off = textLevelState(levels(), { ocrReady: false });
+  assert.equal(off.disabled, true);
+  assert.match(off.reason, /Burned-in text/);
+  assert.match(off.reason, /Setup/);
+  const busy = textLevelState(levels({ text: { scanned: 0, found: 0, unscanned: 5 } }),
+    { live: true, ocrReady: true });
+  assert.equal(busy.disabled, true);
+  assert.match(busy.reason, /already running/);
 });
 
 test('hand-edited masks are reported, and an EMPTY one is called out', () => {

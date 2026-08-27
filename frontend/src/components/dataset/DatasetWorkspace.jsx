@@ -871,6 +871,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
           const label = {
             watermark_detect: `Scanning for watermarks…${prog}`,
             watermark_clean: `Cleaning watermarks…${prog}`,
+            text_detect: `Reading burned-in text…${prog}`,
             caption: `Captioning…${prog}`,
             recaption: `Re-captioning…${prog}`,
             analyze_faces: `Analyzing faces…${prog}`,
@@ -1189,6 +1190,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   {act?.cancelling ? 'Stopping…' : '⏹ Stop'}
                 </button>
               )}
+              {/* …and for the 🔤 text scan, which reads whole banks of pages. */}
+              {act?.kind === 'text_detect' && (
+                <button id="ds-text-scan-stop" type="button"
+                  onClick={ds.cancelTextScan} disabled={!!act?.cancelling}
+                  title="Stops after the current image finishes — every zone already found is kept; run 🔤 Find text again to finish the rest."
+                  className="ml-auto shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">
+                  {act?.cancelling ? 'Stopping…' : '⏹ Stop'}
+                </button>
+              )}
             </div>
           )}
 
@@ -1488,6 +1498,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   {ds.watermarking
                     ? `Scanning…${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
                     : 'Find watermarks'}
+                </button>
+                {/* 🔤 The other detection feeding the same funnel: burned-in text
+                    (speech bubbles, subtitles, captions, sound effects) read by
+                    the RapidOCR engine the video lane ships — CPU only. Zones
+                    land in the same mask channel, so the same Clean repaints
+                    them. Greyed with the install route when the extra is out. */}
+                <button type="button" data-workspace-focus onClick={() => ds.findText()}
+                  disabled={ds.busy || !caps.video_text}
+                  title={caps.video_text
+                    ? 'Reads burned-in text — speech bubbles, subtitles, captions, sound effects — and marks each zone for 🧽 Clean to repaint (deletes nothing, CPU only)'
+                    : 'Reads burned-in text on the kept images. Install "Burned-in text" from Setup first.'}
+                  className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
+                  🔤 {ds.textScanning
+                    ? `Reading…${act?.kind === 'text_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
+                    : 'Find text'}
                 </button>
                 <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (

@@ -34,6 +34,7 @@ import { useToast } from '../common/Toast'
 import {
   cropLevelState, findLevelState, hasCleanedImages, inpaintLevelState,
   levelCounts, maskNote, progressSummary, rescanNote, sourceNote,
+  textLevelState,
 } from './bankWatermark.js'
 import { openerLabel } from './scoringPython.js'
 import { localEngineUnavailableReason } from '../../utils/localEngineReason'
@@ -65,8 +66,8 @@ function LevelCard({ index, title, blurb, state, onRun }) {
 }
 
 export default function BankWatermarkPanel({
-  bankId, live, onFind, onChanged, payload = null, selectedIds = [],
-  gpuPresent = true, onPickPython = null,
+  bankId, live, onFind, onFindText = null, onChanged, payload = null,
+  selectedIds = [], gpuPresent = true, onPickPython = null,
 }) {
   const { caps } = useCapabilities()
   const toast = useToast()
@@ -138,6 +139,7 @@ export default function BankWatermarkPanel({
     visionReady: !!caps.ollama?.vision_model_ready,
     detectorReady: !!caps.watermark_detect,
   })
+  const findText = textLevelState(levels, { live, ocrReady: !!caps.video_text })
   const source = sourceNote(levels)
   /* The bin is invisible to /watermark/levels (its pool has always excluded
      rejected images), so the two levels read their bin figure from the bank
@@ -204,6 +206,15 @@ export default function BankWatermarkPanel({
         <LevelCard index={1} title="Find them" state={find}
           blurb="Scans the images you choose for an overlaid logo/URL and records WHERE it sits — the two steps below route on that box."
           onRun={onFind} />
+        {/* The OTHER level-1 detection: same rung of the same ladder, different
+            instrument. Its zones land in the mask channel, so 🧽 below repaints
+            them and ✂ skips them (cropping a bubble out of a page is not a
+            thing). Only rendered where the parent wires it. */}
+        {onFindText && (
+          <LevelCard index={1} title="Find text" state={findText}
+            blurb="Reads burned-in text — speech bubbles, subtitles, captions, sound effects — and marks each zone for 🧽 Repaint below. CPU only, never the GPU."
+            onRun={onFindText} />
+        )}
         <LevelCard index={2} title="Crop it off" state={crop}
           blurb="Cuts the border strip holding the mark. No model, no GPU, and no invented pixel — try this one first."
           onRun={() => setCleanOpen('watermark_crop')} />

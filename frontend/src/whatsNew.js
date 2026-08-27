@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-27-find-text-clean',
+    date: '2026-08-27',
+    title: 'Erase burned-in text — speech bubbles, subtitles, captions',
+    blurb:
+      'A comic page carries its dialogue, a screencap its subtitle — and a '
+      + 'LoRA learns the lettering along with the subject. 🔤 Find text reads '
+      + 'the text (any script) and turns each block into a mask zone, so the '
+      + 'same 🧽 Repaint that clears watermarks erases it — one funnel, one '
+      + '↩ Undo, and ✂ Auto-crop never touches a bubble. On banks and '
+      + 'datasets both, CPU-only, powered by the same small offline OCR the '
+      + 'Video bank already uses (one Setup install serves both).',
+    to: '/bank',
+  },
+  {
     id: '2026-08-27-scene-custom-prompt',
     date: '2026-08-27',
     title: 'Scenes take a custom prompt of their own',

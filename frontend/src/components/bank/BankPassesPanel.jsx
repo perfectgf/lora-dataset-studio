@@ -148,6 +148,7 @@ export default function BankPassesPanel({
           <Fold compact={compact} title="Watermarks">
           <BankWatermarkPanel bankId={bankId} live={live}
             onFind={() => onPassOpen('watermark')}
+            onFindText={() => onPassOpen('text_scan')}
             payload={payload} selectedIds={[...selected]}
             gpuPresent={scoreGpuPresent} onPickPython={onPickPython}
             onChanged={onChanged} />
