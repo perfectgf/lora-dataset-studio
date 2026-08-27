@@ -57,7 +57,8 @@ def _ocr_ready(monkeypatch, ok=True):
 def _fake_reader(monkeypatch, boxes_by_basename):
     from app.services import video_safe_zone
 
-    def fake(frames, *, timeout=None, should_stop=None, on_progress=None):
+    def fake(frames, *, timeout=None, should_stop=None, on_progress=None,
+             score_min=None):
         return {f['key']: [list(b) for b in
                            boxes_by_basename.get(os.path.basename(f['path']), [])]
                 for f in frames}
@@ -176,7 +177,8 @@ class TestDetectText:
             broken = _kept_image(svc, ds, 'broken.webp')
         _ocr_ready(monkeypatch)
 
-        def fake(frames, *, timeout=None, should_stop=None, on_progress=None):
+        def fake(frames, *, timeout=None, should_stop=None, on_progress=None,
+             score_min=None):
             return {f['key']: [list(b) for b in TWO_LINES]
                     for f in frames
                     if os.path.basename(f['path']) == 'ok.webp'}

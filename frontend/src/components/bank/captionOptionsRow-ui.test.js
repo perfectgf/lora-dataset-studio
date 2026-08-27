@@ -58,7 +58,10 @@ test('the caption options live INSIDE the caption window, not spread under the p
   // The window is what the pass button opens…
   assert.match(ws, /onClick=\{\(\) => onPassOpen\('caption'\)\}/);
   // …and the controls are handed to PassDialog, not rendered on the panel.
-  assert.match(ws, /passOpen === 'caption' \? captionRunControls : null/);
+  // (🔤 Find text hands its own controls through the same children seat, so
+  // the ternary grew a second arm — the invariant is that caption's controls
+  // are the caption window's children, wherever the chain ends.)
+  assert.match(ws, /passOpen === 'caption' \? captionRunControls\s*\n?\s*:/);
 });
 
 test('every new option is spread-if-set, so an untouched run posts the old body', () => {

@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-27-find-text-sample',
+    date: '2026-08-27',
+    title: 'Find text: try a sample, tune the sensitivity, then commit',
+    blurb:
+      'The 🔤 Find text launch window now carries two dials. “Try on a sample '
+      + 'first” reads only the first N pages of the scope — judge the zones in '
+      + '▶ Review, then launch the rest, or re-read the SAME sample after '
+      + 'moving the new Sensitivity slider (lower catches fainter lettering, '
+      + 'at the cost of false zones — stored once, the dataset scan reads it '
+      + 'too). No more committing a 9 000-page bank to find out.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-27-find-text-clean',
     date: '2026-08-27',
     title: 'Erase burned-in text — speech bubbles, subtitles, captions',

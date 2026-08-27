@@ -60,7 +60,8 @@ def _fake_reader(monkeypatch, boxes_by_basename, *, reachable=None):
     frames the 'child' reached (absent key = never read, the seam's contract)."""
     from app.services import video_safe_zone
 
-    def fake(frames, *, timeout=None, should_stop=None, on_progress=None):
+    def fake(frames, *, timeout=None, should_stop=None, on_progress=None,
+             score_min=None):
         out = {}
         for f in frames:
             base = os.path.basename(f['path'])
@@ -276,7 +277,8 @@ class TestTextScan:
         _ocr_ready(monkeypatch)
         from app.services import bank_jobs, video_safe_zone
 
-        def fake(frames, *, timeout=None, should_stop=None, on_progress=None):
+        def fake(frames, *, timeout=None, should_stop=None, on_progress=None,
+             score_min=None):
             # The user stops mid-chunk: the child answers what it read and
             # never reaches the rest — absent keys under a REAL cancel.
             bank_jobs.cancel(bank_id)
@@ -317,6 +319,85 @@ class TestTextScan:
         assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
         levels = client.get(f'/api/bank/{bank_id}/watermark/levels').get_json()
         assert levels['text'] == {'scanned': 2, 'found': 1, 'unscanned': 0}
+
+
+class TestSampleAndSensitivity:
+    """The launch window's two dials: a deterministic first-N sample, and the
+    stored sensitivity handed to the OCR seam."""
+
+    def test_sample_reads_the_first_n_and_leaves_the_rest_unscanned(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg', 'b.jpg', 'c.jpg'])
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {'a.jpg': TWO_LINES, 'b.jpg': [], 'c.jpg': TWO_LINES})
+        r = client.post(f'/api/bank/{bank_id}/text', json={'limit': 2})
+        assert r.status_code == 202, r.get_json()
+        rows = _rows(app, bank_id)
+        assert rows['a.jpg']['text_state'] == 'detected'
+        assert rows['b.jpg']['text_state'] == 'none'
+        assert rows['c.jpg']['text_state'] is None          # beyond the sample
+        from app.services import bank_jobs
+        with app.app_context():
+            detail = (bank_jobs.get(bank_id) or {}).get('detail') or ''
+        assert detail.startswith('sample')
+        assert 'Review' in detail
+        levels = client.get(f'/api/bank/{bank_id}/watermark/levels').get_json()
+        assert levels['text'] == {'scanned': 2, 'found': 1, 'unscanned': 1}
+        # A plain full run finishes exactly what the sample left.
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        assert _rows(app, bank_id)['c.jpg']['text_state'] == 'detected'
+
+    def test_sample_with_redo_rereads_the_same_first_images(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg', 'b.jpg', 'c.jpg'])
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {'a.jpg': [], 'b.jpg': [], 'c.jpg': []})
+        assert client.post(f'/api/bank/{bank_id}/text',
+                           json={'limit': 2}).status_code == 202
+        # New sensitivity, same sample: redo + limit re-reads a and b, not c.
+        _fake_reader(monkeypatch, {'a.jpg': TWO_LINES, 'b.jpg': TWO_LINES,
+                                   'c.jpg': TWO_LINES})
+        assert client.post(f'/api/bank/{bank_id}/text',
+                           json={'limit': 2, 'rescan': True}).status_code == 202
+        rows = _rows(app, bank_id)
+        assert rows['a.jpg']['text_state'] == 'detected'
+        assert rows['b.jpg']['text_state'] == 'detected'
+        assert rows['c.jpg']['text_state'] is None
+
+    def test_bad_limit_is_a_400(self, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg'])
+        _ocr_ready(monkeypatch)
+        assert client.post(f'/api/bank/{bank_id}/text',
+                           json={'limit': 0}).status_code == 400
+        assert client.post(f'/api/bank/{bank_id}/text',
+                           json={'limit': 'lots'}).status_code == 400
+
+    def test_stored_sensitivity_reaches_the_ocr_seam_clamped(
+            self, app, client, tmp_path, monkeypatch):
+        from app.services import video_safe_zone
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg'])
+        _ocr_ready(monkeypatch)
+        seen = {}
+
+        def fake(frames, *, timeout=None, should_stop=None, on_progress=None,
+                 score_min=None):
+            seen['score_min'] = score_min
+            return {f['key']: [] for f in frames}
+        monkeypatch.setattr(video_safe_zone, 'read_text_boxes', fake)
+        r = client.put('/api/settings',
+                       json={'config': {'text_scan': {'score_min': 0.35}}})
+        assert r.status_code == 200, r.get_json()
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        assert seen['score_min'] == 0.35
+        # A hand-edited absurd value degrades visibly, it does not abort.
+        assert client.put('/api/settings',
+                          json={'config': {'text_scan': {'score_min': 9}}}).status_code == 200
+        with app.app_context():
+            assert video_safe_zone.text_score_min() == 0.95
+
+    def test_capabilities_payload_carries_the_stored_sensitivity(self, client):
+        caps = client.get('/api/capabilities').get_json()
+        assert caps['text_scan_score_min'] == 0.5
 
 
 class TestWatermarkScanGuards:

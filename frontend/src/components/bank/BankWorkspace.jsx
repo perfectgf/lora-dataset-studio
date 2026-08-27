@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Archive, BarChart3, FolderInput, FolderOpen, Lightbulb, Palette, Rocket, Search, Target, Trash2, Type, Undo2, Wand2 } from 'lucide-react';
-import { apiFetch, patchJson, postJson } from '../../api/fetchClient'
+import { apiFetch, patchJson, postJson, putJson } from '../../api/fetchClient'
 import { useFolderPersons } from './useFolderPersons'
 import { useReviewLightbox } from './useReviewLightbox'
 import { useCaptionOptions } from './useCaptionOptions'
@@ -1170,6 +1170,66 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
      is the lever it names. It re-computes as the engine changes, so ticking
      JoyCaption turns the warning into its own confirmation instead of leaving an
      alarm on screen about a half that will no longer run. */
+  /* 🔤 Find text — the launch window's own dials. The sample is PER RUN
+     (session state: a tryout is a gesture, not a preference); the sensitivity
+     is the STORED text_scan.score_min both surfaces read, edited here because
+     this window is where its effect is judged (scan a sample → ▶ Review the
+     zones → adjust → re-read the same sample). Written through on release,
+     like the dataset's allow-crop switch. */
+  const [textSampleOn, setTextSampleOn] = useState(false)
+  const [textSampleSize, setTextSampleSize] = useState(20)
+  const storedTextSensitivity = Number.isFinite(Number(caps.text_scan_score_min))
+    ? Number(caps.text_scan_score_min) : 0.5
+  const [textSensitivity, setTextSensitivity] = useState(null)
+  const effectiveTextSensitivity = textSensitivity ?? storedTextSensitivity
+  const saveTextSensitivity = async (value) => {
+    try {
+      await putJson('/api/settings', { config: { text_scan: { score_min: value } } })
+    } catch { /* the run still uses the stored value; the slider shows what failed */ }
+  }
+  const textScanRunOptions = () => (textSampleOn
+    ? { limit: Math.max(1, Math.min(10000, Math.round(Number(textSampleSize) || 20))) }
+    : {})
+  const textScanControls = (
+    <div className="space-y-2 rounded-md border border-border bg-surface-raised p-2">
+      <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
+        Options for this run
+      </p>
+      <label className="flex items-start gap-2 text-[11px] text-content-subtle">
+        <input type="checkbox" className="mt-0.5" checked={textSampleOn}
+          onChange={(e) => setTextSampleOn(e.target.checked)} disabled={live} />
+        <span>
+          <span className="font-medium text-content">Try on a sample first</span>
+          {' — read only the first '}
+          <input type="number" min="1" max="10000" value={textSampleSize}
+            onChange={(e) => setTextSampleSize(e.target.value)}
+            disabled={live || !textSampleOn} aria-label="Sample size"
+            className="mx-1 w-16 rounded border border-border bg-app px-1 py-0.5 text-content" />
+          {' images of the scope. Judge the zones in ▶ Review (flagged), then '}
+          {'run again for the rest — or tick “re-read” above to try the SAME '}
+          {'sample at another sensitivity.'}
+        </span>
+      </label>
+      <label className="block text-[11px] text-content-subtle">
+        <span className="font-medium text-content">Sensitivity</span>
+        {' — the OCR confidence a line needs to become a zone. Lower catches '}
+        {'fainter or stylised lettering, at the cost of false zones. Stored: '}
+        {'the dataset scan reads the same value.'}
+        <span className="mt-1 flex items-center gap-2">
+          <input type="range" min="0.30" max="0.70" step="0.05"
+            value={effectiveTextSensitivity} disabled={live}
+            aria-label="Text sensitivity"
+            onChange={(e) => setTextSensitivity(Number(e.target.value))}
+            onMouseUp={() => saveTextSensitivity(effectiveTextSensitivity)}
+            onTouchEnd={() => saveTextSensitivity(effectiveTextSensitivity)}
+            onKeyUp={() => saveTextSensitivity(effectiveTextSensitivity)}
+            className="w-40" />
+          <span className="tabular-nums text-content">{effectiveTextSensitivity.toFixed(2)}</span>
+          <span className="text-content-subtle">(default 0.50)</span>
+        </span>
+      </label>
+    </div>
+  )
   const captionNsfw = captionNsfwNotice({
     payload,
     scopeId: captionScope,
@@ -2147,9 +2207,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             ? launchFacesFromDialog()
             : (passOpen === 'caption'
               ? startCaption(run)
-              : runPass(passOpen, run)))}
+              : (passOpen === 'text_scan'
+                ? runPass('text_scan', run, textScanRunOptions())
+                : runPass(passOpen, run))))}
           secondary={passOpen === 'caption' ? captionSecondary : null}>
-          {passOpen === 'caption' ? captionRunControls : null}
+          {passOpen === 'caption' ? captionRunControls
+            : passOpen === 'text_scan' ? textScanControls : null}
         </PassDialog>
       )}
 

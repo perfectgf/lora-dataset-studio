@@ -129,6 +129,20 @@ TEXT_SCORE_MIN = 0.5
 _TIMEOUT_PER_FRAME_S = 6
 _TIMEOUT_FLOOR_S = 300
 
+
+def text_score_min() -> float:
+    """The stored Sensitivity (text_scan.score_min) both image lanes read —
+    the OCR confidence a line must carry to become a repaint zone. Owned here,
+    next to the engine floor it overrides, so bank and dataset cannot each
+    grow a private copy of the clamp. The video lane's own pass keeps
+    TEXT_SCORE_MIN: its measurements feed crop decisions, and a slider tuned
+    for repainting comics must not silently move them."""
+    try:
+        value = float(cfg.get('text_scan.score_min'))
+    except (TypeError, ValueError):
+        return TEXT_SCORE_MIN
+    return min(0.95, max(0.05, value))
+
 _PROGRESS_RE = re.compile(r'\[text\] (\d+)/(\d+)')
 
 # The key that says this pass has been here. Named once: `pending_clips` uses its
@@ -210,7 +224,8 @@ def luma_grid(path, probe=geometry.BAND_PROBE):
     return [data[y * width:(y + 1) * width] for y in range(height)]
 
 
-def read_text_boxes(frames, *, timeout=None, should_stop=None, on_progress=None):
+def read_text_boxes(frames, *, timeout=None, should_stop=None, on_progress=None,
+                    score_min=None):
     """{key: [[x0,y0,x1,y1,score], ...]} for a chunk's frames — the MODEL seam.
 
     `frames` is [{'key', 'path'}]. One subprocess in the interpreter that has
@@ -236,7 +251,14 @@ def read_text_boxes(frames, *, timeout=None, should_stop=None, on_progress=None)
     budget = timeout or max(_TIMEOUT_FLOOR_S,
                             120 + _TIMEOUT_PER_FRAME_S * len(frames))
     cancel_path, ask_stop, cleanup = _stop_plumbing()
-    payload = json.dumps({'frames': frames, 'score_min': TEXT_SCORE_MIN,
+    # `score_min` overrides the floor per call — the image lanes' Sensitivity
+    # slider travels through here. None (every existing caller, the video pass
+    # included) keeps TEXT_SCORE_MIN byte for byte; the clamp keeps a
+    # hand-edited config from turning the floor into "flag every texture" (0)
+    # or "flag nothing" (1).
+    floor = TEXT_SCORE_MIN if score_min is None else \
+        min(0.95, max(0.05, float(score_min)))
+    payload = json.dumps({'frames': frames, 'score_min': floor,
                           'cancel_file': cancel_path}) + '\n'
 
     def _on_line(line):

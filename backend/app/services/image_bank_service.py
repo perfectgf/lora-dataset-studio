@@ -7889,17 +7889,32 @@ def _text_scan_query(bank_id, rescan, statuses=None, ids=None):
     return q
 
 
-def start_text_scan(app, user_id, bank_id, rescan=False, statuses=None, ids=None):
+def start_text_scan(app, user_id, bank_id, rescan=False, statuses=None, ids=None,
+                    limit=None):
     """Launch the 🔤 burned-in text scan over the bank's non-rejected images.
 
     CPU only, by construction: RapidOCR runs on the onnxruntime this app
     installs, so this pass NEVER takes the GPU window — it can measure a bank
     while a training run owns the card, exactly like the video lane's safe-zone
-    pass. That is also why there is no _gpu_busy_reason() gate here."""
+    pass. That is also why there is no _gpu_busy_reason() gate here.
+
+    ``limit`` is the launch window's "try on a sample first": only the first N
+    rows of the scope (by id — DETERMINISTIC, so re-running the sample with the
+    redo line re-reads the SAME images under a new Sensitivity). Everything the
+    sample does not reach simply stays unscanned, which the resume contract
+    already handles: the button then offers "Read the remaining …"."""
     from ..capabilities import probe_video_text
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            raise ValueError('limit must be a number of images')
+        if limit < 1:
+            raise ValueError('limit must be at least 1')
+        limit = min(limit, 10000)
     if bank_jobs.running(bank_id):
         raise bank_jobs.BankJobBusy((bank_jobs.get(bank_id) or {}).get('kind') or 'background')
     probe = probe_video_text()
@@ -7909,12 +7924,16 @@ def start_text_scan(app, user_id, bank_id, rescan=False, statuses=None, ids=None
                            + (f' — {detail}' if detail else '')
                            + '. Install "Burned-in text" from Setup, then run it again.')
     want = normalize_pass_statuses(statuses)
+    total_query = _text_scan_query(bank_id, rescan, want, ids)
+    total = total_query.count()
+    if limit is not None:
+        total = min(total, limit)
     return bank_jobs.start(app, bank_id, 'text_scan',
-                           _text_scan_job(bank_id, rescan, want, ids),
-                           total=_text_scan_query(bank_id, rescan, want, ids).count())
+                           _text_scan_job(bank_id, rescan, want, ids, limit=limit),
+                           total=total)
 
 
-def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
+def _text_scan_job(bank_id, rescan, statuses=None, ids=None, limit=None):
     """Same discipline as the two watermark scan jobs, deliberately: paths are
     resolved on the owning thread, verdicts commit per image, a deletion
     mid-pass is counted and skipped, and a stop keeps everything already
@@ -7924,12 +7943,18 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
     def run(job):
         import json as _json
         from .text_regions import text_mask_regions
-        from .video_safe_zone import read_text_boxes
+        from .video_safe_zone import read_text_boxes, text_score_min
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
         if not bank:
             return
-        rows = _text_scan_query(bank_id, rescan, statuses, ids).order_by(BankImage.id.asc()).all()
-        bank_jobs.progress(job, done=0, total=len(rows), detail='text scan')
+        rows_query = (_text_scan_query(bank_id, rescan, statuses, ids)
+                      .order_by(BankImage.id.asc()))
+        if limit is not None:
+            rows_query = rows_query.limit(limit)
+        rows = rows_query.all()
+        bank_jobs.progress(job, done=0, total=len(rows),
+                           detail='text scan (sample)' if limit is not None
+                           else 'text scan')
         if not rows:
             return
         found = clean = errors = vanished = stale = missing = 0
@@ -7975,7 +8000,8 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
             frames = [{'key': str(rid), 'path': path} for rid, path in chunk]
             try:
                 boxes_by_key = read_text_boxes(
-                    frames, should_stop=lambda: bank_jobs.cancelled(job))
+                    frames, should_stop=lambda: bank_jobs.cancelled(job),
+                    score_min=text_score_min())
             except RuntimeError as e:
                 # The engine could not run (uninstalled mid-pass, a broken
                 # onnxruntime DLL). Say so and leave every unscanned row
@@ -8071,6 +8097,14 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
             detail += (f', {uncovered} zone(s) beyond the 32-zone mask cap '
                        '(draw them in ▶ Review if they matter)')
         detail += skipped
+        if limit is not None:
+            # A sample run exists to be JUDGED: say where to look and what the
+            # next click is, instead of a bare count that reads like the pass
+            # covered everything it could.
+            detail = ('sample ' + detail
+                      + ' — open ▶ Review (flagged) to judge the zones, then '
+                        'run again for the rest, or re-read the same sample '
+                        'after changing the sensitivity')
         detail += _scope_note(bank_id, _text_todo_clause(), statuses, ids)
         bank_jobs.progress(job, detail=detail)
     return run

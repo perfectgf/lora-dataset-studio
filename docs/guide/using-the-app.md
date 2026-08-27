@@ -2195,9 +2195,22 @@ What it does *not* do, said plainly:
 - a **🚩 Find watermarks** run afterwards will not undo it: text zones survive
   the scan, and a watermark box found on the same image joins them.
 
+**Try it on a sample before paying for the whole bank.** The launch window
+carries two dials. *Try on a sample first* reads only the first N images of
+the scope (deterministic — a re-read hits the same pages), so on a 9 000-page
+bank you can judge the result on twenty before committing to the rest: scan
+the sample, open **▶ Review** on the flagged pages to see every zone drawn on
+the image, then either launch "Read the remaining …" as-is or adjust and
+re-read the same sample. *Sensitivity* is the OCR confidence a line needs to
+become a zone — lower catches fainter or more stylised lettering at the cost
+of false zones. It is stored (one value, both surfaces), and the zones are
+always yours to edit afterwards in **🚩 Edit mask**.
+
 It works on both surfaces — a bank's Watermarks panel carries the **🔤 Find
 text** card next to 🚩 Find, and a dataset's curation row carries the same
-button next to its watermark scan.
+button next to its watermark scan (the dataset scan reads the same stored
+sensitivity; the sample dial is the bank's — a dataset is small enough to
+just scan).
 
 
 ## Fix a watermark mask — or mark one the scan missed

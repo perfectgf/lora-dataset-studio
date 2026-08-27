@@ -9476,7 +9476,7 @@ def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
     the GPU window."""
     _guard_not_bank_export(dataset_id)
     from .text_regions import text_mask_regions
-    from .video_safe_zone import read_text_boxes
+    from .video_safe_zone import read_text_boxes, text_score_min
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return {'found': 0, 'none': 0, 'checked': 0}
@@ -9513,7 +9513,8 @@ def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
                 frames.append({'key': str(image_id), 'path': path})
             done += len(chunk_ids)
             if frames:
-                boxes_by_key = read_text_boxes(frames, should_stop=should_cancel)
+                boxes_by_key = read_text_boxes(frames, should_stop=should_cancel,
+                                               score_min=text_score_min())
                 for frame in frames:
                     image_id = int(frame['key'])
                     if frame['key'] not in boxes_by_key:

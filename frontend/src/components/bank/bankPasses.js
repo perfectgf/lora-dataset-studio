@@ -253,14 +253,25 @@ export const BANK_PASSES = {
       key: 'rescan',
       label: 'Also re-read images that were already scanned',
       note: 'Images you dismissed as “not watermarked” keep their ruling — this '
-        + 'pass never re-examines them, whichever line you pick.',
+        + 'pass never re-examines them, whichever line you pick. With “Try on '
+        + 'a sample” ticked, this re-reads the SAME first images — the way to '
+        + 'judge a new sensitivity on known pages.',
     },
-    settings: [],
+    settings: [
+      { name: 'Sensitivity (this window — stored as a setting)',
+        note: 'The OCR confidence a line needs to become a repaint zone. One '
+          + 'stored value; the dataset’s 🔤 Find text reads it too.' },
+    ],
     notHere: [
       'The repaint itself — 🧽 Inpaint on the Watermarks panel erases the '
         + 'zones this pass records.',
     ],
-    caveats: [],
+    caveats: [
+      '“Try on a sample first” reads only the first N images of the scope — '
+        + 'deterministic, so a re-read hits the same pages. What the sample '
+        + 'does not reach simply stays unscanned; the 🔤 card then offers '
+        + '“Read the remaining …”.',
+    ],
     binCost: 'each rejected image is read by the OCR engine',
   },
 

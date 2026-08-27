@@ -417,6 +417,12 @@ DEFAULTS = {
     # engine). A persisted user preference (Settings ▸ Watermark inpainting AND the
     # batch Clean bar both edit it); the review lightbox can still override it per image.
     'watermark': {'python': '', 'device': 'auto', 'allow_crop': True},  # auto|cuda|cpu
+    # 🔤 Find text (bank + dataset). score_min: the OCR confidence a line must
+    # carry to become a repaint zone — the launch window's Sensitivity slider
+    # writes it through. 0.5 is the engine's conventional floor (the video
+    # lane's TEXT_SCORE_MIN); lower catches fainter/stylised lettering at the
+    # cost of false zones. Read by BOTH surfaces so one slider rules them.
+    'text_scan': {'score_min': 0.5},
     # 🚩 Dedicated watermark DETECTOR (optional extra: a SigLIP2 classifier that
     # ranks + a Grounding DINO pass that locates). When installed, the Find pass
     # uses it instead of asking the vision model image by image; when not, nothing

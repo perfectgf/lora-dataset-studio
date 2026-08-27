@@ -1045,6 +1045,10 @@ def diagnostic():
             # allow_crop is the watermark auto-routing default (the trap: crop vs
             # inpaint). A non-sensitive knob whose value silently changes behaviour.
             'watermark_allow_crop': bool((conf.get('watermark') or {}).get('allow_crop')),
+            # 🔤 Find text sensitivity — the launch window's slider reads it
+            # here and writes it through PUT /api/settings. One stored value,
+            # both surfaces (bank and dataset passes read the same key).
+            'text_scan_score_min': (conf.get('text_scan') or {}).get('score_min'),
             'lan_enabled': (conf.get('server') or {}).get('host') not in (None, '', '127.0.0.1', 'localhost', '::1'),
         },
         # The configured vision-model string + the tags the probe actually sees at

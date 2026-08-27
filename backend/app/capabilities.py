@@ -852,6 +852,11 @@ def probe_masks() -> dict:
     return {'ok': ok, 'detail': 'rembg import OK' if ok else 'import failed'}
 
 
+def _text_scan_score_min_setting() -> float:
+    from .services.video_safe_zone import text_score_min
+    return text_score_min()
+
+
 def probe_video_text() -> dict:
     """Can this install read burned-in text? Used by 🔳 Safe zone.
 
@@ -2159,6 +2164,10 @@ def probe(force=False) -> dict:
         # review lightbox uses it as the per-image crop-vs-inpaint default; when False,
         # auto-routing repaints border marks instead of cropping them.
         'watermark_allow_crop': bool(cfg.get('watermark.allow_crop')),
+        # 🔤 Find text sensitivity — the launch window's slider reads it here
+        # and writes it through PUT /api/settings; both surfaces' passes read
+        # the same stored key (video_safe_zone.text_score_min owns the clamp).
+        'text_scan_score_min': _text_scan_score_min_setting(),
         # What an imported photo will actually be STORED as (Settings ▸ Captioning
         # & quality ▸ Dataset import). Published so the import screens can quote
         # the number instead of keeping their own copy of the default — the whole
