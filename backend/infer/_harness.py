@@ -1,10 +1,21 @@
 """Shared harness for the sibling infer scripts — stdlib ONLY, imported locally.
 
 These scripts run in their own interpreters (the torch/ML venvs), are launched
-as plain files (`python .../infer/xxx.py`, so this directory is sys.path[0]),
-and never import `app` on purpose. This module is their one shared layer and
-must stay importable everywhere they run: standard library only — no torch, no
-numpy, no app.*, nothing a bare interpreter lacks.
+as plain files (`python .../infer/xxx.py`), and never import `app` on purpose.
+This module is their one shared layer and must stay importable everywhere they
+run: standard library only — no torch, no numpy, no app.*, nothing a bare
+interpreter lacks.
+
+"Everywhere they run" includes interpreters that never put the script's own
+directory on sys.path. `python script.py` normally makes this directory
+sys.path[0] — but an embeddable Python (ComfyUI portable's python_embeded,
+whose ._pth file pins sys.path and implies isolated mode) skips that step, and
+a borrowed interpreter like that is exactly what the ✨ Score / semantic /
+watermark pickers point passes at. So every sibling restores the directory
+itself, right before its `from _harness import …` line
+(test_infer_harness_contract.py pins the pattern). The parent cannot do it for
+them: a ._pth interpreter ignores PYTHONPATH and every other environment
+variable too.
 (Under pytest and in the Flask process the resolution mechanism is
 app/services/atomic_npz.py, which already appends this directory to sys.path —
 the same door npz_atomic has always been imported through.)

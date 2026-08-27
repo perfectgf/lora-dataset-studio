@@ -25,6 +25,7 @@ FACTORED = {
     'face_score_infer.py': {'_log'},
     'shot_detect_infer.py': {'_log', '_emit', '_cancel_requested'},
     'siglip2_text_infer.py': {'_pooled_features'},
+    'text_fill_infer.py': {'_log', '_emit', '_cancel_requested'},
     'video_aesthetic_infer.py': {'_log', '_emit'},
     'video_ai_check_infer.py': {'_log', '_emit'},
     'video_caption_infer.py': {'_log', '_emit'},
@@ -66,3 +67,51 @@ def test_factored_scripts_import_and_do_not_redefine():
                      if isinstance(n, ast.FunctionDef)} & names
         assert names <= imported, (fname, names - imported)
         assert not redefined, (fname, redefined)
+
+
+def _harness_importers():
+    """Every infer script whose top level imports from _harness, discovered —
+    the FACTORED map is a curated view, and a curated view can miss a new file
+    (text_fill_infer.py shipped outside it)."""
+    for path in sorted(INFER.glob('*.py')):
+        if path.name == '_harness.py':
+            continue
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        if any(isinstance(n, ast.ImportFrom) and n.module == '_harness'
+               for n in tree.body):
+            yield path.name, tree
+
+
+def test_factored_map_covers_every_importer():
+    assert {name for name, _ in _harness_importers()} == set(FACTORED)
+
+
+def _restores_own_directory_first(tree):
+    """A top-level `sys.path.insert(...)` before the first _harness import."""
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == '_harness':
+            return False
+        for sub in ast.walk(node):
+            if (isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Attribute)
+                    and sub.func.attr == 'insert'
+                    and isinstance(sub.func.value, ast.Attribute)
+                    and sub.func.value.attr == 'path'
+                    and isinstance(sub.func.value.value, ast.Name)
+                    and sub.func.value.value.id == 'sys'):
+                return True
+    return True
+
+
+def test_every_harness_importer_restores_its_own_directory_first():
+    """`python script.py` normally puts the script's directory at sys.path[0],
+    which is what `from _harness import …` rides on — but an embeddable
+    interpreter (ComfyUI portable's python_embeded: its ._pth pins sys.path)
+    skips that step, and ✨ Score pointed at one died with "No module named
+    '_harness'" on every launch. Each importer must put its own directory back
+    BEFORE the import — the harness cannot do it for them, being the module
+    that fails to resolve; and the parent cannot either, because a ._pth
+    interpreter ignores PYTHONPATH."""
+    missing = [name for name, tree in _harness_importers()
+               if not _restores_own_directory_first(tree)]
+    assert not missing, missing

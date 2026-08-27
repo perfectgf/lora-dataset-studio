@@ -55,6 +55,12 @@ from __future__ import annotations
 import json
 import os
 import sys
+# A ._pth-pinned interpreter (ComfyUI portable's python_embeded) does not put
+# this script's directory on sys.path — restore it or the import below dies
+# there. See _harness.py for the whole story.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
 from _harness import _emit, _log
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
