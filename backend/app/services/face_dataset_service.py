@@ -9638,12 +9638,20 @@ def _wm_route_images(user_id, row_ids, token, method, allow_crop, lama_ok,
     _route_watermark to crop, inpaint or review. Returns
     (lama_pending, error, vanished) — the staged LaMa work, the last
     attempted-and-failed error, and the rows deleted mid-pass."""
-    from . import watermark_klein
+    from . import text_fill, watermark_klein
     # NOT a key in `out`: that dict is the route's response shape and existing
     # tests pin it. 'skipped' already means "engine unavailable" and must not be
     # overloaded with "the image no longer exists". Logged at the end instead.
     vanished = 0
     error = None
+    # The bubble-aware filler shares video_text's imports; False only when the
+    # extra vanished after the scan, and then text rows fall back to the
+    # whole-rectangle LaMa route (the pre-filler behaviour), never a refusal.
+    text_ok = text_fill.is_available()
+    # (image_id, live_path, staged_path, regions) — text-flagged rows, filled
+    # in ONE batch after this loop (a child per image would pay the cv2 import
+    # N times); LaMa then gets only the glyph-tight leftovers.
+    text_pending = []
     # (image_id, live_path, staged_path, bboxes, manual_regions). An ID, not an
     # ORM row: this list is carried across the whole per-image loop AND across
     # the LaMa batch, which runs for minutes -- by the time the tail loop writes,
@@ -9741,6 +9749,25 @@ def _wm_route_images(user_id, row_ids, token, method, allow_crop, lama_ok,
                 out['failed'] += 1
                 db.session.commit()
                 continue
+            if text_ok and img.text_state == 'detected':
+                # Text rows: the outline-safe filler first, whatever the
+                # engine toggle says — the toggle rules WATERMARKS, while text
+                # leftovers are glyph boxes on art, exactly LaMa's case (the
+                # bank does the same; full parity).
+                staged = _stage_oriented_watermark_edit(path)
+                if not staged:
+                    out['failed'] += 1
+                    error = {'kind': 'failed',
+                             'detail': 'could not stage image EXIF orientation'}
+                    db.session.commit()
+                    continue
+                if not _preserve_original(path):
+                    _backup_failed(img, staged)
+                    db.session.commit()
+                    continue
+                text_pending.append((img.id, path, staged, regions))
+                db.session.commit()
+                continue
             if method == 'klein':
                 _run_klein(img, path, regions, True)
                 db.session.commit()
@@ -9828,7 +9855,65 @@ def _wm_route_images(user_id, row_ids, token, method, allow_crop, lama_ok,
             else:  # 'review' -> stays 'detected' so the badge/count keep flagging it
                 out['needs_review'] += 1
         db.session.commit()
-    return lama_pending, error, vanished
+    return lama_pending, text_pending, error, vanished
+
+
+def _wm_text_fill_tail(dataset_id, text_pending, lama_pending, out, error,
+                       vanished):
+    """The bubble-aware filler's batch, between routing and the LaMa tail.
+
+    One child over every text-flagged staged copy: balloons are emptied
+    outline-safe in place; rows whose zones all filled are PROMOTED here and
+    stamped 'cleaned' (counted in ``out['text_filled']``); glyph-tight
+    leftovers on busy art are appended to ``lama_pending`` so the existing
+    LaMa tail finishes them — the whole point being that LaMa never again
+    sees the full rectangle that used to eat balloon outlines. A filler that
+    cannot run at all demotes every text row to that old rectangle route
+    instead of refusing the clean."""
+    from . import text_fill
+    if not text_pending:
+        return error, vanished
+    try:
+        fill_results = text_fill.fill_batch(
+            [{'image_path': staged, 'regions': regions}
+             for _pid, _live, staged, regions in text_pending])
+    except RuntimeError as fill_exc:
+        logger.warning('watermark: text filler unavailable for dataset %s '
+                       '(%s), falling back to rectangles', dataset_id, fill_exc)
+        fill_results = {}
+    for pending_id, live_path, staged_path, regions in text_pending:
+        res = fill_results.get(staged_path)
+        if res is None:
+            lama_pending.append((pending_id, live_path, staged_path,
+                                 regions, True))
+            continue
+        img = _live_image_row(pending_id)
+        if img is None:
+            _discard_staged_watermark_edit(staged_path)
+            vanished += 1
+            continue
+        if not res.get('ok'):
+            _discard_staged_watermark_edit(staged_path)
+            out['failed'] += 1
+            error = {'kind': 'failed',
+                     'detail': str(res.get('error') or 'text fill failed')}
+            db.session.commit()
+            continue
+        busy = [list(b) for b in (res.get('busy_boxes') or [])]
+        if busy:
+            lama_pending.append((pending_id, live_path, staged_path,
+                                 busy, True))
+            continue
+        if _promote_staged_watermark_edit(staged_path, live_path):
+            img.watermark_state = 'cleaned'
+            out['text_filled'] += 1
+        else:
+            _discard_staged_watermark_edit(staged_path)
+            out['failed'] += 1
+            error = {'kind': 'failed',
+                     'detail': 'could not promote staged watermark edit'}
+        db.session.commit()
+    return error, vanished
 
 
 def _wm_lama_tail(dataset_id, lama_pending, device, out, error, vanished):
@@ -9960,8 +10045,8 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
         q = q.filter(FaceDatasetImage.id.in_(ids or [-1]))   # empty subset -> match nothing
     rows = q.all()
     row_ids = [img.id for img in rows]
-    out = {'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'needs_review': 0,
-           'failed': 0, 'skipped': 0}
+    out = {'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'text_filled': 0,
+           'needs_review': 0, 'failed': 0, 'skipped': 0}
     lama_ok = watermark_lama.is_available()
     klein_ok = method == 'klein' and watermark_klein.is_available()
     # The Klein model this DATASET runs on — the same pick ✨ improve and Klein
@@ -9984,9 +10069,11 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
         dataset_id, 'watermark_clean', total=len(rows),
         detail=f'Cleaning watermarks on {device_label}…')
     try:
-        lama_pending, error, vanished = _wm_route_images(
+        lama_pending, text_pending, error, vanished = _wm_route_images(
             user_id, row_ids, token, method, allow_crop, lama_ok,
             klein_ok, klein_model, out)
+        error, vanished = _wm_text_fill_tail(
+            dataset_id, text_pending, lama_pending, out, error, vanished)
         error, vanished = _wm_lama_tail(
             dataset_id, lama_pending, device, out, error, vanished)
         if vanished:

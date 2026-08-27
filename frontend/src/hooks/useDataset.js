@@ -120,7 +120,8 @@ function summarizeClean(d) {
   const cropped = d.cropped || 0;
   // LaMa and Klein inpaints tally together — both "repainted the mark" from the
   // user's point of view (the batch method toggle picks which engine ran).
-  const inpainted = (d.inpainted || 0) + (d.inpainted_klein || 0);
+  const inpainted = (d.inpainted || 0) + (d.inpainted_klein || 0)
+    + (d.text_filled || 0);
   const skipped = d.skipped || 0;
   const needsReview = d.needs_review || 0;
   const failed = d.failed || 0;
@@ -129,7 +130,10 @@ function summarizeClean(d) {
   }
   const parts = [];
   if (cropped) parts.push(`${cropped} cropped`);
-  if (inpainted) parts.push(`${inpainted} inpainted`);
+  if (inpainted) {
+    parts.push(`${inpainted} inpainted`
+      + (d.text_filled ? ` (${d.text_filled} text-filled outline-safe)` : ''));
+  }
   if (skipped) parts.push(`${skipped} waiting for inpainting (⬇ install it)`);
   if (needsReview) parts.push(`${needsReview} need manual review`);
   if (failed) parts.push(`${failed} failed`);

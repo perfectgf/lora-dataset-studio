@@ -576,7 +576,8 @@ def test_clean_manual_regions_force_one_composite_inpaint_at_edge_and_survive(
 
         assert err is None
         assert counts == {
-            'cropped': 0, 'inpainted': 1, 'inpainted_klein': 0, 'needs_review': 0,
+            'cropped': 0, 'inpainted': 1, 'inpainted_klein': 0, 'text_filled': 0,
+            'needs_review': 0,
             'failed': 0, 'skipped': 0,
         }
         assert len(calls) == 1
@@ -627,7 +628,8 @@ def test_clean_empty_manual_override_needs_review_without_touching_pixels(app, m
 
         assert err is None
         assert counts == {
-            'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'needs_review': 1,
+            'cropped': 0, 'inpainted': 0, 'inpainted_klein': 0, 'text_filled': 0,
+            'needs_review': 1,
             'failed': 0, 'skipped': 0,
         }
         assert open(path, 'rb').read() == before

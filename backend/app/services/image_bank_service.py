@@ -8768,7 +8768,7 @@ def start_watermark_inpaint(app, user_id, bank_id, method='auto',
 def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
     def run(job):
         from contextlib import nullcontext
-        from . import watermark_klein, watermark_lama
+        from . import text_fill, watermark_klein, watermark_lama
         from .face_dataset_service import _clean_inpaint_engine, _route_watermark
         from ..gpu_window import gpu_exclusive_vision_window
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
@@ -8778,21 +8778,33 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
                 .order_by(BankImage.id.asc()).all())
         bank_jobs.progress(job, done=0, total=len(rows), detail='inpainting')
         row_ids = [r.id for r in rows]
-        counts = {'inpainted': 0, 'klein': 0, 'review': 0, 'failed': 0,
-                  'skipped': 0, 'empty': 0, 'vanished': 0}
+        counts = {'inpainted': 0, 'klein': 0, 'text_filled': 0, 'review': 0,
+                  'failed': 0, 'skipped': 0, 'empty': 0, 'vanished': 0}
         error = None
         lama_ok = watermark_lama.is_available()
+        # The bubble-aware filler shares video_text's imports, so a bank that
+        # flagged text can always fill it — this only goes False when the extra
+        # was removed after the scan, and then text rows fall back to the
+        # whole-rectangle route rather than being refused.
+        text_ok = text_fill.is_available()
         klein_ok = method == 'klein' and watermark_klein.is_available()
         # LaMa on the GPU pauses ComfyUI through the exclusive vision window;
         # Klein must NOT take that window — ComfyUI owns the GPU there and
         # holding it would deadlock its worker (same split as the dataset route).
         device = 'cpu' if method == 'klein' else watermark_lama.resolve_device()
-        # (image_id, dst_path, [bbox], raw_path, raw_fingerprint) for the single
-        # LaMa batch — ids, not ORM rows: this list is held across a batch that
-        # can run for minutes, and a row deleted in that window must be skippable
-        # rather than fatal. The raw identity closes that same minutes-long
-        # window for external source replacements.
+        # (image_id, dst_path, [bbox], raw_path, raw_fingerprint, method_label)
+        # for the single LaMa batch — ids, not ORM rows: this list is held
+        # across a batch that can run for minutes, and a row deleted in that
+        # window must be skippable rather than fatal. The raw identity closes
+        # that same minutes-long window for external source replacements.
+        # method_label is what the write-back stamps: 'lama' for watermark
+        # rows, 'text_fill' for text rows whose busy leftovers LaMa finishes.
         pending = []
+        # Text-flagged rows take the bubble-aware filler FIRST (one batch, like
+        # LaMa): it empties balloons outline-safe and returns glyph-tight boxes
+        # for whatever sat on art — which is all the repaint engine then gets,
+        # instead of the whole rectangle that used to eat balloon outlines.
+        pending_text = []
         window = (gpu_exclusive_vision_window(flag_ttl=1800)
                   if device == 'cuda' else nullcontext())
         try:
@@ -8868,6 +8880,15 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
                         counts['failed'] += 1
                         bank_jobs.bump(job)
                         continue
+                    if text_ok and row.text_state == 'detected':
+                        # Text rows: filler first; the engine (LaMa or Klein)
+                        # only ever sees what the filler hands back. Queued for
+                        # ONE batch — a child per image would pay the cv2
+                        # import N times for milliseconds of work each.
+                        pending_text.append((rid, dst, [list(b) for b in boxes],
+                                             src, expected_raw_fingerprint))
+                        bank_jobs.bump(job)
+                        continue
                     if engine == 'klein':
                         # No klein_model on purpose. The Klein model choice lives on
                         # the DATASET (it describes what a dataset is made of) and a
@@ -8895,21 +8916,83 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
                         bank_jobs.bump(job)
                         continue
                     pending.append((rid, dst, [list(b) for b in boxes], src,
-                                    expected_raw_fingerprint))
+                                    expected_raw_fingerprint, 'lama'))
                     bank_jobs.bump(job)
-                if pending and bank_jobs.cancelled(job):
+                if bank_jobs.cancelled(job):
                     # Stop means stop: the staged copies of rows we never got to
                     # repaint are thrown away rather than running a long batch
                     # after the user asked out (they stay 'detected', retryable).
-                    for pid, _dst, _boxes, _src, _fingerprint in pending:
+                    for pid, _dst, _boxes, _src, _fingerprint, _label in pending:
+                        _drop_clean_blob_by_id(bank_id, pid)
+                    for pid, _dst, _boxes, _src, _fingerprint in pending_text:
                         _drop_clean_blob_by_id(bank_id, pid)
                     pending = []
+                    pending_text = []
+                if pending_text:
+                    try:
+                        fill_results = text_fill.fill_batch(
+                            [{'image_path': str(dst), 'regions': boxes}
+                             for _rid, dst, boxes, _src, _fp in pending_text],
+                            should_stop=lambda: bank_jobs.cancelled(job))
+                    except RuntimeError as fill_exc:
+                        # The filler could not run at all: fall back to the
+                        # whole-rectangle route for every text row — the
+                        # pre-filler behaviour, never a refused clean.
+                        logger.warning('bank inpaint: text filler unavailable '
+                                       '(%s), falling back to rectangles',
+                                       fill_exc)
+                        fill_results = {}
+                    for rid, dst, boxes, src, fp in pending_text:
+                        res = fill_results.get(str(dst))
+                        if res is None:
+                            pending.append((rid, dst, boxes, src, fp, 'lama'))
+                            continue
+                        if not res.get('ok'):
+                            row = _live_image(rid)
+                            if row is not None:
+                                _discard_clean_blob(bank_id, row)
+                            else:
+                                _drop_clean_blob_by_id(bank_id, rid)
+                            counts['failed'] += 1
+                            error = error or {
+                                'kind': 'failed',
+                                'detail': str(res.get('error')
+                                              or 'text fill failed')}
+                            db.session.commit()
+                            continue
+                        busy = [list(b) for b in (res.get('busy_boxes') or [])]
+                        if busy:
+                            # LaMa finishes the glyph-tight leftovers in the
+                            # shared batch below — ALWAYS LaMa, whatever the
+                            # engine toggle says: the toggle picks the engine
+                            # for WATERMARKS, while text leftovers are small
+                            # glyph boxes on art, exactly LaMa's case, and the
+                            # dataset surface does the same (full parity). The
+                            # stamp stays 'text_fill' — the funnel the user
+                            # ran, not the helper engine.
+                            pending.append((rid, dst, busy, src, fp, 'text_fill'))
+                            continue
+                        row = _live_image(rid)
+                        if row is None:
+                            _drop_clean_blob_by_id(bank_id, rid)
+                            counts['vanished'] += 1
+                            continue
+                        if not _prepare_watermark_write(row, src, fp):
+                            _discard_clean_blob(bank_id, row)
+                            counts['failed'] += 1
+                            db.session.commit()
+                            continue
+                        row.watermark_state = 'cleaned'
+                        row.watermark_clean_method = 'text_fill'
+                        _invalidate_effective_analysis(row)
+                        counts['text_filled'] += 1
+                        db.session.commit()
                 if pending:
                     results = watermark_lama.inpaint_batch(
                         [{'image_path': str(dst), 'bboxes': boxes}
-                         for _rid, dst, boxes, _src, _fingerprint in pending],
+                         for _rid, dst, boxes, _src, _fingerprint, _label in pending],
                         device=device)
-                    for pid, dst, _boxes, src, expected_raw_fingerprint in pending:
+                    for pid, dst, _boxes, src, expected_raw_fingerprint, label in pending:
                         row = _live_image(pid)
                         if row is None:
                             # Deleted while the batch ran: no row is left to point
@@ -8925,9 +9008,10 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
                             row, src, expected_raw_fingerprint)
                         if ok and generation_ok:
                             row.watermark_state = 'cleaned'
-                            row.watermark_clean_method = 'lama'
+                            row.watermark_clean_method = label
                             _invalidate_effective_analysis(row)
-                            counts['inpainted'] += 1
+                            counts['text_filled' if label == 'text_fill'
+                                   else 'inpainted'] += 1
                         else:
                             _discard_clean_blob(bank_id, row)
                             counts['skipped' if (err or {}).get('kind') == 'unavailable'
@@ -8935,13 +9019,15 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
                             error = err or error
         finally:
             db.session.commit()
-            if counts['inpainted'] or counts['klein']:
+            if counts['inpainted'] or counts['klein'] or counts['text_filled']:
                 reset_score_memo()
-        done = counts['inpainted'] + counts['klein']
+        done = counts['inpainted'] + counts['klein'] + counts['text_filled']
         if bank_jobs.cancelled(job):
             bank_jobs.progress(job, detail=f'cancelled — {done} inpainted so far')
             return
         detail = f'done — {done} inpainted'
+        if counts['text_filled']:
+            detail += (f" ({counts['text_filled']} text-filled outline-safe)")
         if counts['review']:
             detail += (f", {counts['review']} on the subject "
                        '(switch the engine to Klein to repaint those)')
@@ -9185,7 +9271,8 @@ def watermark_levels(user_id, bank_id) -> dict | None:
         'empty_masks': empty_masks,
         'cropped': base.filter_by(watermark_clean_method='crop').count(),
         'inpainted': base.filter(
-            BankImage.watermark_clean_method.in_(('lama', 'klein'))).count(),
+            BankImage.watermark_clean_method.in_(
+                ('lama', 'klein', 'text_fill'))).count(),
         'dismissed': base.filter(
             BankImage.watermark_state == 'dismissed',
             ~_watermark_history_inactive_clause()).count(),

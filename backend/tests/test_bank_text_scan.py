@@ -321,6 +321,100 @@ class TestTextScan:
         assert levels['text'] == {'scanned': 2, 'found': 1, 'unscanned': 0}
 
 
+class TestTextClean:
+    """The repaint level on text-flagged rows: filler first, LaMa only on the
+    glyph-tight leftovers, and honest fallbacks when the filler is gone."""
+
+    def _flag_text(self, app, client, tmp_path, monkeypatch, names=('page.jpg',)):
+        bank_id, _src = _mkbank(client, tmp_path, list(names))
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {n: TWO_LINES for n in names})
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        return bank_id
+
+    def _arm_engines(self, monkeypatch, fill_result, lama_calls=None):
+        from app.services import text_fill, watermark_lama
+
+        def fake_fill(items, **kwargs):
+            return {i['image_path']: dict(fill_result) for i in items}
+        monkeypatch.setattr(text_fill, 'fill_batch', fake_fill)
+        monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+        monkeypatch.setattr(watermark_lama, 'resolve_device', lambda: 'cpu')
+
+        def fake_batch(items, device='cpu'):
+            if lama_calls is not None:
+                lama_calls.extend(items)
+            return {i['image_path']: (True, None) for i in items}
+        monkeypatch.setattr(watermark_lama, 'inpaint_batch', fake_batch)
+
+    def test_all_zones_filled_stamps_text_fill_and_counts_as_inpainted(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flag_text(app, client, tmp_path, monkeypatch)
+        lama_calls = []
+        self._arm_engines(monkeypatch,
+                          {'ok': True, 'filled': 1, 'busy_boxes': []},
+                          lama_calls)
+        r = client.post(f'/api/bank/{bank_id}/watermark/inpaint', json={})
+        assert r.status_code == 202, r.get_json()
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['watermark_state'] == 'cleaned'
+        assert page['watermark_clean_method'] == 'text_fill'
+        assert lama_calls == []              # nothing left for LaMa
+        levels = client.get(f'/api/bank/{bank_id}/watermark/levels').get_json()
+        assert levels['inpainted'] == 1
+        from app.services import bank_jobs
+        with app.app_context():
+            detail = (bank_jobs.get(bank_id) or {}).get('detail') or ''
+        assert 'text-filled' in detail
+
+    def test_busy_leftovers_go_to_lama_with_glyph_boxes_not_the_rectangle(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flag_text(app, client, tmp_path, monkeypatch)
+        busy = [[0.4, 0.4, 0.45, 0.45]]
+        lama_calls = []
+        self._arm_engines(monkeypatch,
+                          {'ok': True, 'filled': 1, 'busy_boxes': busy},
+                          lama_calls)
+        assert client.post(f'/api/bank/{bank_id}/watermark/inpaint',
+                           json={}).status_code == 202
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['watermark_state'] == 'cleaned'
+        assert page['watermark_clean_method'] == 'text_fill'
+        assert len(lama_calls) == 1
+        assert lama_calls[0]['bboxes'] == busy      # glyph boxes, not the zone
+
+    def test_filler_down_falls_back_to_the_old_rectangle_route(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flag_text(app, client, tmp_path, monkeypatch)
+        from app.services import text_fill
+
+        def boom(items, **kwargs):
+            raise RuntimeError('filler gone')
+        lama_calls = []
+        self._arm_engines(monkeypatch, {'ok': True}, lama_calls)
+        monkeypatch.setattr(text_fill, 'fill_batch', boom)
+        assert client.post(f'/api/bank/{bank_id}/watermark/inpaint',
+                           json={}).status_code == 202
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['watermark_state'] == 'cleaned'
+        assert page['watermark_clean_method'] == 'lama'   # the pre-filler route
+        assert len(lama_calls) == 1
+        assert len(lama_calls[0]['bboxes'][0]) == 4       # full zones
+
+    def test_undo_takes_a_text_fill_back_like_any_clean(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flag_text(app, client, tmp_path, monkeypatch)
+        self._arm_engines(monkeypatch,
+                          {'ok': True, 'filled': 1, 'busy_boxes': []})
+        assert client.post(f'/api/bank/{bank_id}/watermark/inpaint',
+                           json={}).status_code == 202
+        r = client.post(f'/api/bank/{bank_id}/watermark/undo', json={})
+        assert r.status_code == 200 and r.get_json()['restored'] == 1
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['watermark_state'] == 'detected'
+        assert page['watermark_clean_method'] is None
+
+
 class TestSampleAndSensitivity:
     """The launch window's two dials: a deterministic first-N sample, and the
     stored sensitivity handed to the OCR seam."""

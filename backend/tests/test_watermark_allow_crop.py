@@ -141,7 +141,7 @@ def test_clean_route_forwards_allow_crop_false(client, monkeypatch):
     monkeypatch.setattr(svc, 'clean_watermarks',
                         lambda u, d, image_ids=None, device=None, method=None, allow_crop='_absent': (
                             seen.update(allow_crop=allow_crop)
-                            or ({'cropped': 0, 'inpainted': 1, 'inpainted_klein': 0,
+                            or ({'cropped': 0, 'inpainted': 1, 'inpainted_klein': 0, 'text_filled': 0,
                                  'needs_review': 0, 'failed': 0, 'skipped': 0}, None)))
     ds_id = client.post('/api/dataset/create', json={'name': 'R', 'trigger_word': 'r'}).get_json()['id']
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'allow_crop': False})

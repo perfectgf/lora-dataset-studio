@@ -83,6 +83,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-text-fill-outline-safe',
+    date: '2026-08-28',
+    title: 'Text cleaning stops breaking speech bubbles',
+    blurb:
+      'Repainting a 🔤 text zone used to hand the WHOLE rectangle to the '
+      + 'repaint model, which kept eating balloon outlines and cartouche '
+      + 'borders. Zones found by Find text now go through an outline-safe '
+      + 'filler first: the letters are emptied with the bubble’s own '
+      + 'background (instant, on the CPU), anything drawn across the zone '
+      + 'edge — the outline, the art — is untouched by '
+      + 'construction, and the repaint model only ever sees the leftover '
+      + 'lettering on busy art. Both surfaces; ↩ Undo then Clean again '
+      + 'upgrades pages you already cleaned.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-27-civitai-prompt-browser',
     date: '2026-08-27',
     title: 'Borrow a prompt from Civitai’s top images',
