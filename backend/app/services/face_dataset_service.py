@@ -9485,6 +9485,8 @@ def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
     row_ids = [img.id for img in rows]
     counts = {'found': 0, 'none': 0, 'checked': 0}
     uncovered = 0
+    unreadable = 0
+    missing = 0
     stopped = False
     chunk_size = 40      # the video lane's measured OCR chunk (one child each)
     token = dataset_activity.begin(dataset_id, 'text_detect', total=len(row_ids))
@@ -9506,6 +9508,7 @@ def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
                     continue     # already answered ('error' rows are retried)
                 path = _img_path(img)
                 if not os.path.exists(path):
+                    missing += 1     # counted, not silently absent from 'checked'
                     continue
                 frames.append({'key': str(image_id), 'path': path})
             done += len(chunk_ids)
@@ -9514,10 +9517,20 @@ def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
                 for frame in frames:
                     image_id = int(frame['key'])
                     if frame['key'] not in boxes_by_key:
-                        # The child never reached this frame (a Stop landed on
-                        # the chunk): the row stays unscanned, a later run
-                        # finishes it — absent ≠ empty is the seam's contract.
-                        stopped = True
+                        # Absent ≠ empty is the seam's contract, and absence
+                        # has two causes (same guard as the bank pass). During
+                        # a Stop: never reached — leave the row unscanned.
+                        # With no stop asked: the child could not READ the
+                        # file — a per-image error, counted, retryable on the
+                        # next plain run, never a whole-pass "Stopped".
+                        if should_cancel and should_cancel():
+                            stopped = True
+                            continue
+                        img = _live_image_row(image_id)
+                        if img is not None:
+                            img.text_state = 'error'
+                            unreadable += 1
+                            db.session.commit()
                         continue
                     img = _live_image_row(image_id)
                     if img is None:
@@ -9542,7 +9555,8 @@ def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
         db.session.commit()
         dataset_activity.end(token)
     if report is not None:
-        report.update({'stopped': stopped, 'uncovered': uncovered})
+        report.update({'stopped': stopped, 'uncovered': uncovered,
+                       'unreadable': unreadable, 'missing': missing})
     return counts
 
 

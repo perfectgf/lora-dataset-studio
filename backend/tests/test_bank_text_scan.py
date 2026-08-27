@@ -220,8 +220,13 @@ class TestTextScan:
         assert page['text_state'] is None
         assert page['watermark_state'] is None
 
-    def test_unreached_frames_stay_unscanned(
+    def test_unreadable_files_are_errors_not_a_cancelled_pass(
             self, app, client, tmp_path, monkeypatch):
+        # A missing key with NO stop asked means the child could not READ the
+        # file (a real bank hit this on every image at once — an unreadable
+        # path — and the pass lied "cancelled — 0 with text"). The row is
+        # marked 'error' (retried by the next plain run) and the pass says
+        # done, with the shortfall counted.
         bank_id, _src = _mkbank(client, tmp_path, ['a.jpg', 'b.jpg'])
         _ocr_ready(monkeypatch)
         _fake_reader(monkeypatch, {'a.jpg': TWO_LINES, 'b.jpg': TWO_LINES},
@@ -229,7 +234,62 @@ class TestTextScan:
         assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
         rows = _rows(app, bank_id)
         assert rows['a.jpg']['text_state'] == 'detected'
-        assert rows['b.jpg']['text_state'] is None     # absent key = never read
+        assert rows['b.jpg']['text_state'] == 'error'
+        from app.services import bank_jobs
+        with app.app_context():
+            detail = (bank_jobs.get(bank_id) or {}).get('detail') or ''
+        assert detail.startswith('done')
+        assert 'cancelled' not in detail
+        assert '1 unreadable' in detail
+        # The next plain run adopts the errored row (the todo clause keeps it).
+        _fake_reader(monkeypatch, {'a.jpg': TWO_LINES, 'b.jpg': TWO_LINES})
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        assert _rows(app, bank_id)['b.jpg']['text_state'] == 'detected'
+
+    def test_a_vanished_source_folder_reads_as_missing_not_cancelled(
+            self, app, client, tmp_path, monkeypatch):
+        # The real 81-image incident: the bank's source folder was renamed
+        # under it (a downloader re-padding its chapter names). The pass must
+        # say "no longer on disk", touch nothing, and never start the OCR
+        # child for files it can see are gone.
+        import shutil
+        bank_id, src = _mkbank(client, tmp_path, ['a.jpg', 'b.jpg'])
+        _ocr_ready(monkeypatch)
+        from app.services import bank_jobs, video_safe_zone
+
+        def never(frames, **kwargs):
+            raise AssertionError('the OCR child must not run on missing files')
+        monkeypatch.setattr(video_safe_zone, 'read_text_boxes', never)
+        shutil.rmtree(src)
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        rows = _rows(app, bank_id)
+        assert all(r['text_state'] is None for r in rows.values())
+        with app.app_context():
+            detail = (bank_jobs.get(bank_id) or {}).get('detail') or ''
+        assert detail.startswith('done')
+        assert 'no longer on disk' in detail
+        assert 'cancelled' not in detail
+
+    def test_a_real_stop_leaves_unreached_rows_unscanned(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg', 'b.jpg'])
+        _ocr_ready(monkeypatch)
+        from app.services import bank_jobs, video_safe_zone
+
+        def fake(frames, *, timeout=None, should_stop=None, on_progress=None):
+            # The user stops mid-chunk: the child answers what it read and
+            # never reaches the rest — absent keys under a REAL cancel.
+            bank_jobs.cancel(bank_id)
+            return {f['key']: [list(b) for b in TWO_LINES]
+                    for f in frames
+                    if os.path.basename(f['path']) == 'a.jpg'}
+        monkeypatch.setattr(video_safe_zone, 'read_text_boxes', fake)
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        rows = _rows(app, bank_id)
+        assert rows['b.jpg']['text_state'] is None     # unscanned, not 'error'
+        with app.app_context():
+            detail = (bank_jobs.get(bank_id) or {}).get('detail') or ''
+        assert detail.startswith('cancelled')
 
     def test_hand_drawn_mask_survives_a_text_scan(
             self, app, client, tmp_path, monkeypatch):

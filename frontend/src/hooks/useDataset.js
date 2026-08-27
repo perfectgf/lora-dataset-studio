@@ -858,6 +858,13 @@ export function useDataset() {
         toast.info(`${d.uncovered} zone(s) beyond the 32-zone mask cap — open `
           + '🔍 Review flagged and draw them if they matter.');
       }
+      // Files the reader could not open are counted, not silently missing —
+      // they stay retryable and this is the only place the user learns why
+      // the checked total fell short.
+      if (d.unreadable) {
+        toast.info(`${d.unreadable} file(s) the text reader could not open — `
+          + 'they are marked in error and a later run retries them.');
+      }
       await refresh(run.datasetId);
     } finally {
       finishLocalActivityRun(run);

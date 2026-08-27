@@ -62,6 +62,45 @@ from _harness import _cancel_requested, _emit, _log
 os.environ['CUDA_VISIBLE_DEVICES'] = ''
 
 
+def _read_bgr(path):
+    """The image as a BGR array, or None — three readers, cheapest first.
+
+    cv2.imread leads: the historical reader, and the one that applies EXIF
+    orientation (the boxes must live in the VISUAL geometry the repaint
+    consumes). But on Windows it cannot open a non-ASCII path at all —
+    measured: an accented folder name returns None with a findDecoder
+    warning — which the image lane hits on real banks; video frames never
+    did, their temp dir is ASCII. So a None falls through to PIL, which is
+    unicode-safe and whose exif_transpose keeps the same visual geometry.
+    PIL missing or refusing still falls through to np.fromfile + imdecode:
+    unicode-safe too, no EXIF, better than dropping the file — for the pages
+    and screenshots this lane reads, rotation EXIF is rare anyway.
+
+    Imports live inside on purpose, like main()'s own cv2 import: this module
+    must stay importable for tests without any of the heavy deps present.
+    """
+    import cv2
+    try:
+        image = cv2.imread(path)
+    except Exception:  # noqa: BLE001
+        image = None
+    if image is not None:
+        return image
+    try:
+        import numpy as np
+        from PIL import Image, ImageOps
+        with Image.open(path) as im:
+            rgb = ImageOps.exif_transpose(im).convert('RGB')
+            return np.asarray(rgb)[:, :, ::-1].copy()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        import numpy as np
+        return cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_COLOR)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _boxes_of(result, width, height, score_min):
     """RapidOCR's [(quad, text, score), ...] as normalised [x0,y0,x1,y1,score].
 
@@ -115,7 +154,11 @@ def main() -> int:
         return 0
 
     try:
-        import cv2
+        # cv2 unused HERE on purpose (reading moved into _read_bgr): this
+        # import is the dependency PROBE. Without it a missing cv2 would
+        # surface as "every file unreadable" instead of the clean
+        # "OCR deps missing" JSON the parent turns into an install hint.
+        import cv2  # noqa: F401
         from rapidocr_onnxruntime import RapidOCR
     except Exception as e:  # noqa: BLE001 — clean JSON, never a mute traceback
         # The whole reason this is a subprocess: the parent turns this sentence
@@ -139,16 +182,14 @@ def main() -> int:
             stopped = True
             break
         path = frame['path']
-        # cv2 rather than the engine's own path handling: the parent needs the
-        # boxes normalised, which needs the frame's size, and reading the array
-        # here is the only place that knows it. imread answers None on an
-        # unreadable file instead of raising, so a single truncated JPEG leaves
-        # its frame without boxes rather than sinking the chunk.
-        image = None
-        try:
-            image = cv2.imread(path)
-        except Exception:  # noqa: BLE001
-            image = None
+        # Read here rather than through the engine's own path handling: the
+        # parent needs the boxes normalised, which needs the frame's size, and
+        # reading the array here is the only place that knows it. _read_bgr
+        # answers None on an unreadable file instead of raising, so a single
+        # truncated JPEG leaves its frame without boxes rather than sinking
+        # the chunk — and its fallbacks keep non-ASCII paths readable, which
+        # plain cv2.imread is not on Windows.
+        image = _read_bgr(path)
         if image is None:
             _log(f'[text] {i}/{total}')
             continue

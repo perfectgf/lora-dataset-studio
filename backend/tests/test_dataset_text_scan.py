@@ -163,6 +163,37 @@ class TestDetectText:
         assert client.post(f'/api/dataset/{ds}/text/detect/cancel',
                            json={}).status_code == 409
 
+    def test_unreadable_files_are_errors_and_reported_not_stopped(
+            self, app, client, monkeypatch):
+        # Same guard as the bank pass: a key the child never answered, with no
+        # stop asked, is a file its reader could not open — a counted per-image
+        # error the next plain run retries, never a phantom "Stopped".
+        from app.services import face_dataset_service as svc
+        from app.services import video_safe_zone
+        ds = _create(client)
+        with app.app_context():
+            readable = _kept_image(svc, ds, 'ok.webp')
+            broken = _kept_image(svc, ds, 'broken.webp')
+        _ocr_ready(monkeypatch)
+
+        def fake(frames, *, timeout=None, should_stop=None, on_progress=None):
+            return {f['key']: [list(b) for b in TWO_LINES]
+                    for f in frames
+                    if os.path.basename(f['path']) == 'ok.webp'}
+        monkeypatch.setattr(video_safe_zone, 'read_text_boxes', fake)
+        r = client.post(f'/api/dataset/{ds}/text/detect', json={})
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['stopped'] is False
+        assert body['unreadable'] == 1
+        assert _row(app, readable)['text_state'] == 'detected'
+        assert _row(app, broken)['text_state'] == 'error'
+        # The next plain run retries the errored row.
+        _fake_reader(monkeypatch, {'ok.webp': TWO_LINES, 'broken.webp': TWO_LINES})
+        assert client.post(f'/api/dataset/{ds}/text/detect',
+                           json={}).get_json()['found'] == 1
+        assert _row(app, broken)['text_state'] == 'detected'
+
 
 class TestWatermarkScanGuards:
     """A watermark scan runs AFTER a text scan: the text zones must survive it.

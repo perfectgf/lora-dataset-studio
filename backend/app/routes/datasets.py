@@ -1309,7 +1309,14 @@ def dataset_text_detect(dataset_id):
         dataset_activity.clear_cancel(dataset_id, dataset_activity.TEXT_KINDS)
     return jsonify({'ok': True, **counts,
                     'stopped': bool(report.get('stopped')),
-                    'uncovered': report.get('uncovered', 0)})
+                    'uncovered': report.get('uncovered', 0),
+                    # Files the OCR child could not open — counted per image
+                    # (text_state='error', retried on the next plain run), so
+                    # the toast can say it instead of a silent shortfall.
+                    'unreadable': report.get('unreadable', 0),
+                    # Files no longer on disk when the pass looked — skipped
+                    # before the child ran, state untouched.
+                    'missing': report.get('missing', 0)})
 
 
 @bp.post('/dataset/<int:dataset_id>/text/detect/cancel')

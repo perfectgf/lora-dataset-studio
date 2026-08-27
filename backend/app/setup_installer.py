@@ -438,8 +438,12 @@ _CAPABILITY_PACKAGES = {
     #               server: naming the headless variant makes pip prefer it, the
     #               same trick face_scoring and masks already use for the same
     #               transitive dependency.
+    # pillow: the worker's unicode-path reader falls back to PIL (cv2.imread
+    # cannot open non-ASCII paths on Windows). Always present in the app's own
+    # Python — the app itself requires it — listed so a custom video_text
+    # interpreter gets it installed rather than probing ✗ unrepairably.
     'video_text': ('rapidocr-onnxruntime', 'onnxruntime', 'numpy',
-                   'opencv-python-headless'),
+                   'opencv-python-headless', 'pillow'),
     #   bank_scoring  has its own worker and its own package tuple
     #                 (_BANK_SCORING_PKGS); only the ONE package whose version
     #                 floor matters is declared in requirements-ml.txt, so it is

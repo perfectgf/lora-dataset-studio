@@ -7932,7 +7932,7 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
         bank_jobs.progress(job, done=0, total=len(rows), detail='text scan')
         if not rows:
             return
-        found = clean = errors = vanished = stale = 0
+        found = clean = errors = vanished = stale = missing = 0
         uncovered = 0     # zones past the 32-zone mask cap, summed — never silent
         planned = []
         for row_id in [r.id for r in rows]:
@@ -7948,14 +7948,26 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
                 vanished += 1
                 bank_jobs.bump(job)
                 continue
+            if not os.path.isfile(path):
+                # The whole source folder can be gone (moved, renamed, a
+                # disconnected drive — the bank header says so): counted as
+                # "no longer on disk" and NOT sent to the OCR child, which
+                # would burn a whole chunk discovering the same absence one
+                # file at a time. The row keeps its state — reconnect the
+                # folder and a plain run picks it up.
+                missing += 1
+                bank_jobs.bump(job)
+                continue
             planned.append((row_id, path))
         db.session.commit()
         if not planned:
+            # The same clauses as the full ending — this early exit is exactly
+            # where a whole vanished source folder lands (every file counted
+            # 'no longer on disk'), and it must say so, not just "nothing left".
             bank_jobs.progress(
                 job, detail='done — nothing left to scan'
-                + (f' ({vanished} skipped: gone while the pass ran)' if vanished else ''))
+                + _skipped_note(vanished=vanished, missing=missing))
             return
-        stopped_early = False
         for chunk_start in range(0, len(planned), TEXT_SCAN_CHUNK):
             if bank_jobs.cancelled(job):
                 break
@@ -7979,10 +7991,27 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
             for rid, path in chunk:
                 key = str(rid)
                 if key not in boxes_by_key:
-                    # The child never reached this frame (a Stop landed on the
-                    # chunk). Absent ≠ empty is the child's own contract; these
-                    # rows stay unscanned and a later run finishes them.
-                    stopped_early = True
+                    # Absent ≠ empty is the child's contract, and absence has
+                    # exactly two causes. During a Stop it means "never
+                    # reached": leave the row unscanned for the next run. With
+                    # NO stop asked it means the child could not READ the file
+                    # (its reader keys everything it opens, readable-but-empty
+                    # included) — that is a per-image error, counted and
+                    # retryable, never a reason to call the whole pass
+                    # cancelled. A real bank hit this on all 81 images at once
+                    # (an unreadable path) and the pass reported "cancelled —
+                    # 0 with text" over a stop nobody had asked for.
+                    if bank_jobs.cancelled(job):
+                        continue
+                    row = _live_image(rid)
+                    if row is None:
+                        vanished += 1
+                        bank_jobs.bump(job)
+                        continue
+                    row.text_state = 'error'
+                    errors += 1
+                    bank_jobs.bump(job)
+                    db.session.commit()
                     continue
                 row = _live_image(rid)
                 if row is None:
@@ -8028,8 +8057,9 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None):
                 # SQLite write lock across an unbounded run.
                 db.session.commit()
         db.session.commit()
-        skipped = _skipped_note(vanished=vanished, stale=stale, unreadable=errors)
-        if bank_jobs.cancelled(job) or stopped_early:
+        skipped = _skipped_note(vanished=vanished, missing=missing, stale=stale,
+                                unreadable=errors)
+        if bank_jobs.cancelled(job):
             bank_jobs.progress(job, detail=f'cancelled — {found} with text so far'
                                            + skipped)
             return

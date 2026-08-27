@@ -806,7 +806,7 @@ def test_the_probe_imports_everything_the_worker_imports():
     # shipped NEXT TO the worker (same directory, same repo), so it can no more
     # be absent from the env than json can — the probe owes it nothing.
     imported -= {'__future__', 'json', 'os', 'sys', '_harness'}
-    assert imported == {'rapidocr_onnxruntime', 'cv2'}, \
+    assert imported == {'rapidocr_onnxruntime', 'cv2', 'numpy', 'PIL'}, \
         f'the worker imports {sorted(imported)} — update the probe to match'
     for module in imported:
         assert module in probe, \

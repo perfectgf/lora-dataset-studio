@@ -33,6 +33,12 @@ transnetv2-pytorch>=1.0.5,<2
 # venv, not the Flask one (see _BANK_SCORING_PKGS in app/setup_installer.py).
 transformers>=4.57,<6
 
+# Pillow backs the burned-in-text reader's unicode-path fallback (cv2.imread
+# cannot open non-ASCII paths on Windows). The app's own requirements pin it
+# ==12.3.0; this range brackets that pin for the scoped installs that read
+# THIS file, without fighting it.
+pillow>=12,<13
+
 # Burned-in text (the video lane's safe-zone pass). RapidOCR is Apache-2.0 and
 # runs the PP-OCRv4 detector/recogniser on the CPU onnxruntime pinned above -
 # no torch, no second environment. Pinned BELOW 2: the 1.4.x wheels bundle the
