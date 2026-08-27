@@ -167,6 +167,7 @@ export const WHATS_NEW = [
       + 'photos; promote to a dataset first, and the views are born as '
       + 'candidates, never filed as real.',
     to: '/datasets?section=images',
+    image: 'docs/screenshots/release/camera-angles-picker.png',
   },
   {
     id: '2026-08-26-camera-setup-card',
