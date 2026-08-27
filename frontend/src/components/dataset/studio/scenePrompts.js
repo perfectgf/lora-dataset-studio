@@ -57,14 +57,36 @@ export function sceneThumbUrl(source, scene) {
   return '';
 }
 
+/** One scene's FINAL prompt: the caption plus the ✏️ custom text typed on its
+ *  card, or the caption alone when nothing was typed. The custom text is
+ *  APPENDED — captions already open with the subject (and usually the trigger
+ *  word), and what people add per scene is modifiers. The caption's trailing
+ *  punctuation is dropped before the join so a captioner's closing period
+ *  never yields "…on a bench., red dress". */
+export function joinScenePrompt(prompt, extra) {
+  const base = typeof prompt === 'string' ? prompt.trim() : '';
+  const add = typeof extra === 'string' ? extra.trim() : '';
+  if (!add) return base;
+  if (!base) return add;
+  return `${base.replace(/[\s,;.]+$/, '')}, ${add}`;
+}
+
 /** The prompts of the ticked scenes, in SCENE order — never in tick order.
  *  `picked` is a collection of indices into `scenes`; anything out of range or
- *  pointing at a promptless row is ignored rather than crashing the panel. */
-export function scenePromptList(scenes, picked) {
+ *  pointing at a promptless row is ignored rather than crashing the panel.
+ *  `extras` maps a scene index to that card's ✏️ custom text; text typed on an
+ *  UNTICKED scene changes nothing until the scene is ticked. */
+export function scenePromptList(scenes, picked, extras) {
   const list = Array.isArray(scenes) ? scenes : [];
   const on = new Set(picked || []);
+  const add = extras || {};
   return list
-    .map((s, i) => (on.has(i) ? (s && typeof s.prompt === 'string' ? s.prompt.trim() : '') : ''))
+    .map((s, i) => {
+      // The caption is the scene. Without one the row never runs — custom text
+      // alone must not resurrect it, so the base is checked BEFORE the join.
+      const base = s && typeof s.prompt === 'string' ? s.prompt.trim() : '';
+      return on.has(i) && base ? joinScenePrompt(base, add[i]) : '';
+    })
     .filter(Boolean);
 }
 
@@ -76,6 +98,6 @@ export function toggleSceneIndex(picked, index) {
 
 /** The whole 📝 axis of a launch: history batch first (the older feature keeps
  *  its place), then the scenes in reading order. The server de-duplicates. */
-export function combinedPromptBatch(historyPicked, scenes, picked) {
-  return [...(historyPicked || []), ...scenePromptList(scenes, picked)];
+export function combinedPromptBatch(historyPicked, scenes, picked, extras) {
+  return [...(historyPicked || []), ...scenePromptList(scenes, picked, extras)];
 }

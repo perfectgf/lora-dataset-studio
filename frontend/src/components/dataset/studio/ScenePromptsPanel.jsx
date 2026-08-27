@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { apiFetch } from '../../../api/fetchClient';
 import { useToast } from '../../common/Toast';
 import { HelpBadge } from '../../../help/HelpMode';
-import { SCENE_SOURCES, sceneSource, sceneThumbUrl, toggleSceneIndex } from './scenePrompts';
+import { SCENE_SOURCES, joinScenePrompt, sceneSource, sceneThumbUrl,
+  toggleSceneIndex } from './scenePrompts';
 
 /* 🎬 Scenes — a bank's OR a dataset's captions imported as ordered prompt passes.
  *
@@ -59,7 +60,10 @@ export default function ScenePromptsPanel({ value, onChange }) {
         ? `/api/dataset/${sourceId}/scenes`
         : `/api/bank/${sourceId}/scenes`;
       const d = await apiFetch(path);
-      onChange({ source: sceneSource(kind, d), scenes: d.scenes || [], picked: [] });
+      // extras resets WITH picked: both are keyed by index into a list that a
+      // reload may have reordered, and stale text on the wrong scene would be
+      // worse than retyping it.
+      onChange({ source: sceneSource(kind, d), scenes: d.scenes || [], picked: [], extras: {} });
       const skipped = d.skipped?.no_caption || 0;
       toast.success(`${(d.scenes || []).length} scene(s) loaded in order`
         + (skipped ? ` — ${skipped} image(s) without a caption skipped` : ''));
@@ -129,23 +133,46 @@ export default function ScenePromptsPanel({ value, onChange }) {
             {scenes.map((s, i) => {
               const on = picked.includes(i);
               const thumb = sceneThumbUrl(source, s);
+              const extra = (value.extras || {})[i] || '';
               return (
-                <button key={`${i}-${s.label}`} type="button"
-                  onClick={() => onChange({ ...value, picked: toggleSceneIndex(picked, i) })}
-                  aria-pressed={on} title={s.prompt}
-                  className={'flex items-start gap-1.5 rounded-lg border px-1.5 py-1 text-left text-[0.625rem] transition-colors '
-                    + (on ? 'border-primary/50 bg-primary/20 text-white ring-1 ring-primary/30'
-                      : 'border-border bg-app/40 text-content-muted hover:bg-surface-raised')}>
-                  {thumb && (
-                    <img src={thumb}
-                      alt="" loading="lazy" draggable={false}
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      className="h-16 w-12 shrink-0 rounded border border-border bg-app/60 object-cover object-top" />
+                /* A <div> around the toggle, not a lone <button>: the ✏️ input
+                   below cannot legally live INSIDE a button, and it appeared the
+                   day scenes learned a per-card custom prompt. */
+                <div key={`${i}-${s.label}`}
+                  className={'flex flex-col rounded-lg border transition-colors '
+                    + (on ? 'border-primary/50 bg-primary/20 ring-1 ring-primary/30'
+                      : 'border-border bg-app/40 hover:bg-surface-raised')}>
+                  <button type="button"
+                    onClick={() => onChange({ ...value, picked: toggleSceneIndex(picked, i) })}
+                    aria-pressed={on} title={joinScenePrompt(s.prompt, extra)}
+                    className={'flex items-start gap-1.5 px-1.5 py-1 text-left text-[0.625rem] '
+                      + (on ? 'text-white' : 'text-content-muted')}>
+                    {thumb && (
+                      <img src={thumb}
+                        alt="" loading="lazy" draggable={false}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        className="h-16 w-12 shrink-0 rounded border border-border bg-app/60 object-cover object-top" />
+                    )}
+                    <span className="shrink-0 font-semibold tabular-nums text-content-subtle">{i + 1}.</span>
+                    <span className="min-w-0 leading-tight line-clamp-3">{s.prompt}</span>
+                    {on && <span className="ml-auto shrink-0 text-indigo-300" aria-hidden="true">✓</span>}
+                  </button>
+                  {/* ✏️ Per-scene custom prompt — appended to this scene's caption
+                      at launch (joinScenePrompt). Offered on PICKED scenes: those
+                      are the ones that will generate, and fifty inputs on fifty
+                      unticked rows would bury the list. The text survives an
+                      untick (extras is keyed by index, independent of picked). */}
+                  {on && (
+                    <input type="text" value={extra}
+                      onChange={(e) => onChange({
+                        ...value,
+                        extras: { ...(value.extras || {}), [i]: e.target.value },
+                      })}
+                      placeholder="✏️ Custom prompt added to this scene (optional)"
+                      aria-label={`Custom prompt appended to scene ${i + 1}`}
+                      className="mx-1.5 mb-1 min-h-10 lg:min-h-0 rounded border border-border bg-app/60 px-1.5 py-0.5 text-[0.625rem] text-content placeholder:text-content-subtle" />
                   )}
-                  <span className="shrink-0 font-semibold tabular-nums text-content-subtle">{i + 1}.</span>
-                  <span className="min-w-0 leading-tight line-clamp-3">{s.prompt}</span>
-                  {on && <span className="ml-auto shrink-0 text-indigo-300" aria-hidden="true">✓</span>}
-                </button>
+                </div>
               );
             })}
           </div>

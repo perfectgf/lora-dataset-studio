@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { combinedPromptBatch, sceneSource, sceneThumbUrl, scenePromptList,
-  toggleSceneIndex } from './scenePrompts.js';
+import { combinedPromptBatch, joinScenePrompt, sceneSource, sceneThumbUrl,
+  scenePromptList, toggleSceneIndex } from './scenePrompts.js';
 
 const SCENES = [
   { label: 'Scene 1', prompt: 'street at dawn' },
@@ -32,6 +32,48 @@ test('combinedPromptBatch puts the history batch first, scenes after, in order',
   assert.deepEqual(combinedPromptBatch(['from history'], SCENES, [1, 0]),
     ['from history', 'street at dawn', 'close on her face']);
   assert.deepEqual(combinedPromptBatch(null, SCENES, []), []);
+});
+
+test('joinScenePrompt appends the custom text after the caption', () => {
+  assert.equal(joinScenePrompt('street at dawn', 'red dress'),
+    'street at dawn, red dress');
+  // Nothing typed (or only spaces): the caption runs untouched.
+  assert.equal(joinScenePrompt('street at dawn', ''), 'street at dawn');
+  assert.equal(joinScenePrompt('street at dawn', '   '), 'street at dawn');
+  assert.equal(joinScenePrompt('street at dawn', undefined), 'street at dawn');
+});
+
+test('joinScenePrompt drops the caption’s closing punctuation before the join', () => {
+  // Captioners end sentences; "…dawn., red dress" must never reach the sampler.
+  assert.equal(joinScenePrompt('street at dawn.', 'red dress'),
+    'street at dawn, red dress');
+  assert.equal(joinScenePrompt('street at dawn, ', 'red dress'),
+    'street at dawn, red dress');
+  // The typed text keeps its own punctuation as typed.
+  assert.equal(joinScenePrompt('street at dawn', 'red dress.'),
+    'street at dawn, red dress.');
+});
+
+test('scenePromptList folds each ticked scene’s custom text in, by index', () => {
+  assert.deepEqual(
+    scenePromptList(SCENES, [2, 0], { 0: 'red dress', 2: 'at night' }),
+    ['street at dawn, red dress', 'rooftop chase, at night']);
+});
+
+test('custom text on an UNTICKED scene changes nothing until it is ticked', () => {
+  assert.deepEqual(scenePromptList(SCENES, [1], { 0: 'red dress' }),
+    ['close on her face']);
+  // …and the batch end-to-end: history first, extras only on ticked scenes.
+  assert.deepEqual(
+    combinedPromptBatch(['from history'], SCENES, [1], { 0: 'red dress', 1: 'smiling' }),
+    ['from history', 'close on her face, smiling']);
+});
+
+test('a custom text alone cannot resurrect a promptless scene', () => {
+  // Row 3 has no caption: it is skipped at load and must stay skipped even if
+  // an index in extras points at it.
+  const scenes = [...SCENES, { label: 'Scene 4' }, { label: 'Scene 5', prompt: '  ' }];
+  assert.deepEqual(scenePromptList(scenes, [3, 4], { 3: 'red dress', 4: 'red dress' }), []);
 });
 
 test('sceneSource normalises the two payloads into ONE descriptor', () => {

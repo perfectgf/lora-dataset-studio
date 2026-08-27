@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-27-scene-custom-prompt',
+    date: '2026-08-27',
+    title: 'Scenes take a custom prompt of their own',
+    blurb:
+      'In the Test Studio\'s 🎬 Scenes panel, every picked scene now carries an '
+      + 'optional ✏️ text field. Whatever you type there is appended to that '
+      + 'scene\'s caption at launch — swap an outfit, set the time of day, add '
+      + 'your trigger word — without touching the caption itself or the other '
+      + 'scenes. Leave it empty and the caption runs exactly as before.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-26-klein-enhancement-repair-row',
     date: '2026-08-26',
     title: 'The Klein enhancement LoRA can finally be repaired from Setup',

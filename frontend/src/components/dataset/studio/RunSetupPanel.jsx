@@ -75,9 +75,9 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   // 🎬 Scenes : les captions d'une banque OU d'un dataset DANS L'ORDRE, chaque
   // scène cochée devenant une passe du même axe 📝. Non persisté, même raison que
   // le lot d'historique ci-dessus. La règle vit dans scenePrompts.js (pur, testé).
-  const [sceneBatch, setSceneBatch] = useState({ source: null, scenes: [], picked: [] });
+  const [sceneBatch, setSceneBatch] = useState({ source: null, scenes: [], picked: [], extras: {} });
   const allPickedPrompts = combinedPromptBatch(
-    pickedPrompts, sceneBatch.scenes, sceneBatch.picked);
+    pickedPrompts, sceneBatch.scenes, sceneBatch.picked, sceneBatch.extras);
 
   // Le nombre de cellules RÉELLEMENT lancées. `cellTotal` n'est fourni que par un
   // mode qui change la formule (🧬 Blend : une pile = une configuration) — sinon

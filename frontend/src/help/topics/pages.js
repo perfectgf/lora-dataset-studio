@@ -471,6 +471,12 @@ export const PAGE_TOPICS = [
      'one pass per scene', 'run captions in order', 'choose a bank',
      'no scenes loaded', 'scene skipped', 'image without a caption',
      'caption pass', 'thumbnail of the page', 'which page',
+     // Le champ ✏️ par scène : ce qu'on tape pour le trouver, et ce qu'on
+     // se demande une fois trouvé (où le texte atterrit dans le prompt).
+     'custom prompt', 'custom prompt per scene', 'add to a scene',
+     'extra prompt', 'append to the caption', 'add text to a caption',
+     'edit a scene prompt', 'change one scene', 'modifiers per scene',
+     'per scene text', 'scene input', 'where does the custom text go',
      // Ce que quelqu'un tape quand la source qu'il veut rejouer est son dataset
      // — et ce qu'il cherchait avant que le dataset soit offert : un moyen de ne
      // PAS réexporter son dataset vers une banque pour atteindre ce panneau.
