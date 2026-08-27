@@ -97,7 +97,11 @@ BANK_ANALYSIS_LANE_FIELDS = {
     'face': ('face_state', 'face_det', 'face_yaw', 'face_cluster',
              'face_cluster_origin'),
     'watermark': ('watermark_state', 'watermark_bbox', 'watermark_regions',
-                  'watermark_source', 'watermark_score'),
+                  'watermark_source', 'watermark_score',
+                  # 🔤 Find text rides in the watermark lane: its zones live in
+                  # watermark_regions, so its memory must be cleared, counted
+                  # and transferred with the geometry it authored.
+                  'text_state'),
     'framing': ('framing',),
 }
 BANK_WATERMARK_ANALYSIS_FIELDS = BANK_ANALYSIS_LANE_FIELDS['watermark']

@@ -1274,6 +1274,57 @@ def dataset_watermarks_detect_cancel(dataset_id):
     return jsonify({'ok': True, 'stopping': True})
 
 
+@bp.post('/dataset/<int:dataset_id>/text/detect')
+def dataset_text_detect(dataset_id):
+    """🔤 Read burned-in text (speech bubbles, subtitles, captions, sound
+    effects) on the kept images — RapidOCR on the CPU, the same engine as the
+    Video bank's safe-zone pass — and fold the zones into the watermark mask
+    channel so 🧽 Clean repaints them. {rescan:true} re-reads scanned rows;
+    'dismissed' rows are never re-examined. Persists watermark_regions/
+    watermark_state/text_state; deletes nothing; never takes the GPU window.
+
+    Stoppable: ⏹ Stop posts to .../text/detect/cancel and this returns
+    `stopped: true` with everything judged so far already committed."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    from ..capabilities import probe_video_text
+    probe = probe_video_text()
+    if not probe.get('ok'):
+        detail = probe.get('detail')
+        return jsonify({'error': 'the text reader is not installed'
+                                 + (f' — {detail}' if detail else '')
+                                 + '. Install "Burned-in text" from Setup, '
+                                   'then run it again.'}), 503
+    report = {}
+    try:
+        counts = svc.detect_text(
+            LOCAL_USER, dataset_id, rescan=bool(data.get('rescan')),
+            report=report,
+            should_cancel=lambda: dataset_activity.cancel_requested(
+                dataset_id, dataset_activity.TEXT_KINDS))
+    except Exception as e:
+        return _map_error(e)
+    finally:
+        dataset_activity.clear_cancel(dataset_id, dataset_activity.TEXT_KINDS)
+    return jsonify({'ok': True, **counts,
+                    'stopped': bool(report.get('stopped')),
+                    'uncovered': report.get('uncovered', 0)})
+
+
+@bp.post('/dataset/<int:dataset_id>/text/detect/cancel')
+def dataset_text_detect_cancel(dataset_id):
+    """Ask an in-progress 🔤 text scan to stop at the next image boundary.
+    Judged rows are kept (the pass commits per image); a later run finishes the
+    rest. Idempotent. 404 unknown dataset, 409 when no text scan is running."""
+    if not svc.get_dataset(LOCAL_USER, dataset_id):
+        return jsonify({'error': 'not found'}), 404
+    if not dataset_activity.request_cancel(dataset_id,
+                                           dataset_activity.TEXT_KINDS):
+        return jsonify({'error': 'no text scan in progress'}), 409
+    return jsonify({'ok': True, 'stopping': True})
+
+
 def _klein_clean_preflight():
     """None if a Klein-inpaint clean can run, else the (body, status) to return:
     503 when the GPU is held by training/vision (the job would just wait), a 409 that

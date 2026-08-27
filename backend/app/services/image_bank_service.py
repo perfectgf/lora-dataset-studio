@@ -7574,13 +7574,28 @@ def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None,
                         # per image rather than per bank.
                         row.watermark_source = 'vision'
                         row.watermark_score = None      # this route has no score
+                        # 🔤 guard: a row whose zones the text pass owns keeps
+                        # them — a 'none' verdict here is about WATERMARKS and
+                        # must not unflag text still waiting for a repaint, and
+                        # a found box folds into the regions (they win over the
+                        # bbox at cleaning time, so a box left outside them
+                        # would never be repainted).
+                        text_zones = row.text_state == 'detected'
                         if bbox:
                             row.watermark_state = 'detected'
                             # Keep the box — the crop/inpaint levels route on it.
                             row.watermark_bbox = _json.dumps([round(v, 4) for v in bbox])
+                            if text_zones:
+                                from .text_regions import text_mask_regions
+                                existing, _m, _p = _clean_regions(row)
+                                merged, _ = text_mask_regions(
+                                    [], [list(b) for b in existing]
+                                    + [[round(v, 4) for v in bbox]])
+                                row.watermark_regions = _json.dumps(merged)
                             detected += 1
                         else:
-                            row.watermark_state = 'none'
+                            if not text_zones:
+                                row.watermark_state = 'none'
                             row.watermark_bbox = None
                             clean += 1
                     bank_jobs.bump(job)
@@ -7740,6 +7755,10 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None):
                     row.watermark_source = 'detector'
                     row.watermark_score = (round(float(score), 4)
                                            if score is not None else None)
+                    # 🔤 guard, same as the vision route: text zones survive
+                    # this scan, a 'none' verdict never unflags them, and a
+                    # found box folds into the regions they live in.
+                    text_zones = row.text_state == 'detected'
                     if state == 'error':
                         # One bad file never sinks the pass, same as the vision route.
                         row.watermark_state = 'error'
@@ -7752,15 +7771,22 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None):
                         # a crop on the subject). watermark_bbox holds
                         # one rectangle (it is what both cleaning levels route
                         # on), and the multi-zone column next to it means
-                        # something else entirely — it is the HAND-DRAWN
-                        # override, and writing machine output there would make
-                        # every flagged image look hand-corrected and silently
-                        # exclude it from ✂ Auto-crop. Losing the smaller boxes
-                        # is the honest cost; the mask editor still lets the user
-                        # add them back.
+                        # something else entirely — it is the HAND-DRAWN (or 🔤
+                        # text-pass) override, and writing machine output there
+                        # would make every flagged image look hand-corrected and
+                        # silently exclude it from ✂ Auto-crop. Losing the
+                        # smaller boxes is the honest cost; the mask editor
+                        # still lets the user add them back.
                         if regions:
                             row.watermark_bbox = _json.dumps(
                                 [round(float(v), 4) for v in regions[0][:4]])
+                            if text_zones:
+                                from .text_regions import text_mask_regions
+                                existing, _m, _p = _clean_regions(row)
+                                merged, _ = text_mask_regions(
+                                    [], [list(b) for b in existing]
+                                    + [[round(float(v), 4) for v in regions[0][:4]]])
+                                row.watermark_regions = _json.dumps(merged)
                             located += 1
                         else:
                             # Flagged with no box: known to be marked, position
@@ -7770,7 +7796,8 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None):
                             row.watermark_bbox = None
                         detected += 1
                     else:
-                        row.watermark_state = 'none'
+                        if not text_zones:
+                            row.watermark_state = 'none'
                         row.watermark_bbox = None
                         clean += 1
                     bank_jobs.bump(job)

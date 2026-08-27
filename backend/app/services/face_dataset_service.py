@@ -1987,6 +1987,9 @@ def _clear_watermark_metadata(img):
     img.watermark_regions = None
     img.watermark_source = None
     img.watermark_score = None
+    # 🔤 Find text authored zones into watermark_regions — its memory goes
+    # with the geometry (new pixels, new scan).
+    img.text_state = None
 
 
 def _unkeep_parent_for_kept_improvement(img):
@@ -9244,7 +9247,14 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
                 # classify_images): leave the state UNTOUCHED (retry possible) instead
                 # of falsely marking every image clean when Ollama is just down.
                 continue
-            img.watermark_regions = None
+            # 🔤 zones live in watermark_regions and must SURVIVE a watermark
+            # scan: resetting them here (the pre-text behaviour) would erase a
+            # text pass's work, and a 'none' verdict would unflag zones that
+            # still need repainting. The watermark COUNTS keep telling the
+            # truth about watermarks either way.
+            text_zones = img.text_state == 'detected'
+            if not text_zones:
+                img.watermark_regions = None
             # Stamp WHICH route ruled, on every row this pass touches — a dataset
             # can hold verdicts from both (promotion carries a bank's across).
             img.watermark_source = 'vision'
@@ -9253,9 +9263,19 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
             if bbox:
                 img.watermark_state = 'detected'
                 img.watermark_bbox = json.dumps([round(v, 4) for v in bbox])
+                if text_zones:
+                    # Regions WIN over the bbox at cleaning time, so a box left
+                    # outside them would never be repainted — fold it in
+                    # (unpadded: it is final geometry, not a glyph-tight line).
+                    from .text_regions import text_mask_regions
+                    merged, _ = text_mask_regions(
+                        [], _stored_mask_regions(img)
+                        + [[round(v, 4) for v in bbox]])
+                    img.watermark_regions = json.dumps(merged)
                 counts['detected'] += 1
             else:
-                img.watermark_state = 'none'
+                if not text_zones:
+                    img.watermark_state = 'none'
                 img.watermark_bbox = None
                 counts['none'] += 1
             counts['checked'] += 1
@@ -9350,7 +9370,11 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
                 errors += 1
                 db.session.commit()
                 continue
-            img.watermark_regions = None
+            # Same 🔤 guard as the vision pass above: text zones survive the
+            # scan, a 'none' verdict never unflags them, a found box folds in.
+            text_zones = img.text_state == 'detected'
+            if not text_zones:
+                img.watermark_regions = None
             if state == 'detected':
                 img.watermark_state = 'detected'
                 if regions:
@@ -9359,13 +9383,20 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
                     # (see the bank's identical write for the full reasoning).
                     img.watermark_bbox = json.dumps(
                         [round(float(v), 4) for v in regions[0][:4]])
+                    if text_zones:
+                        from .text_regions import text_mask_regions
+                        merged, _ = text_mask_regions(
+                            [], _stored_mask_regions(img)
+                            + [[round(float(v), 4) for v in regions[0][:4]]])
+                        img.watermark_regions = json.dumps(merged)
                     located += 1
                 else:
                     img.watermark_bbox = None
                     unlocated += 1
                 counts['detected'] += 1
             else:
-                img.watermark_state = 'none'
+                if not text_zones:
+                    img.watermark_state = 'none'
                 img.watermark_bbox = None
                 counts['none'] += 1
             counts['checked'] += 1
@@ -9393,6 +9424,125 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
     if report is not None:
         report.update({'stopped': stopped, 'located': located,
                        'unlocated': unlocated, 'errors': errors})
+    return counts
+
+
+def _stored_mask_regions(img):
+    """The zones this row already carries — the hand/text mask when readable,
+    else the detector's single box. What 🔤 Find text must MERGE with rather
+    than replace (an unreadable stored mask is a broken state, not a value —
+    replaced with valid geometry rather than merged into garbage)."""
+    if img.watermark_regions is not None:
+        try:
+            stored = json.loads(img.watermark_regions or '')
+            return normalize_watermark_regions(stored, allow_null=False) or []
+        except (ValueError, TypeError):
+            return []
+    try:
+        box = json.loads(img.watermark_bbox or '')
+    except (ValueError, TypeError):
+        return []
+    if isinstance(box, list) and len(box) == 4:
+        try:
+            return [[float(v) for v in box]]
+        except (TypeError, ValueError):
+            return []
+    return []
+
+
+def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
+                report=None):
+    """🔤 Read burned-in text on the KEPT images and fold the zones into the
+    watermark mask channel — the dataset half of the Bank's text scan, same
+    engine (the video lane's RapidOCR seam), same merge rules, same funnel.
+
+    Speech bubbles, subtitles, captions and sound effects become zones in
+    ``watermark_regions`` with ``watermark_state='detected'``, so 🧽 Clean
+    repaints them exactly like a hand-drawn mask (and ✂ auto-crop skips them —
+    a border crop cannot express a bubble in the middle of the page).
+    ``text_state`` is the pass's own memory: NULL (never read) | 'none' |
+    'detected' | 'error'; a plain run finishes the job, ``rescan`` re-reads
+    everything except 'dismissed' rows — dismiss means the machine must stop
+    asking, on this pass like every other.
+
+    Rows whose state is 'cleaned' restart from ONLY the new text zones: on the
+    dataset surface a clean REPLACED the file's pixels (the bank keeps a
+    separate blob instead), so the stored geometry describes work already
+    applied and merging it back would just repaint healed pixels.
+
+    Returns {'found': n, 'none': n, 'checked': n}; everything else travels in
+    ``report`` ('stopped', 'uncovered' — zones beyond the 32-zone mask cap,
+    counted, never silent). CPU only by construction: this pass never takes
+    the GPU window."""
+    _guard_not_bank_export(dataset_id)
+    from .text_regions import text_mask_regions
+    from .video_safe_zone import read_text_boxes
+    ds = get_dataset(user_id, dataset_id)
+    if not ds:
+        return {'found': 0, 'none': 0, 'checked': 0}
+    rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
+            .filter(FaceDatasetImage.filename.isnot(None)).all())
+    row_ids = [img.id for img in rows]
+    counts = {'found': 0, 'none': 0, 'checked': 0}
+    uncovered = 0
+    stopped = False
+    chunk_size = 40      # the video lane's measured OCR chunk (one child each)
+    token = dataset_activity.begin(dataset_id, 'text_detect', total=len(row_ids))
+    try:
+        done = 0
+        for start in range(0, len(row_ids), chunk_size):
+            if should_cancel and should_cancel():
+                stopped = True
+                break
+            chunk_ids = row_ids[start:start + chunk_size]
+            frames = []
+            for image_id in chunk_ids:
+                img = _live_image_row(image_id)
+                if img is None:
+                    continue
+                if img.watermark_state == 'dismissed':
+                    continue     # the user ruled; the machine stops asking
+                if not rescan and img.text_state in ('none', 'detected'):
+                    continue     # already answered ('error' rows are retried)
+                path = _img_path(img)
+                if not os.path.exists(path):
+                    continue
+                frames.append({'key': str(image_id), 'path': path})
+            done += len(chunk_ids)
+            if frames:
+                boxes_by_key = read_text_boxes(frames, should_stop=should_cancel)
+                for frame in frames:
+                    image_id = int(frame['key'])
+                    if frame['key'] not in boxes_by_key:
+                        # The child never reached this frame (a Stop landed on
+                        # the chunk): the row stays unscanned, a later run
+                        # finishes it — absent ≠ empty is the seam's contract.
+                        stopped = True
+                        continue
+                    img = _live_image_row(image_id)
+                    if img is None:
+                        continue
+                    existing = ([] if img.watermark_state == 'cleaned'
+                                else _stored_mask_regions(img))
+                    regions, dropped = text_mask_regions(
+                        boxes_by_key[frame['key']], existing)
+                    if regions:
+                        img.watermark_regions = json.dumps(regions)
+                        img.watermark_state = 'detected'
+                        img.text_state = 'detected'
+                        counts['found'] += 1
+                        uncovered += dropped
+                    else:
+                        img.text_state = 'none'
+                        counts['none'] += 1
+                    counts['checked'] += 1
+                    db.session.commit()
+            dataset_activity.progress(token, done=done)
+    finally:
+        db.session.commit()
+        dataset_activity.end(token)
+    if report is not None:
+        report.update({'stopped': stopped, 'uncovered': uncovered})
     return counts
 
 

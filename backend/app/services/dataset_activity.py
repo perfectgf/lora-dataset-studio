@@ -62,7 +62,12 @@ IMPROVE_KINDS = ('improve',)
 # make one screen's Stop reach into another screen's pass.
 WATERMARK_KINDS = ('watermark_detect',)
 
-STOPPABLE_KINDS = CANCELLABLE_KINDS + IMPROVE_KINDS + WATERMARK_KINDS
+# The 🔤 Find text pass — same cooperative stop, same reason for its own
+# arming scope as the watermark scan above: one screen's Stop must not reach
+# into another screen's pass.
+TEXT_KINDS = ('text_detect',)
+
+STOPPABLE_KINDS = CANCELLABLE_KINDS + IMPROVE_KINDS + WATERMARK_KINDS + TEXT_KINDS
 
 # Safety TTL: an entry not touched for this long is purged on read even if end()
 # never ran (process alive but the batch thread died without unwinding). 30 min is

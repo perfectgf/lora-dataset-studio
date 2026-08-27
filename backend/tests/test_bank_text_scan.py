@@ -258,3 +258,69 @@ class TestTextScan:
         assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
         levels = client.get(f'/api/bank/{bank_id}/watermark/levels').get_json()
         assert levels['text'] == {'scanned': 2, 'found': 1, 'unscanned': 0}
+
+
+class TestWatermarkScanGuards:
+    """A watermark scan AFTER a text scan must not undo the text pass: a 'none'
+    verdict is about WATERMARKS and may not unflag zones still waiting for a
+    repaint, and a found box must fold into the regions (regions win over the
+    bbox at cleaning time, so a box left outside them is never repainted)."""
+
+    def _text_flag(self, app, bank_id):
+        from app.extensions import db
+        from app.models import BankImage
+        with app.app_context():
+            row = BankImage.query.filter_by(bank_id=bank_id).one()
+            row.watermark_state = 'detected'
+            row.watermark_regions = json.dumps([[0.28, 0.09, 0.72, 0.22]])
+            row.text_state = 'detected'
+            db.session.commit()
+            return row.id
+
+    def _run_detector_scan(self, client, bank_id, monkeypatch, child_rows):
+        """Drive the bank watermark scan down the DETECTOR route with a fake
+        child: `child_rows(path)` -> (state, score, regions)."""
+        from app.services import bank_transfer_metadata as transfer
+        from app.services import watermark_detector
+        from app import capabilities
+        monkeypatch.setattr(
+            watermark_detector, 'resolve_backend',
+            lambda requested=None: {'requested': 'detector', 'backend': 'detector',
+                                    'fell_back': False, 'detail': ''})
+        monkeypatch.setattr(capabilities, 'watermark_detect_gpu_available',
+                            lambda: False)
+
+        def fake_scan(paths, *, device=None, locate=True, should_cancel=None,
+                      cancel_file=None, info=None):
+            for path in paths:
+                state, score, regions = child_rows(path)
+                yield (path, state, score, regions,
+                       transfer.content_fingerprint_path(path), None)
+        monkeypatch.setattr(watermark_detector, 'scan', fake_scan)
+        r = client.post(f'/api/bank/{bank_id}/watermark', json={'rescan': True})
+        assert r.status_code == 202, r.get_json()
+
+    def test_none_verdict_keeps_text_zones_flagged(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['page.jpg'])
+        image_id = self._text_flag(app, bank_id)
+        self._run_detector_scan(client, bank_id, monkeypatch,
+                                lambda path: ('none', 0.05, []))
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['id'] == image_id
+        assert page['watermark_state'] == 'detected'     # still repaintable
+        assert json.loads(page['watermark_regions']) == [[0.28, 0.09, 0.72, 0.22]]
+
+    def test_found_box_folds_into_text_zones(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['page.jpg'])
+        self._text_flag(app, bank_id)
+        self._run_detector_scan(
+            client, bank_id, monkeypatch,
+            lambda path: ('detected', 0.97, [[0.02, 0.9, 0.12, 0.98]]))
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['watermark_state'] == 'detected'
+        regions = json.loads(page['watermark_regions'])
+        assert [0.28, 0.09, 0.72, 0.22] in regions       # text zone survived
+        assert any(b[1] >= 0.8 for b in regions)         # the box joined it
+        assert page['watermark_bbox'] is not None
