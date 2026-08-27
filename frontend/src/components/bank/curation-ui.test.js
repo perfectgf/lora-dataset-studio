@@ -36,7 +36,9 @@ test('each curation button feeds its OWN returned ids into the selection view', 
   // one call per selector. Bump this WITH the count when a fifth one lands; the
   // guard is that no two of them share a code path, not that there are exactly N.
   const feeds = ws.match(/showCuratedSelection\(d\.image_ids\)/g) || [];
-  assert.equal(feeds.length, 4, 'each selector feeds its own result into the view');
+  // Five: diverse, similar, ADD-MORE-similar (the same ranking, extended —
+  // it re-shows the whole lot on purpose), text, balanced.
+  assert.equal(feeds.length, 5, 'each selector feeds its own result into the view');
 });
 
 // "Most diverse" was computed as "most isolated" — the criterion that structurally

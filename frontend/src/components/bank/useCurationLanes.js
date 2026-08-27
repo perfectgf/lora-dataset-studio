@@ -36,6 +36,12 @@ export function useCurationLanes({
   const [balanceResult, setBalanceResult] = useState(null)
   const [similarN, setSimilarN] = useState(60)
   const [similarBusy, setSimilarBusy] = useState(false)
+  // The last 🎯 run's reference and how far down its ranking we went — what
+  // "Add N more" extends. Kept HERE (not derived from the selection) because
+  // after a run the selection holds N images and the one-reference gate would
+  // otherwise lock the panel shut exactly when the user wants the next batch.
+  const [similarLast, setSimilarLast] = useState(null)
+  const [similarAddN, setSimilarAddN] = useState(30)
   // 🔤 Text search. `textStatus` is the BEFORE-the-click truth (available? model
   // already warm? would it download?), `textResult` the AFTER-the-click one that
   // keeps the ranking legible once the grid has switched to it.
@@ -121,6 +127,7 @@ export function useCurationLanes({
       // Backend returns the ids ranked by similarity (reference first); keep that
       // order so the view reads closest→farthest instead of by id.
       showCuratedSelection(d.image_ids)
+      setSimilarLast({ refId: ref, taken: d.image_ids.length })
       toast.info(`Showing the ${d.image_ids.length} most similar to the reference (of ${d.pool}), closest first. Review, then ✓ Keep or ⬆ Promote — or “Show all” to leave this view.`)
     } catch (e) {
       toast.error(e?.message || 'Similarity search failed.')
@@ -128,6 +135,47 @@ export function useCurationLanes({
       setSimilarBusy(false)
     }
   }
+
+  // 🎯 "Add N more" — the next closest from the LAST run's ranking, without
+  // hunting the reference down again: after a run the selection holds N
+  // images, and the one-reference gate would otherwise force unselect-all →
+  // find the reference → reselect → retype a bigger N. The ranking is
+  // deterministic, so asking for taken+N and showing the whole lot IS "the
+  // same ranking, extended" — which also means an image hand-unselected in
+  // between comes back; the wording on the panel says so out loud.
+  const addMoreSimilar = async () => {
+    if (!similarLast) return
+    const requestEngine = semanticState.engine
+    const requestModelKey = semanticState.modelKey
+    setCurateOpen(null)
+    setSimilarBusy(true)
+    try {
+      const want = similarLast.taken + similarAddN
+      const d = await postJson(`/api/bank/${bankId}/select-similar`,
+        { ref_id: similarLast.refId, n: want, ...filterParams(filter) })
+      if (semanticEngineRef.current !== requestEngine
+          || !semanticPayloadMatches(d, requestEngine, requestModelKey)) return
+      if (!d.image_ids?.length) {
+        toast.info(`No matches — no ${semanticState.label}-indexed images match the current filter.`)
+        return
+      }
+      const gained = d.image_ids.length - similarLast.taken
+      showCuratedSelection(d.image_ids)
+      setSimilarLast({ refId: similarLast.refId, taken: d.image_ids.length })
+      toast.info(gained > 0
+        ? `Added ${gained} more — ${d.image_ids.length} selected, closest first (of ${d.pool}).`
+        : `Nothing left to add — the ranking already covers every match in this filter (${d.image_ids.length} of ${d.pool}).`)
+    } catch (e) {
+      toast.error(e?.message || 'Similarity search failed.')
+    } finally {
+      setSimilarBusy(false)
+    }
+  }
+
+  // A remembered ranking is meaningless across banks (the reference id belongs
+  // to one bank) and across engines (a different index ranks differently).
+  useEffect(() => { setSimilarLast(null) }, [bankId])
+  useEffect(() => { setSimilarLast(null) }, [semanticState.engine])
 
   // 🔤 Text search — same engine as 🎯 Similar, with the reference vector coming
   // from words instead of a picture. Opening the panel asks the backend what it
@@ -207,7 +255,8 @@ export function useCurationLanes({
     curateOpen, setCurateOpen, diverseN, setDiverseN, diverseTypicality,
     setDiverseTypicality, diverseBusy, balanceN, setBalanceN, balanceAxis,
     setBalanceAxis, balanceBusy, balanceResult, setBalanceResult, similarN,
-    setSimilarN, similarBusy, textQuery, setTextQuery, textN, setTextN,
+    setSimilarN, similarBusy, similarLast, similarAddN, setSimilarAddN,
+    addMoreSimilar, textQuery, setTextQuery, textN, setTextN,
     textExclude, setTextExclude, textExcludeW, setTextExcludeW, textStatus,
     setTextStatus, textPending, textResult, setTextResult, pickDiverse,
     pickBalanced, findSimilar, openTextSearch, releaseTextEncoder,

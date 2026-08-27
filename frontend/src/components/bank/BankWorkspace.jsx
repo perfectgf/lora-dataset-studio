@@ -1070,7 +1070,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     curateOpen, setCurateOpen, diverseN, setDiverseN, diverseTypicality,
     setDiverseTypicality, diverseBusy, balanceN, setBalanceN, balanceAxis,
     setBalanceAxis, balanceBusy, balanceResult, setBalanceResult, similarN,
-    setSimilarN, similarBusy, textQuery, setTextQuery, textN, setTextN,
+    setSimilarN, similarBusy, similarLast, similarAddN, setSimilarAddN,
+    addMoreSimilar, textQuery, setTextQuery, textN, setTextN,
     textExclude, setTextExclude, textExcludeW, setTextExcludeW, textStatus,
     setTextStatus, textPending, textResult, setTextResult, pickDiverse,
     pickBalanced, findSimilar, openTextSearch, releaseTextEncoder,
@@ -1904,14 +1905,17 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           </div>
           <div className="relative">
             <button type="button"
-              disabled={live || !semanticReady || selected.size !== 1 || similarBusy}
+              disabled={live || !semanticReady || similarBusy
+                || (selected.size !== 1 && !similarLast)}
               onClick={() => setCurateOpen((v) => (v === 'similar' ? null : 'similar'))}
               aria-expanded={curateOpen === 'similar'}
               title={!semanticReady
                 ? semanticBlocked
                 : selected.size === 1
                   ? `Rank the current filter against the ONE selected image with the ${semanticState.label} semantic index and select the closest N.`
-                  : 'Select exactly one image to use as the reference'}
+                  : similarLast
+                    ? 'Extend the last run — add the next closest images from the same ranking.'
+                    : 'Select exactly one image to use as the reference'}
               className={CURATE_BTN}>
               <Target aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Similar to selected…{similarBusy && ' (ranking…)'}
             </button>
@@ -1924,16 +1928,46 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
                     the closest — a fast way to extract one person or look. The reference is kept in
                     the selection.
                   </p>
-                  <label className="flex items-center gap-2 text-sm text-content">
-                    How many
-                    <input type="number" min={1} max={2000} value={similarN}
-                      onChange={(e) => setSimilarN(Math.max(1, Math.min(2000, Number(e.target.value) || 1)))}
-                      className="w-20 rounded-md border border-border bg-surface px-2 py-0.5 text-sm text-content" />
-                  </label>
-                  <button type="button" onClick={findSimilar} disabled={similarBusy}
-                    className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
-                    {similarBusy ? 'Ranking…' : `Select ${similarN} most similar`}
-                  </button>
+                  {selected.size === 1 && (
+                    <>
+                      <label className="flex items-center gap-2 text-sm text-content">
+                        How many
+                        <input type="number" min={1} max={2000} value={similarN}
+                          onChange={(e) => setSimilarN(Math.max(1, Math.min(2000, Number(e.target.value) || 1)))}
+                          className="w-20 rounded-md border border-border bg-surface px-2 py-0.5 text-sm text-content" />
+                      </label>
+                      <button type="button" onClick={findSimilar} disabled={similarBusy}
+                        className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
+                        {similarBusy ? 'Ranking…' : `Select ${similarN} most similar`}
+                      </button>
+                    </>
+                  )}
+                  {similarLast && (
+                    /* The follow-up the first run makes impossible otherwise:
+                       the selection now holds N images, so the one-reference
+                       gate cannot re-open — this block extends the LAST
+                       ranking instead. Re-ranking is deterministic, so images
+                       hand-unselected since then come back; said here rather
+                       than discovered. */
+                    <div className={`space-y-2 ${selected.size === 1 ? 'border-t border-border pt-2' : ''}`}>
+                      <p className="m-0 text-xs text-content-muted">
+                        Last run selected {similarLast.taken} around its reference.
+                        Add the NEXT closest from the same ranking — anything you
+                        unselected by hand since then is selected again.
+                      </p>
+                      <label className="flex items-center gap-2 text-sm text-content">
+                        Add
+                        <input type="number" min={1} max={2000} value={similarAddN}
+                          onChange={(e) => setSimilarAddN(Math.max(1, Math.min(2000, Number(e.target.value) || 1)))}
+                          className="w-20 rounded-md border border-border bg-surface px-2 py-0.5 text-sm text-content" />
+                        more
+                      </label>
+                      <button type="button" onClick={addMoreSimilar} disabled={similarBusy}
+                        className="w-full rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 disabled:opacity-60">
+                        {similarBusy ? 'Ranking…' : `Add ${similarAddN} more`}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}

@@ -102,7 +102,7 @@ test('every semantic action gates on semanticReady, while Medium stays CLIP/Scor
     workspace.indexOf('{coverageOpen &&'))
   assert.match(curate, /disabled=\{live \|\| !semanticReady \|\| diverseBusy\}/)
   assert.match(curate,
-    /disabled=\{live \|\| !semanticReady \|\| selected\.size !== 1 \|\| similarBusy\}/)
+    /disabled=\{live \|\| !semanticReady \|\| similarBusy\n\s*\|\| \(selected\.size !== 1 && !similarLast\)\}/)
   assert.match(curate, /disabled=\{live \|\| !semanticReady\}[\s\S]*openTextSearch/)
 
   const medium = panel.slice(panel.indexOf("onPassOpen('medium')"),

@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-similar-add-more',
+    date: '2026-08-28',
+    title: 'Similar to selected: ask for the next batch without starting over',
+    blurb:
+      'After “Select 60 most similar” your selection holds 60 '
+      + 'images — and the one-reference rule used to lock the panel '
+      + 'shut right when you wanted more. It now remembers the last '
+      + 'ranking: reopen Similar to selected and “Add N more” '
+      + 'extends the SAME ranking by the next closest images — no '
+      + 'unselecting, no hunting the reference down again.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-28-text-fill-outline-safe',
     date: '2026-08-28',
     title: 'Text cleaning stops breaking speech bubbles',
