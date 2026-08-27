@@ -458,6 +458,17 @@ export const PAGE_TOPICS = [
      'how long will this take', 'estimated time', 'duration', 'at your current pace',
      'this run will queue', 'confirmation before a long run', 'seconds per image'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // 🌐 Un seul composant (bouton + navigateur) monté par les TROIS surfaces de
+  // génération — Studio du dataset, comparaison multi-LoRA, « Generate from the
+  // board » : un seul sujet d'aide pour les trois.
+  action('studio-civitai-browser', '🌐 Civitai: browse top images and reuse their prompts',
+    ['studio', 'test studio', 'canvas', 'generate from the board', 'civitai',
+     'civitai prompts', 'top images', 'browse civitai', 'prompt ideas',
+     'prompt inspiration', 'find a prompt', 'copy a prompt', 'use prompt',
+     'trending images', 'most reactions', 'popular prompts', 'image with prompt',
+     'no prompt published', 'prompts missing', 'civitai api key', 'load more',
+     'safe mature everything', 'content level', 'top of the week'],
+    '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // 🎬 Les scènes vivent dans le même rail que le lot d'historique, monté par le
   // Studio de test ET par « Generate from the board » : un seul sujet pour les deux.
   // Les DEUX sources (banque et dataset) partagent ce sujet : c'est le même

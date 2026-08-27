@@ -399,6 +399,26 @@ button to change the source dataset.
 The source needs at least one kept image with a nonblank caption. If you have
 typed a prompt, Studio asks before replacing it.
 
+### Borrow a prompt from Civitai's top images
+
+**🌐 Civitai** (next to the prompt field, on every generation surface) browses
+the most-reacted Civitai images of the day, week, month, year or all time —
+each image shown side by side with the generation prompt it was posted with.
+**⤵ Use prompt** drops it into your prompt field (asking first if you typed
+something), **📋 Copy** puts it on the clipboard, and clicking the picture
+opens it on Civitai.
+
+Two honest limits:
+
+- **Not every image publishes its prompt.** The browser keeps only the ones
+  that do by default; untick *Only images with a prompt* to see the full top.
+- **Reading prompts needs a Civitai API key** (free account) — the same key
+  the scraper uses, stored once in **Settings › Scraping & sources**. Without
+  it the top images still show, but Civitai refuses the prompt data.
+
+The content-level select is a ceiling (*Safe* by default, up to *Everything*);
+your filters are remembered in this browser's localStorage.
+
 ### Continue a run instead of starting over
 
 If the best checkpoint is *almost* there — the identity nearly locked but a touch

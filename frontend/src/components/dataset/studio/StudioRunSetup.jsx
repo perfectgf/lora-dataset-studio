@@ -19,6 +19,7 @@ import RecentPrompts from './RecentPrompts';
 import DescribeImageModal from './DescribeImageModal';
 import DatasetCaptionControl from './DatasetCaptionControl';
 import EnhancePromptButton from './EnhancePromptButton';
+import CivitaiBrowserButton from './CivitaiBrowserButton';
 import { cellCount } from './loraStack';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
 
@@ -110,6 +111,7 @@ export default function StudioRunSetup({
             className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
             🔎 Describe
           </button>
+          <CivitaiBrowserButton prompt={prompt} onPrompt={onPrompt} />
           </div>
         </div>
         <textarea id="studio-run-prompt" value={prompt} onChange={(e) => onPrompt(e.target.value)} rows={5}

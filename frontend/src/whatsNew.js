@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-27-civitai-prompt-browser',
+    date: '2026-08-27',
+    title: 'Borrow a prompt from Civitai’s top images',
+    blurb:
+      'A new 🌐 Civitai button next to the test-prompt field (Test Studio, '
+      + 'multi-LoRA comparison and the canvas alike) browses the most-reacted '
+      + 'images of the day, week or month — each one shown right next to the '
+      + 'prompt it was generated with, when the poster published it. One click '
+      + 'copies it or drops it into your prompt field. Reading prompts uses '
+      + 'the free Civitai API key from Settings → Scraping & sources.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-27-find-text-sample',
     date: '2026-08-27',
     title: 'Find text: try a sample, tune the sensitivity, then commit',

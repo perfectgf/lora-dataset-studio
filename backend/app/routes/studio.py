@@ -153,6 +153,28 @@ def studio_recent_prompts_delete():
                     'deleted': lts.delete_prompt_everywhere(LOCAL_USER, d.get('prompt'))})
 
 
+@bp.get('/civitai/images')
+def studio_civitai_images():
+    """🌐 Civitai prompt browser: top images paired with their generation
+    prompt, for the Studio/Canvas prompt field. Listing is public; prompts
+    need the (free) Civitai API key — `has_key` tells the UI which story to
+    show. Continuation is (`next_cursor`, `next_skip`) echoed back verbatim.
+
+    400 = bad filter value · 409 = Civitai unreachable / key refused (the
+    sentence carries the remedy)."""
+    from ..services import civitai_browser
+    a = request.args
+    try:
+        res = civitai_browser.browse(
+            period=a.get('period', 'week'), sort=a.get('sort', 'reactions'),
+            level=a.get('level', 'none'), cursor=a.get('cursor') or None,
+            skip=a.get('skip', 0), want=a.get('want', 12),
+            require_prompt=a.get('require_prompt', '1') != '0')
+    except Exception as e:
+        return _map_error(e)
+    return jsonify({'ok': True, **res})
+
+
 @bp.post('/random-caption')
 def studio_random_caption():
     """Pick one usable training caption from the selected local dataset OR bank.

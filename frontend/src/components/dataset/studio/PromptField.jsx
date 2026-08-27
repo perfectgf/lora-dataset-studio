@@ -4,6 +4,7 @@ import RecentPrompts from './RecentPrompts';
 import DescribeImageModal from './DescribeImageModal';
 import DatasetCaptionControl from './DatasetCaptionControl';
 import EnhancePromptButton from './EnhancePromptButton';
+import CivitaiBrowserButton from './CivitaiBrowserButton';
 
 // Champ prompt de test : textarea + « ↺ défaut » + « ✨ Enhance » + « 🔎 Describe » + prompts récents.
 // Extrait behavior-preserving de LoraTestStudio.jsx (bloc « Prompt de test »).
@@ -40,6 +41,7 @@ export default function PromptField({ value, placeholder, onChange, onReset, isC
             className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
             <Search aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Describe
           </button>
+          <CivitaiBrowserButton prompt={value} onPrompt={onChange} />
         </div>
       </div>
       <textarea
