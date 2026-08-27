@@ -513,3 +513,38 @@ def test_retry_and_continue_never_relaunch_a_video_run_as_a_face_one(
             ct.continue_cloud_run('local', run.id)
         assert 'checkpoint' in str(e2.value).lower()
     assert len(called) == 1
+
+
+def test_a_video_pod_boots_the_video_image_and_a_face_pod_keeps_the_pin(app, tmp_path):
+    """The face lane's image tag is pinned to the ai-toolkit commit its dense
+    recipe was validated against (2026-07-12). The video lane cannot use it: the
+    `minimax_h3` architecture landed in ai-toolkit on 2026-08-03, so a video pod
+    booted on the face pin refuses the job only AFTER the rental. Same colliding
+    setup as everything in this file — the resolver must answer per RUN, not per
+    config, or the fresher tag would leak into face runs (whose verdicts were
+    read against the old one) the day it was added."""
+    from app.services.cloud_training import _pod_image_for
+    c = {'image': 'toolkit:face-pin', 'video_image': 'toolkit:video-fresh'}
+    with app.app_context():
+        _face_dataset('portraits')
+        vid = _video_dataset(tmp_path, 'surf clips')
+        video_run = _run(vid.id, crd.VIDEO)
+        face_run = _run(vid.id)                      # NULL table = face, always
+        assert _pod_image_for(video_run, c) == 'toolkit:video-fresh'
+        assert _pod_image_for(face_run, c) == 'toolkit:face-pin'
+        # No video_image configured: an older trainer beats no trainer — Wan
+        # runs still work on the shared pin, so the lane falls back rather than
+        # refusing to provision at all.
+        assert _pod_image_for(video_run, {'image': 'toolkit:face-pin'}) \
+            == 'toolkit:face-pin'
+
+
+def test_the_video_family_rents_at_least_48_gb_of_vram():
+    """`_provision` resolves min VRAM as `min_vram_gb.get(family, 24)`. Before
+    the 'video' entry existed that fallback rented 24 GB pods for a lane that
+    runs with low_vram OFF — resident weights alone (H3: ~21 GB transformer +
+    ~16 GB text encoder; Wan 2.2: two experts) exceed that, and the OOM arrives
+    after the money is spent. The default the resolution reads must say so."""
+    from app.config import DEFAULTS
+    floors = DEFAULTS['cloud']['min_vram_gb']
+    assert floors.get('video', 24) >= 48

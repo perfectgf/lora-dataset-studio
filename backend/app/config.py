@@ -211,6 +211,13 @@ DEFAULTS = {
         # read against. Bumping it means a different trainer: re-read the lever
         # comments in services/lora_training.py first (a test enforces the pin).
         'image': 'vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9',
+        # The VIDEO lane's pods override the template with THIS tag instead.
+        # Two pins, deliberately independent: the face lane's tag above names
+        # the ai-toolkit commit its dense-recipe verdicts were read against and
+        # must not move casually, while the video lane needs an ai-toolkit from
+        # 2026-08-03 or later — that is when the `minimax_h3` architecture
+        # landed, and a pod on the older tag refuses the job AFTER the rental.
+        'video_image': 'vastai/ostris-ai-toolkit:da79ebc-2026-08-27-cuda-12.9',
         'max_price_per_hour': 0.80,    # background safety cap on offer price, $/h
         'offer_scan_limit': 100,       # offers fetched when listing GPU speed tiers
         'pod_overhead_minutes': 35,    # boot+model download+quantize (measured ~40 min live), in cost estimates
@@ -261,7 +268,15 @@ DEFAULTS = {
         # min_vram_gb est PAR FAMILLE (pas par variante) : pour flux2klein on prend
         # 32 — le 9B (32-48 GB) est la voie cloud principale de cette famille, et un
         # pod 32 GB entraîne aussi le 4B sans problème (l'inverse serait faux).
-        'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24, 'flux2klein': 32},
+        # 'video' covers the whole video-dataset lane, whose pods run with
+        # low_vram OFF (paying cloud prices for the PCIe shuttle is the thing
+        # the lane exists to avoid) — so the weights are RESIDENT: MiniMax H3's
+        # pruned int8 transformer alone is ~21 GB with a ~16 GB nvfp4 text
+        # encoder beside it, and Wan 2.2 A14B holds two experts. The 24 GB
+        # fallback that applied before this entry existed rented pods that
+        # could only OOM after the money was spent.
+        'min_vram_gb': {'zimage': 24, 'sdxl': 16, 'krea': 24, 'flux2klein': 32,
+                        'video': 48},
         # Dedicated dense Krea 2 lane.  A full-transformer checkpoint is ~26 GB
         # and training keeps the official base, working weights/caches and the
         # save side by side; it must never inherit the 24 GB / 60 GB LoRA lane.

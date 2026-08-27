@@ -3771,6 +3771,19 @@ def rent_with_fresh_offers(*, search, create, pick=None, on_offer=None,
             sleep(_CREATE_INSTANCE_BACKOFF)
 
 
+def _pod_image_for(run, c):
+    """The image tag THIS run's lane boots. The video lane trains architectures
+    that entered ai-toolkit after the face lane's pinned tag was cut
+    (minimax_h3 landed 2026-08-03; the pin is 2026-07-12) — on the old tag the
+    pod refuses the job only after the rental. The face lane keeps its pin
+    because the dense recipe's supported/refused verdicts were read against
+    that exact commit. A video config without `video_image` falls back to the
+    shared pin: an older trainer beats no trainer, and Wan runs still work on it."""
+    if crd.table_of(run) == crd.VIDEO:
+        return c.get('video_image') or c.get('image')
+    return c.get('image')
+
+
 def _provision(run):
     """Search offers and create the instance, honoring the launch-time GPU
     choice when the picked class is still available.
@@ -3836,7 +3849,7 @@ def _provision(run):
             return vast_client.create_instance(
                 offer['offer_id'], disk_gb=disk_gb,
                 label=run.vast_label, template_hash=template_hash,
-                image=(c.get('image') or None))
+                image=(_pod_image_for(run, c) or None))
         # Raw-image fallback (config escape hatch): direct port publish +
         # our own bearer token on the UI itself.
         token = pysecrets.token_urlsafe(24)
@@ -3847,7 +3860,7 @@ def _provision(run):
             env['HF_TOKEN'] = hf
         return vast_client.create_instance(
             offer['offer_id'], disk_gb=disk_gb,
-            label=run.vast_label, image=c.get('image'), env=env,
+            label=run.vast_label, image=_pod_image_for(run, c), env=env,
             onstart=(c.get('onstart') or None))
 
     instance_id, offer = rent_with_fresh_offers(
