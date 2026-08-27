@@ -242,6 +242,10 @@ def test_the_target_catalogue_is_served_with_its_caveats(client):
     assert by_key['wan22_ti2v5b']['training_verified'] is True
     assert by_key['wan22_ti2v5b']['aitk_arch'] == 'wan22_5b'
     assert 'EU' in by_key['minimax_h3']['licence_note']
+    # The wall AND the exit: the note must name the authorization route, or an
+    # EU/UK/US/KR user reads a hard "never" where MiniMax actually grants
+    # authorization on request.
+    assert 'platform.minimax.io' in by_key['minimax_h3']['licence_note']
     assert 81 in by_key['wan22_14b']['frame_choices']
 
 

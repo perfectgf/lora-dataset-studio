@@ -10,6 +10,7 @@ import {
 import {
   isActive, launchBlockedReason, runSummary, canRetry, canContinue, stepLabel,
 } from './videoCloudStatus'
+import { ensureLicenceAck } from './licenceAck'
 
 /** ☁ Train this video dataset on a rented GPU, and bring the weights back.
  *
@@ -62,6 +63,13 @@ export default function VideoDatasetCloudPanel({ dataset }) {
   }, [run?.status, refresh])
 
   const post = async (url, body, okMessage) => {
+    // Every caller of this helper rents a pod (launch, retry, continue), so the
+    // licence gate lives here once rather than on three buttons. Retries after
+    // a first acknowledged launch pass silently — the yes belongs to the
+    // profile, and it was already given.
+    if (!ensureLicenceAck(dataset, {
+      storage: window.localStorage, confirmFn: window.confirm,
+    })) return
     setBusy(true)
     try {
       await postJson(url, body)

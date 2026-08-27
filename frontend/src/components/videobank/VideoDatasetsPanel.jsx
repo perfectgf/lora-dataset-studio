@@ -4,6 +4,7 @@ import { apiFetch, del, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import { clipLabel } from './videoClipFragment'
+import { ensureLicenceAck } from './licenceAck'
 import VideoDatasetCloudPanel from './VideoDatasetCloudPanel'
 
 /** 🎬 Video training sets, in the library, next to the image datasets.
@@ -140,6 +141,12 @@ function VideoTrainingSection({ ds }) {
   }, [active, poll])
 
   const start = async (acceptDownload = false) => {
+    // The licence question comes BEFORE anything is spent — not after the
+    // download confirm, whose 43 GB would already be an investment in a run
+    // the licence answer might forbid.
+    if (!ensureLicenceAck(ds, {
+      storage: window.localStorage, confirmFn: window.confirm,
+    })) return undefined
     setBusy(true)
     try {
       const r = await postJson(`/api/video-dataset/${ds.id}/train`,

@@ -223,9 +223,15 @@ _TARGETS = {
         # NOT a footnote. The MiniMax H3 Community Licence grants rights SOLELY
         # within its "Applicable Territory" and names the EU, the UK, South Korea
         # and the USA as Excluded Territories. It reaches the OUTPUTS too.
+        # The note carries the exit as well as the wall: MiniMax grants the
+        # excluded territories through a (free) authorization form, confirmed by
+        # their staff on the model's licence thread. A warning that names no way
+        # out reads as "never", and "never" here is simply wrong.
         'licence_note': 'MiniMax H3 Community License grants NO rights in the EU, '
                         'UK, South Korea or USA — and the restriction covers the '
-                        'outputs, not just the model. Check your territory first.',
+                        'outputs, not just the model. Check your territory first; '
+                        'MiniMax grants authorization on request '
+                        '(platform.minimax.io/h3-license).',
     },
     'generic': {
         'label': 'Generic / other',
