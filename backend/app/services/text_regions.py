@@ -30,10 +30,13 @@ from __future__ import annotations
 #     bubble (a much wider gap away) alone;
 #   * it is the inpaint margin — comic lettering is outlined and anti-aliased,
 #     and a mask cut exactly at the glyph edge leaves a ghost of the stroke.
-# 0.015 of the image side ≈ 15 px on a 1000 px page: measured against real
-# webtoon pages, line leading inside a bubble sits well under 2×pad and the gap
-# between separate balloons well over it.
-TEXT_MERGE_PAD = 0.015
+# 0.02 of the image side ≈ 20 px on a 1000 px page. MEASURED, not guessed: on a
+# real translated webtoon page the leading between two lines of ONE balloon
+# reached 0.035 of the frame — above the 0.03 window a 0.015 pad gives, so the
+# balloon split into two zones — while the gap between separate balloons was
+# 0.39. The window has an order of magnitude of headroom before it could weld
+# two balloons; the leading had almost none before it split one.
+TEXT_MERGE_PAD = 0.02
 
 # The two values below REPEAT the hand-mask contract they feed
 # (face_dataset_service.WATERMARK_REGION_LIMIT / _MIN_SIDE) rather than import
