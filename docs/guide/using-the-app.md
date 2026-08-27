@@ -2175,8 +2175,13 @@ bubble out of the middle of a page is not a thing.
 The reading is done by the same OCR engine as the Video bank's **🔳 Safe
 zone** pass (one Setup install serves both — *Burned-in text*, a small
 Apache-2.0 package that works offline). It runs on the **CPU only**, never the
-GPU, so it can scan a bank while a training run owns the card. Script does not
-matter: Latin, Korean, Japanese and Chinese lettering are all boxes to it.
+GPU, so it can scan a bank while a training run owns the card. Regular
+lettering is found whatever the script — Latin, Korean, Japanese, Chinese
+dialogue, subtitles and captions are all boxes to it. **Heavily stylised
+lettering can escape it**: a calligraphic sound-effect with thick outlines is
+drawn more than written, and the detector can miss it entirely (measured on a
+real page — no threshold recovers it). Those get the hand mask in **🚩 Edit
+mask**, like any zone the machine missed.
 
 What it does *not* do, said plainly:
 

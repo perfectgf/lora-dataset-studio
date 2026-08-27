@@ -89,11 +89,12 @@ export const WHATS_NEW = [
     blurb:
       'A comic page carries its dialogue, a screencap its subtitle — and a '
       + 'LoRA learns the lettering along with the subject. 🔤 Find text reads '
-      + 'the text (any script) and turns each block into a mask zone, so the '
-      + 'same 🧽 Repaint that clears watermarks erases it — one funnel, one '
-      + '↩ Undo, and ✂ Auto-crop never touches a bubble. On banks and '
+      + 'the text (Latin or CJK alike) and turns each block into a mask zone, '
+      + 'so the same 🧽 Repaint that clears watermarks erases it — one funnel, '
+      + 'one ↩ Undo, and ✂ Auto-crop never touches a bubble. On banks and '
       + 'datasets both, CPU-only, powered by the same small offline OCR the '
-      + 'Video bank already uses (one Setup install serves both).',
+      + 'Video bank already uses. Very stylised sound-effect lettering can '
+      + 'still escape the reader — the mask editor covers those.',
     to: '/bank',
   },
   {
