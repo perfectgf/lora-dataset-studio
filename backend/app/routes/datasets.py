@@ -1283,6 +1283,10 @@ def dataset_text_detect(dataset_id):
     'dismissed' rows are never re-examined. Persists watermark_regions/
     watermark_state/text_state; deletes nothing; never takes the GPU window.
 
+    {limit:N} is the launch window's "try on a sample first" — the first N
+    images that actually need reading, deterministic (full parity with the
+    bank's dial).
+
     Stoppable: ⏹ Stop posts to .../text/detect/cancel and this returns
     `stopped: true` with everything judged so far already committed."""
     if not svc.get_dataset(LOCAL_USER, dataset_id):
@@ -1300,7 +1304,7 @@ def dataset_text_detect(dataset_id):
     try:
         counts = svc.detect_text(
             LOCAL_USER, dataset_id, rescan=bool(data.get('rescan')),
-            report=report,
+            limit=data.get('limit'), report=report,
             should_cancel=lambda: dataset_activity.cancel_requested(
                 dataset_id, dataset_activity.TEXT_KINDS))
     except Exception as e:

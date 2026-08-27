@@ -100,12 +100,13 @@ export const WHATS_NEW = [
     date: '2026-08-27',
     title: 'Find text: try a sample, tune the sensitivity, then commit',
     blurb:
-      'The 🔤 Find text launch window now carries two dials. “Try on a sample '
-      + 'first” reads only the first N pages of the scope — judge the zones in '
-      + '▶ Review, then launch the rest, or re-read the SAME sample after '
-      + 'moving the new Sensitivity slider (lower catches fainter lettering, '
-      + 'at the cost of false zones — stored once, the dataset scan reads it '
-      + 'too). No more committing a 9 000-page bank to find out.',
+      'The 🔤 Find text launch window now carries two dials — on BOTH '
+      + 'surfaces. “Try on a sample first” reads only the first N pages — '
+      + 'judge the zones in the flagged review, then launch the rest, or '
+      + 're-read the SAME sample after moving the new Sensitivity slider '
+      + '(lower catches fainter lettering, at the cost of false zones — one '
+      + 'stored value, moved from either side). No more committing a '
+      + '9 000-page bank to find out.',
     to: '/bank',
   },
   {

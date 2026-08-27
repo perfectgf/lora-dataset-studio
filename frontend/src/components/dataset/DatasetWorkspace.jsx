@@ -30,6 +30,7 @@ import { captionOriginInfo } from '../../utils/captionOrigin.js';
 import { extraRefCropSource } from './extraRefs';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import DatasetToBankDialog from './DatasetToBankDialog';
+import TextScanDialog from './TextScanDialog';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
 // Lazily loaded: each renders behind a condition (a click opens it) or a
 // hidden section, so its code leaves the DatasetPage entry chunk - which
@@ -298,6 +299,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
+  // 🔤 Find text launch window (full parity with the bank's). Hook up here
+  // with its siblings — the counts it prices live next to watermarkDetected,
+  // past the early returns.
+  const [textScanOpen, setTextScanOpen] = useState(false);
   const [savingAllowCrop, setSavingAllowCrop] = useState(false);  // write-through of the auto-crop pref
   const [checkpointCount, setCheckpointCount] = useState(0);
   const [checkpointHost, setCheckpointHost] = useState(null);
@@ -620,6 +625,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const leakingImages = images.filter((i) => i.leak);
   // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
   const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
+  // 🔤 window pricing: the kept pile the pass actually reads — dismissed rows
+  // are the machine's no-go, already-answered rows only re-enter through the
+  // redo line.
+  const keptForText = images.filter(
+    (i) => i.status === 'keep' && i.watermark_state !== 'dismissed');
+  const textToRead = keptForText.filter(
+    (i) => !i.text_state || i.text_state === 'error').length;
   // …and what that pile is really made of: what a bulk reject would move, what it
   // would refuse to touch, which detector judged, and how many carry no position.
   const flagged = summarizeFlagged(images);
@@ -1504,16 +1516,25 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     the RapidOCR engine the video lane ships — CPU only. Zones
                     land in the same mask channel, so the same Clean repaints
                     them. Greyed with the install route when the extra is out. */}
-                <button type="button" data-workspace-focus onClick={() => ds.findText()}
+                <button type="button" data-workspace-focus onClick={() => setTextScanOpen(true)}
                   disabled={ds.busy || !caps.video_text}
                   title={caps.video_text
-                    ? 'Reads burned-in text — speech bubbles, subtitles, captions, sound effects — and marks each zone for 🧽 Clean to repaint (deletes nothing, CPU only)'
+                    ? 'Opens the launch window: try a sample, tune the sensitivity, then scan — zones land in the mask 🧽 Clean repaints (deletes nothing, CPU only)'
                     : 'Reads burned-in text on the kept images. Install "Burned-in text" from Setup first.'}
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   🔤 {ds.textScanning
                     ? `Reading…${act?.kind === 'text_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
-                    : 'Find text'}
+                    : 'Find text…'}
                 </button>
+                {textScanOpen && (
+                  <TextScanDialog
+                    onClose={() => setTextScanOpen(false)}
+                    onLaunch={(opts) => ds.findText(opts)}
+                    toRead={textToRead}
+                    rereadable={keptForText.length}
+                    sensitivity={caps.text_scan_score_min}
+                    live={ds.busy} />
+                )}
                 <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (
                   <>

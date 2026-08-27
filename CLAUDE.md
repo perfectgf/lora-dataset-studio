@@ -84,7 +84,11 @@ They share features — the face pass, quality/scoring passes, watermark detect
 and clean, captions, sort menus, decision filters, tag/word filtering. A user
 who learns a behaviour on one expects it on the other, and reports it as a bug
 when it differs. **So a change to a shared feature is not done until BOTH
-surfaces carry it.** `frontend/src/utils/gridSort.js` already states the shape
+surfaces carry it — at FULL parity: the dials, the launch window, the
+counts, not just the pass underneath** (maintainer's standing rule,
+2026-08-27: "full parity, always". The 🔤 Find text sample dial shipped
+bank-only with a written reason, and the reason did not survive contact with
+the maintainer for a day). `frontend/src/utils/gridSort.js` already states the shape
 this takes: *two surfaces, two mechanics, ONE contract* — the plumbing may
 differ (the Bank pages over SQL, a dataset holds its rows in memory), the
 BEHAVIOUR may not.
@@ -102,8 +106,10 @@ question.
 - Ask what the OTHER surface does with this. `backend/infer/` is where the pairs
   live (`face_embed_infer.py` is the Bank's, `face_score_infer.py` the
   dataset's, and they duplicate their vocabulary and thresholds by hand).
-- Port it, or write down why the surfaces legitimately differ. A deliberate
-  difference is fine — an unnoticed one is a bug with a delay on it.
+- Port it. A difference between the surfaces — even a documented one — now
+  needs the maintainer's explicit sign-off; a mechanic may differ (SQL vs
+  in-memory, a pile picker vs "kept"), the BEHAVIOUR and the offered dials
+  may not.
 - Pin the shared value with a test that reads BOTH sides, so they cannot drift
   apart silently again (`test_face_score_zoom_rescue.py` does this for the face
   floor).

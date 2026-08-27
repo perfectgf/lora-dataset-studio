@@ -844,14 +844,25 @@ export function useDataset() {
   // rows are never re-examined, like every machine pass.
   const findText = useCallback((options) => wrap(async () => {
     const rescan = !!(options && options.rescan);
+    const limit = options && options.limit;
     const run = beginLocalActivityRun('text', currentId);
     try {
+      const body = {
+        ...(rescan ? { rescan: true } : {}),
+        ...(limit ? { limit } : {}),
+      };
       const d = await postJson(`/api/dataset/${run.datasetId}/text/detect`,
-        rescan ? { rescan: true } : undefined);
+        Object.keys(body).length ? body : undefined);
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
-      const head = d.stopped ? 'Stopped —' : '';
+      const head = d.stopped ? 'Stopped —' : limit ? 'Sample —' : '';
       toast.success(`${head} ${d.found || 0} image(s) with text · ${d.none || 0} without `
         + `(of ${d.checked || 0})`.trim());
+      // A sample exists to be JUDGED — say where, like the bank's run detail does.
+      if (limit && !d.stopped) {
+        toast.info('Open the 🔍 review of flagged images to judge the zones, '
+          + 'then run again for the rest — or re-read the same sample after '
+          + 'changing the sensitivity.');
+      }
       // The mask channel holds 32 zones per image; a text-heavy page can carry
       // more. Named out loud — a silently partial mask reads as a clean pass.
       if (d.uncovered) {

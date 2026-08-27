@@ -2206,11 +2206,12 @@ become a zone — lower catches fainter or more stylised lettering at the cost
 of false zones. It is stored (one value, both surfaces), and the zones are
 always yours to edit afterwards in **🚩 Edit mask**.
 
-It works on both surfaces — a bank's Watermarks panel carries the **🔤 Find
-text** card next to 🚩 Find, and a dataset's curation row carries the same
-button next to its watermark scan (the dataset scan reads the same stored
-sensitivity; the sample dial is the bank's — a dataset is small enough to
-just scan).
+It works on both surfaces, at full parity — a bank's Watermarks panel
+carries the **🔤 Find text** card next to 🚩 Find, and a dataset's curation
+row carries the same button next to its watermark scan. Both open the same
+launch window: the sample dial, the Sensitivity slider (one stored value,
+whichever side you move it from), and the measured count of what the run
+will actually read.
 
 
 ## Fix a watermark mask — or mark one the scan missed
