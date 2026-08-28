@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  MACHINE_LOAD_PREF_KEY, formatGb, loadTone, machineLoadSummary,
-  readMachineLoadPref, shouldPoll, systemStatsSegments, writeMachineLoadPref,
+  HEADER_MACHINE_LOAD_PREF_KEY, MACHINE_LOAD_PREF_KEY, formatGb, loadTone,
+  machineLoadSummary, readMachineLoadPref, shouldPoll, systemStatsSegments,
+  tempTone, writeMachineLoadPref,
 } from './systemStats.js';
 
 const memoryStore = () => {
@@ -21,6 +22,26 @@ test('a full machine reads as one line, work first, memory second', () => {
   });
   assert.deepEqual(segments.map((s) => `${s.label} ${s.text}`),
     ['CPU 34%', 'GPU 87%', 'VRAM 21/24G', 'RAM 45/64G']);
+});
+
+test('a machine that reports its GPU temperature shows it, in degrees, last', () => {
+  const segments = systemStatsSegments({
+    cpu_percent: 34, gpu_percent: 87,
+    vram_used_gb: 21.3, vram_total_gb: 24,
+    ram_used_gb: 45.2, ram_total_gb: 63.9,
+    gpu_temp_c: 47,
+  });
+  assert.deepEqual(segments.map((s) => `${s.label} ${s.text}`),
+    ['CPU 34%', 'GPU 87%', 'VRAM 21/24G', 'RAM 45/64G', 'Temp 47°']);
+});
+
+test('a GPU that cannot report its temperature costs one segment, not a 0°', () => {
+  // Same omission rule as the GPU itself: [N/A] upstream means the key is
+  // absent, and an absent key must never be drawn as a freezing card.
+  const segments = systemStatsSegments({
+    gpu_percent: 87, vram_used_gb: 21.3, vram_total_gb: 24,
+  });
+  assert.ok(!segments.some((s) => s.key === 'temp'));
 });
 
 test('a machine with no GPU draws two numbers, not four zeros', () => {
@@ -67,6 +88,22 @@ test('the tone of each segment comes from its own fraction, not the raw number',
   assert.equal(ram.tone, 'calm');     // 8/64 = 0.125
 });
 
+test('temperature warns on the throttle band, not on half of anything', () => {
+  // 50 °C is a card at rest; the load fractions cannot serve heat. Amber from
+  // 70°, rose from 85° — the band where NVIDIA cards defend themselves.
+  assert.equal(tempTone(47), 'calm');
+  assert.equal(tempTone(69), 'calm');
+  assert.equal(tempTone(70), 'warm');
+  assert.equal(tempTone(84), 'warm');
+  assert.equal(tempTone(85), 'hot');
+  // An unmeasured temperature must never paint a warning.
+  assert.equal(tempTone(null), 'calm');
+  assert.equal(tempTone(NaN), 'calm');
+  // …and the segment's tone is the same verdict the function gives.
+  const [temp] = systemStatsSegments({ gpu_temp_c: 90 }).filter((s) => s.key === 'temp');
+  assert.equal(temp.tone, 'hot');
+});
+
 test('gigabytes lose their decimal only where it is noise', () => {
   assert.equal(formatGb(21.3), '21');
   assert.equal(formatGb(23.99), '24');
@@ -110,6 +147,25 @@ test('storage that throws leaves the readout shown instead of crashing the board
   };
   assert.equal(readMachineLoadPref(hostile), true);
   assert.doesNotThrow(() => writeMachineLoadPref(false, hostile));
+});
+
+test('the header readout starts folded and remembers being opened', () => {
+  // A header serves every page: the poll is opt-in there, where the Canvas
+  // one is opt-out — and the two choices are remembered apart, under keys
+  // that must never be renamed.
+  const store = memoryStore();
+  assert.equal(readMachineLoadPref(store, HEADER_MACHINE_LOAD_PREF_KEY, false), false);
+  writeMachineLoadPref(true, store, HEADER_MACHINE_LOAD_PREF_KEY);
+  assert.equal(store.getItem(HEADER_MACHINE_LOAD_PREF_KEY), 'on');
+  assert.equal(readMachineLoadPref(store, HEADER_MACHINE_LOAD_PREF_KEY, false), true);
+  // …without touching the Canvas choice.
+  assert.equal(readMachineLoadPref(store), true);
+  assert.notEqual(HEADER_MACHINE_LOAD_PREF_KEY, MACHINE_LOAD_PREF_KEY);
+});
+
+test('storage that throws leaves the header readout folded, its own default', () => {
+  const hostile = { getItem() { throw new Error('storage disabled'); } };
+  assert.equal(readMachineLoadPref(hostile, HEADER_MACHINE_LOAD_PREF_KEY, false), false);
 });
 
 test('the tooltip never promises a GPU the machine does not have', () => {

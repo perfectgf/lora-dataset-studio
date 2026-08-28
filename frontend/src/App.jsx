@@ -32,6 +32,9 @@ const GalleryPage = lazyPage(() => import('./pages/GalleryPage'))
 import { recommendedMet } from './hooks/useSetupSteps'
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import HeaderMenu from './components/common/HeaderMenu'
+import SystemStatsReadout from './components/shared/SystemStatsReadout'
+import { HEADER_MACHINE_LOAD_PREF_KEY } from './utils/systemStats'
+import { useMediaQuery } from './hooks/useMediaQuery'
 import { versionLabel } from './utils/versionLabel'
 import { useTrainingActivity } from './hooks/useTrainingActivity'
 import { activityLabel } from './utils/trainingActivity'
@@ -173,6 +176,16 @@ function NavBar() {
   const helpMenuActive = path === '/guide' || path === '/help'
   const settingsMenuActive = path === '/setup' || path.startsWith('/settings')
   const setupNeedsAttention = !recommendedMet(caps)
+  // 📊 The machine-load readout is mounted ONCE and PLACED (useMediaQuery, the
+  // board's own rule): in the desktop bar's utility cluster, or in the mobile
+  // panel. Tailwind's `hidden` cannot serve here — a CSS-hidden mount still
+  // POLLS, and this is the only thing in the header that would.
+  const desktopNav = useMediaQuery('(min-width: 768px)')
+  const machineLoad = (
+    <SystemStatsReadout prefKey={HEADER_MACHINE_LOAD_PREF_KEY}
+      defaultEnabled={false} testId="header-system-stats"
+      helpTopic="canvas-machine-load" />
+  )
 
   // The four workspaces, left-aligned on desktop AND reused (flat) in the
   // mobile panel. Same caps gates in both places.
@@ -284,6 +297,11 @@ function NavBar() {
             {workspaceLinks}
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            {/* Folded, this is one quiet 📊 button. Unfolded, the line takes
+                the width it takes and the workspace row (flex-wrap) yields —
+                a taller header is the documented overflow here, never a wider
+                document. */}
+            {desktopNav && machineLoad}
             <HeaderMenu triggerLabel={<span aria-hidden>?</span>}
               triggerTitle="Help & guide" active={helpMenuActive}>
               {(close) => (
@@ -328,6 +346,9 @@ function NavBar() {
         <nav aria-label="Main navigation (mobile)"
           className="flex flex-col gap-1 border-t border-border px-4 py-2 md:hidden">
           {mobileLinks}
+          {/* Mounted only while the panel is open, so a phone pays for the
+              poll exactly while someone is looking at the answer. */}
+          {!desktopNav && <div className="px-2 py-1.5">{machineLoad}</div>}
         </nav>
       )}
     </header>

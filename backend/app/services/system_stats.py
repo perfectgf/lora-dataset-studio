@@ -1,8 +1,8 @@
-"""📊 Machine load in four numbers — CPU, RAM, GPU, VRAM.
+"""📊 Machine load in five numbers — CPU, RAM, GPU, VRAM, GPU temperature.
 
-What this is FOR: the Canvas shows these while a generation or a training run
-is going, so "is the machine actually working, or is it stuck?" is answered by
-looking, not by opening Task Manager on the server's desktop.
+What this is FOR: the header and the Canvas show these while a generation or a
+training run is going, so "is the machine actually working, or is it stuck?" is
+answered by looking, not by opening Task Manager on the server's desktop.
 
 Three deliberate properties, because a widget that polls forever is a widget
 that costs something:
@@ -92,7 +92,8 @@ def _cpu_percent(ps):
 
 
 def _gpu_sample():
-    """(util %, VRAM used GB, VRAM total GB) for GPU 0, or None when unknown.
+    """(util %, VRAM used GB, VRAM total GB, temp °C or None) for GPU 0, or
+    None when unknown.
 
     None covers every "there is no answer here" case at once: no NVIDIA card,
     nvidia-smi absent from PATH, a driver that hung, a container without the
@@ -101,7 +102,7 @@ def _gpu_sample():
     try:
         proc = subprocess.run(
             ['nvidia-smi',
-             '--query-gpu=utilization.gpu,memory.used,memory.total',
+             '--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu',
              '--format=csv,noheader,nounits'],
             capture_output=True, text=True, timeout=5,
             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -119,11 +120,18 @@ def _gpu_sample():
         # "[N/A]" is what nvidia-smi prints for utilization on some laptop and
         # virtualised GPUs — float() raises and the whole sample is dropped,
         # which is the honest outcome.
-        return (round(float(parts[0])),
-                round(float(parts[1]) / _MIB_PER_GB, 1),
-                round(float(parts[2]) / _MIB_PER_GB, 1))
+        sample = (round(float(parts[0])),
+                  round(float(parts[1]) / _MIB_PER_GB, 1),
+                  round(float(parts[2]) / _MIB_PER_GB, 1))
     except ValueError:
         return None
+    # Temperature is judged on its own: "[N/A]" here (some virtualised and
+    # laptop GPUs) must cost the one number it is, not the whole sample.
+    try:
+        temp = round(float(parts[3])) if len(parts) > 3 else None
+    except ValueError:
+        temp = None
+    return sample + (temp,)
 
 
 def _collect():
@@ -147,7 +155,9 @@ def _collect():
             logger.debug('virtual_memory unavailable', exc_info=True)
     gpu = _gpu_sample()
     if gpu is not None:
-        out['gpu_percent'], out['vram_used_gb'], out['vram_total_gb'] = gpu
+        out['gpu_percent'], out['vram_used_gb'], out['vram_total_gb'] = gpu[:3]
+        if gpu[3] is not None:
+            out['gpu_temp_c'] = gpu[3]
     return out
 
 

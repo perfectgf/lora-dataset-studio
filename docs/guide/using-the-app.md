@@ -3374,17 +3374,26 @@ badges and hover highlights are not in it — and a picture whose file has been
 cleaned off the disk comes out as a labelled placeholder rather than silently
 missing.
 
-**Machine load.** The right-hand end of the board toolbar carries four small
-numbers for the machine *running LDS* — **CPU**, **GPU**, **VRAM**, **RAM** —
-refreshed every five seconds while the tab is in front. It answers the one
-question the board could not: whether a run that shows no new pictures is
-working or wedged. Every number carries a colour: green below 50 % of its
-resource, amber 50-80 %, red past 80 %; **▾** folds the readout away and stops
-the polling with it, and the choice is remembered. It is a glance, not a
-monitor: there is no history, no graph and
-no per-process breakdown. On a machine with no NVIDIA card (or with `nvidia-smi`
-unavailable, as in some containers) the GPU and VRAM numbers are simply absent
-rather than shown as zeros, and the row is hidden on phone-width screens.
+**Machine load.** The right-hand end of the board toolbar carries five small
+numbers for the machine *running LDS* — **CPU**, **GPU**, **VRAM**, **RAM** and
+the GPU **temperature** — refreshed every five seconds while the tab is in
+front. It answers the one question the board could not: whether a run that
+shows no new pictures is working or wedged. Every number carries a colour:
+green below 50 % of its resource, amber 50-80 %, red past 80 % (for the
+temperature: amber from 70°, red from 85°, the band where a GPU starts
+throttling); **▾** folds the readout away and stops the polling with it, and
+the choice is remembered. It is a glance, not a monitor: there is no history,
+no graph and no per-process breakdown. On a machine with no NVIDIA card (or
+with `nvidia-smi` unavailable, as in some containers) the GPU, VRAM and
+temperature numbers are simply absent rather than shown as zeros. On a phone
+the readout rides in the board's **⋯** shelf rather than the toolbar.
+
+The same readout is available on *every* page: the **📊** button at the right
+of the top bar (in the menu panel, on a phone) unfolds an identical line next
+to the navigation, so you can watch a training or a generation work from the
+Test Studio, the Bank or a dataset without keeping Task Manager — or a ComfyUI
+resource monitor — open. It starts folded, polls only while it is unfolded and
+the tab is visible, and remembers your choice separately from the board's.
 
 **Deleting a picture from the board.** A pinned image carries **✕** and **🗑**,
 and they are not the same thing. **✕** takes it off the board and remembers where

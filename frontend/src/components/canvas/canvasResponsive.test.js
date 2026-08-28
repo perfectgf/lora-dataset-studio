@@ -252,15 +252,22 @@ test('the shelf’s chips carry their words, and the toolbar keeps its targets',
    toolbar: on a 400-px screen that row already wrapped twice. It is in the ⋯
    shelf now, where it costs the board nothing until opened — and the phone is
    the device that wants it most, being the screen you check the machine from
-   when you are not sitting at it. */
+   when you are not sitting at it. The line itself lives in the shared
+   SystemStatsReadout (the header mounts it too); the board's mount keeps its
+   historical testid and localStorage key. */
 test('the load readout is reachable from a phone', () => {
-  const stats = fs.readFileSync(new URL('./CanvasSystemStats.jsx', import.meta.url), 'utf8');
+  const stats = fs.readFileSync(
+    new URL('../shared/SystemStatsReadout.jsx', import.meta.url), 'utf8');
   assert.doesNotMatch(stats, /className="hidden items-center gap-1\.5 sm:flex"/);
-  assert.match(stats, /data-testid="canvas-system-stats"[^]{0,120}className="flex flex-wrap items-center/);
+  assert.match(stats, /data-testid=\{testId\}[^]{0,120}className="flex flex-wrap items-center/);
   // The ▾ toggle still STOPS THE POLL rather than just hiding the line — this
   // is the only thing on the page that polls forever.
-  assert.match(stats, /data-testid="canvas-system-stats-toggle"/);
+  assert.match(stats, /data-testid=\{`\$\{testId\}-toggle`\}/);
   assert.match(stats, /shouldPoll\(\{ enabled: enabledRef\.current, visibility \}\)/);
+  // …and the board still mounts it under the ids the probe holds on to.
+  const mount = fs.readFileSync(new URL('./CanvasSystemStats.jsx', import.meta.url), 'utf8');
+  assert.match(mount, /testId="canvas-system-stats"/);
+  assert.match(mount, /prefKey=\{MACHINE_LOAD_PREF_KEY\}/);
 });
 
 /* 📏 360 px: the toolbar needed 326 of the 316 it had, and 12 of the missing 10

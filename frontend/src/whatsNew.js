@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-header-machine-load',
+    date: '2026-08-28',
+    title: 'A resource monitor on every page — now with GPU temperature',
+    blurb:
+      'The 📊 machine-load readout is no longer Canvas-only: click 📊 in the '
+      + 'header and every page — the Test Studio above all — shows live '
+      + 'CPU · GPU · VRAM · RAM numbers, now joined by the GPU temperature, '
+      + 'so you can watch a generation or a training work without keeping '
+      + 'Task Manager or a ComfyUI monitor open. It polls only while the tab '
+      + 'is visible, folds away with ▾, and remembers your choice. '
+      + 'Suggested by Sam Exit (Discord).',
+  },
+  {
     id: '2026-08-28-similar-add-more',
     date: '2026-08-28',
     title: 'Similar to selected: ask for the next batch without starting over',

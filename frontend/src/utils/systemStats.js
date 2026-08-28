@@ -1,8 +1,10 @@
-/* 📊 The Canvas load readout — turning /api/system/stats into one small line.
+/* 📊 The machine-load readout — turning /api/system/stats into one small line.
  *
- * Everything that decides WHAT is drawn lives here, in plain JS, so it is
- * covered by `node --test` (which cannot parse JSX). The component is left with
- * markup and a timer.
+ * Drawn in two places, by one component (SystemStatsReadout): the Canvas
+ * toolbar, where it has always lived, and the app header, where it answers the
+ * same question from every other page. Everything that decides WHAT is drawn
+ * lives here, in plain JS, so it is covered by `node --test` (which cannot
+ * parse JSX). The component is left with markup and a timer.
  *
  * Two rules the widget rests on:
  *
@@ -19,9 +21,23 @@
 const WARM_AT = 0.50;
 const HOT_AT = 0.80;
 
-/** localStorage key for "the user folded this away". NEVER rename it — a new
- *  key would silently re-open the widget for everyone who had closed it. */
+/** °C at which the GPU temperature tone changes. Heat has its own scale — 50%
+ *  of a resource is routine while 50 °C is a card at rest — so the fractions
+ *  above cannot serve. NVIDIA cards start defending themselves (throttling)
+ *  in the 83-90 °C band: amber warns on the approach, rose means the card is
+ *  already there. */
+const TEMP_WARM_AT_C = 70;
+const TEMP_HOT_AT_C = 85;
+
+/** localStorage key for "the user folded this away" on the Canvas. NEVER
+ *  rename it — a new key would silently re-open the widget for everyone who
+ *  had closed it. */
 export const MACHINE_LOAD_PREF_KEY = 'lds.canvas.machineLoad';
+
+/** Same choice for the header readout, remembered separately: hiding the
+ *  numbers on a crowded header must not hide them from the Canvas toolbar,
+ *  where they were asked for first. Same renaming rule as above. */
+export const HEADER_MACHINE_LOAD_PREF_KEY = 'lds.header.machineLoad';
 
 /** 'calm' | 'warm' | 'hot' for a 0..1 fraction. Anything unmeasurable is calm:
  *  an unknown load must never paint a warning — it draws as the resting tone. */
@@ -29,6 +45,14 @@ export function loadTone(fraction) {
   if (typeof fraction !== 'number' || !Number.isFinite(fraction)) return 'calm';
   if (fraction >= HOT_AT) return 'hot';
   if (fraction >= WARM_AT) return 'warm';
+  return 'calm';
+}
+
+/** 'calm' | 'warm' | 'hot' for a GPU temperature in °C, on the heat scale. */
+export function tempTone(tempC) {
+  if (typeof tempC !== 'number' || !Number.isFinite(tempC)) return 'calm';
+  if (tempC >= TEMP_HOT_AT_C) return 'hot';
+  if (tempC >= TEMP_WARM_AT_C) return 'warm';
   return 'calm';
 }
 
@@ -58,6 +82,11 @@ function memSegment(key, label, used, total, title) {
   };
 }
 
+function tempSegment(key, label, value, title) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return { key, label, text: `${Math.round(value)}°`, tone: tempTone(value), title };
+}
+
 /**
  * The line, as an ordered list of segments. `[]` means "this machine could not
  * answer anything" — the widget then draws nothing at all rather than an empty
@@ -66,6 +95,7 @@ function memSegment(key, label, used, total, title) {
  *
  * Order is deliberate: CPU and GPU (what is WORKING) before RAM and VRAM (what
  * is FULL), because during a run the first question is always "is it moving?".
+ * Temperature trails: it is neither, it is the health note.
  */
 export function systemStatsSegments(stats) {
   const s = stats && typeof stats === 'object' ? stats : {};
@@ -76,6 +106,7 @@ export function systemStatsSegments(stats) {
       'GPU 0 memory in use / installed'),
     memSegment('ram', 'RAM', s.ram_used_gb, s.ram_total_gb,
       'System memory in use / installed'),
+    tempSegment('temp', 'Temp', s.gpu_temp_c, 'GPU 0 temperature'),
   ].filter(Boolean);
 }
 
@@ -103,25 +134,33 @@ export function shouldPoll({ enabled, visibility }) {
   return visibility !== 'hidden';
 }
 
-/** Read the folded/unfolded preference. Anything unreadable (private mode,
- *  storage disabled) means "shown", the default. */
-export function readMachineLoadPref(storage) {
+/** Read a folded/unfolded preference. The two mounts default apart — the
+ *  Canvas readout is shown until folded (it always was), the header one stays
+ *  a quiet 📊 button until asked (a header serves every page, and a poll
+ *  nobody opted into should not run on all of them) — so the fallback is the
+ *  mount's own, and anything unreadable (private mode, storage disabled)
+ *  falls back the same way. */
+export function readMachineLoadPref(storage, key = MACHINE_LOAD_PREF_KEY,
+  fallback = true) {
   try {
     const store = storage
       || (typeof localStorage !== 'undefined' ? localStorage : null);
-    if (!store) return true;
-    return store.getItem(MACHINE_LOAD_PREF_KEY) !== 'off';
+    if (!store) return fallback;
+    const value = store.getItem(key);
+    if (value === 'on') return true;
+    if (value === 'off') return false;
+    return fallback;
   } catch {
-    return true;
+    return fallback;
   }
 }
 
-export function writeMachineLoadPref(enabled, storage) {
+export function writeMachineLoadPref(enabled, storage, key = MACHINE_LOAD_PREF_KEY) {
   try {
     const store = storage
       || (typeof localStorage !== 'undefined' ? localStorage : null);
     if (!store) return;
-    store.setItem(MACHINE_LOAD_PREF_KEY, enabled ? 'on' : 'off');
+    store.setItem(key, enabled ? 'on' : 'off');
   } catch {
     /* storage disabled — the widget simply forgets between reloads */
   }
