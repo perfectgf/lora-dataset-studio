@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-krea-base-pick-saves',
+    date: '2026-08-28',
+    title: 'The Krea 2 base-model pick actually saves now',
+    blurb:
+      'Picking a Krea 2 base model from the variation catalog looked saved '
+      + 'but quietly forgot the choice on the next reload — the save request '
+      + 'was shaped wrong and the server ignored it politely. Fixed; your '
+      + 'pick now survives, and the camera panel’s new Model row uses '
+      + 'the same repaired path.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-08-28-camera-model-choice',
     date: '2026-08-28',
     title: 'Camera angles can run on your own Qwen build',
