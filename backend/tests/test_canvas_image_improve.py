@@ -148,7 +148,13 @@ def test_the_preflight_of_the_chosen_engine_still_runs(app, monkeypatch):
 
 # --- refusals, stated before the click ----------------------------------------
 
-def test_an_improvement_cannot_be_improved_again(app, engine_stub):
+def test_an_improvement_CAN_be_improved_again(app, engine_stub):
+    """Improves chain — reversed on a user report from the gallery (Discord,
+    phone screenshot of the old "cannot be improved again" toast). An upscale
+    of an upscale is the same picture worked further, and chaining is the ONLY
+    way to run Klein detail then SeedVR2 resolution on one image. The chained
+    candidate must land in the SAME gallery (record_id/step copied) and hang
+    off the improve result, not off the original render."""
     from app.services import face_dataset_service as svc
     from app.services import lora_test_studio as lts
     from app.models import LoraTestImage
@@ -161,8 +167,44 @@ def test_an_improvement_cannot_be_improved_again(app, engine_stub):
         svc.db.session.commit()
         with open(os.path.join(svc._dataset_dir(ds.id), 'improved.png'), 'wb') as fh:
             fh.write(_png())
-        with pytest.raises(ValueError, match='cannot be improved again'):
-            lts.improve_canvas_image('local', candidate.id)
+
+        chained = lts.improve_canvas_image('local', candidate.id)
+        assert chained['job_id'] == 'job-2'
+        second = svc.db.session.get(LoraTestImage, chained['candidate_id'])
+        assert second.id != candidate.id
+        assert second.parent_image_id == candidate.id      # honest lineage
+        assert second.derivation_kind == lts.CANVAS_IMAGE_IMPROVE
+        assert (second.record_id, second.step) == (row.record_id, row.step)
+        # The file the second pass actually reads is the IMPROVED one.
+        assert engine_stub[1]['source_path'].endswith('improved.png')
+
+
+def test_a_camera_view_can_be_improved_too(app, engine_stub):
+    """The old guard refused every `derivation_kind` with an improve-specific
+    message — on a 📷 camera view the toast was a lie twice over. A finished
+    view is a picture like any other; upscaling it invents nothing."""
+    from app.services import face_dataset_service as svc
+    from app.services import lora_test_studio as lts
+    with app.app_context():
+        _ds, view = _board_image(
+            svc, filename='view.png',
+            derivation_kind=svc.CAMERA_ANGLE, parent_image_id=999)
+        result = lts.improve_canvas_image('local', view.id)
+        assert result['job_id'] == 'job-1'
+
+
+def test_a_chained_improve_still_waits_for_its_source_to_finish(app, engine_stub):
+    """Chaining lifted the derivation guard, not the readiness one: an improve
+    result still RENDERING has no file to improve."""
+    from app.services import face_dataset_service as svc
+    from app.services import lora_test_studio as lts
+    from app.models import LoraTestImage
+    with app.app_context():
+        _ds, row = _board_image(svc)
+        result = lts.improve_canvas_image('local', row.id)
+        pending = svc.db.session.get(LoraTestImage, result['candidate_id'])
+        with pytest.raises(ValueError, match='still rendering'):
+            lts.improve_canvas_image('local', pending.id)
 
 
 def test_a_second_click_returns_the_same_candidate_instead_of_a_second_job(

@@ -3874,7 +3874,6 @@ def undo_generated_repair(user_id, image_id) -> dict | None:
 
 IMPROVE_FILE_GONE = 'that image file is no longer on disk'
 IMPROVE_NOT_DONE = 'this image is still rendering'
-IMPROVE_ALREADY_DERIVED = 'an upscale & improve result cannot be improved again'
 
 
 def improve_canvas_image(user_id, image_id, engine=None):
@@ -3892,6 +3891,11 @@ def improve_canvas_image(user_id, image_id, engine=None):
     because the Test Studio's own resume path deliberately no longer picks these
     rows up (it would re-queue them as Z-Image cells, which is the wrong engine
     and the wrong workflow).
+
+    Improves CHAIN: a finished improve result (or a 📷 camera view) is as valid
+    a source as the render it came from, so Klein detail can be followed by a
+    SeedVR2 resolution pass on the same picture. Each pass is its own click and
+    its own row; only a source still rendering is refused.
     """
     row = db.session.get(LoraTestImage, image_id)
     if row is None:
@@ -3899,8 +3903,15 @@ def improve_canvas_image(user_id, image_id, engine=None):
     ds = fds.get_dataset(user_id, row.dataset_id)
     if not ds:
         return None
-    if row.derivation_kind:
-        raise ValueError(IMPROVE_ALREADY_DERIVED)
+    # A derived row is a legitimate source — asked for from the gallery on a
+    # phone, refused with "cannot be improved again", and the refusal had no
+    # ground to stand on: an upscale of an upscale (or of a 📷 camera view) is
+    # still the SAME picture, only worked further — nothing compounds the way a
+    # camera view OF a camera view invents a second backdrop. It is also the
+    # only way to run Klein detail THEN SeedVR2 resolution on one picture.
+    # Every chained candidate copies record_id/step/checkpoint from its source,
+    # so it lands in the same gallery, and the in-flight idempotence below is
+    # keyed on THIS row's id — a chain cannot collide with its parent's slot.
     if row.status != 'done' or not row.filename:
         raise ValueError(IMPROVE_NOT_DONE)
     source_path = os.path.join(fds._dataset_dir(row.dataset_id), row.filename)
