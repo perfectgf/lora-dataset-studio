@@ -270,6 +270,28 @@ def resolve_camera_speed_lora():
 STEPS_WITH_SPEED_LORA = 4
 STEPS_WITHOUT_SPEED_LORA = 20
 
+# Name tokens that say a PICKED base model already carries its own few-step
+# distillation (Rapid/Lightning/Turbo merges, all-in-one packs). Chaining the
+# speed LoRA on top of one of those is distillation applied twice, and it does
+# not degrade politely: it renders confetti-like texture patches over skin and
+# tiles while every job reports success. Measured on a real photo with
+# Phr00t's Rapid AIO v23 — same seed, same pose: chained = artifacts on every
+# surface, unchained at the SAME 4 steps = clean. The official
+# qwen_image_edit_2511 repack matches none of these, so the default install
+# keeps its historical chain.
+DISTILLED_UNET_TOKENS = ('rapid', 'lightning', 'turbo', 'aio', 'distill',
+                         'hyper', 'lcm', '4step', '4-step', '8step', '8-step')
+
+
+def unet_is_distilled(unet_ref):
+    """True when the resolved base model's FILENAME says it is already a
+    few-step build. A heuristic, deliberately visible everywhere it acts (the
+    catalog reports it, the enqueue logs it) and overridable: pinning
+    `camera.speed_lora` explicitly always wins, because a name is a claim,
+    not a measurement."""
+    name = os.path.basename(str(unet_ref or '')).lower()
+    return any(t in name for t in DISTILLED_UNET_TOKENS)
+
 
 def camera_missing_assets():
     """Setup action keys for every camera-angle asset that is NOT on disk.
@@ -349,11 +371,25 @@ def enqueue_camera_view(user_id, source_filename, source_path, pose_prompt,
     workflow['106']['inputs']['seed'] = (int(seed) if seed is not None
                                          else random.randint(0, 2 ** 64 - 1))
 
-    # The speed LoRA is the only optional node. Absent, it is removed from the
-    # chain AND the step count is raised to match — dropping it while leaving 4
-    # steps is what would render noise.
+    # The speed LoRA is the only optional node, and it has THREE regimes, not
+    # two. Installed + ordinary base: chain it, 4 steps. Absent: remove it AND
+    # raise the steps — dropping it while leaving 4 is what would render noise.
+    # Installed + a base whose NAME says it is already distilled (a Rapid/AIO
+    # pick from the Model row): remove it but KEEP 4 steps — the distillation
+    # is baked into the weights, and chaining it again renders confetti over
+    # every textured surface while reporting success. An explicit
+    # `camera.speed_lora` pin overrides the name-based skip: a pin is the user
+    # saying they know better, and this lane always lets them.
     speed_lora, speed_path = resolve_camera_speed_lora()
-    if speed_path:
+    speed_pinned = bool((cfg.get('camera.speed_lora') or '').strip())
+    if unet_is_distilled(unet_ref) and not speed_pinned:
+        logger.info('camera lane: %s reads as an already-distilled build — '
+                    'the speed LoRA is skipped, steps stay at %d',
+                    os.path.basename(str(unet_ref)), STEPS_WITH_SPEED_LORA)
+        workflow['94']['inputs']['model'] = ['109', 0]      # skip node 102
+        workflow.pop('102', None)
+        workflow['106']['inputs']['steps'] = STEPS_WITH_SPEED_LORA
+    elif speed_path:
         workflow['102']['inputs']['lora_name'] = speed_lora
         workflow['106']['inputs']['steps'] = STEPS_WITH_SPEED_LORA
     else:

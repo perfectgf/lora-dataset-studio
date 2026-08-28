@@ -212,6 +212,87 @@ def test_a_stale_lora_pin_degrades_to_the_scan_instead_of_crashing(app, monkeypa
     assert isinstance(name, str) and name  # the refusal can still print what was sought
 
 
+# --- the distilled-build regime (Model row picks a Rapid/AIO merge) -----------
+
+def _enqueue_capturing_workflow(app, monkeypatch, tmp_path, *, unet, speed_pin=''):
+    """Run enqueue_camera_view with resolvers pinned and the queue captured.
+
+    Returns the workflow dict the job would carry — the ONLY honest way to
+    assert the three speed-LoRA regimes, because the regime decision lives at
+    enqueue time, not in any resolver."""
+    from app import config as cfg
+    from app.services import qwen_camera_helper as qch
+    src = tmp_path / 'src.png'
+    src.write_bytes(b'\x89PNG\r\n\x1a\n')
+    captured = {}
+    with app.app_context():
+        cfg.save_config({'camera': {'speed_lora': speed_pin}})
+        monkeypatch.setattr(qch, 'resolve_camera_unet', lambda: unet)
+        monkeypatch.setattr(qch, 'resolve_camera_text_encoder', lambda: 'te.safetensors')
+        monkeypatch.setattr(qch, 'resolve_camera_vae', lambda: 'vae.safetensors')
+        monkeypatch.setattr(qch, 'resolve_camera_lora',
+                            lambda: ('angles.safetensors', str(src)))
+        monkeypatch.setattr(qch, 'resolve_camera_speed_lora',
+                            lambda: ('speed.safetensors', str(src)))
+        monkeypatch.setattr(qch, '_comfy_input_dir', lambda: str(tmp_path))
+        monkeypatch.setattr(qch.comfy_fs, 'ensure_input_usable', lambda d: d)
+        monkeypatch.setattr(qch.comfy_fs, 'stage_input_image',
+                            lambda _s, name, d: str(tmp_path / name))
+        monkeypatch.setattr(qch.queue_manager, 'add_job',
+                            lambda **kw: captured.update(kw))
+        qch.enqueue_camera_view('u', 'src.png', str(src), '<sks> back view')
+    return captured['workflow_data']
+
+
+def test_a_distilled_pick_skips_the_chained_speed_lora_and_keeps_4_steps(
+        app, monkeypatch, tmp_path):
+    """Chaining the 4-step LoRA onto a build that already bakes its own
+    distillation is distillation twice — measured on a real photo (Rapid AIO
+    v23, same seed, same pose): chained = confetti patches over skin and
+    tiles with every job reporting success; unchained at the SAME 4 steps =
+    clean. The name-based read is deliberately visible (catalog + log)."""
+    from app.services import qwen_camera_helper as qch
+    wf = _enqueue_capturing_workflow(
+        app, monkeypatch, tmp_path,
+        unet='qwen\\phr00tQwenImageEditRapid_v230.safetensors')
+    assert '102' not in wf, 'the speed LoRA must not be chained on a distilled build'
+    assert wf['106']['inputs']['steps'] == qch.STEPS_WITH_SPEED_LORA
+    assert wf['94']['inputs']['model'] == ['109', 0]
+
+
+def test_an_ordinary_build_still_chains_the_speed_lora(app, monkeypatch, tmp_path):
+    from app.services import qwen_camera_helper as qch
+    wf = _enqueue_capturing_workflow(
+        app, monkeypatch, tmp_path,
+        unet='qwen\\qwen_image_edit_2511_fp8mixed.safetensors')
+    assert wf['102']['inputs']['lora_name'] == 'speed.safetensors'
+    assert wf['106']['inputs']['steps'] == qch.STEPS_WITH_SPEED_LORA
+
+
+def test_a_pinned_speed_lora_overrides_the_distilled_skip(app, monkeypatch, tmp_path):
+    """A pin is the user saying they know better than the filename heuristic —
+    the lane always lets them."""
+    wf = _enqueue_capturing_workflow(
+        app, monkeypatch, tmp_path,
+        unet='qwen\\phr00tQwenImageEditRapid_v230.safetensors',
+        speed_pin='qwen/my-own-speed.safetensors')
+    assert '102' in wf, 'an explicit camera.speed_lora pin must win over the name read'
+
+
+def test_the_distilled_read_is_by_name_and_the_official_build_is_not_one():
+    from app.services import qwen_camera_helper as qch
+    assert qch.unet_is_distilled('qwen\\phr00tQwenImageEditRapid_v230.safetensors')
+    assert qch.unet_is_distilled('turbo-merge.safetensors')
+    assert qch.unet_is_distilled('some-lightning-8step.gguf')
+    assert not qch.unet_is_distilled('qwen\\qwen_image_edit_2511_fp8mixed.safetensors')
+    assert not qch.unet_is_distilled(None)
+
+
+def test_the_catalog_reports_the_distilled_read(client, app):
+    body = client.get('/api/camera/catalog').get_json()
+    assert isinstance(body['unet']['distilled'], bool)
+
+
 def test_the_shipped_workflow_still_has_the_nodes_the_helper_edits(app):
     import json
     from app.services import qwen_camera_helper as qch
@@ -255,7 +336,7 @@ def test_the_catalog_route_names_the_model_that_will_run(client, app):
     right now, and the NAME of the Setup default — so 'empty' can say which
     build it means instead of 'auto-detect'."""
     body = client.get('/api/camera/catalog').get_json()
-    assert set(body['unet']) == {'setting', 'effective', 'default'}
+    assert set(body['unet']) == {'setting', 'effective', 'default', 'distilled'}
     assert body['unet']['setting'] == ''
     assert body['unet']['default'].endswith('.safetensors')
 

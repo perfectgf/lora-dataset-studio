@@ -1856,16 +1856,21 @@ def camera_catalog():
     `camera.unet` pin ('' = auto), `effective` the file the next run would
     actually load (None while nothing is installed), `default` the name of the
     Setup-installed build — so the row can SAY what "empty" means instead of
-    calling it auto-detect."""
+    calling it auto-detect — and `distilled` whether that effective build's
+    name reads as an already-few-step merge, in which case runs skip the
+    chained speed LoRA (the note under the row is where the user learns that
+    BEFORE wondering why their run behaved differently)."""
     from ..services import camera_angles as ca
     from ..services import qwen_camera_helper as qch
     missing = qch.camera_missing_assets()
+    effective = qch.resolve_camera_unet()
     return jsonify({**ca.catalog(),
                     'ready': not any(a in missing for a in qch.CAMERA_REQUIRED),
                     'missing': missing,
                     'unet': {'setting': (cfg.get('camera.unet') or '').strip(),
-                             'effective': qch.resolve_camera_unet(),
-                             'default': qch.camera_default_unet()}})
+                             'effective': effective,
+                             'default': qch.camera_default_unet(),
+                             'distilled': qch.unet_is_distilled(effective)}})
 
 
 @bp.post('/dataset/<int:dataset_id>/improve/batch')

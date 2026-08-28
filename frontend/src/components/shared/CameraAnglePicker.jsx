@@ -258,6 +258,17 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
                   {unet.default}. Another Qwen-Image-Edit build (a finetune, an
                   NSFW merge) keeps the angle grammar and changes the look.
                 </p>
+                {/* Said HERE, before the run, because the skip is a name-based
+                    guess: chaining the speed LoRA onto an already-distilled
+                    merge renders confetti over every textured surface while
+                    reporting success (measured, Rapid AIO v23, same seed). */}
+                {unet.distilled && (
+                  <p className="mt-1 break-words text-[0.68rem] leading-snug text-amber-300/80">
+                    This build reads as already distilled — runs skip the extra
+                    speed LoRA and keep 4 steps. Pin a speed LoRA in Settings to
+                    override.
+                  </p>
+                )}
               </div>
             )}
 
