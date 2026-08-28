@@ -54,6 +54,11 @@ SLOTS = {
     'krea_identity_lora': ('loras', 'ComfyUI’s models/loras'),
     # Special-cased below — the folder type is right, the LIST is the resolver's.
     'krea_base_model': ('diffusion_models', 'a krea-named folder under ComfyUI’s models/unet'),
+    # 📷 Camera angles' base model. Special-cased below like the other two UNET
+    # slots — the list is the lane's own candidate walk (qwen-named folders +
+    # search-root level), so the picker and the pin agree about what exists.
+    'camera_unet': ('diffusion_models',
+                    'a qwen-named folder under ComfyUI’s models/diffusion_models'),
 }
 
 _lock = threading.Lock()
@@ -93,6 +98,9 @@ def _scan(slot: str, folder_type: str) -> list[str]:
     if slot == 'klein_unet':
         from . import klein_edit_helper as kh
         return _folded(kh._klein_unet_folders())
+    if slot == 'camera_unet':
+        from . import qwen_camera_helper as qch
+        return _folded(qch.qwen_unet_candidates())
     return sorted((rel for rel, _ab in comfy_model_paths.list_models(folder_type)),
                   key=str.lower)
 

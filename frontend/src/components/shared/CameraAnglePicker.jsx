@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, X } from 'lucide-react';
+import { apiFetch } from '../../api/fetchClient';
 import { requestHelpTip } from '../../help/helpTips';
+import GlobalModelPicker from './GlobalModelPicker';
 import {
   AZIMUTHS, CAMERA_INTRO, DISTANCES, DISTANCE_CAVEAT, ELEVATIONS,
   REFERENCE_POSE, costSentence, isLongRun, posePrompt, posesFor, selectionRefusal,
@@ -104,10 +106,31 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
   const [elevations, setElevations] = useState(['eye']);
   const [distances, setDistances] = useState(['medium']);
   const [sending, setSending] = useState(false);
+  // {setting, effective, default} from the catalog, null until it answers. The
+  // Model row edits the app-wide `camera.unet` — the same key Settings shows —
+  // and this panel is where the choice is made because it is where the cost of
+  // a wrong build is felt. Fetched here rather than passed in: the picker
+  // mounts in two hosts (Gallery, dataset lightbox) and neither owns config.
+  const [unet, setUnet] = useState(null);
+  const closeRef = useRef(null);
 
   // Once, the first time this panel is ever opened: the axes-not-pictures idea
   // is the one thing that is not self-evident from looking at it.
   useEffect(() => { requestHelpTip('camera-angles-picker'); }, []);
+
+  // Focus moves INTO the dialog on open (the close button, like the dataset
+  // lightbox does). Without it, focus stays on the 📷 button underneath — and
+  // in the Gallery that host walks ← → on window, so the reference picture
+  // would flip behind the dial while the run still shoots the original.
+  useEffect(() => { closeRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    let alive = true;
+    apiFetch('/api/camera/catalog')
+      .then((d) => { if (alive && d?.unet) setUnet(d.unet); })
+      .catch(() => {});           // no row is better than a row that lies
+    return () => { alive = false; };
+  }, []);
 
   const selection = { azimuths, elevations, distances };
   const poses = useMemo(() => posesFor(selection),
@@ -148,6 +171,17 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
       onClick={(e) => {
         e.stopPropagation();
         if (e.target === e.currentTarget) onClose?.();
+      }}
+      /* Keys pressed INSIDE the picker are the picker's: the Model combobox is
+         a text field, and without the stop, ← → while fixing a typed path walk
+         the Gallery underneath, and any letter is a verdict in the dataset
+         host. Escape here is the one-layer rule applied to THIS layer — the
+         combobox already stops the press that only closes its dropdown. Keys
+         pressed with focus OUTSIDE this tree still reach the hosts' window
+         listeners, which keep their own cameraOpen branches for exactly that. */
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') onClose?.();
       }}>
       {/* `bg-surface-overlay`, not `bg-surface`: the latter is 4 % alpha and the
           page would read through the card. The contract test enforces it. */}
@@ -159,7 +193,7 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
             <h2 className="font-sans text-base font-semibold text-gray-100">Camera angles</h2>
             <p className="mt-0.5 text-[0.78rem] leading-snug text-gray-400">{CAMERA_INTRO}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close"
+          <button type="button" onClick={onClose} aria-label="Close" ref={closeRef}
             className="min-h-10 lg:min-h-0 -mr-1 rounded-lg px-2 text-gray-400 hover:bg-white/5 hover:text-gray-200">
             <X className="size-4" aria-hidden />
           </button>
@@ -207,6 +241,25 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
               </div>
               <p className="mt-1.5 text-[0.68rem] leading-snug text-gray-500">{DISTANCE_CAVEAT}</p>
             </div>
+
+            {/* Which Qwen-Image-Edit build renders the views. Only shown once
+                the catalog has answered: a combobox that snaps from empty to a
+                value a beat later reads as the app changing its mind. */}
+            {unet && (
+              <div>
+                <h3 className="mb-2 font-mono text-[0.66rem] uppercase tracking-[0.14em] text-gray-400">
+                  Model
+                </h3>
+                <GlobalModelPicker section="camera" field="unet" slot="camera_unet"
+                  label="camera model" value={unet.setting}
+                  onSaved={(next) => setUnet((u) => ({ ...u, setting: next }))} />
+                <p className="mt-1.5 break-words text-[0.68rem] leading-snug text-gray-500">
+                  App-wide — every 📷 run uses it; empty = the installed{' '}
+                  {unet.default}. Another Qwen-Image-Edit build (a finetune, an
+                  NSFW merge) keeps the angle grammar and changes the look.
+                </p>
+              </div>
+            )}
 
             <div>
               <h3 className="mb-2 font-mono text-[0.66rem] uppercase tracking-[0.14em] text-gray-400">

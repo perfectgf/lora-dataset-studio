@@ -172,6 +172,15 @@ export const ACTION_TOPICS = [
     { trigger: 'camera-angles-picker',
       text: 'Pick axes, not pictures: the sides you tick times the heights times '
         + 'the distances is the run — the count under the button is what it will cost.' }),
+  /* 📷 The picker's Model row — a SETTING (app-wide camera.unet), so it owes a
+     topic, and the words it is asked with ("can I run this on a finetune / an
+     NSFW build") appear in none of the other camera topics. */
+  action('action-camera-model', 'Run camera angles on another Qwen-Image-Edit build',
+    ['camera model', 'qwen model', 'qwen build', 'qwen edit', '2511', 'swap model',
+     'another model', 'different model', 'change model', 'custom model', 'finetune',
+     'fine-tune', 'merge', 'aio', 'nsfw', 'uncensored', 'rapid', 'which model',
+     'model not found', 'camera.unet', 'model row', 'camera picker model'],
+    '/gallery', 'settings-reference', 'image-engines'),
   /* 📷 In a dataset the same verb answers a different question — "how do I get
      training coverage of the back of my character" — and adds the captioning
      angle, so it earns its own topic with the dataset vocabulary. */

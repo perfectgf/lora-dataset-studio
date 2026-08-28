@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-camera-model-choice',
+    date: '2026-08-28',
+    title: 'Camera angles can run on your own Qwen build',
+    blurb:
+      '📷 The camera-angles panel now has a Model row: pick any '
+      + 'Qwen-Image-Edit build on your disk — a finetune, an NSFW merge — '
+      + 'and every camera run uses it, on the Gallery and in datasets alike. '
+      + 'Empty keeps the installed 2511 default. The angle grammar comes from '
+      + 'the LoRA, so a different build changes the look, not the camera.',
+    to: '/gallery',
+  },
+  {
     id: '2026-08-28-enhance-model-choice',
     date: '2026-08-28',
     title: 'Pick which Ollama model runs ✨ Enhance',

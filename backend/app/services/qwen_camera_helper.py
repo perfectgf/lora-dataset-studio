@@ -154,9 +154,24 @@ def _scan(comfy_type, canonical, tokens, rel_dest=None):
 
 
 def _configured(comfy_type, cfg_key):
-    """A user-pinned model for this slot, respelled as a loader wants it, or None."""
+    """A user-pinned model for this slot, respelled as a loader wants it, or None.
+
+    `resolve_model_ref` answers ``(name, status)`` — and the status is the half a
+    caller must not drop. This used to return the whole tuple: truthy even as
+    ``(None, 'missing')``, so a stale pin skipped the fallback scan AND the tuple
+    itself went into the workflow as a loader name. The config comment on
+    `camera.*` promises the opposite ("a pin that cannot be resolved falls back
+    to auto-detection; it never blocks a render"); Klein's `_configured_model`
+    is the shape that keeps that promise, and this now matches it."""
     value = (cfg.get(cfg_key) or '').strip()
-    return resolve_model_ref(comfy_type, value) if value else None
+    if not value:
+        return None
+    rel, status = resolve_model_ref(comfy_type, value)
+    if status == 'ok':
+        return rel
+    logger.warning('%s: pinned file %r is %s (%s roots) — falling back to '
+                   'auto-detection', cfg_key, value, status, comfy_type)
+    return None
 
 
 def resolve_camera_unet():
@@ -175,6 +190,29 @@ def resolve_camera_unet():
         if found:
             return found
     return None
+
+
+def qwen_unet_candidates():
+    """``(prefix, [model files])`` candidates for this lane's base model across
+    every diffusion-model search root — the list the `camera_unet` picker slot
+    offers. Mirrors `klein_edit_helper._klein_unet_folders`: 'qwen'-named
+    folders at any depth plus the root of each search folder, so anything
+    listed is a name a UNETLoader will load. Nothing narrower than that on
+    purpose: a finetune's filename rarely says what it is, choosing is the
+    user's call (the Krea list's doctrine), and the config comment on
+    `camera.unet` already blesses a deliberate different-model pin. The
+    AUTOMATIC path stays as narrow as ever — this list feeds the explicit
+    picker, never the scan."""
+    return comfy_model_paths.scan_family_folders(
+        comfy_model_paths.search_roots('diffusion_models'), ('qwen',),
+        suffixes=_MODEL_SUFFIXES)
+
+
+def camera_default_unet():
+    """Filename of the Setup-installed base model — what an empty `camera.unet`
+    resolves to on an ordinary install, so the picker can NAME the default
+    instead of calling it 'auto'."""
+    return _canonical('camera_model')
 
 
 def resolve_camera_text_encoder():
@@ -199,10 +237,9 @@ def _resolve_lora(action, cfg_key, tokens):
     """(relative name, absolute path) for one of the lane's LoRAs. The path is
     None when the file is not on disk — the NAME is still returned, so a log or
     a refusal can print what was looked for rather than an empty string."""
-    pinned = (cfg.get(cfg_key) or '').strip()
+    pinned = _configured('loras', cfg_key)
     if pinned:
-        rel = resolve_model_ref('loras', pinned)
-        return normalize_rel_model_name(rel), _lora_abs(rel)
+        return normalize_rel_model_name(pinned), _lora_abs(pinned)
     found = _scan('loras', _canonical(action), tokens, rel_dest=_rel_dest(action))
     if found:
         return found, _lora_abs(found)

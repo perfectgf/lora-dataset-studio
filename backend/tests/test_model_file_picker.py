@@ -79,6 +79,30 @@ def test_the_krea_base_list_is_the_RESOLVER_s_candidates_not_the_whole_folder(ap
         'a non-krea folder file is not a Krea base candidate')
 
 
+def test_the_camera_unet_list_is_the_resolvers_candidates_too(app, comfy):
+    """Same doctrine as the two other UNET slots: the 📷 Model row lists the
+    lane's own candidate walk — qwen-named folders anywhere under a search
+    root, plus root-level files whose NAME carries the claim — never the whole
+    diffusion_models tree and never another family's folder. Inside a qwen/
+    folder the directory carries the claim, so an NSFW finetune with no 'qwen'
+    in its filename is still offered."""
+    q = comfy / 'models' / 'diffusion_models' / 'qwen'
+    _write(q / 'qwen_image_edit_2511_fp8mixed.safetensors')
+    _write(q / 'rapid-aio-finetune.safetensors')
+    _write(comfy / 'models' / 'diffusion_models' / 'my-qwen-edit-merge.safetensors')
+    _write(comfy / 'models' / 'diffusion_models' / 'unrelated-family.safetensors')
+    _write(comfy / 'models' / 'unet' / 'klein' / 'not-this-family.safetensors')
+    with app.app_context():
+        files, hint = picker.list_slot_files('camera_unet', force=True)
+    assert os.path.join('qwen', 'qwen_image_edit_2511_fp8mixed.safetensors') in files
+    assert os.path.join('qwen', 'rapid-aio-finetune.safetensors') in files
+    assert 'my-qwen-edit-merge.safetensors' in files
+    assert not any('unrelated-family' in f for f in files), (
+        'a root-level file with no qwen in its name is not a camera candidate')
+    assert not any('not-this-family' in f for f in files)
+    assert 'qwen' in hint, 'the empty state has to say WHERE to put a file'
+
+
 def test_an_unknown_slot_and_an_unconfigured_comfyui_degrade_to_free_text(app, tmp_path):
     """Never an error: the field falls back to plain text rather than blocking
     the whole Settings panel on an install that has no ComfyUI at all."""

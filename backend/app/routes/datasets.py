@@ -1850,13 +1850,22 @@ def camera_catalog():
     """The camera vocabulary the picker draws, plus whether the lane can run.
 
     Served rather than duplicated so the dial's degrees and the model's tokens
-    come from ONE table; `camera_catalog_contract.test.js` reads both sides."""
+    come from ONE table; `camera_catalog_contract.test.js` reads both sides.
+
+    `unet` is the picker's Model row in one read: `setting` is the saved
+    `camera.unet` pin ('' = auto), `effective` the file the next run would
+    actually load (None while nothing is installed), `default` the name of the
+    Setup-installed build — so the row can SAY what "empty" means instead of
+    calling it auto-detect."""
     from ..services import camera_angles as ca
     from ..services import qwen_camera_helper as qch
     missing = qch.camera_missing_assets()
     return jsonify({**ca.catalog(),
                     'ready': not any(a in missing for a in qch.CAMERA_REQUIRED),
-                    'missing': missing})
+                    'missing': missing,
+                    'unet': {'setting': (cfg.get('camera.unet') or '').strip(),
+                             'effective': qch.resolve_camera_unet(),
+                             'default': qch.camera_default_unet()}})
 
 
 @bp.post('/dataset/<int:dataset_id>/improve/batch')

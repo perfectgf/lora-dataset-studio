@@ -90,7 +90,11 @@ export default function ModelFilePicker({
     } else if (e.key === 'Enter') {
       if (open && shown[highlight]) { e.preventDefault(); pick(shown[highlight].name) }
     } else if (e.key === 'Escape') {
-      if (open) { e.preventDefault(); setOpen(false) }
+      // stopPropagation, not just preventDefault: Escape peels ONE layer. This
+      // combobox now also mounts inside window-keydown hosts (the 📷 picker in
+      // the dataset lightbox), where an un-stopped Escape would close the open
+      // dropdown AND the panel behind it in the same press.
+      if (open) { e.preventDefault(); e.stopPropagation(); setOpen(false) }
     }
   }
 
@@ -115,7 +119,7 @@ export default function ModelFilePicker({
                narrow, and a padding utility that no other component uses is one
                Tailwind may not have emitted — which renders as text running
                UNDER the badge, which is exactly what the 400 px capture caught. */
-            className="mt-0 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 pr-16 text-sm text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
+            className="min-h-10 lg:min-h-0 mt-0 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 pr-16 text-sm text-content placeholder:text-content-subtle focus:border-primary focus:outline-none"
           />
           {pinnedMissing && (
             <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
@@ -129,7 +133,7 @@ export default function ModelFilePicker({
         <button type="button" onClick={() => rescan?.()} disabled={rescanning}
           title={`Rescan ${where}`}
           aria-label={`Rescan model files for ${ariaLabel}`}
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border text-content-muted hover:bg-surface-raised disabled:opacity-40">
+          className="grid h-10 w-10 lg:h-9 lg:w-9 shrink-0 place-items-center rounded-md border border-border text-content-muted hover:bg-surface-raised disabled:opacity-40">
           <span aria-hidden="true" className={rescanning ? 'animate-spin' : ''}>↻</span>
         </button>
       </div>

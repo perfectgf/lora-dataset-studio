@@ -165,6 +165,53 @@ def test_the_speed_lora_alone_missing_does_not_block_the_lane(app, monkeypatch):
     assert qch.STEPS_WITHOUT_SPEED_LORA > qch.STEPS_WITH_SPEED_LORA
 
 
+# --- the pin (the picker's Model row writes camera.unet) ----------------------
+
+def test_a_resolvable_pin_is_a_loader_name_never_the_status_tuple(app, monkeypatch):
+    """`resolve_model_ref` answers (name, status), and this helper used to hand
+    the whole tuple back: truthy even as (None, 'missing'), so a stale pin
+    skipped the fallback scan AND the tuple itself was written into node 108 as
+    `unet_name`. Latent until now — the picker's Model row is the first UI that
+    writes `camera.unet` — which is exactly why it gets a test the day the path
+    is exercised."""
+    from app import config as cfg
+    from app.services import qwen_camera_helper as qch
+    with app.app_context():
+        cfg.save_config({'camera': {'unet': 'qwen/picked.safetensors'}})
+        monkeypatch.setattr(qch, 'resolve_model_ref',
+                            lambda _t, _v: ('qwen/picked.safetensors', 'ok'))
+        got = qch.resolve_camera_unet()
+    assert got == 'qwen/picked.safetensors'
+    assert isinstance(got, str)
+
+
+def test_a_stale_pin_falls_back_to_the_scan_as_the_config_comment_promises(app, monkeypatch):
+    """config.py: "a pin that cannot be resolved falls back to auto-detection;
+    it never blocks a render". The promise is only true if the status is READ."""
+    from app import config as cfg
+    from app.services import qwen_camera_helper as qch
+    with app.app_context():
+        cfg.save_config({'camera': {'unet': 'qwen/deleted.safetensors'}})
+        monkeypatch.setattr(qch, 'resolve_model_ref', lambda _t, _v: (None, 'missing'))
+        monkeypatch.setattr(qch, '_scan',
+                            lambda *a, **k: 'qwen/found-by-scan.safetensors')
+        assert qch.resolve_camera_unet() == 'qwen/found-by-scan.safetensors'
+
+
+def test_a_stale_lora_pin_degrades_to_the_scan_instead_of_crashing(app, monkeypatch):
+    """The LoRA twin of the same bug — the old pinned path handed the tuple to
+    normalize_rel_model_name, which is an AttributeError, not a render."""
+    from app import config as cfg
+    from app.services import qwen_camera_helper as qch
+    with app.app_context():
+        cfg.save_config({'camera': {'angles_lora': 'qwen/deleted.safetensors'}})
+        monkeypatch.setattr(qch, 'resolve_model_ref', lambda _t, _v: (None, 'missing'))
+        monkeypatch.setattr(qch, '_scan', lambda *a, **k: None)
+        name, path = qch.resolve_camera_lora()
+    assert path is None
+    assert isinstance(name, str) and name  # the refusal can still print what was sought
+
+
 def test_the_shipped_workflow_still_has_the_nodes_the_helper_edits(app):
     import json
     from app.services import qwen_camera_helper as qch
@@ -201,6 +248,16 @@ def test_the_catalog_route_serves_the_vocabulary_and_the_readiness(client, app):
     assert body['trigger'] == '<sks>'
     assert isinstance(body['ready'], bool)
     assert isinstance(body['missing'], list)
+
+
+def test_the_catalog_route_names_the_model_that_will_run(client, app):
+    """The picker's Model row reads this: the saved pin, what a run would load
+    right now, and the NAME of the Setup default — so 'empty' can say which
+    build it means instead of 'auto-detect'."""
+    body = client.get('/api/camera/catalog').get_json()
+    assert set(body['unet']) == {'setting', 'effective', 'default'}
+    assert body['unet']['setting'] == ''
+    assert body['unet']['default'].endswith('.safetensors')
 
 
 def test_a_camera_view_cannot_be_re_shot_from_another_angle(client, app):
