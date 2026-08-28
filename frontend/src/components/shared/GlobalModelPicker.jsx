@@ -42,7 +42,12 @@ export default function GlobalModelPicker({
     const previous = lastGood.current;
     onSaved?.(next);
     try {
-      await putJson('/api/settings', { [section]: { [field]: next || '' } });
+      // The `config:` envelope is load-bearing: PUT /api/settings reads ONLY
+      // body.config (and body.secrets) and answers 200 to everything else.
+      // This call shipped without it — a silent no-op the optimistic onSaved
+      // above then painted as saved until the next reload. Measured, not
+      // guessed: picked through the UI, watched the 200, read config.json.
+      await putJson('/api/settings', { config: { [section]: { [field]: next || '' } } });
       lastGood.current = next;
     } catch {
       onSaved?.(previous);

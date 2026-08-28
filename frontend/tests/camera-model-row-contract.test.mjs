@@ -30,6 +30,16 @@ test('the Model row edits the app-wide camera.unet through the shared widget', (
     'the current value comes from the catalog — neither host owns config');
 });
 
+test('the global picker PUTs inside the config envelope the endpoint reads', () => {
+  // PUT /api/settings reads ONLY body.config / body.secrets and answers 200 to
+  // anything else — an unwrapped section is a silent no-op that the optimistic
+  // onSaved paints as saved. GlobalModelPicker shipped exactly that way (the
+  // Krea 2 base-model row never persisted); this pin is the regression guard.
+  const gmp = read('src/components/shared/GlobalModelPicker.jsx');
+  assert.match(gmp, /putJson\('\/api\/settings', \{ config: \{ \[section\]/,
+    'GlobalModelPicker must wrap its patch in { config: … }');
+});
+
 test('the slot the row lists from exists on the backend, as a diffusion-models slot', () => {
   const py = fs.readFileSync(
     path.join(process.cwd(), '..', 'backend', 'app', 'services', 'comfy_model_picker.py'),
