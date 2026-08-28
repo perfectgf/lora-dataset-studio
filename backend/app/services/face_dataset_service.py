@@ -11051,8 +11051,14 @@ def _improve_existing_image_locked(user_id, image_id, engine=None):
     if img.derivation_kind in _SMALL_IMAGE_DERIVATIONS:
         raise ValueError(
             'resolve the small-image rescue pair before improving either image')
-    if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
-        raise ValueError('an upscale & improve candidate cannot be improved again')
+    # An improve result is a legitimate source in turn — the same chain the
+    # Canvas lane allows (lora_test_studio.improve_canvas_image): an upscale
+    # of an upscale is the SAME picture worked further, and chaining is the
+    # only way to run Klein detail THEN SeedVR2 resolution on one image. The
+    # `active` idempotence below is keyed on THIS row's id, so a chain gets
+    # its own slot instead of colliding with the one that produced its
+    # source. The rescue pair above stays refused: that is a review in
+    # progress, not a finished image.
     if not img.filename:
         raise ValueError('image file required')
     source_path = _img_path(img)

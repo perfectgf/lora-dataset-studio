@@ -427,10 +427,49 @@ def test_improve_existing_image_rejects_missing_and_review_sources(app, monkeypa
             derivation_kind=svc.KLEIN_IMAGE_IMPROVE)
         improve_candidate.source = 'generated'
         svc.db.session.commit()
-        with pytest.raises(ValueError, match='cannot be improved again'):
-            svc.improve_existing_image(LOCAL_USER, improve_candidate.id)
+        # Improving an improve result CHAINS now (dedicated test below);
+        # regenerate still refuses — an improve pass has no generation
+        # prompt of its own to re-run.
         with pytest.raises(ValueError, match='cannot be regenerated'):
             svc.regenerate_image(LOCAL_USER, improve_candidate.id)
+
+
+def test_an_improve_result_can_be_improved_again(app, monkeypatch):
+    """Improves chain on the dataset lane too — parity with the Canvas lane,
+    reversed on the same phone report: Klein detail THEN SeedVR2 resolution on
+    one picture, each pass its own candidate. The new candidate hangs off the
+    improve result it was clicked on, not off the original image, and the file
+    the pass reads is the improved one."""
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+    from app.services import klein_edit_helper as keh
+
+    queued = []
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: [])
+    monkeypatch.setattr(keh, 'klein_missing_nodes', lambda: [])
+    monkeypatch.setattr(
+        keh, 'enqueue_klein_edit',
+        lambda **kwargs: (queued.append(kwargs) or f'improve-job-{len(queued)}'))
+    monkeypatch.setattr(svc, '_sync_generate_activity', lambda *a, **k: None)
+
+    with app.app_context():
+        _ds, improve_result, _raw = _source(
+            svc, FaceDatasetImage, LOCAL_USER, filename='improved.png',
+            derivation_kind=svc.KLEIN_IMAGE_IMPROVE)
+        improve_result.source = 'generated'
+        improve_result.parent_image_id = 424242   # the original, long curated
+        svc.db.session.commit()
+
+        chained = svc.improve_existing_image(LOCAL_USER, improve_result.id)
+
+        assert chained['job_id'] == 'improve-job-1'
+        second = svc.db.session.get(FaceDatasetImage, chained['candidate_id'])
+        assert second.id != improve_result.id
+        assert second.parent_image_id == improve_result.id   # honest lineage
+        assert second.derivation_kind == svc.KLEIN_IMAGE_IMPROVE
+        # The file the second pass actually reads is the IMPROVED one.
+        assert queued[0]['source_path'] == svc._img_path(improve_result)
 
 
 def test_improve_existing_image_preflights_models_and_fanout(app, monkeypatch):

@@ -25,21 +25,19 @@ export const isCanvasImproveRow = (img) => img?.derivation_kind === CANVAS_IMAGE
 /**
  * Why ✨ cannot be offered for this picture, or null when it can.
  *
- * Worded as the backend refuses (lora_test_studio.IMPROVE_*), so the surface
- * explains itself BEFORE the click instead of surfacing an error after it.
- * Returning a REASON rather than a boolean is what lets the caller choose
- * between hiding the action and showing it disabled with the reason attached.
+ * Improve results CHAIN (the server lifted its derivation guard): an improve
+ * row is as valid a source as the render it came from — Klein detail then
+ * SeedVR2 resolution on the same picture is the point. So being one is no
+ * refusal. The only picture that cannot be improved is one the board holds
+ * without a library row — there is no id to send. Returning a REASON rather
+ * than a boolean is what lets the caller choose between hiding the action and
+ * showing it disabled with the reason attached.
  */
 export function canvasImproveRefusal(img) {
   if (!img || !Number.isInteger(Number(img.id))) {
     // A picture the board holds only as a URL — the lane's reference face, a
     // pill's preview. There is no row to improve, and no id to send.
     return 'This picture has no library entry to improve.'
-  }
-  if (isCanvasImproveRow(img)) {
-    // Mirrors the server guard. Improving an improvement compounds two passes
-    // over the same pixels and is how a face turns to plastic.
-    return 'This is already an upscale & improve result.'
   }
   return null
 }
