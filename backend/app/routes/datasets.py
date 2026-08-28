@@ -1206,6 +1206,21 @@ def dataset_image_analyze_face(image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.get('/dataset/<int:dataset_id>/watermark/preview')
+def dataset_watermark_preview(dataset_id):
+    """The 🚩 launch window's result gallery: watermark-family flagged pages
+    (not 🔤 text-flagged) with their zones, oldest-id first — the twin of
+    /text/preview, polled by the window while a scan runs."""
+    try:
+        limit = int(request.args.get('limit') or 24)
+    except (TypeError, ValueError):
+        limit = 24
+    payload = svc.watermark_preview(LOCAL_USER, dataset_id, limit)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
 @bp.post('/dataset/<int:dataset_id>/watermarks/detect')
 def dataset_watermarks_detect(dataset_id):
     """Scan kept images for overlaid watermarks. WHICH detector runs follows
@@ -1238,6 +1253,7 @@ def dataset_watermarks_detect(dataset_id):
             counts = svc.detect_watermarks(
                 LOCAL_USER, dataset_id, include_dismissed=include_dismissed,
                 backend=resolution, report=report,
+                limit=data.get('limit'),
                 should_cancel=lambda: dataset_activity.cancel_requested(
                     dataset_id, dataset_activity.WATERMARK_KINDS))
     except Exception as e:

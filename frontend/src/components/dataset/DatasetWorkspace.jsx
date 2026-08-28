@@ -31,6 +31,7 @@ import { extraRefCropSource } from './extraRefs';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import DatasetToBankDialog from './DatasetToBankDialog';
 import TextScanDialog from './TextScanDialog';
+import WatermarkScanDialog from './WatermarkScanDialog';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
 // Lazily loaded: each renders behind a condition (a click opens it) or a
 // hidden section, so its code leaves the DatasetPage entry chunk - which
@@ -309,6 +310,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // with its siblings — the counts it prices live next to watermarkDetected,
   // past the early returns.
   const [textScanOpen, setTextScanOpen] = useState(false);
+  // 🚩 Find watermarks launch window — same standard as 🔤 (sample, threshold,
+  // results in the window). The button used to fire straight from the click.
+  const [wmScanOpen, setWmScanOpen] = useState(false);
   const [savingAllowCrop, setSavingAllowCrop] = useState(false);  // write-through of the auto-crop pref
   const [checkpointCount, setCheckpointCount] = useState(0);
   const [checkpointHost, setCheckpointHost] = useState(null);
@@ -1517,14 +1521,27 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {/* Watermark auto-correction (V1): find overlaid site logos/URLs/usernames on
                     the kept images, then Clean them (border → crop, small off-center → LaMa
                     inpaint, on-subject → manual review). Applies to any dataset kind. */}
-                <button type="button" data-workspace-focus onClick={ds.findWatermarks} disabled={ds.busy}
-                  title="Scans the kept images for overlaid watermarks/logos/URLs added on top of the photo (deletes nothing)"
+                <button type="button" data-workspace-focus onClick={() => setWmScanOpen(true)}
+                  disabled={ds.busy}
+                  title="Opens the launch window: try a sample, tune the detector threshold, then scan — each mark's position is recorded so 🧽 Clean can crop or repaint it (deletes nothing)"
                   className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
                   <Eraser aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px]" />
                   {ds.watermarking
                     ? `Scanning…${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
-                    : 'Find watermarks'}
+                    : 'Find watermarks…'}
                 </button>
+                {wmScanOpen && (
+                  <WatermarkScanDialog
+                    onClose={() => setWmScanOpen(false)}
+                    onLaunch={(opts) => ds.findWatermarks(opts)}
+                    kept={images.filter((i) => i.status === 'keep' && i.filename).length}
+                    dismissed={images.filter(
+                      (i) => i.status === 'keep' && i.watermark_state === 'dismissed').length}
+                    threshold={caps.watermark_detect_threshold}
+                    detectorInstalled={!!caps.watermark_detect}
+                    live={ds.busy}
+                    datasetId={d.id} />
+                )}
                 {/* 🔤 The other detection feeding the same funnel: burned-in text
                     (speech bubbles, subtitles, captions, sound effects) read by
                     the RapidOCR engine the video lane ships — CPU only. Zones

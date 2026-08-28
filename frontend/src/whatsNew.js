@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-watermark-scan-window',
+    date: '2026-08-28',
+    title: 'Find watermarks gets the Find-text launch window',
+    blurb:
+      '🚩 Find watermarks now opens the same kind of window as 🔤 Find text, '
+      + 'on both surfaces (the dataset button used to fire straight from the '
+      + 'click): try a sample first — deterministic, so a re-run re-judges '
+      + 'the same images — tune the detector threshold where its effect is '
+      + 'judged (one stored value, both surfaces), and watch the flagged '
+      + 'pages appear below the dials with their boxes drawn on them while '
+      + 'the scan runs.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-28-header-machine-load',
     date: '2026-08-28',
     title: 'A resource monitor on every page — now with GPU temperature',

@@ -2122,6 +2122,22 @@ If a bank was scanned by an older version, its flagged images carry no recorded
 mark position; the panel says so and one more **🚩 Find watermarks** run makes
 them cleanable.
 
+### The 🚩 launch window: sample, threshold, and the result in place
+
+**🚩 Find watermarks opens the same kind of window as 🔤 Find text now, on
+both surfaces** — the dataset button used to fire straight from the click.
+*Try on a sample first* judges only the first N images of the scope
+(deterministic — a re-run re-judges the same ones), so on a huge bank you can
+check the flags before paying for the whole scan. When the dedicated detector
+is installed, the *Detector threshold* slider edits the stored score an image
+needs to be flagged — lower flags fainter marks at the cost of false flags —
+one value, both surfaces (the vision route carries no score, and the window
+says so instead of showing a dead slider). And the flagged pages appear below
+the dials with their boxes drawn on them, filling in live while the scan
+runs. The strip shows the **watermark-family** pages; pages flagged by 🔤
+Find text live in that pass's own window — the same page-level split **What
+to clean** repaints by.
+
 ### Who decided an image is watermarked
 
 **🚩 Find watermarks** can run two ways, and the panel says which one produced

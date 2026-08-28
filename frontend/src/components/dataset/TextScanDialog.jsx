@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { putJson } from '../../api/fetchClient';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import DatasetTextScanPreview from './DatasetTextScanPreview.jsx';
+import DatasetZonesPreview from './DatasetZonesPreview.jsx';
 
 export default function TextScanDialog({
   onClose, onLaunch, toRead = 0, rereadable = 0, sensitivity = 0.5, live = false,
@@ -26,6 +26,7 @@ export default function TextScanDialog({
   const [level, setLevel] = useState(
     Number.isFinite(Number(sensitivity)) ? Number(sensitivity) : 0.5);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
   /* A run happened FROM THIS WINDOW. The window then stays open showing the
      flagged pages with their zones (the strip below) — closing on launch would
      hide exactly what a sample run was started to show. Only relabels the exit
@@ -57,6 +58,7 @@ export default function TextScanDialog({
   const launch = async () => {
     if (busy || willRead === 0) return;
     setBusy(true);
+    setError(null);
     try {
       await onLaunch({
         rescan: redo,
@@ -65,6 +67,11 @@ export default function TextScanDialog({
           : {}),
       });
       setRan(true);
+    } catch (e) {
+      /* A thrown launch (the vision model missing, the server down) used to
+         vanish into an unhandled rejection — the window sat there silent.
+         Rendered HERE, over the dials that produced it, choices kept. */
+      setError(e?.message || 'The scan could not start.');
     } finally {
       setBusy(false);
     }
@@ -138,8 +145,19 @@ export default function TextScanDialog({
             returns — a whole 106-page scan with the strip sitting on
             "nothing flagged yet" the entire time. Bank parity: same strip,
             same poll, off this surface's own /text/preview. */}
-        <DatasetTextScanPreview datasetId={datasetId} live={busy || live}
+        <DatasetZonesPreview datasetId={datasetId} live={busy || live}
           emptyLine={ran ? 'No text found on the scanned images.' : null} />
+        {error && (
+          <div role="alert"
+            className="max-h-24 overflow-y-auto rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2">
+            <span className="block whitespace-pre-wrap break-words text-xs leading-relaxed text-red-200">
+              {error}
+            </span>
+            <span className="mt-1 block text-[0.625rem] text-content-subtle">
+              Your choices are kept — adjust and try again.
+            </span>
+          </div>
+        )}
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} disabled={busy}
             className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-content disabled:opacity-40">

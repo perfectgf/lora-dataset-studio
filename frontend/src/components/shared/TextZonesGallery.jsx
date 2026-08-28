@@ -20,7 +20,7 @@ export default function TextZonesGallery({
     if (live) {
       return (
         <p className="m-0 text-[11px] leading-snug text-content-subtle">
-          Scanning — nothing flagged yet. Pages appear here as text is found.
+          Scanning — nothing flagged yet. Pages appear here as they are flagged.
         </p>
       )
     }
@@ -41,7 +41,7 @@ export default function TextZonesGallery({
             <a href={it.href || it.src} target="_blank" rel="noreferrer"
               title="Open the full-size page in a new tab"
               className="relative block overflow-hidden rounded-md border border-border">
-              <img src={it.src} alt={it.alt || `Page ${it.id} with its text zones`}
+              <img src={it.src} alt={it.alt || `Page ${it.id} with its zones`}
                 loading="lazy" className="h-48 w-auto object-contain" />
               {galleryZones(it.regions).map((zone, i) => (
                 <span key={i} aria-hidden

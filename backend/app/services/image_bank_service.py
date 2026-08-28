@@ -7382,8 +7382,15 @@ def _watermark_scan_query(bank_id, rescan, statuses=None, ids=None):
     return q
 
 
-def start_watermark(app, user_id, bank_id, rescan=False, statuses=None, ids=None):
+def start_watermark(app, user_id, bank_id, rescan=False, statuses=None, ids=None,
+                    limit=None):
     """Launch the overlaid-watermark scan over the bank's non-rejected images.
+
+    ``limit`` is the launch window's "try on a sample first" — the first N rows
+    of the scope by id, DETERMINISTIC, exactly the 🔤 text scan's dial: re-run
+    the sample after moving the threshold and the SAME images are re-judged.
+    Everything the sample does not reach stays unscanned, which the resume
+    contract already handles ("Scan the remaining …").
 
     TWO routes, and which one runs is decided here, once:
 
@@ -7401,6 +7408,14 @@ def start_watermark(app, user_id, bank_id, rescan=False, statuses=None, ids=None
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            raise ValueError('limit must be a number of images')
+        if limit < 1:
+            raise ValueError('limit must be at least 1')
+        limit = min(limit, 10000)
     # Occupancy BEFORE the model probe, and the order is the whole point: a bank
     # that is already busy is busy whether or not Ollama answers. Probing first
     # made a busy bank report "the vision model is not available" whenever the
@@ -7425,16 +7440,21 @@ def start_watermark(app, user_id, bank_id, rescan=False, statuses=None, ids=None
     if reason:
         raise RuntimeError(reason)
     want = normalize_pass_statuses(statuses)
+    total = _watermark_scan_query(bank_id, rescan, want, ids).count()
+    if limit is not None:
+        total = min(total, limit)
     return bank_jobs.start(app, bank_id, 'watermark',
                            _watermark_job(bank_id, rescan, use_detector=use_detector,
                                           statuses=want, ids=ids,
-                                          note=resolution['detail'] if resolution['fell_back'] else ''),
-                           total=_watermark_scan_query(bank_id, rescan, want, ids).count())
+                                          note=resolution['detail'] if resolution['fell_back'] else '',
+                                          limit=limit),
+                           total=total)
 
 
-def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None, note=''):
+def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None, note='',
+                   limit=None):
     if use_detector:
-        return _watermark_detector_job(bank_id, rescan, statuses, ids)
+        return _watermark_detector_job(bank_id, rescan, statuses, ids, limit=limit)
 
     def run(job):
         import json as _json
@@ -7445,7 +7465,8 @@ def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None,
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
         if not bank:
             return
-        rows = _watermark_scan_query(bank_id, rescan, statuses, ids).order_by(BankImage.id.asc()).all()
+        q = _watermark_scan_query(bank_id, rescan, statuses, ids).order_by(BankImage.id.asc())
+        rows = (q.limit(limit) if limit else q).all()
         # `note` is set only when the user PINNED the detector and it could not
         # run. Said at the start (so it is visible while the pass runs) and again
         # in the final sentence (so it survives the pass).
@@ -7636,7 +7657,7 @@ def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None,
     return run
 
 
-def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None):
+def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None, limit=None):
     """The same pass, run by the dedicated detector extra instead of the vision
     model. Deliberately the same SHAPE as the vision job above, because the two
     have to be interchangeable: same resume semantics, same per-image commit,
@@ -7658,7 +7679,8 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None):
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
         if not bank:
             return
-        rows = _watermark_scan_query(bank_id, rescan, statuses, ids).order_by(BankImage.id.asc()).all()
+        q = _watermark_scan_query(bank_id, rescan, statuses, ids).order_by(BankImage.id.asc())
+        rows = (q.limit(limit) if limit else q).all()
         bank_jobs.progress(job, done=0, total=len(rows), detail='watermark scan')
         if not rows:
             return
@@ -8145,6 +8167,27 @@ def text_preview(user_id, bank_id, limit=24) -> dict | None:
     total = (BankImage.query.filter_by(bank_id=bank_id, text_state='detected')
              .filter(BankImage.status != 'reject').count())
     return {'items': items, 'total': total}
+
+
+def watermark_preview(user_id, bank_id, limit=24) -> dict | None:
+    """The 🚩 launch window's own result gallery: the WATERMARK-family flagged
+    pages (flagged, and NOT 🔤 text-flagged — the same page-level partition
+    'What to clean' repaints by) with their zones, oldest-id first. Zones go
+    through _clean_regions, because a detector row often carries only its bbox
+    — the box IS the zone the funnel routes on. None when the bank is gone."""
+    if not get_bank(user_id, bank_id):
+        return None
+    limit = max(1, min(int(limit or 24), 60))
+    q = (BankImage.query.filter_by(bank_id=bank_id, watermark_state='detected')
+         .filter(BankImage.status != 'reject')
+         .filter(or_(BankImage.text_state.is_(None),
+                     BankImage.text_state != 'detected')))
+    rows = q.order_by(BankImage.id.asc()).limit(limit).all()
+    items = []
+    for row in rows:
+        boxes, _manual, _problem = _clean_regions(row)
+        items.append({'id': row.id, 'regions': [list(b) for b in boxes]})
+    return {'items': items, 'total': q.count()}
 
 
 # --- watermark cleaning: two MANUAL levels ----------------------------------

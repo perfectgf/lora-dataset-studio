@@ -9154,7 +9154,7 @@ def _apply_watermark_crop(path, box) -> bool:
 
 
 def detect_watermarks(user_id, dataset_id, *, include_dismissed=False, backend=None,
-                      should_cancel=None, report=None):
+                      should_cancel=None, report=None, limit=None):
     """Scan the KEPT images for an overlaid watermark and persist watermark_state
     ('detected'|'none') + watermark_bbox (JSON normalized box). Returns
     {'detected': n, 'none': n, 'checked': n} — that dict is the route's response
@@ -9190,12 +9190,24 @@ def detect_watermarks(user_id, dataset_id, *, include_dismissed=False, backend=N
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return {'detected': 0, 'none': 0, 'checked': 0}
+    # ``limit`` is the launch window's "try on a sample first": the first N kept
+    # rows by id — DETERMINISTIC, so re-running the sample after moving the
+    # threshold re-judges the SAME images (the 🔤 scan's dial, same clamp).
+    if limit is not None:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            raise ValueError('limit must be a number of images')
+        if limit < 1:
+            raise ValueError('limit must be at least 1')
+        limit = min(limit, 10000)
     rows = (FaceDatasetImage.query.filter_by(dataset_id=dataset_id, status='keep')
-            .filter(FaceDatasetImage.filename.isnot(None)).all())
+            .filter(FaceDatasetImage.filename.isnot(None))
+            .order_by(FaceDatasetImage.id.asc()).all())
     # Ids, not ORM objects: see _live_image_row. Both loops commit per image, so
     # every row they have not reached is expired, and deleting a tile from the
     # grid mid-scan used to kill the scan.
-    row_ids = [img.id for img in rows]
+    row_ids = [img.id for img in rows][:limit]
     if resolution['backend'] == 'detector':
         return _detect_watermarks_detector(
             dataset_id, row_ids, include_dismissed=include_dismissed,
@@ -9467,6 +9479,27 @@ def text_preview(user_id, dataset_id, limit=24) -> dict | None:
     q = (FaceDatasetImage.query
          .filter_by(dataset_id=dataset_id, text_state='detected')
          .filter(FaceDatasetImage.status != 'reject'))
+    rows = q.order_by(FaceDatasetImage.id.asc()).limit(limit).all()
+    items = [{'id': r.id, 'filename': r.filename,
+              'regions': _stored_mask_regions(r)} for r in rows]
+    return {'items': items, 'total': q.count()}
+
+
+def watermark_preview(user_id, dataset_id, limit=24) -> dict | None:
+    """The 🚩 launch window's result gallery: the WATERMARK-family flagged
+    pages (flagged, and NOT 🔤 text-flagged — the page-level partition 'What
+    to clean' repaints by) with their zones, oldest-id first. Zones through
+    _stored_mask_regions, whose bbox fallback is the point: a detector row
+    often carries only its box. None when the dataset is gone."""
+    if not get_dataset(user_id, dataset_id):
+        return None
+    limit = max(1, min(int(limit or 24), 60))
+    from sqlalchemy import or_
+    q = (FaceDatasetImage.query
+         .filter_by(dataset_id=dataset_id, watermark_state='detected')
+         .filter(FaceDatasetImage.status != 'reject')
+         .filter(or_(FaceDatasetImage.text_state.is_(None),
+                     FaceDatasetImage.text_state != 'detected')))
     rows = q.order_by(FaceDatasetImage.id.asc()).limit(limit).all()
     items = [{'id': r.id, 'filename': r.filename,
               'regions': _stored_mask_regions(r)} for r in rows]

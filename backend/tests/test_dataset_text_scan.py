@@ -479,6 +479,34 @@ class TestTextPreviewDataset:
         assert client.get('/api/dataset/424242/text/preview').status_code == 404
 
 
+class TestWatermarkPreviewDataset:
+    """The 🚩 launch window's result strip, dataset surface: the WATERMARK-
+    family pages (flagged, not 🔤 text-flagged — the partition 'What to clean'
+    repaints by), zones falling back to the detector bbox."""
+
+    def test_preview_partitions_families_and_draws_the_bbox(self, app, client):
+        from app.services import face_dataset_service as svc
+        ds = _create(client)
+        with app.app_context():
+            mark_id = _kept_image(svc, ds, 'mark.webp', state='detected',
+                                  bbox=[0.02, 0.9, 0.14, 0.98])
+            text_id = _kept_image(svc, ds, 'text.webp', state='detected',
+                                  regions=[[0.2, 0.1, 0.8, 0.2]],
+                                  text_state='detected')
+            _kept_image(svc, ds, 'clean.webp')
+        data = client.get(f'/api/dataset/{ds}/watermark/preview').get_json()
+        assert data['total'] == 1
+        assert [i['id'] for i in data['items']] == [mark_id]
+        assert data['items'][0]['filename'] == 'mark.webp'
+        assert data['items'][0]['regions'] == [[0.02, 0.9, 0.14, 0.98]]
+        # …and the text page belongs to the 🔤 strip, not this one.
+        tdata = client.get(f'/api/dataset/{ds}/text/preview').get_json()
+        assert [i['id'] for i in tdata['items']] == [text_id]
+
+    def test_missing_dataset_is_a_404(self, client):
+        assert client.get('/api/dataset/424242/watermark/preview').status_code == 404
+
+
 class TestWatermarkScanGuards:
     """A watermark scan runs AFTER a text scan: the text zones must survive it.
     Before these guards the vision pass reset watermark_regions on every row it

@@ -67,7 +67,7 @@ import { passScopeOption } from './bankPassScope.js'
 // 🎛 The launch window every pass now opens, and the two pure modules behind it:
 // what each pass is (blocks, offered scopes, refusals) and how big a run is.
 import PassDialog from './PassDialog.jsx'
-import BankTextScanPreview from './BankTextScanPreview.jsx'
+import BankZonesPreview from './BankZonesPreview.jsx'
 import { BANK_PASSES } from './bankPasses.js'
 import {
   semanticEngineLabel, semanticEnginePatchBody, semanticEngineState,
@@ -1192,6 +1192,78 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const textScanRunOptions = () => (textSampleOn
     ? { limit: Math.max(1, Math.min(10000, Math.round(Number(textSampleSize) || 20))) }
     : {})
+  /* 🚩 Find watermarks — brought to the SAME standard as 🔤 on the
+     maintainer's ask ("the same kind of menu — tuning and visualisation —
+     dataset and bank alike"): a per-run sample, the STORED detector threshold
+     edited where its effect is judged (write-through; the dataset window edits
+     the same value), and the flagged pages drawn in the window. */
+  const [wmSampleOn, setWmSampleOn] = useState(false)
+  const [wmSampleSize, setWmSampleSize] = useState(20)
+  const storedWmThreshold = Number.isFinite(Number(caps.watermark_detect_threshold))
+    ? Number(caps.watermark_detect_threshold) : 0.94
+  const [wmThreshold, setWmThreshold] = useState(null)
+  const effectiveWmThreshold = wmThreshold ?? storedWmThreshold
+  const saveWmThreshold = async (value) => {
+    try {
+      await putJson('/api/settings', { config: { watermark_detect: { threshold: value } } })
+    } catch { /* the run still uses the stored value; the slider shows what failed */ }
+  }
+  const wmScanRunOptions = () => (wmSampleOn
+    ? { limit: Math.max(1, Math.min(10000, Math.round(Number(wmSampleSize) || 20))) }
+    : {})
+  const watermarkScanControls = (
+    <div className="space-y-2 rounded-md border border-border bg-surface-raised p-2">
+      <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
+        Options for this run
+      </p>
+      <label className="flex items-start gap-2 text-[11px] text-content-subtle">
+        <input type="checkbox" className="mt-0.5" checked={wmSampleOn}
+          onChange={(e) => setWmSampleOn(e.target.checked)} disabled={live} />
+        <span>
+          <span className="font-medium text-content">Try on a sample first</span>
+          {' — judge only the first '}
+          <input type="number" min="1" max="10000" value={wmSampleSize}
+            onChange={(e) => setWmSampleSize(e.target.value)}
+            disabled={live || !wmSampleOn} aria-label="Sample size"
+            className="mx-1 w-16 rounded border border-border bg-app px-1 py-0.5 text-content" />
+          {' images of the scope. Judge the boxes below, then run again for the '}
+          {'rest — or tick “re-check” above to re-judge the SAME sample at '}
+          {'another threshold.'}
+        </span>
+      </label>
+      {caps.watermark_detect ? (
+        <label className="block text-[11px] text-content-subtle">
+          <span className="font-medium text-content">Detector threshold</span>
+          {' — the score an image needs to be flagged as watermarked. Lower '}
+          {'flags fainter marks at the cost of false flags; higher keeps only '}
+          {'the confident ones. Stored: the dataset scan reads the same value.'}
+          <span className="mt-1 flex items-center gap-2">
+            <input type="range" min="0.50" max="0.99" step="0.01"
+              value={effectiveWmThreshold} disabled={live}
+              aria-label="Detector threshold"
+              onChange={(e) => setWmThreshold(Number(e.target.value))}
+              onMouseUp={() => saveWmThreshold(effectiveWmThreshold)}
+              onTouchEnd={() => saveWmThreshold(effectiveWmThreshold)}
+              onKeyUp={() => saveWmThreshold(effectiveWmThreshold)}
+              className="w-40" />
+            <span className="tabular-nums text-content">{effectiveWmThreshold.toFixed(2)}</span>
+            <span className="text-content-subtle">(default 0.94)</span>
+          </span>
+        </label>
+      ) : (
+        <p className="m-0 text-[11px] leading-snug text-content-subtle">
+          This run takes the vision route (the dedicated detector is not
+          installed), which answers yes/no with no score — so there is no
+          threshold to tune here. Install “Watermark detector” from Setup for
+          the ~10× faster scored route.
+        </p>
+      )}
+      {/* The run's RESULT: the 🚩-family flagged pages (text-flagged ones live
+          in the 🔤 window) with their boxes, filling in live while the scan
+          runs — the window stays open on launch, like 🔤. */}
+      <BankZonesPreview bankId={bankId} kind="watermark" live={live} />
+    </div>
+  )
   const textScanControls = (
     <div className="space-y-2 rounded-md border border-border bg-surface-raised p-2">
       <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
@@ -1234,7 +1306,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           with their zones, filling in live while the scan runs (the window
           stays open on launch — stayOpenOnLaunch below). Judge, adjust the two
           dials above, re-run — without leaving. */}
-      <BankTextScanPreview bankId={bankId} live={live} />
+      <BankZonesPreview bankId={bankId} live={live} />
     </div>
   )
   const captionNsfw = captionNsfwNotice({
@@ -2243,17 +2315,20 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           redo={!!passRedo[passOpen]}
           onRedo={(v) => setPassRedoFor(passOpen, v)}
           onClose={() => setPassOpen(null)}
-          stayOpenOnLaunch={passOpen === 'text_scan'}
+          stayOpenOnLaunch={passOpen === 'text_scan' || passOpen === 'watermark'}
           onLaunch={(run) => (passOpen === 'faces'
             ? launchFacesFromDialog()
             : (passOpen === 'caption'
               ? startCaption(run)
               : (passOpen === 'text_scan'
                 ? runPass('text_scan', run, textScanRunOptions())
-                : runPass(passOpen, run))))}
+                : (passOpen === 'watermark'
+                  ? runPass('watermark', run, wmScanRunOptions())
+                  : runPass(passOpen, run)))))}
           secondary={passOpen === 'caption' ? captionSecondary : null}>
           {passOpen === 'caption' ? captionRunControls
-            : passOpen === 'text_scan' ? textScanControls : null}
+            : passOpen === 'text_scan' ? textScanControls
+              : passOpen === 'watermark' ? watermarkScanControls : null}
         </PassDialog>
       )}
 

@@ -814,10 +814,15 @@ export function useDataset() {
   // ruled false positives — the only way to re-judge them under a new detector.
   const findWatermarks = useCallback((options) => wrap(async () => {
     const includeDismissed = !!(options && options.includeDismissed);
+    const limit = options && options.limit;
     const run = beginLocalActivityRun('watermark', currentId);
     try {
+      const body = {
+        ...(includeDismissed ? { include_dismissed: true } : {}),
+        ...(limit ? { limit } : {}),
+      };
       const d = await postJson(`/api/dataset/${run.datasetId}/watermarks/detect`,
-        includeDismissed ? { include_dismissed: true } : undefined);
+        Object.keys(body).length ? body : undefined);
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       const engine = d.backend === 'detector' ? 'watermark detector' : 'vision model';
       const head = d.stopped ? 'Stopped —' : '';

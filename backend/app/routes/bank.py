@@ -559,10 +559,27 @@ def bank_semantic_dedup(bank_id):
 
 @bp.post('/bank/<int:bank_id>/watermark')
 def bank_watermark(bank_id):
-    """Overlaid-watermark scan (Qwen3-VL). {rescan:true} re-checks scanned rows."""
+    """Overlaid-watermark scan (detector or vision). {rescan:true} re-checks
+    scanned rows; {limit:N} is the launch window's "try on a sample first" —
+    the first N of the scope by id, deterministic (the 🔤 scan's dial)."""
     data = request.get_json(silent=True) or {}
     return _start(banks.start_watermark, _app(), LOCAL_USER, bank_id,
-                  rescan=bool(data.get('rescan')), **_scope(data))
+                  rescan=bool(data.get('rescan')), limit=data.get('limit'),
+                  **_scope(data))
+
+
+@bp.get('/bank/<int:bank_id>/watermark/preview')
+def bank_watermark_preview(bank_id):
+    """The 🚩 launch window's result gallery: watermark-family flagged pages
+    (not 🔤 text-flagged) with their zones, oldest-id first."""
+    try:
+        limit = int(request.args.get('limit') or 24)
+    except (TypeError, ValueError):
+        limit = 24
+    payload = banks.watermark_preview(LOCAL_USER, bank_id, limit)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
 
 
 @bp.get('/bank/<int:bank_id>/text/preview')

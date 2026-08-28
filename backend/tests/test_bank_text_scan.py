@@ -731,3 +731,87 @@ class TestTextPreview:
 
     def test_missing_bank_is_a_404(self, client):
         assert client.get('/api/bank/424242/text/preview').status_code == 404
+
+
+class TestWatermarkScanSample:
+    """🚩 'Try on a sample first' — the watermark scan's own limit dial, the
+    same contract as 🔤: the first N of the scope by id, DETERMINISTIC, so a
+    re-run after moving the threshold re-judges the same images."""
+
+    def _arm_detector(self, monkeypatch, judged):
+        from app.services import bank_transfer_metadata as transfer
+        from app.services import watermark_detector
+        from app import capabilities
+        monkeypatch.setattr(
+            watermark_detector, 'resolve_backend',
+            lambda requested=None: {'requested': 'detector', 'backend': 'detector',
+                                    'fell_back': False, 'detail': ''})
+        monkeypatch.setattr(capabilities, 'watermark_detect_gpu_available',
+                            lambda: False)
+
+        def fake_scan(paths, *, device=None, locate=True, should_cancel=None,
+                      cancel_file=None, info=None):
+            for path in paths:
+                judged.append(os.path.basename(path))
+                yield (path, 'detected', 0.99, [[0.02, 0.02, 0.1, 0.1]],
+                       transfer.content_fingerprint_path(path), None)
+        monkeypatch.setattr(watermark_detector, 'scan', fake_scan)
+
+    def test_sample_reads_the_first_n_by_id_and_rereads_the_same(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg', 'b.jpg', 'c.jpg'])
+        judged = []
+        self._arm_detector(monkeypatch, judged)
+        assert client.post(f'/api/bank/{bank_id}/watermark',
+                           json={'limit': 2}).status_code == 202
+        rows = _rows(app, bank_id)
+        assert judged == ['a.jpg', 'b.jpg']       # the first two by id, not all
+        assert rows['c.jpg']['watermark_state'] is None
+        # The redo line + the same limit re-judges the SAME two pages.
+        judged.clear()
+        assert client.post(f'/api/bank/{bank_id}/watermark',
+                           json={'rescan': True, 'limit': 2}).status_code == 202
+        assert judged == ['a.jpg', 'b.jpg']
+
+    def test_bad_limit_is_a_400(self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path, ['a.jpg'])
+        self._arm_detector(monkeypatch, [])
+        assert client.post(f'/api/bank/{bank_id}/watermark',
+                           json={'limit': 'lots'}).status_code == 400
+        assert client.post(f'/api/bank/{bank_id}/watermark',
+                           json={'limit': 0}).status_code == 400
+
+
+class TestWatermarkPreview:
+    """The 🚩 launch window's result strip: the WATERMARK-family pages (flagged,
+    not 🔤 text-flagged — the partition 'What to clean' repaints by), zones
+    falling back to the detector bbox because that box IS the zone."""
+
+    def test_preview_partitions_families_and_draws_the_bbox(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id, _src = _mkbank(client, tmp_path,
+                                ['mark.jpg', 'none.jpg', 'text.jpg'])
+        from app.extensions import db
+        from app.models import BankImage
+        with app.app_context():
+            for row in BankImage.query.filter_by(bank_id=bank_id).all():
+                base = os.path.basename(row.relpath)
+                if base == 'mark.jpg':
+                    row.watermark_state = 'detected'
+                    row.watermark_bbox = json.dumps([0.02, 0.9, 0.14, 0.98])
+                if base == 'text.jpg':
+                    row.watermark_state = 'detected'
+                    row.text_state = 'detected'
+                    row.watermark_regions = json.dumps([[0.2, 0.1, 0.8, 0.2]])
+            db.session.commit()
+        rows = _rows(app, bank_id)
+        data = client.get(f'/api/bank/{bank_id}/watermark/preview').get_json()
+        assert data['total'] == 1
+        assert [i['id'] for i in data['items']] == [rows['mark.jpg']['id']]
+        assert data['items'][0]['regions'] == [[0.02, 0.9, 0.14, 0.98]]
+        # …and the text page belongs to the 🔤 strip, not this one.
+        tdata = client.get(f'/api/bank/{bank_id}/text/preview').get_json()
+        assert [i['id'] for i in tdata['items']] == [rows['text.jpg']['id']]
+
+    def test_missing_bank_is_a_404(self, client):
+        assert client.get('/api/bank/424242/watermark/preview').status_code == 404
