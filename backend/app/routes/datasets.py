@@ -1376,6 +1376,9 @@ def dataset_watermarks_clean(dataset_id):
     method = (data.get('method') or 'auto')
     if method not in ('auto', 'lama', 'klein'):
         return jsonify({'error': "'method' must be 'auto', 'lama' or 'klein'"}), 400
+    target = (data.get('target') or 'all')
+    if target not in ('all', 'text', 'watermark'):
+        return jsonify({'error': "'target' must be 'all', 'text' or 'watermark'"}), 400
     # allow_crop is optional: omitted -> clean_watermarks resolves the persisted
     # watermark.allow_crop preference (so the batch button follows Settings); a bool
     # forces crop (True) or inpaint (False) — the review lightbox's per-image choice.
@@ -1390,7 +1393,8 @@ def dataset_watermarks_clean(dataset_id):
             if resp is not None:
                 return resp
             counts, error = svc.clean_watermarks(
-                LOCAL_USER, dataset_id, image_ids=image_ids, method='klein', **crop_kw)
+                LOCAL_USER, dataset_id, image_ids=image_ids, method='klein',
+                target=target, **crop_kw)
         else:
             from contextlib import nullcontext
             from ..services import watermark_lama
@@ -1399,7 +1403,7 @@ def dataset_watermarks_clean(dataset_id):
             with window:
                 counts, error = svc.clean_watermarks(
                     LOCAL_USER, dataset_id, image_ids=image_ids, device=device,
-                    method=method, **crop_kw)
+                    method=method, target=target, **crop_kw)
     except Exception as e:
         from ..services.klein_edit_helper import KleinModelsMissing
         if isinstance(e, KleinModelsMissing):

@@ -73,6 +73,12 @@ export default function BankWatermarkPanel({
   const toast = useToast()
   const [levels, setLevels] = useState(null)
   const [method, setMethod] = useState('auto')
+  /* What 🧽 Repaint aims at: every flagged page, only the 🔤 text-flagged ones,
+     or only the 🚩 watermark-flagged ones. The split is BY PAGE (a page carrying
+     both counts as text — its zones share one channel, so one page is never
+     split between two runs). Lives on the panel like the engine toggle, so the
+     launch window names it without owning a second copy. */
+  const [target, setTarget] = useState('all')
   const [comparing, setComparing] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   /* Which cleaning level's launch window is open ('watermark_crop' /
@@ -274,6 +280,37 @@ export default function BankWatermarkPanel({
             w-full: this drops onto its own line rather than squeezing the
             toggle at 400 px. */}
         {method === 'klein' && <KleinModelSetting className="w-full" />}
+        {/* 🔤/🚩 WHAT to clean — only offered once Find text flagged something,
+            because with no text-flagged page the three choices collapse into
+            one and the control would be a dead dial. */}
+        {c.textFound > 0 && (
+          <>
+            <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-content-subtle">
+              What to clean
+            </span>
+            <div role="group" aria-label="What to clean"
+              className="flex items-center gap-1 rounded-lg border border-border bg-app/60 p-0.5 text-xs">
+              <button type="button" aria-pressed={target === 'all'} onClick={() => setTarget('all')}
+                title="Repaint every flagged page — text and watermarks alike."
+                className={`rounded-md px-2.5 py-1 font-semibold ${target === 'all'
+                  ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                Both
+              </button>
+              <button type="button" aria-pressed={target === 'text'} onClick={() => setTarget('text')}
+                title="Only pages 🔤 Find text flagged. A page carrying both a watermark and text counts here — one page is never split between two runs."
+                className={`rounded-md px-2.5 py-1 font-semibold ${target === 'text'
+                  ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                🔤 Text
+              </button>
+              <button type="button" aria-pressed={target === 'watermark'} onClick={() => setTarget('watermark')}
+                title="Only pages 🚩 flagged with no text flag on them."
+                className={`rounded-md px-2.5 py-1 font-semibold ${target === 'watermark'
+                  ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                🚩 Marks
+              </button>
+            </div>
+          </>
+        )}
         {cleaned && (
           <>
             <button type="button" disabled={live}
@@ -327,7 +364,10 @@ export default function BankWatermarkPanel({
           onLaunch={(r) => runLevel(
             cleanOpen === 'watermark_crop' ? 'watermark/crop' : 'watermark/inpaint',
             r,
-            cleanOpen === 'watermark_inpaint' ? { method } : {},
+            /* target only when narrowed: 'all' posts the SAME body as before the
+               selector existed — the spread-if-set contract runLevel documents. */
+            cleanOpen === 'watermark_inpaint'
+              ? { method, ...(target !== 'all' ? { target } : {}) } : {},
           )}>
           {cleanOpen === 'watermark_inpaint' && (
             /* WHICH engine this run will use. The toggle stays on the panel —
@@ -341,7 +381,14 @@ export default function BankWatermarkPanel({
               </span>{method === 'klein'
                 ? ' — slower, and the only one that clears a mark ON the subject.'
                 : ' — fast; a mark on the subject stays flagged instead of being smeared.'}
-              {' '}Change it on the Watermarks panel, next to this level.
+              {target !== 'all' && (
+                <>
+                  {' '}What to clean: <span className="font-semibold text-content">
+                    {target === 'text' ? '🔤 text-flagged pages only' : '🚩 watermark-flagged pages only'}
+                  </span> — a page carrying both counts as text-flagged and is repainted whole.
+                </>
+              )}
+              {' '}Change these on the Watermarks panel, next to this level.
             </p>
           )}
         </PassDialog>

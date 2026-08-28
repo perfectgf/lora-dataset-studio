@@ -67,6 +67,7 @@ import { passScopeOption } from './bankPassScope.js'
 // 🎛 The launch window every pass now opens, and the two pure modules behind it:
 // what each pass is (blocks, offered scopes, refusals) and how big a run is.
 import PassDialog from './PassDialog.jsx'
+import BankTextScanPreview from './BankTextScanPreview.jsx'
 import { BANK_PASSES } from './bankPasses.js'
 import {
   semanticEngineLabel, semanticEnginePatchBody, semanticEngineState,
@@ -1229,6 +1230,11 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           <span className="text-content-subtle">(default 0.50)</span>
         </span>
       </label>
+      {/* The run's RESULT, in the window that launched it: the flagged pages
+          with their zones, filling in live while the scan runs (the window
+          stays open on launch — stayOpenOnLaunch below). Judge, adjust the two
+          dials above, re-run — without leaving. */}
+      <BankTextScanPreview bankId={bankId} live={live} />
     </div>
   )
   const captionNsfw = captionNsfwNotice({
@@ -2237,6 +2243,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           redo={!!passRedo[passOpen]}
           onRedo={(v) => setPassRedoFor(passOpen, v)}
           onClose={() => setPassOpen(null)}
+          stayOpenOnLaunch={passOpen === 'text_scan'}
           onLaunch={(run) => (passOpen === 'faces'
             ? launchFacesFromDialog()
             : (passOpen === 'caption'

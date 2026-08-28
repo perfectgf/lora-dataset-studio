@@ -96,6 +96,32 @@ export const WHATS_NEW = [
       + 'Suggested by Sam Exit (Discord).',
   },
   {
+    id: '2026-08-28-clean-text-or-watermarks',
+    date: '2026-08-28',
+    title: 'Clean text and watermarks separately',
+    blurb:
+      'Once 🔤 Find text has flagged something, the repaint level grows a '
+      + '“What to clean” switch — Both, 🔤 Text, 🚩 Marks — next to the '
+      + 'LaMa/Klein toggle, on the bank panel and the dataset Clean row '
+      + 'alike, and the button’s count follows the choice. The split is by '
+      + 'page: a page carrying both counts as text and is repainted whole, '
+      + 'so one page is never split between two runs.',
+    to: '/bank',
+  },
+  {
+    id: '2026-08-28-find-text-results-in-window',
+    date: '2026-08-28',
+    title: 'Find text shows its result in the launch window',
+    blurb:
+      'Launching 🔤 Find text no longer closes the window: the flagged '
+      + 'pages appear right below the dials with every zone drawn on them '
+      + '— filling in live on a bank — and each tile opens the full-size '
+      + 'page. Try a sample, judge the zones where you launched them, '
+      + 'adjust, re-run: the whole loop happens in one window, on both '
+      + 'surfaces.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-28-similar-add-more',
     date: '2026-08-28',
     title: 'Similar to selected: ask for the next batch without starting over',

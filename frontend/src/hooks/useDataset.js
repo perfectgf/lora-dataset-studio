@@ -918,15 +918,21 @@ export function useDataset() {
   // Clean the detected watermarks: border marks are CROPPED, small off-center ones
   // INPAINTED (LaMa), the rest flagged for manual review. The backend resolves the
   // configured Auto/GPU/CPU device and reserves ComfyUI only for an actual GPU pass.
-  const cleanWatermarks = useCallback((method) => wrap(async () => {
+  const cleanWatermarks = useCallback((method, target) => wrap(async () => {
     const run = beginLocalActivityRun('watermark', currentId);
     // Capture the ids whose file may change IN PLACE so we can cache-bust their
     // thumbnails (same filename → the browser would otherwise show the stale image).
     const detectedIds = (data?.images || [])
       .filter((i) => i.watermark_state === 'detected').map((i) => i.id);
+    // target only when narrowed: 'all' posts the SAME body as before the
+    // "What to clean" selector existed.
+    const body = {
+      ...(method ? { method } : {}),
+      ...(target && target !== 'all' ? { target } : {}),
+    };
     try {
       const d = await postJson(`/api/dataset/${run.datasetId}/watermarks/clean`,
-        method ? { method } : undefined);
+        Object.keys(body).length ? body : undefined);
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       // A LaMa inpaint that was attempted and failed surfaces WHY (never silent).
       if (d.error) {

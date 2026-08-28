@@ -139,7 +139,7 @@ def test_clean_route_forwards_allow_crop_false(client, monkeypatch):
     from app.services import face_dataset_service as svc
     seen = {}
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None, method=None, allow_crop='_absent': (
+                        lambda u, d, image_ids=None, device=None, method=None, allow_crop='_absent', target=None: (
                             seen.update(allow_crop=allow_crop)
                             or ({'cropped': 0, 'inpainted': 1, 'inpainted_klein': 0, 'text_filled': 0,
                                  'needs_review': 0, 'failed': 0, 'skipped': 0}, None)))

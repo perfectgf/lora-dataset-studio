@@ -118,6 +118,24 @@ class TestDetectText:
                            json={'rescan': True}).get_json()['found'] == 1
         assert _row(app, img)['text_state'] == 'detected'
 
+    def test_watermark_box_with_no_text_stays_none(self, app, client, monkeypatch):
+        """Same guard as the bank pass: the verdict comes from the OCR lines,
+        not the merged output — a page carrying only a watermark box is NOT a
+        text page, and 'What to clean' routes the repaint on text_state."""
+        from app.services import face_dataset_service as svc
+        ds = _create(client)
+        with app.app_context():
+            image_id = _kept_image(svc, ds, 'mark.webp', state='detected',
+                                   bbox=[0.01, 0.90, 0.10, 0.99])
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {'mark.webp': []})
+        r = client.post(f'/api/dataset/{ds}/text/detect', json={})
+        assert r.status_code == 200, r.get_json()
+        row = _row(app, image_id)
+        assert row['text_state'] == 'none'
+        assert row['watermark_state'] == 'detected'      # the box is kept…
+        assert row['watermark_regions'] is None          # …and left as it was
+
     def test_existing_geometry_is_merged_not_replaced(self, app, client, monkeypatch):
         from app.services import face_dataset_service as svc
         ds = _create(client)
@@ -332,6 +350,78 @@ class TestTextCleanDataset:
         assert err is None
         assert counts['inpainted'] == 1
         assert lama_calls and lama_calls[0][1] == [[0.3, 0.3, 0.6, 0.4]]
+
+
+class TestCleanTargetDataset:
+    """🧽 'What to clean' on the dataset surface — the same page-level split as
+    the bank: 'text' = pages 🔤 flagged (a page carrying both counts here),
+    'watermark' = every other flagged page. Bank parity is the contract."""
+
+    def _mixed_dataset(self, app, client, monkeypatch):
+        """text_id is the MIXED page (text zones + an older detector box);
+        mark_id is watermark-flagged only, with a border bbox so the crop
+        route handles it without any engine."""
+        from app.services import face_dataset_service as svc
+        ds = _create(client)
+        with app.app_context():
+            text_id = _kept_image(svc, ds, 'page.webp', state='detected',
+                                  bbox=[0.01, 0.90, 0.10, 0.99],
+                                  regions=[[0.3, 0.3, 0.6, 0.4]],
+                                  text_state='detected')
+            mark_id = _kept_image(svc, ds, 'mark.webp', state='detected',
+                                  bbox=[0.30, 0.00, 0.70, 0.04])
+        _ocr_ready(monkeypatch)
+        return ds, text_id, mark_id
+
+    def _arm_fill(self, monkeypatch):
+        from app.services import text_fill, watermark_lama
+        monkeypatch.setattr(text_fill, 'fill_batch', lambda items, **k: {
+            i['image_path']: {'ok': True, 'filled': len(i['regions']),
+                              'busy_boxes': []} for i in items})
+        monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+        monkeypatch.setattr(
+            watermark_lama, 'inpaint_batch',
+            lambda items, device='cpu':
+                {i['image_path']: (True, None) for i in items})
+
+    def test_target_text_cleans_only_text_pages(self, app, client, monkeypatch):
+        from app.services import face_dataset_service as svc
+        ds, text_id, mark_id = self._mixed_dataset(app, client, monkeypatch)
+        self._arm_fill(monkeypatch)
+        with app.app_context():
+            counts, err = svc.clean_watermarks('local', ds, target='text')
+        assert err is None
+        assert counts['text_filled'] == 1 and counts['cropped'] == 0
+        assert _row(app, text_id)['watermark_state'] == 'cleaned'
+        assert _row(app, mark_id)['watermark_state'] == 'detected'  # untouched
+
+    def test_target_watermark_leaves_text_pages_alone(
+            self, app, client, monkeypatch):
+        """The mixed page (text + detector box) belongs to the TEXT family —
+        the page is the unit, so a watermark-only run must not touch it."""
+        from app.services import face_dataset_service as svc
+        ds, text_id, mark_id = self._mixed_dataset(app, client, monkeypatch)
+        self._arm_fill(monkeypatch)
+        with app.app_context():
+            counts, err = svc.clean_watermarks('local', ds, target='watermark')
+        assert err is None
+        assert counts['cropped'] == 1 and counts['text_filled'] == 0
+        assert _row(app, text_id)['watermark_state'] == 'detected'
+        assert _row(app, mark_id)['watermark_state'] == 'cleaned'
+
+    def test_route_validates_and_forwards_target(
+            self, app, client, monkeypatch):
+        ds, text_id, mark_id = self._mixed_dataset(app, client, monkeypatch)
+        self._arm_fill(monkeypatch)
+        r = client.post(f'/api/dataset/{ds}/watermarks/clean',
+                        json={'target': 'bogus'})
+        assert r.status_code == 400
+        assert 'target' in r.get_json()['error']
+        r = client.post(f'/api/dataset/{ds}/watermarks/clean',
+                        json={'target': 'text'})
+        assert r.status_code == 200, r.get_json()
+        assert _row(app, text_id)['watermark_state'] == 'cleaned'
+        assert _row(app, mark_id)['watermark_state'] == 'detected'  # untouched
 
 
 class TestWatermarkScanGuards:

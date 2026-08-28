@@ -8052,6 +8052,19 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None, limit=None):
                     bank_jobs.bump(job)
                     db.session.commit()
                     continue
+                line_boxes = boxes_by_key[key]
+                if not line_boxes:
+                    # The OCR read NOTHING here — verdict BEFORE the merge, and
+                    # the stored geometry untouched. Merging first made a page
+                    # that already carried a watermark box come back non-empty
+                    # and get refiled as text; 'What to clean' splits the
+                    # repaint on text_state, so that misfiling would steal 🚩
+                    # pages into the 🔤 family.
+                    row.text_state = 'none'
+                    clean += 1
+                    bank_jobs.bump(job)
+                    db.session.commit()
+                    continue
                 existing, _manual, problem = _clean_regions(row)
                 if problem:
                     # An unreadable stored mask is a broken state, not a value —
@@ -8059,7 +8072,7 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None, limit=None):
                     # merging into garbage.
                     existing = []
                 regions, dropped = text_mask_regions(
-                    boxes_by_key[key], [list(b) for b in existing])
+                    line_boxes, [list(b) for b in existing])
                 if not regions:
                     row.text_state = 'none'
                     clean += 1
@@ -8110,6 +8123,30 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None, limit=None):
     return run
 
 
+def text_preview(user_id, bank_id, limit=24) -> dict | None:
+    """The 🔤 launch window's own result gallery: the text-flagged pages with
+    their zones, oldest-id first — the SAME deterministic order the sample
+    walks, so "the first 20 of the scope" and "the first 20 shown here"
+    are the same pages. None when the bank is gone."""
+    import json as _json
+    if not get_bank(user_id, bank_id):
+        return None
+    limit = max(1, min(int(limit or 24), 60))
+    rows = (BankImage.query.filter_by(bank_id=bank_id, text_state='detected')
+            .filter(BankImage.status != 'reject')
+            .order_by(BankImage.id.asc()).limit(limit).all())
+    items = []
+    for row in rows:
+        try:
+            regions = _json.loads(row.watermark_regions or '') or []
+        except (ValueError, TypeError):
+            regions = []
+        items.append({'id': row.id, 'regions': regions})
+    total = (BankImage.query.filter_by(bank_id=bank_id, text_state='detected')
+             .filter(BankImage.status != 'reject').count())
+    return {'items': items, 'total': total}
+
+
 # --- watermark cleaning: two MANUAL levels ----------------------------------
 # The bank's folder belongs to the user and is never written to, so "cleaning a
 # watermark" here means writing a SEPARATE cleaned blob under the bank's own
@@ -8157,7 +8194,22 @@ def _crop_todo_clause():
     return and_(_clean_todo_clause(), BankImage.watermark_regions.is_(None))
 
 
-def _clean_pool_query(bank_id, statuses=None, ids=None):
+def _clean_target_clause(target):
+    """'text' = pages 🔤 flagged, 'watermark' = every other flagged page.
+
+    The split is BY IMAGE, deliberately: once a watermark box was folded into a
+    text page's regions the zones carry no per-zone origin any more, so the
+    honest unit of separation is the page — a mixed page counts as 'text'
+    (Find text flagged it) and its clean covers everything it carries."""
+    if target == 'text':
+        return BankImage.text_state == 'detected'
+    if target == 'watermark':
+        return or_(BankImage.text_state.is_(None),
+                   BankImage.text_state != 'detected')
+    return None
+
+
+def _clean_pool_query(bank_id, statuses=None, ids=None, target='all'):
     """Images a cleaning level can act on, inside the run's scope.
     'cleaned'/'dismissed'/'none' rows are out by construction.
 
@@ -8166,7 +8218,9 @@ def _clean_pool_query(bank_id, statuses=None, ids=None):
     (``statuses=None``) _scope_clause yields ``status != 'reject'``, which is
     character for character the filter this pool has always carried, so an
     untouched run walks exactly the rows it walked before."""
-    return _scoped_pool(bank_id, statuses, ids).filter(_clean_todo_clause())
+    q = _scoped_pool(bank_id, statuses, ids).filter(_clean_todo_clause())
+    clause = _clean_target_clause(target)
+    return q.filter(clause) if clause is not None else q
 
 
 def _needs_rescan_count(bank_id) -> int:
@@ -8725,7 +8779,7 @@ def _improve_job(bank_id, engine, statuses=None, ids=None):
     return run
 
 
-def start_watermark_inpaint(app, user_id, bank_id, method='auto',
+def start_watermark_inpaint(app, user_id, bank_id, method='auto', target='all',
                             statuses=None, ids=None):
     """Level 2 — repaint what is STILL flagged after the crop level.
     ``method``: 'auto'/'lama' (LaMa, non-generative, small off-centre marks; marks
@@ -8744,12 +8798,22 @@ def start_watermark_inpaint(app, user_id, bank_id, method='auto',
     method = (method or 'auto').lower()
     if method not in ('auto', 'lama', 'klein'):
         raise ValueError("method must be 'auto', 'lama' or 'klein'")
+    target = (target or 'all').lower()
+    if target not in ('all', 'text', 'watermark'):
+        raise ValueError("target must be 'all', 'text' or 'watermark'")
     want = normalize_pass_statuses(statuses)
-    total = _clean_pool_query(bank_id, want, ids).count()
+    total = _clean_pool_query(bank_id, want, ids, target=target).count()
     if not total:
         # "Nothing HERE" and "nothing anywhere" are two situations with two
         # different next moves. Saying "every flagged image is handled" while
-        # thousands sit in another pile is the refusal reading as a lie.
+        # thousands sit in another pile is the refusal reading as a lie — and
+        # with a target picked, "the flagged pages are in the OTHER family" is
+        # a third situation with its own next move.
+        if target != 'all' and _clean_pool_query(bank_id, want, ids).count():
+            other = 'watermark' if target == 'text' else 'text'
+            raise ValueError(f'nothing to repaint in the {target} family — '
+                             f'the flagged pages here are {other}-flagged '
+                             '(switch What to clean)')
         if _clean_pool_query(bank_id, list(PASS_SCOPES)).count():
             raise ValueError('nothing to repaint in this scope — the flagged '
                              'images are in another pile (kept / undecided / unkept)')
@@ -8761,11 +8825,13 @@ def start_watermark_inpaint(app, user_id, bank_id, method='auto',
     if reason:
         raise RuntimeError(reason)
     return bank_jobs.start(app, bank_id, 'watermark_inpaint',
-                           _watermark_inpaint_job(bank_id, method, want, ids),
+                           _watermark_inpaint_job(bank_id, method, want, ids,
+                                                  target=target),
                            total=total)
 
 
-def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
+def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None,
+                           target='all'):
     def run(job):
         from contextlib import nullcontext
         from . import text_fill, watermark_klein, watermark_lama
@@ -8774,7 +8840,7 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
         if not bank:
             return
-        rows = (_clean_pool_query(bank_id, statuses, ids)
+        rows = (_clean_pool_query(bank_id, statuses, ids, target=target)
                 .order_by(BankImage.id.asc()).all())
         bank_jobs.progress(job, done=0, total=len(rows), detail='inpainting')
         row_ids = [r.id for r in rows]
@@ -9026,6 +9092,8 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None):
             bank_jobs.progress(job, detail=f'cancelled — {done} inpainted so far')
             return
         detail = f'done — {done} inpainted'
+        if target != 'all':
+            detail += f' ({target}-flagged pages only)'
         if counts['text_filled']:
             detail += (f" ({counts['text_filled']} text-filled outline-safe)")
         if counts['review']:

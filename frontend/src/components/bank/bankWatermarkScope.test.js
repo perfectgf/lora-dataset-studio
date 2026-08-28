@@ -170,8 +170,11 @@ test('the two level buttons open the window instead of firing a POST', () => {
 test('the launch spreads statuses/image_ids only when set', () => {
   assert.ok(PANEL.includes('...(statuses ? { statuses } : {})'));
   assert.ok(PANEL.includes("...(imageIds === 'selection' && selectedIds.length"));
-  // The engine rides along on the repaint only — the crop has none.
-  assert.ok(PANEL.includes("cleanOpen === 'watermark_inpaint' ? { method } : {}"));
+  // The engine rides along on the repaint only — the crop has none — and the
+  // What-to-clean target only when narrowed: 'all' posts the SAME body the
+  // button posted before the selector existed.
+  assert.ok(PANEL.includes(
+    "? { method, ...(target !== 'all' ? { target } : {}) } : {}"));
 });
 
 test('the bin figure comes from the payload table, not from a second predicate', () => {

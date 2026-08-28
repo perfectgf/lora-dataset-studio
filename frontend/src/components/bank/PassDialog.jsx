@@ -63,6 +63,7 @@ export default function PassDialog({
   semanticEngine = 'clip',
   scope = '', onScope, redo = false, onRedo,
   onClose, onLaunch, children, secondary, extraSettings,
+  stayOpenOnLaunch = false,
 }) {
   const spec = bankPass(passId, { semanticEngine })
   const selection = passSelectionAvailability(passId)
@@ -82,6 +83,12 @@ export default function PassDialog({
   const setRedo = (v) => onRedo?.(v)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  /* A pass whose window shows its own results (🔤 Find text renders the flagged
+     pages with their zones in place) stays OPEN on a successful launch: closing
+     it would hide exactly what the run was started to show. `launched` only
+     relabels the exit — every input keeps working, so adjust-and-rerun needs no
+     reopen. */
+  const [launched, setLaunched] = useState(false)
 
   const dismiss = () => { if (!busy) onClose() }
   useEffect(() => {
@@ -129,8 +136,10 @@ export default function PassDialog({
         redo,
       }), { fallback: `Could not start ${spec.label}` })
     } finally { setBusy(false) }
-    if (outcome.close) onClose()
-    else setError(outcome.error)
+    if (outcome.close) {
+      if (stayOpenOnLaunch) setLaunched(true)
+      else onClose()
+    } else setError(outcome.error)
   }
 
   return (
@@ -293,7 +302,7 @@ export default function PassDialog({
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" onClick={dismiss} disabled={busy}
               className="rounded-md border border-border px-3 py-1.5 text-sm text-content-muted hover:bg-surface-raised hover:text-content disabled:opacity-50">
-              Cancel
+              {launched ? 'Close' : 'Cancel'}
             </button>
             <button type="button" onClick={launch} disabled={busy || !!blocked}
               className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">

@@ -565,6 +565,20 @@ def bank_watermark(bank_id):
                   rescan=bool(data.get('rescan')), **_scope(data))
 
 
+@bp.get('/bank/<int:bank_id>/text/preview')
+def bank_text_preview(bank_id):
+    """The 🔤 launch window's result gallery: text-flagged pages with their
+    zones, oldest-id first (the sample's own deterministic order)."""
+    try:
+        limit = int(request.args.get('limit') or 24)
+    except (TypeError, ValueError):
+        limit = 24
+    payload = banks.text_preview(LOCAL_USER, bank_id, limit)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
 @bp.post('/bank/<int:bank_id>/text')
 def bank_text_scan(bank_id):
     """🔤 Burned-in text scan (RapidOCR, CPU). Folds the text zones it finds
@@ -613,7 +627,8 @@ def bank_watermark_inpaint(bank_id):
     without them repaints exactly what it repainted before."""
     data = request.get_json(silent=True) or {}
     return _start(banks.start_watermark_inpaint, _app(), LOCAL_USER, bank_id,
-                  method=data.get('method') or 'auto', **_scope(data))
+                  method=data.get('method') or 'auto',
+                  target=data.get('target') or 'all', **_scope(data))
 
 
 @bp.post('/bank/<int:bank_id>/watermark/undo')

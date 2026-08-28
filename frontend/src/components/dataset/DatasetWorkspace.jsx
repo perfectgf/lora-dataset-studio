@@ -31,6 +31,7 @@ import { extraRefCropSource } from './extraRefs';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import DatasetToBankDialog from './DatasetToBankDialog';
 import TextScanDialog from './TextScanDialog';
+import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
 // Lazily loaded: each renders behind a condition (a click opens it) or a
 // hidden section, so its code leaves the DatasetPage entry chunk - which
@@ -299,6 +300,12 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
+  /* What 🧽 Clean aims at: every flagged page ('all'), only the 🔤 text-flagged
+     ones ('text'), or only the 🚩 watermark-flagged ones ('watermark'). The
+     split is BY PAGE — a page carrying both counts as text (its zones share one
+     channel, so one page is never split between two runs). Bank parity: its
+     panel offers the same three, in the same words. */
+  const [watermarkTarget, setWatermarkTarget] = useState('all');
   // 🔤 Find text launch window (full parity with the bank's). Hook up here
   // with its siblings — the counts it prices live next to watermarkDetected,
   // past the early returns.
@@ -625,6 +632,14 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const leakingImages = images.filter((i) => i.leak);
   // Overlaid watermarks still awaiting removal → drives the "🧽 Clean (N)" button.
   const watermarkDetected = images.filter((i) => i.watermark_state === 'detected').length;
+  // …and how many of those are 🔤 text-flagged pages — the "What to clean"
+  // selector prices its three choices from this split, and only appears when
+  // there IS a split (with no text page the three choices collapse into one).
+  const textFlaggedDetected = images.filter(
+    (i) => i.watermark_state === 'detected' && i.text_state === 'detected').length;
+  const cleanTargetCount = watermarkTarget === 'text' ? textFlaggedDetected
+    : watermarkTarget === 'watermark' ? watermarkDetected - textFlaggedDetected
+    : watermarkDetected;
   // 🔤 window pricing: the kept pile the pass actually reads — dismissed rows
   // are the machine's no-go, already-answered rows only re-enter through the
   // redo line.
@@ -1533,7 +1548,23 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     toRead={textToRead}
                     rereadable={keptForText.length}
                     sensitivity={caps.text_scan_score_min}
-                    live={ds.busy} />
+                    live={ds.busy}
+                    /* The window's result strip: the text-flagged pages with
+                       their zones, straight from the payload rows the scan
+                       updates (the route is synchronous). Same filter as the
+                       bank's preview endpoint: flagged, not rejected. */
+                    flagged={images
+                      .filter((i) => i.text_state === 'detected' && i.status !== 'reject'
+                        && i.filename)
+                      .map((i) => {
+                        const url = `/api/dataset/${d.id}/img/${encodeURIComponent(i.filename)}`;
+                        return {
+                          id: i.id,
+                          src: datasetThumbUrl(url, 384),
+                          href: url,
+                          regions: i.effective_watermark_regions || [],
+                        };
+                      })} />
                 )}
                 <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (
@@ -1562,6 +1593,36 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       Klein <span className="font-normal opacity-70">quality</span>
                     </button>
                   </div>
+                  {/* 🔤/🚩 WHAT to clean — only offered once Find text flagged
+                      something (no text page = the three choices collapse into
+                      one, a dead dial). Same three choices, same words as the
+                      bank panel. */}
+                  {textFlaggedDetected > 0 && (
+                    <div role="group" aria-label="What to clean"
+                      className="flex items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
+                      <button type="button" aria-pressed={watermarkTarget === 'all'}
+                        onClick={() => setWatermarkTarget('all')} disabled={ds.busy}
+                        title="Repaint every flagged page — text and watermarks alike."
+                        className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkTarget === 'all'
+                          ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                        Both
+                      </button>
+                      <button type="button" aria-pressed={watermarkTarget === 'text'}
+                        onClick={() => setWatermarkTarget('text')} disabled={ds.busy}
+                        title="Only pages 🔤 Find text flagged. A page carrying both a watermark and text counts here — one page is never split between two runs."
+                        className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkTarget === 'text'
+                          ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                        🔤 Text
+                      </button>
+                      <button type="button" aria-pressed={watermarkTarget === 'watermark'}
+                        onClick={() => setWatermarkTarget('watermark')} disabled={ds.busy}
+                        title="Only pages 🚩 flagged with no text flag on them."
+                        className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkTarget === 'watermark'
+                          ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
+                        🚩 Marks
+                      </button>
+                    </div>
+                  )}
                   {/* A clean OVERWRITES the image, so the model that repaints it is
                       the one lane whose swap can never be spotted afterwards. It is
                       the dataset's model, like improve and generation — named here,
@@ -1585,8 +1646,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <Scissors aria-hidden="true" className="h-3.5 w-3.5" />{allowAutoCrop ? "Auto-crop on" : "Auto-crop off"}
                   </button>
                   <button type="button"
-                    onClick={() => { requestHelpTip('watermark-batch-clean'); ds.cleanWatermarks(watermarkMethod); }}
-                    disabled={ds.busy || savingAllowCrop}
+                    onClick={() => { requestHelpTip('watermark-batch-clean'); ds.cleanWatermarks(watermarkMethod, watermarkTarget); }}
+                    disabled={ds.busy || savingAllowCrop || cleanTargetCount === 0}
                     title={watermarkMethod === 'klein'
                       ? (allowAutoCrop
                         ? 'Removes them with masked Flux.2 Klein inpaint: border marks are cropped, every other mark (off-center AND on-subject) is repainted then composited back — only the mark changes'
@@ -1597,7 +1658,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         : 'Auto-crop off: border marks are repainted (LaMa) instead of cropped; large/on-subject marks are flagged for manual review')
                       : 'Removes border marks by cropping. Inpainting (LaMa) needs a one-time install — use Install inpainting next to this button; off-center marks are skipped until then'}
                     className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-400/40 text-amber-200 text-sm font-semibold disabled:opacity-40">
-                    <Eraser aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px]" />Clean ({watermarkDetected})
+                    <Eraser aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px]" />Clean ({cleanTargetCount})
                   </button>
                   </>
                 )}

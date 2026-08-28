@@ -833,7 +833,7 @@ def test_clean_route_lama_present(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None, method=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None, method=None, target=None: ({'cropped': 2, 'inpainted': 1, 'needs_review': 0,
                                        'failed': 0, 'skipped': 0}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     assert resp.status_code == 200
@@ -845,7 +845,7 @@ def test_clean_route_lama_absent_reports_skipped(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None, method=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None, method=None, target=None: ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 0, 'skipped': 3}, None))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
     body = resp.get_json()
@@ -856,7 +856,7 @@ def test_clean_route_surfaces_error(client, app, monkeypatch):
     from app.services import face_dataset_service as svc
     ds_id = _create(client, 'R', 'r').get_json()['id']
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None, method=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
+                        lambda u, d, image_ids=None, device=None, method=None, target=None: ({'cropped': 0, 'inpainted': 0, 'needs_review': 0,
                                        'failed': 1, 'skipped': 0},
                                       {'kind': 'failed', 'detail': 'boom'}))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean')
@@ -1266,7 +1266,7 @@ def test_clean_route_accepts_image_ids(client, app, monkeypatch):
     ds_id = _create(client, 'R', 'r').get_json()['id']
     seen = {}
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None, method=None: (seen.update(ids=image_ids)
+                        lambda u, d, image_ids=None, device=None, method=None, target=None: (seen.update(ids=image_ids)
                                                       or ({'cropped': 1, 'inpainted': 0, 'needs_review': 0,
                                                            'failed': 0, 'skipped': 0}, None)))
     resp = client.post(f'/api/dataset/{ds_id}/watermarks/clean', json={'image_ids': [7, 8]})
@@ -1291,7 +1291,7 @@ def test_clean_route_uses_gpu_window_only_for_cuda(client, app, monkeypatch):
 
     monkeypatch.setattr(routes, 'gpu_exclusive_vision_window', _window)
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, device=None, method=None: (
+                        lambda u, d, image_ids=None, device=None, method=None, target=None: (
                             {'cropped': 0, 'inpainted': 0, 'needs_review': 0,
                              'failed': 0, 'skipped': 0}, None))
     monkeypatch.setattr(watermark_lama, 'resolve_device', lambda requested=None: 'cpu')
@@ -1924,7 +1924,7 @@ def test_clean_route_forwards_method_klein(client, app, monkeypatch):
     monkeypatch.setattr(routes, '_klein_clean_preflight', lambda: None)
     seen = {}
     monkeypatch.setattr(svc, 'clean_watermarks',
-                        lambda u, d, image_ids=None, method='auto': (
+                        lambda u, d, image_ids=None, method='auto', target=None: (
                             seen.update(method=method)
                             or ({'cropped': 0, 'inpainted': 0, 'inpainted_klein': 2,
                                  'needs_review': 0, 'failed': 0, 'skipped': 0}, None)))

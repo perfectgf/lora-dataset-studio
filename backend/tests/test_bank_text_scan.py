@@ -99,6 +99,28 @@ class TestTextScan:
             pool = [row.id for row in banks._clean_pool_query(bank_id).all()]
         assert pool == [page['id']]
 
+    def test_watermark_box_with_no_text_stays_none(
+            self, app, client, tmp_path, monkeypatch):
+        """The verdict comes from the OCR lines, not the merged output: a page
+        already carrying a watermark box, on which the OCR reads NOTHING, is
+        'none' — refiling it as text would steal 🚩 pages into the 🔤 family
+        ('What to clean' routes the repaint on text_state)."""
+        bank_id, _src = _mkbank(client, tmp_path, ['page.jpg'])
+        from app.extensions import db
+        from app.models import BankImage
+        with app.app_context():
+            row = BankImage.query.filter_by(bank_id=bank_id).one()
+            row.watermark_state = 'detected'
+            row.watermark_bbox = json.dumps([0.01, 0.90, 0.10, 0.99])
+            db.session.commit()
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {'page.jpg': []})
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        page = _rows(app, bank_id)['page.jpg']
+        assert page['text_state'] == 'none'
+        assert page['watermark_state'] == 'detected'     # the box is kept…
+        assert page['watermark_regions'] is None         # …and left as it was
+
     def test_existing_detector_box_is_folded_in_not_lost(
             self, app, client, tmp_path, monkeypatch):
         bank_id, _src = _mkbank(client, tmp_path, ['page.jpg'])
@@ -558,3 +580,154 @@ class TestWatermarkScanGuards:
         assert [0.28, 0.09, 0.72, 0.22] in regions       # text zone survived
         assert any(b[1] >= 0.8 for b in regions)         # the box joined it
         assert page['watermark_bbox'] is not None
+
+
+class TestCleanTarget:
+    """🧽 'What to clean' — the repaint pool split BY PAGE: 'text' is the
+    pages 🔤 flagged, 'watermark' every other flagged page. A page carrying
+    both is 'text' (its zones share one channel; one page is never split
+    between two runs)."""
+
+    def _mixed_bank(self, app, client, tmp_path, monkeypatch):
+        """page.jpg text-flagged (and carrying an older detector box — the
+        mixed page), mark.jpg watermark-flagged only, clean.jpg untouched."""
+        bank_id, _src = _mkbank(client, tmp_path,
+                                ['page.jpg', 'mark.jpg', 'clean.jpg'])
+        from app.extensions import db
+        from app.models import BankImage
+        with app.app_context():
+            for row in BankImage.query.filter_by(bank_id=bank_id).all():
+                if os.path.basename(row.relpath) == 'page.jpg':
+                    row.watermark_state = 'detected'
+                    row.watermark_bbox = json.dumps([0.01, 0.90, 0.10, 0.99])
+                if os.path.basename(row.relpath) == 'mark.jpg':
+                    row.watermark_state = 'detected'
+                    row.watermark_bbox = json.dumps([0.02, 0.02, 0.12, 0.08])
+            db.session.commit()
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {'page.jpg': TWO_LINES, 'mark.jpg': [],
+                                   'clean.jpg': []})
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        return bank_id
+
+    def _arm_lama(self, monkeypatch, lama_calls=None):
+        from app.services import text_fill, watermark_lama
+        monkeypatch.setattr(text_fill, 'fill_batch', lambda items, **k: {
+            i['image_path']: {'ok': True, 'filled': len(i['regions']),
+                              'busy_boxes': []} for i in items})
+        monkeypatch.setattr(watermark_lama, 'is_available', lambda: True)
+        monkeypatch.setattr(watermark_lama, 'resolve_device', lambda: 'cpu')
+
+        def fake_batch(items, device='cpu'):
+            if lama_calls is not None:
+                lama_calls.extend(items)
+            return {i['image_path']: (True, None) for i in items}
+        monkeypatch.setattr(watermark_lama, 'inpaint_batch', fake_batch)
+
+    def test_target_splits_the_pool_by_page(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._mixed_bank(app, client, tmp_path, monkeypatch)
+        rows = _rows(app, bank_id)
+        from app.services import image_bank_service as banks
+        with app.app_context():
+            all_ids = {r.id for r in banks._clean_pool_query(bank_id).all()}
+            text_ids = {r.id for r in
+                        banks._clean_pool_query(bank_id, target='text').all()}
+            mark_ids = {r.id for r in
+                        banks._clean_pool_query(bank_id, target='watermark').all()}
+        assert all_ids == {rows['page.jpg']['id'], rows['mark.jpg']['id']}
+        # The mixed page (text + an older detector box) is TEXT — the page is
+        # the unit, so the two targets partition the pool with no overlap.
+        assert text_ids == {rows['page.jpg']['id']}
+        assert mark_ids == {rows['mark.jpg']['id']}
+
+    def test_target_run_repaints_only_its_family(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._mixed_bank(app, client, tmp_path, monkeypatch)
+        self._arm_lama(monkeypatch)
+        r = client.post(f'/api/bank/{bank_id}/watermark/inpaint',
+                        json={'target': 'text'})
+        assert r.status_code == 202, r.get_json()
+        rows = _rows(app, bank_id)
+        assert rows['page.jpg']['watermark_state'] == 'cleaned'
+        assert rows['mark.jpg']['watermark_state'] == 'detected'   # untouched
+        from app.services import bank_jobs
+        with app.app_context():
+            detail = (bank_jobs.get(bank_id) or {}).get('detail') or ''
+        assert '(text-flagged pages only)' in detail
+
+    def test_refusal_names_the_other_family(
+            self, app, client, tmp_path, monkeypatch):
+        """Only text-flagged pages, asked for watermarks: the refusal must say
+        the work sits in the OTHER family, not 'everything is handled'."""
+        bank_id, _src = _mkbank(client, tmp_path, ['page.jpg'])
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {'page.jpg': TWO_LINES})
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        r = client.post(f'/api/bank/{bank_id}/watermark/inpaint',
+                        json={'target': 'watermark'})
+        assert r.status_code == 400
+        msg = r.get_json()['error']
+        assert 'watermark family' in msg
+        assert 'text-flagged' in msg and 'What to clean' in msg
+
+    def test_bad_target_is_a_400(self, app, client, tmp_path, monkeypatch):
+        bank_id = self._mixed_bank(app, client, tmp_path, monkeypatch)
+        r = client.post(f'/api/bank/{bank_id}/watermark/inpaint',
+                        json={'target': 'bogus'})
+        assert r.status_code == 400
+        assert 'target' in r.get_json()['error']
+
+
+class TestTextPreview:
+    """The 🔤 launch window's result strip: flagged pages with their zones,
+    oldest-id first — the SAME deterministic order the sample reads."""
+
+    def _flagged_bank(self, client, tmp_path, monkeypatch,
+                      names=('a.jpg', 'b.jpg')):
+        bank_id, _src = _mkbank(client, tmp_path, list(names))
+        _ocr_ready(monkeypatch)
+        _fake_reader(monkeypatch, {n: TWO_LINES for n in names})
+        assert client.post(f'/api/bank/{bank_id}/text', json={}).status_code == 202
+        return bank_id
+
+    def test_preview_lists_flagged_pages_with_zones_id_asc(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flagged_bank(client, tmp_path, monkeypatch)
+        r = client.get(f'/api/bank/{bank_id}/text/preview')
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data['total'] == 2
+        assert [i['id'] for i in data['items']] == sorted(
+            i['id'] for i in data['items'])
+        for item in data['items']:
+            assert item['regions'] and all(len(b) == 4 for b in item['regions'])
+
+    def test_rejected_pages_are_left_out(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flagged_bank(client, tmp_path, monkeypatch)
+        from app.extensions import db
+        from app.models import BankImage
+        with app.app_context():
+            row = BankImage.query.filter_by(bank_id=bank_id).order_by(
+                BankImage.id.asc()).first()
+            row.status = 'reject'
+            db.session.commit()
+        data = client.get(f'/api/bank/{bank_id}/text/preview').get_json()
+        assert data['total'] == 1 and len(data['items']) == 1
+
+    def test_limit_is_honoured_and_total_still_counts_everything(
+            self, app, client, tmp_path, monkeypatch):
+        bank_id = self._flagged_bank(client, tmp_path, monkeypatch)
+        data = client.get(f'/api/bank/{bank_id}/text/preview?limit=1').get_json()
+        assert len(data['items']) == 1
+        assert data['total'] == 2               # the strip's "of N" stays honest
+        # Zero and garbage fall back to the default instead of erroring the
+        # strip away (0 is "unset", not "show nothing").
+        for bad in ('0', 'nope'):
+            r = client.get(f'/api/bank/{bank_id}/text/preview?limit={bad}')
+            assert r.status_code == 200
+            assert len(r.get_json()['items']) == 2
+
+    def test_missing_bank_is_a_404(self, client):
+        assert client.get('/api/bank/424242/text/preview').status_code == 404

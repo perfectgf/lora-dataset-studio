@@ -2210,20 +2210,36 @@ What it does *not* do, said plainly:
 **Try it on a sample before paying for the whole bank.** The launch window
 carries two dials. *Try on a sample first* reads only the first N images of
 the scope (deterministic — a re-read hits the same pages), so on a 9 000-page
-bank you can judge the result on twenty before committing to the rest: scan
-the sample, open **▶ Review** on the flagged pages to see every zone drawn on
-the image, then either launch "Read the remaining …" as-is or adjust and
-re-read the same sample. *Sensitivity* is the OCR confidence a line needs to
-become a zone — lower catches fainter or more stylised lettering at the cost
-of false zones. It is stored (one value, both surfaces), and the zones are
-always yours to edit afterwards in **🚩 Edit mask**.
+bank you can judge the result on twenty before committing to the rest.
+*Sensitivity* is the OCR confidence a line needs to become a zone — lower
+catches fainter or more stylised lettering at the cost of false zones. It is
+stored (one value, both surfaces), and the zones are always yours to edit
+afterwards in **🚩 Edit mask**.
+
+**The result shows up in the same window.** Launching does not close it: the
+flagged pages appear below the dials with every zone drawn on them (on a bank
+they fill in live while the scan runs; the strip shows the first pages and
+says how many are flagged in total, and each tile opens the full-size page).
+Judge the zones, adjust the two dials, re-run — all without leaving the
+window; a zone that landed wrong is fixed by hand in **▶ Review** /
+**🚩 Edit mask** as before. Close it whenever you are done looking.
+
+**Clean text and watermarks separately.** Once Find text has flagged
+something, the repaint level grows a **What to clean** switch — *Both*,
+*🔤 Text*, *🚩 Marks* — next to the LaMa/Klein engine toggle (the bank's
+Watermarks panel and the dataset's Clean row both carry it, and the Clean
+button's count follows the choice). The split is **by page**: a page carrying
+both a watermark and text counts as text and is repainted whole — its zones
+live in one mask, so one page is never split between two runs. With no
+text-flagged page the switch stays hidden, because all three choices would
+mean the same thing.
 
 It works on both surfaces, at full parity — a bank's Watermarks panel
 carries the **🔤 Find text** card next to 🚩 Find, and a dataset's curation
 row carries the same button next to its watermark scan. Both open the same
 launch window: the sample dial, the Sensitivity slider (one stored value,
-whichever side you move it from), and the measured count of what the run
-will actually read.
+whichever side you move it from), the measured count of what the run will
+actually read, and the flagged-pages strip.
 
 
 ## Fix a watermark mask — or mark one the scan missed
