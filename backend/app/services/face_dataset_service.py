@@ -9454,6 +9454,25 @@ def _stored_mask_regions(img):
     return []
 
 
+def text_preview(user_id, dataset_id, limit=24) -> dict | None:
+    """The 🔤 launch window's own result gallery: the text-flagged pages with
+    their zones, oldest-id first — the SAME deterministic order the sample
+    reads, so "the first 20 of the scope" and "the first 20 shown here" are
+    the same pages. Polled while a scan runs (the pass commits per image), so
+    the window fills in live — the bank's window works exactly this way, off
+    its own twin endpoint. None when the dataset is gone."""
+    if not get_dataset(user_id, dataset_id):
+        return None
+    limit = max(1, min(int(limit or 24), 60))
+    q = (FaceDatasetImage.query
+         .filter_by(dataset_id=dataset_id, text_state='detected')
+         .filter(FaceDatasetImage.status != 'reject'))
+    rows = q.order_by(FaceDatasetImage.id.asc()).limit(limit).all()
+    items = [{'id': r.id, 'filename': r.filename,
+              'regions': _stored_mask_regions(r)} for r in rows]
+    return {'items': items, 'total': q.count()}
+
+
 def detect_text(user_id, dataset_id, *, rescan=False, should_cancel=None,
                 report=None, limit=None):
     """🔤 Read burned-in text on the KEPT images and fold the zones into the

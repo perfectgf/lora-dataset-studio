@@ -31,7 +31,6 @@ import { extraRefCropSource } from './extraRefs';
 import DatasetSettingsModal from './DatasetSettingsModal';
 import DatasetToBankDialog from './DatasetToBankDialog';
 import TextScanDialog from './TextScanDialog';
-import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
 import WatermarkReviewLightbox, { buildWatermarkRecap } from './WatermarkReviewLightbox';
 // Lazily loaded: each renders behind a condition (a click opens it) or a
 // hidden section, so its code leaves the DatasetPage entry chunk - which
@@ -1549,22 +1548,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     rereadable={keptForText.length}
                     sensitivity={caps.text_scan_score_min}
                     live={ds.busy}
-                    /* The window's result strip: the text-flagged pages with
-                       their zones, straight from the payload rows the scan
-                       updates (the route is synchronous). Same filter as the
-                       bank's preview endpoint: flagged, not rejected. */
-                    flagged={images
-                      .filter((i) => i.text_state === 'detected' && i.status !== 'reject'
-                        && i.filename)
-                      .map((i) => {
-                        const url = `/api/dataset/${d.id}/img/${encodeURIComponent(i.filename)}`;
-                        return {
-                          id: i.id,
-                          src: datasetThumbUrl(url, 384),
-                          href: url,
-                          regions: i.effective_watermark_regions || [],
-                        };
-                      })} />
+                    /* The window polls this dataset's /text/preview itself —
+                       reading the payload here only refreshed when the run
+                       returned, leaving the strip empty for the whole scan. */
+                    datasetId={d.id} />
                 )}
                 <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (

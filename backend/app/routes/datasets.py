@@ -1274,6 +1274,21 @@ def dataset_watermarks_detect_cancel(dataset_id):
     return jsonify({'ok': True, 'stopping': True})
 
 
+@bp.get('/dataset/<int:dataset_id>/text/preview')
+def dataset_text_preview(dataset_id):
+    """The 🔤 launch window's result gallery: text-flagged pages with their
+    zones, oldest-id first (the sample's own deterministic order) — the twin
+    of the bank's /text/preview, polled by the window while a scan runs."""
+    try:
+        limit = int(request.args.get('limit') or 24)
+    except (TypeError, ValueError):
+        limit = 24
+    payload = svc.text_preview(LOCAL_USER, dataset_id, limit)
+    if payload is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(payload)
+
+
 @bp.post('/dataset/<int:dataset_id>/text/detect')
 def dataset_text_detect(dataset_id):
     """🔤 Read burned-in text (speech bubbles, subtitles, captions, sound

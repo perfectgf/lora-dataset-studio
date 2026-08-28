@@ -14,11 +14,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { putJson } from '../../api/fetchClient';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
-import TextZonesGallery from '../shared/TextZonesGallery.jsx';
+import DatasetTextScanPreview from './DatasetTextScanPreview.jsx';
 
 export default function TextScanDialog({
   onClose, onLaunch, toRead = 0, rereadable = 0, sensitivity = 0.5, live = false,
-  flagged = [],
+  datasetId,
 }) {
   const [redo, setRedo] = useState(false);
   const [sampleOn, setSampleOn] = useState(false);
@@ -132,14 +132,14 @@ export default function TextScanDialog({
           </label>
         </div>
         {/* The run's RESULT, in the window that launched it: the flagged pages
-            with their zones. Fed straight from the payload rows the scan just
-            updated — the dataset route is synchronous, so by the time `busy`
-            releases, this strip IS the run's answer. Bank parity: same strip,
-            fed by its preview endpoint. */}
-        <TextZonesGallery items={flagged.slice(0, 12)} total={flagged.length}
-          live={busy || live}
-          emptyLine={ran ? 'No text found on the scanned images.' : null}
-          reviewHint="Zones off? Open 🔍 Review flagged to fix them by hand" />
+            with their zones, POLLED while the scan runs so they fill in as
+            text is found (the pass commits per image). It used to read the
+            workspace payload instead, which only refreshes when the run
+            returns — a whole 106-page scan with the strip sitting on
+            "nothing flagged yet" the entire time. Bank parity: same strip,
+            same poll, off this surface's own /text/preview. */}
+        <DatasetTextScanPreview datasetId={datasetId} live={busy || live}
+          emptyLine={ran ? 'No text found on the scanned images.' : null} />
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} disabled={busy}
             className="rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-content disabled:opacity-40">

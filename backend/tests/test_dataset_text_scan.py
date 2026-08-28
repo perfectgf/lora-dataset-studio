@@ -424,6 +424,61 @@ class TestCleanTargetDataset:
         assert _row(app, mark_id)['watermark_state'] == 'detected'  # untouched
 
 
+class TestTextPreviewDataset:
+    """The 🔤 launch window's result strip, dataset surface — the twin of the
+    bank's /text/preview: flagged pages with their zones, oldest-id first (the
+    sample's own order), polled by the window while a scan runs."""
+
+    def _flagged(self, app, client, n=2):
+        from app.services import face_dataset_service as svc
+        ds = _create(client)
+        ids = []
+        with app.app_context():
+            for i in range(n):
+                ids.append(_kept_image(
+                    svc, ds, f'p{i}.webp', state='detected',
+                    regions=[[0.2, 0.1, 0.8, 0.2]], text_state='detected'))
+        return ds, ids
+
+    def test_preview_lists_flagged_pages_with_zones_id_asc(self, app, client):
+        ds, ids = self._flagged(app, client)
+        r = client.get(f'/api/dataset/{ds}/text/preview')
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data['total'] == 2
+        assert [i['id'] for i in data['items']] == sorted(ids)
+        for item in data['items']:
+            assert item['filename']
+            assert item['regions'] and all(len(b) == 4 for b in item['regions'])
+
+    def test_rejected_pages_are_left_out(self, app, client):
+        ds, ids = self._flagged(app, client)
+        from app.extensions import db
+        from app.models import FaceDatasetImage
+        with app.app_context():
+            db.session.get(FaceDatasetImage, ids[0]).status = 'reject'
+            db.session.commit()
+        data = client.get(f'/api/dataset/{ds}/text/preview').get_json()
+        assert data['total'] == 1 and len(data['items']) == 1
+        assert data['items'][0]['id'] == ids[1]
+
+    def test_limit_is_honoured_and_total_still_counts_everything(
+            self, app, client):
+        ds, _ids = self._flagged(app, client)
+        data = client.get(f'/api/dataset/{ds}/text/preview?limit=1').get_json()
+        assert len(data['items']) == 1
+        assert data['total'] == 2               # the strip's "of N" stays honest
+        # Zero and garbage fall back to the default instead of erroring the
+        # strip away (0 is "unset", not "show nothing") — bank contract.
+        for bad in ('0', 'nope'):
+            r = client.get(f'/api/dataset/{ds}/text/preview?limit={bad}')
+            assert r.status_code == 200
+            assert len(r.get_json()['items']) == 2
+
+    def test_missing_dataset_is_a_404(self, client):
+        assert client.get('/api/dataset/424242/text/preview').status_code == 404
+
+
 class TestWatermarkScanGuards:
     """A watermark scan runs AFTER a text scan: the text zones must survive it.
     Before these guards the vision pass reset watermark_regions on every row it

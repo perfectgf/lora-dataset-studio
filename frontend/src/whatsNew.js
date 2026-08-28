@@ -114,11 +114,11 @@ export const WHATS_NEW = [
     title: 'Find text shows its result in the launch window',
     blurb:
       'Launching 🔤 Find text no longer closes the window: the flagged '
-      + 'pages appear right below the dials with every zone drawn on them '
-      + '— filling in live on a bank — and each tile opens the full-size '
-      + 'page. Try a sample, judge the zones where you launched them, '
-      + 'adjust, re-run: the whole loop happens in one window, on both '
-      + 'surfaces.',
+      + 'pages appear right below the dials with every zone drawn on them, '
+      + 'filling in live while the scan runs, and each tile opens the '
+      + 'full-size page. Try a sample, judge the zones where you launched '
+      + 'them, adjust, re-run: the whole loop happens in one window, on '
+      + 'both surfaces.',
     to: '/bank',
   },
   {

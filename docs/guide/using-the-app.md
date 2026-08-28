@@ -2217,9 +2217,10 @@ stored (one value, both surfaces), and the zones are always yours to edit
 afterwards in **🚩 Edit mask**.
 
 **The result shows up in the same window.** Launching does not close it: the
-flagged pages appear below the dials with every zone drawn on them (on a bank
-they fill in live while the scan runs; the strip shows the first pages and
-says how many are flagged in total, and each tile opens the full-size page).
+flagged pages appear below the dials with every zone drawn on them, filling
+in live while the scan runs — on both surfaces (the strip shows the first
+pages and says how many are flagged in total, and each tile opens the
+full-size page).
 Judge the zones, adjust the two dials, re-run — all without leaving the
 window; a zone that landed wrong is fixed by hand in **▶ Review** /
 **🚩 Edit mask** as before. Close it whenever you are done looking.
