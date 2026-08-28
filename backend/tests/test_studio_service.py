@@ -2104,3 +2104,39 @@ def test_enhance_test_prompt_raises_when_the_model_answers_nothing(app, monkeypa
     with app.app_context():
         with pytest.raises(RuntimeError, match='empty prompt'):
             lts.enhance_test_prompt('a girl')
+
+
+def test_enhance_test_prompt_threads_the_picked_model_through_both_seams(app, monkeypatch):
+    """The ⚙️ override must be VERIFIED (ensure_captioning_ready gets it — probing the
+    Settings default instead would green-light a model that isn't pulled) and USED
+    (generate_text_ollama gets it — or the check and the call would disagree)."""
+    from app.services import lora_test_studio as lts, vision_ollama, ollama_control
+    seen = {}
+
+    def ready(model=None):
+        seen['checked'] = model
+        return {'ok': True}
+    monkeypatch.setattr(ollama_control, 'ensure_captioning_ready', ready)
+
+    def fake_generate(prompt, **kwargs):
+        seen['generated_with'] = kwargs.get('model')
+        return 'richer'
+    monkeypatch.setattr(vision_ollama, 'generate_text_ollama', fake_generate)
+    with app.app_context():
+        assert lts.enhance_test_prompt('a girl', model='llama3.1:8b') == 'richer'
+    assert seen['checked'] == 'llama3.1:8b'
+    assert seen['generated_with'] == 'llama3.1:8b'
+
+
+def test_enhance_test_prompt_not_ready_error_names_the_override_path(app, monkeypatch):
+    """With a ⚙️ override the remedy lives in the gear, not in Settings: the Settings
+    sentence would send the user to fix a value the call never used."""
+    from app.services import lora_test_studio as lts, ollama_control
+    monkeypatch.setattr(ollama_control, 'ensure_captioning_ready',
+                        lambda *a, **k: {'ok': False, 'error': 'custom-model not pulled'})
+    with app.app_context():
+        with pytest.raises(RuntimeError) as exc:
+            lts.enhance_test_prompt('a girl', model='custom-model')
+    assert 'custom-model not pulled' in str(exc.value)
+    assert 'Enhance ⚙️ options' in str(exc.value)
+    assert 'Settings › Local tools' not in str(exc.value)

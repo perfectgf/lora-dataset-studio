@@ -1110,11 +1110,13 @@ STUDIO_ENHANCE_PROMPT = (
     "PROMPT TO ENHANCE:\n{prompt}")
 
 
-def enhance_test_prompt(prompt: str) -> str:
-    """Enrich a Studio test prompt with the LOCAL Ollama text model — the same
+def enhance_test_prompt(prompt: str, model: str | None = None) -> str:
+    """Enrich a Studio test prompt with a LOCAL Ollama text model — by default the same
     abliterated model the app captions with (a vanilla model refuses the NSFW prompts
     this app produces), through the SAME client as captioning (`vision_ollama`); no
-    second Ollama seam exists.
+    second Ollama seam exists. `model` is the ⚙️ Enhance-options override: that exact
+    model is then verified and used instead, and the readiness error names IT — not the
+    Settings default the call never touched.
 
     A stopped LOCAL Ollama is started on demand, exactly like Describe. Whether the
     model stays resident afterwards is decided by contention (vision_keepalive), so
@@ -1131,12 +1133,15 @@ def enhance_test_prompt(prompt: str) -> str:
     from .ollama_control import ensure_captioning_ready
     from .vision_keepalive import keep_alive_for_isolated_call
     from .vision_ollama import generate_text_ollama
-    ready = ensure_captioning_ready()
+    ready = ensure_captioning_ready(model)
     if not ready.get('ok'):
         raise RuntimeError(
             (ready.get('error') or 'Ollama is unavailable')
-            + ' — Enhance needs the local Ollama model configured in Settings › Local tools.')
-    text = generate_text_ollama(STUDIO_ENHANCE_PROMPT.format(prompt=p), num_predict=500,
+            + (' — pick another model from the ✨ Enhance ⚙️ options, or pull this one first.'
+               if model else
+               ' — Enhance needs the local Ollama model configured in Settings › Local tools.'))
+    text = generate_text_ollama(STUDIO_ENHANCE_PROMPT.format(prompt=p), model=model,
+                                num_predict=500,
                                 keep_alive=keep_alive_for_isolated_call(), strict=True)
     text = (text or '').strip().strip('"').strip()
     if not text:

@@ -500,6 +500,9 @@ export const PAGE_TOPICS = [
     ['studio', 'test studio', 'enhance', 'enhance prompt', 'improve prompt', 'better prompt',
      'rewrite prompt', 'llm', 'ollama', 'local model', 'prompt magic', 'button greyed out',
      'enhance disabled', 'ollama not running', 'model not downloaded',
+     // The ⚙️ next to the button: pick which pulled Ollama model runs Enhance.
+     'enhance options', 'enhance model', 'choose model', 'which model', 'change model',
+     'different model', 'pick a model', 'gear', '⚙️', 'enhance settings',
      // The fence: the words people type when another tool is holding the model.
      'already in use outside LDS', 'model in use', 'unload it and continue',
      'unload model', 'waiting for the model', 'model busy', 'another app is using ollama'],

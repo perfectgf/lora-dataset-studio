@@ -113,9 +113,13 @@ test('the Enhance button posts to the studio route and stays disabled while bloc
   assert.match(source, /'\/api\/studio\/enhance-prompt'/)
   assert.match(source, /disabled=\{!!blocked \|\| empty \|\| busy\}/)
   assert.match(source, /title=\{title\}/)
-  // No second Ollama probe: the shared capabilities context is the only source.
+  // No second Ollama STATUS probe: the shared capabilities context stays the only
+  // gating source. The ⚙️ popover MAY list the pulled models — the same always-200
+  // /api/ollama/models the Captions pickers read — but never /start, /pull or a
+  // reachability check of its own.
   assert.match(source, /useCapabilities\(\)/)
-  assert.doesNotMatch(source, /\/api\/ollama\//)
+  const ollamaCalls = source.match(/\/api\/ollama\/\w+/g) || []
+  assert.deepEqual([...new Set(ollamaCalls)], ['/api/ollama/models'])
 })
 
 test('a combined tile says so, so a stack is never mistaken for a solo render', () => {

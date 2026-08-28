@@ -8,8 +8,11 @@
  * /api/capabilities (`caps.ollama`), déjà publié pour les surfaces Bank/Settings.
  */
 
-/** Raison de blocage (string, anglais) ou null si Enhance est utilisable. */
-export function enhanceBlocker(ollama, { capsLoading = false } = {}) {
+/** Raison de blocage (string, anglais) ou null si Enhance est utilisable.
+ * `customModel` = le modèle choisi dans la ⚙️ ('' = défaut) : quand il est posé,
+ * l'état « modèle par défaut pas téléchargé » ne bloque plus — l'appel ne s'en
+ * sert pas, et le serveur vérifie le modèle choisi lui-même (409 qui le nomme). */
+export function enhanceBlocker(ollama, { capsLoading = false, customModel = '' } = {}) {
   if (capsLoading) return 'Checking local tools…';
   const o = ollama || {};
   if (!o.installed && !o.reachable) {
@@ -18,7 +21,7 @@ export function enhanceBlocker(ollama, { capsLoading = false } = {}) {
   if (!o.reachable) {
     return 'Ollama is installed but not running — start it from Settings › Local tools.';
   }
-  if (!o.vision_model_ready) {
+  if (!customModel && !o.vision_model_ready) {
     return `Ollama model "${o.vision_model || 'unset'}" is not downloaded yet `
       + '— pull it from Settings › Local tools.';
   }

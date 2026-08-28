@@ -20,7 +20,7 @@ pytestmark = pytest.mark.ollama_fence
 def test_enhance_refusal_carries_the_fence_code_so_the_ui_can_offer_the_way_out(
         app, client, monkeypatch):
     monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt',
-                        lambda prompt: (_ for _ in ()).throw(
+                        lambda prompt, model=None: (_ for _ in ()).throw(
                             LocalOllamaFenceError(fence.FENCE_BLOCKED_MESSAGE)))
     res = client.post('/api/studio/enhance-prompt', json={'prompt': 'a girl'})
     body = res.get_json()
@@ -34,7 +34,7 @@ def test_an_ordinary_enhance_failure_keeps_its_bare_409_without_the_code(
         app, client, monkeypatch):
     """Only the fence earns the button. A missing model must not get one."""
     monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt',
-                        lambda prompt: (_ for _ in ()).throw(
+                        lambda prompt, model=None: (_ for _ in ()).throw(
                             RuntimeError('Ollama is unavailable')))
     res = client.post('/api/studio/enhance-prompt', json={'prompt': 'a girl'})
     assert res.status_code == 409

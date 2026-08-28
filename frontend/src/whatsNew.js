@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-enhance-model-choice',
+    date: '2026-08-28',
+    title: 'Pick which Ollama model runs ✨ Enhance',
+    blurb:
+      'A ⚙️ next to ✨ Enhance — in the Test Studio and in the Canvas run '
+      + 'panel alike — lets you pick which pulled Ollama model enriches your '
+      + 'test prompt, instead of always the captioning model. The pick is '
+      + 'remembered and applies to both surfaces at once; leave it on the '
+      + 'default and nothing changes. A vanilla model can refuse NSFW '
+      + 'prompts — the abliterated captioning default stays the safe choice '
+      + 'there.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-28-studio-trigger-toggle',
     date: '2026-08-28',
     title: 'Test a prompt without the trigger word',

@@ -777,14 +777,14 @@ def test_studio_run_forwards_the_combine_flag_and_per_lora_weights(client, monke
 
 def test_studio_enhance_prompt_returns_the_enriched_prompt(client, monkeypatch):
     monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt',
-                        lambda p: f'{p}, cinematic lighting')
+                        lambda p, model=None: f'{p}, cinematic lighting')
     resp = client.post('/api/studio/enhance-prompt', json={'prompt': 'a girl'})
     assert resp.status_code == 200
     assert resp.get_json() == {'ok': True, 'prompt': 'a girl, cinematic lighting'}
 
 
 def test_studio_enhance_prompt_maps_a_missing_ollama_to_409(client, monkeypatch):
-    def boom(_p):
+    def boom(_p, model=None):
         raise RuntimeError('Ollama could not start')
     monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt', boom)
     resp = client.post('/api/studio/enhance-prompt', json={'prompt': 'a girl'})
@@ -803,9 +803,53 @@ def test_studio_enhance_prompt_is_not_gated_on_comfyui(client, monkeypatch):
     (the Describe route is ungated for the same reason)."""
     _comfy(monkeypatch, False)
     monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt',
-                        lambda p: 'enriched')
+                        lambda p, model=None: 'enriched')
     resp = client.post('/api/studio/enhance-prompt', json={'prompt': 'a girl'})
     assert resp.status_code == 200
+
+
+def test_studio_enhance_prompt_forwards_the_picked_model(client, monkeypatch):
+    """The ⚙️ Enhance-options pick rides the request: the exact model name must
+    reach the service untouched."""
+    seen = {}
+
+    def fake(p, model=None):
+        seen['model'] = model
+        return 'enriched'
+    monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt', fake)
+    resp = client.post('/api/studio/enhance-prompt',
+                       json={'prompt': 'a girl', 'ollama_model': 'llama3.1:8b'})
+    assert resp.status_code == 200
+    assert seen['model'] == 'llama3.1:8b'
+
+
+def test_studio_enhance_prompt_empty_model_means_the_configured_default(client, monkeypatch):
+    """'' and an absent key both resolve to None — the spread-if-set contract the
+    Bank's caption dials set: a request that picks nothing is byte-identical to
+    before the gear existed."""
+    seen = {}
+
+    def fake(p, model='sentinel-not-none'):
+        seen['model'] = model
+        return 'enriched'
+    monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt', fake)
+    for payload in ({'prompt': 'a girl', 'ollama_model': ''}, {'prompt': 'a girl'}):
+        resp = client.post('/api/studio/enhance-prompt', json=payload)
+        assert resp.status_code == 200
+        assert seen['model'] is None
+
+
+def test_studio_enhance_prompt_rejects_an_invalid_model_ref(client, monkeypatch):
+    """An invalid reference dies at the route with a 400 naming the rule — it must
+    never reach Ollama as a request body."""
+    def fake(p, model=None):
+        raise AssertionError('the service must not be called')
+    monkeypatch.setattr('app.services.lora_test_studio.enhance_test_prompt', fake)
+    for bad in ('two words', 'nl\nnl', 5):
+        resp = client.post('/api/studio/enhance-prompt',
+                           json={'prompt': 'a girl', 'ollama_model': bad})
+        assert resp.status_code == 400, bad
+        assert 'ollama_model' in resp.get_json()['error']
 
 
 # --- ✦ Repair a GENERATED image (.samexit, Discord) ---------------------------
