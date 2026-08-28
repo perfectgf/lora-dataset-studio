@@ -25,6 +25,7 @@ import { axisPayload, axisTotal, effectiveAxis, toggleAxisValue } from './studio
 import AxisPickers from './AxisPickers';
 import { isStackRun, stackMembers } from './stackResults';
 import StudioRunSetup from './StudioRunSetup';
+import { readInjectTrigger, writeInjectTrigger } from './triggerPref';
 import LoraStackPanel from './LoraStackPanel';
 import StackCompositionPanel from './StackCompositionPanel';
 import StackVariantsGrid from './StackVariantsGrid';
@@ -53,18 +54,12 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
   const [prompt, setPrompt] = useState(() => {
     try { return localStorage.getItem('studioComp_prompt') || ''; } catch { return ''; }
   });
-  // 🔤 Case « Trigger word » — MÊME clé que le panneau du Test Studio/canvas : une
-  // seule préférence de navigateur, quel que soit l'écran qui lance. Écrite
-  // uniquement décochée (défaut = injecter, aucune trace en stockage).
-  const [injectTrigger, setInjectTrigger] = useState(() => {
-    try { return localStorage.getItem('studioInjectTrigger') !== '0'; } catch { return true; }
-  });
+  // 🔤 Case « Trigger word » — MÊME préférence que le panneau du Test Studio et
+  // le canvas (module partagé triggerPref) : décocher ici vaut partout.
+  const [injectTrigger, setInjectTrigger] = useState(readInjectTrigger);
   const toggleInjectTrigger = (v) => {
     setInjectTrigger(v);
-    try {
-      if (v) localStorage.removeItem('studioInjectTrigger');
-      else localStorage.setItem('studioInjectTrigger', '0');
-    } catch { /* stockage indisponible → préférence de session seulement */ }
+    writeInjectTrigger(v);
   };
   const [seed, setSeed] = useState(() => rollSeed());
   // 'compare' (historique : un LoRA seul par cellule) ou 'combine' (pile : tous les

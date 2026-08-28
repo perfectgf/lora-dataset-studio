@@ -12,6 +12,7 @@ import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
 import StudioPreflightBanner from './StudioPreflightBanner';
 import { launchSettings, launchText as batchLaunchText, visibleBatch } from './promptBatch';
+import { readInjectTrigger, writeInjectTrigger } from './triggerPref';
 import ScenePromptsPanel from './ScenePromptsPanel';
 import { combinedPromptBatch } from './scenePrompts';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
@@ -80,19 +81,15 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
     pickedPrompts, sceneBatch.scenes, sceneBatch.picked, sceneBatch.extras);
 
   // 🔤 Case « Trigger word » : préfixer (défaut, comportement historique) ou non le
-  // trigger du dataset au prompt monté. Persistée en localStorage (préférence de
-  // navigateur, comme les filtres Civitai) ; la clé n'est écrite QUE décochée pour
-  // que l'état par défaut reste sans trace. Décochée → `inject_trigger: false` part
-  // dans le POST ; cochée → champ absent, corps octet pour octet celui d'avant.
-  const [injectTrigger, setInjectTrigger] = useState(() => {
-    try { return localStorage.getItem('studioInjectTrigger') !== '0'; } catch { return true; }
-  });
+  // trigger du dataset au prompt monté. Préférence de navigateur PARTAGÉE entre les
+  // surfaces de lancement — lecture/écriture dans triggerPref (module pur : ce
+  // panneau ne touche pas au stockage lui-même, le contrat du lot de prompts
+  // l'interdit). Décochée → `inject_trigger: false` part dans le POST ; cochée →
+  // champ absent, corps octet pour octet celui d'avant.
+  const [injectTrigger, setInjectTrigger] = useState(readInjectTrigger);
   const toggleInjectTrigger = (v) => {
     setInjectTrigger(v);
-    try {
-      if (v) localStorage.removeItem('studioInjectTrigger');
-      else localStorage.setItem('studioInjectTrigger', '0');
-    } catch { /* stockage indisponible → préférence de session seulement */ }
+    writeInjectTrigger(v);
   };
 
   // Le nombre de cellules RÉELLEMENT lancées. `cellTotal` n'est fourni que par un
