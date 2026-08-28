@@ -384,9 +384,17 @@ model — it adds framing, pose, lighting, background and mood, and deliberately
 leaves identity and trigger words alone (the LoRA supplies the identity, and Studio
 injects the trigger itself at generation time).
 
+By default it runs the same model your captions use. The **⚙️ next to the button**
+picks any other pulled Ollama model instead — the choice applies immediately, is
+remembered on that browser, and drives the same button on the Canvas run panel. A
+vanilla model can refuse NSFW prompts; the abliterated captioning default is the
+safe choice there.
+
 It is a local feature: without Ollama installed, running, and with its model pulled,
 the button is **greyed out and says which of the three is missing** rather than
 failing when you press it. Install or start it from **Settings › Local tools**.
+(With a ⚙️ model picked, the last check moves server-side: the refusal names the
+picked model instead of greying the button on the default one.)
 
 ### Reuse a dataset caption in Studio
 
