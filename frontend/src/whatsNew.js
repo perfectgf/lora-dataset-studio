@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-28-studio-trigger-toggle',
+    date: '2026-08-28',
+    title: 'Test a prompt without the trigger word',
+    blurb:
+      'A new "Trigger word" checkbox next to the Studio test prompt (also in '
+      + 'Compare and the canvas panel) controls whether the dataset\'s trigger '
+      + 'is prefixed to what you type. Untick it to send the prompt exactly as '
+      + 'written — handy when a render keeps typing the trigger back into '
+      + 'speech bubbles or signs, or for pure style and scene tests. Ticked '
+      + 'stays the default, the choice is remembered in this browser, and '
+      + 'images generated without it say "no trigger" in their details.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-28-watermark-scan-window',
     date: '2026-08-28',
     title: 'Find watermarks gets the Find-text launch window',

@@ -99,6 +99,9 @@ export default function ResultLightbox({ img, items = [], datasetId, onRate, onN
           {hasNav && <span className="text-content-subtle">{idx + 1} / {items.length} · </span>}
           {img.label} · strength {fmt(img.strength)}{img.aspect ? ` · ${img.aspect}` : ''}
           {img.seed != null ? ` · seed ${img.seed}` : ''}
+          {/* Case « Trigger word » décochée au lancement — la méta doit le dire,
+              sinon deux runs au même prompt semblent inexplicablement différents. */}
+          {img.inject_trigger === false ? ' · no trigger' : ''}
         </div>
         <div className="flex items-center gap-2">
           <button type="button" aria-pressed={img.rating === 1}

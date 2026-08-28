@@ -35,6 +35,9 @@ export default function StudioRunSetup({
   // ⏱ Rythme MESURÉ de la machine (médiane du backend). null → repli affiché
   // avec un « ~ », jamais un chiffre précis inventé.
   secondsPerImage = null,
+  // 🔤 Case « Trigger word » (préfixer ou non le trigger de chaque LoRA au prompt
+  // monté) — traversant, l'état et la persistance vivent chez l'appelant.
+  injectTrigger = true, onInjectTrigger = null,
 }) {
   // batchMult = 1 + nb de LoRA cochés « ⚖ batch » (axe sans/avec) — le backend
   // multiplie les cellules d'autant, le compteur de coût doit suivre.
@@ -100,9 +103,19 @@ export default function StudioRunSetup({
 
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label htmlFor="studio-run-prompt" className="text-content-muted text-[0.625rem] uppercase">
-            Prompt (optional)
-          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="studio-run-prompt" className="text-content-muted text-[0.625rem] uppercase">
+              Prompt (optional)
+            </label>
+            {onInjectTrigger && (
+              <label className="flex items-center gap-1 text-content-subtle text-[0.625rem] cursor-pointer"
+                title="Prefix each LoRA's trigger word to this prompt when generating. Uncheck to send the prompt exactly as written — useful when a render keeps typing the trigger back (speech bubbles, signs) or for pure style/scene tests.">
+                <input type="checkbox" checked={injectTrigger}
+                  onChange={(e) => onInjectTrigger(e.target.checked)} />
+                Trigger word
+              </label>
+            )}
+          </div>
           <div className="flex max-w-full flex-wrap items-center justify-end gap-1">
             <DatasetCaptionControl onCaption={applyCaption} />
             <EnhancePromptButton prompt={prompt} onResult={onPrompt} />

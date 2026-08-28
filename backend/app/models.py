@@ -730,6 +730,11 @@ class LoraTestImage(db.Model):
     resolution_multiplier = db.Column(Float, nullable=True)  # multiplicateur linéaire du palier [1.0,1.9] ; NULL/1.0=palier inchangé (resume fidèle)
     init_image = db.Column(String(255), nullable=True)    # Krea img2img : fichier init copié dans COMFYUI_INPUT_DIR
     denoise = db.Column(Float, nullable=True)             # Krea img2img : node 26 denoise
+    # Case « Trigger word » du Studio : False = le prompt de cette cellule est
+    # parti SANS le trigger word du dataset (aucune injection au montage du
+    # workflow). NULL = lignes d'avant la colonne / défaut → trigger injecté,
+    # ce qui est le comportement historique. Le resume relit cette colonne.
+    inject_trigger = db.Column(db.Boolean, nullable=True)
     # Scoring facial objectif (« best epoch », méthode jandordoe) : similarité
     # cosinus InsightFace vs la référence du dataset + état de scorabilité
     # ('scorable'/'no_face'/'low_det'/…). NULL = cellule pas encore scorée.

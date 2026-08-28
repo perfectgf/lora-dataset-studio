@@ -91,6 +91,9 @@ CONDITION_FIELDS = (
     'resolution_multiplier',
     'init_image',
     'denoise',
+    # False = the prompt was sent without the dataset's trigger word — a cell
+    # rendered with the trigger and one without are never the same series.
+    'inject_trigger',
 )
 
 

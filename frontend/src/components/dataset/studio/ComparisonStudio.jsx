@@ -53,6 +53,19 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
   const [prompt, setPrompt] = useState(() => {
     try { return localStorage.getItem('studioComp_prompt') || ''; } catch { return ''; }
   });
+  // 🔤 Case « Trigger word » — MÊME clé que le panneau du Test Studio/canvas : une
+  // seule préférence de navigateur, quel que soit l'écran qui lance. Écrite
+  // uniquement décochée (défaut = injecter, aucune trace en stockage).
+  const [injectTrigger, setInjectTrigger] = useState(() => {
+    try { return localStorage.getItem('studioInjectTrigger') !== '0'; } catch { return true; }
+  });
+  const toggleInjectTrigger = (v) => {
+    setInjectTrigger(v);
+    try {
+      if (v) localStorage.removeItem('studioInjectTrigger');
+      else localStorage.setItem('studioInjectTrigger', '0');
+    } catch { /* stockage indisponible → préférence de session seulement */ }
+  };
   const [seed, setSeed] = useState(() => rollSeed());
   // 'compare' (historique : un LoRA seul par cellule) ou 'combine' (pile : tous les
   // LoRA cochés dans la MÊME image, chacun à son poids). Persisté comme le reste.
@@ -264,6 +277,9 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
         ...axisPayload({ cfgs: effectiveCfgs, steps: effectiveSteps, steps2: effectiveSteps2 }),
       };
       if (prompt.trim()) body.prompt = prompt.trim();
+      // Case « Trigger word » décochée → prompt envoyé tel quel. Absent quand
+      // cochée : le corps reste octet pour octet celui d'avant.
+      if (!injectTrigger) body.inject_trigger = false;
       const dResp = await postJson('/api/studio/run', body);
       // Keep this defensive path even though apiFetch currently throws on
       // non-2xx: alternate clients/tests may return the structured 409 body.
@@ -352,6 +368,8 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
             configCount={blendConfigCount(selection, { weights: stackWeights, sets: stackSets })}
             axisTotal={axisTotal({ cfgs: effectiveCfgs, steps: effectiveSteps, steps2: effectiveSteps2 })}
             secondsPerImage={axes?.seconds_per_image ?? null}
+            injectTrigger={injectTrigger}
+            onInjectTrigger={toggleInjectTrigger}
             /* 🎛 Les axes de rendu, dans le panneau de réglage du run et pas dans
                un bloc à part : c'est le même geste que choisir une strength. Le
                MÊME composant que le studio mono-LoRA et le canvas — base et format

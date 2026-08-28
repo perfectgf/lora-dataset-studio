@@ -510,6 +510,14 @@ export const PAGE_TOPICS = [
      'dropdown', '▾', 'kept caption', 'nonblank caption', 'test prompt', 'replace prompt',
      'overwrite prompt', 'confirmation'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  action('studio-inject-trigger', 'Trigger word checkbox: send the prompt as written',
+    ['studio', 'test studio', 'trigger', 'trigger word', 'inject trigger', 'no trigger',
+     'without trigger', 'prompt as written', 'raw prompt', 'verbatim prompt',
+     // The symptom that leads people here: the trigger token rendered INSIDE
+     // the image when the prompt asks for typed text.
+     'trigger in the image', 'trigger in speech bubble', 'text in image', 'speech bubble',
+     'weird word in bubble', 'token in the render', 'why is my trigger word visible'],
+    '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // The dock is app-wide (it is mounted in the shell, not on one screen), so the
   // route here is just somewhere the queue is normally being fed from — the
   // topic's real destination is the guide section, which is where the ⤒ / ✕

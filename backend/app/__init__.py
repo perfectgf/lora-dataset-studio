@@ -463,6 +463,11 @@ _SCHEMA_ADDITIONS = (
     # cut before the detector's second head was kept — no label rather than a
     # guessed one.
     ('video_clip', 'transition_json', 'TEXT'),
+    # Studio "Trigger word" checkbox: False = this cell's prompt was sent
+    # without the dataset's trigger word. NULL on every row that predates the
+    # column — those were all launched with the trigger injected, so NULL must
+    # keep meaning "injected", never "unknown".
+    ('lora_test_image', 'inject_trigger', 'BOOLEAN'),
 )
 
 # Indexes that only a FRESH database ever got. `index=True` on a model column is
