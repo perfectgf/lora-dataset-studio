@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-dataset-made-with',
+    date: '2026-08-29',
+    title: 'Generated dataset images now remember what made them',
+    blurb:
+      'Every image a dataset generates — variations, ✨ improve, 📷 camera '
+      + 'views, small-image rescues — is stamped with what actually ran: '
+      + 'engine, base model, chained LoRAs, steps, seed. A folded ⚙ Made '
+      + 'with block in the image actions panel shows it, in the same words '
+      + 'as the Gallery viewer. Older images and imports simply show '
+      + 'nothing — the stamp never guesses.',
+    to: '/datasets?section=images',
+  },
+  {
     id: '2026-08-29-studio-viewer-facts',
     date: '2026-08-29',
     title: 'The Test Studio viewer now tells you everything about a render',

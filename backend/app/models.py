@@ -206,6 +206,17 @@ class FaceDatasetImage(db.Model):
     # for any row carrying a pose, because a back view left undescribed binds
     # "back-facing" to the trigger word. Additive column (_SCHEMA_ADDITIONS).
     camera_pose = db.Column(String(64), nullable=True)
+    # ⚙ What a GENERATED row was actually made with — JSON dict, stamped at
+    # enqueue time by every generating lane (variations, ✨ improve, 📷 camera,
+    # regenerate) with whatever that lane knows: engine, base model, chained
+    # LoRAs, steps, seed… NULL on imports and on every row that predates the
+    # column. The keys deliberately mirror the lora_test_image facts the
+    # unified viewer already shows, because the gap this closes was exactly
+    # "the dataset knows less about its own generated images than the Gallery
+    # does" — one vocabulary, both tables. Published as-is by the dataset
+    # image payload (parsed, never raw JSON). Additive column
+    # (_SCHEMA_ADDITIONS).
+    generation_meta = db.Column(Text, nullable=True)
     # De combien la box recadrée (head-crop auto à l'import OU recadrage manuel) est
     # en-dessous de la résolution d'entraînement : size / côté_de_la_box. NULL =
     # jamais croppé (import plein cadre) ou pas encore recalculé (anciennes lignes).

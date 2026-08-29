@@ -318,6 +318,8 @@ _SCHEMA_ADDITIONS = (
     # 📷 The camera position a view was rendered at ('right/low/medium').
     ('lora_test_image', 'camera_pose', 'VARCHAR(64)'),
     ('face_dataset_image', 'camera_pose', 'VARCHAR(64)'),
+    # ⚙ What a generated dataset row was made with (JSON, stamped at enqueue).
+    ('face_dataset_image', 'generation_meta', 'TEXT'),
     # Bank V2 scoring pass — the image_bank/bank_image tables shipped in the Beta,
     # so these columns need the additive path (db.create_all never ALTERs an
     # existing table).

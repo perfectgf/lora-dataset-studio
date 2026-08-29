@@ -15,6 +15,7 @@ import { Flag as FlagIcon } from 'lucide-react';
 import RepairDialog from '../shared/RepairDialog';
 import CameraAnglePicker from '../shared/CameraAnglePicker';
 import KleinImproveNote from './KleinImproveNote';
+import { generationMetaRows } from '../../utils/generationMetaFacts';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import {
@@ -489,6 +490,9 @@ export default function DatasetLightbox({
       busyReason,
     })
     : [];
+  // ⚙ The Made-with rows of THIS image's generation stamp — [] on imports and
+  // on rows predating the stamp, which is what hides the block entirely.
+  const madeWithRows = generationMetaRows(img?.generation_meta);
 
   const improve = (engineId, disabled) => async (event) => {
     event.stopPropagation();
@@ -850,6 +854,30 @@ export default function DatasetLightbox({
             className="min-h-10 lg:min-h-9 w-full sm:w-auto px-3 py-1.5 rounded-lg border border-indigo-400/50 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-45">
             <span aria-hidden>📷</span> Camera angles
           </button>
+        )}
+        {/* ⚙ What THIS generated image was made with — engine, base model,
+            chained LoRAs, steps, seed… the stamp its generating lane wrote at
+            enqueue (generation_meta). Folded by default: it is looked up, not
+            read every time, and this panel already carries the verbs. NULL on
+            imports and on rows that predate the stamp — no block, never an
+            empty shell. Same vocabulary as the Gallery viewer's Made-with,
+            because "the dataset knows less about its own generated images
+            than the Gallery does" was the reported gap. */}
+        {madeWithRows.length > 0 && (
+          <details data-testid="dataset-made-with"
+            className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+            <summary className="cursor-pointer text-xs font-semibold text-white/80">
+              <span aria-hidden>⚙</span> Made with
+            </summary>
+            <dl className="m-0 mt-1.5 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+              {madeWithRows.map((r) => (
+                <div key={r.key} className="contents">
+                  <dt className="m-0 text-[0.6875rem] text-white/45">{r.label}</dt>
+                  <dd className="m-0 break-words text-[0.6875rem] tabular-nums text-white/80">{r.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
         )}
         {/* Bottom bar only: the note takes its OWN line under the buttons.
             `sm:w-auto` used to let it sit INLINE beside them, which was fine

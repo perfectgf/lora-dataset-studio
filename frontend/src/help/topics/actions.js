@@ -184,6 +184,16 @@ export const ACTION_TOPICS = [
   /* 📷 In a dataset the same verb answers a different question — "how do I get
      training coverage of the back of my character" — and adds the captioning
      angle, so it earns its own topic with the dataset vocabulary. */
+  /* ⚙ The folded Made-with block in the dataset lightbox's actions panel:
+     what a GENERATED image was made with (engine, base model, LoRAs, steps,
+     seed). Its own topic because the words it is asked with — "which engine
+     made this", "what seed" — appear nowhere else. */
+  action('action-dataset-made-with', 'See what a generated dataset image was made with',
+    ['made with', 'generated with', 'which engine', 'which model made this',
+     'what settings', 'seed', 'what seed', 'lora used', 'which lora', 'base model',
+     'generation settings', 'provenance', 'metadata', 'stamp'],
+    '/datasets?section=images', 'using-the-app',
+    'the-character-walkthrough-reference-photo-trained-lora'),
   action('action-dataset-camera-angles', 'Cover a dataset subject from more angles',
     ['camera angles dataset', 'multi-angle dataset', 'coverage', 'training coverage',
      'back of my character', 'more angles', 'angle caption', 'seen from behind',
