@@ -14,7 +14,6 @@ const brush = read('./InpaintBrushEditor.jsx');
 const review = read('../dataset/WatermarkReviewLightbox.jsx');
 const lightbox = read('../dataset/DatasetLightbox.jsx');
 const generated = read('./GeneratedImageLightbox.jsx');
-const canvas = read('../canvas/LineageCanvas.jsx');
 const hook = read('../../hooks/useDataset.js');
 
 test('the brush lives inside the repair dialog, not behind a new button', () => {
@@ -133,8 +132,11 @@ test('every surface forwards the mask all the way to its route', () => {
   assert.match(hook, /repairImageRegion = useCallback\(async \(imageId, prompt, boxes, mask = null\)/);
   assert.match(hook, /\{ prompt, boxes, mask \}/);
   assert.match(review, /submitRepair = useCallback\(async \(\{ boxes, mask, prompt \}\)/);
-  assert.match(generated, /onSubmit=\{\(\{ boxes, mask, prompt \}\) => onRepair\.submit\(img\.id, boxes, prompt, mask\)\}/);
-  assert.match(canvas, /postJson\(`\/api\/studio\/image\/\$\{imageId\}\/repair`, \{ boxes, prompt, mask \}\)/);
+  assert.match(generated, /onSubmit=\{\(\{ boxes, mask, prompt \}\) => repairApi\.submit\(img\.id, boxes, prompt, mask\)\}/);
+  /* The standard wiring moved INTO the viewer (lightbox-owns-the-verbs
+     contract) — the mask still reaches the route, from one place instead of
+     one per host. */
+  assert.match(generated, /postJson\(`\/api\/studio\/image\/\$\{imageId\}\/repair`, \{ boxes, prompt, mask \}\)/);
 });
 
 test('the contribution is credited where the code lives', () => {
@@ -162,16 +164,17 @@ test('Escape peels one layer, not two', () => {
   assert.match(dialog, /if \(e\.key === 'Escape' && !busy\) onClose\(\)/);
   assert.match(review, /if \(repairOpen\) return;/);
   assert.match(lightbox, /if \(repairOpen\) return;/);
-  /* The generated-image viewer now has THREE rungs, not two, and the order is
+  /* The generated-image viewer now has FOUR rungs, not three, and the order is
      the order the layers were put on: the ✦ Repair dialog stands the viewer's
      listener down entirely (FIRST — before the ‹ › arrows too, or the keys
-     would walk the feed under an open zone editor), then a magnified picture
-     is put back, then the viewer closes. Escape must never throw away the
-     render you were in the middle of inspecting to get you out of a viewer
-     you did not ask to leave. */
+     would walk the feed under an open zone editor), then the 📷 picker peels
+     on Escape and freezes the arrows (the row under the open dial must not
+     change), then a magnified picture is put back, then the viewer closes.
+     Escape must never throw away the render you were in the middle of
+     inspecting to get you out of a viewer you did not ask to leave. */
   assert.match(generated, /if \(repairOpen\) return;/);
   assert.match(generated,
-    /if \(repairOpen\) return;[^]{0,400}if \(e\.key === 'ArrowLeft' && onPrev\)/);
+    /if \(repairOpen\) return;[^]{0,700}if \(cameraOpen\) \{[^]{0,300}if \(e\.key === 'ArrowLeft' && onPrev\)/);
   assert.match(generated, /if \(zoom\.zoomed\) \{ zoom\.reset\(\); return; \}/);
   assert.match(generated, /if \(zoom\.zoomed\) \{ zoom\.reset\(\); return; \}[^]{0,40}onClose\?\.\(\);/);
 });
@@ -180,5 +183,5 @@ test('the guards are re-read when the dialog opens, not captured stale', () => {
   // A listener registered once with repairOpen=false would keep closing forever.
   assert.match(review, /doDismiss, doReject, repairOpen\]\);/);
   assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, patchImageState\]\);/);
-  assert.match(generated, /\}, \[img, onClose, repairOpen, zoom, onPrev, onNext\]\);/);
+  assert.match(generated, /\}, \[img, onClose, repairOpen, cameraOpen, zoom, onPrev, onNext\]\);/);
 });

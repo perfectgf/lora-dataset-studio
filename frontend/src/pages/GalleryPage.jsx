@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Images, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
+import { Images, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
 import { apiFetch, postJson } from '../api/fetchClient';
-import CameraAnglePicker from '../components/shared/CameraAnglePicker';
 import GeneratedImageLightbox from '../components/shared/GeneratedImageLightbox';
-import { useCameraAngles } from '../hooks/useCameraAngles';
-import { cameraRefusal, isCameraView, poseLabel } from '../utils/cameraAngles';
+import { isCameraView, poseLabel } from '../utils/cameraAngles';
 import { useCanvasImageImprove } from '../hooks/useCanvasImageImprove';
 import { useRestoreImproveSettings } from '../hooks/useRestoreImproveSettings';
 import { canImproveCanvasImage } from '../utils/canvasImprove';
@@ -62,11 +60,6 @@ export default function GalleryPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [zipping, setZipping] = useState(false);
-  // 📷 The picture the camera picker is open for, or null. Held as the ROW and
-  // not a boolean: the picker outlives a ‹ › step through the feed, and a
-  // flag would silently re-shoot whatever the viewer landed on instead.
-  const [cameraFor, setCameraFor] = useState(null);
-  const shootCameraViews = useCameraAngles();
   const alive = useRef(true);
   // Set true INSIDE the effect, not only at ref creation: StrictMode runs the
   // cleanup once at mount (false) and re-runs the effect — a ref left false
@@ -522,41 +515,14 @@ export default function GalleryPage() {
         onImprove={canImproveCanvasImage(zoom) ? improveImage : undefined}
         onUseImproveSettings={restoreImproveSettings}
         datasetId={zoom?.dataset_id ?? null}
-        /* 📷 In the viewer's footer, beside the other verbs. Shown DISABLED
-           with its reason rather than hidden when the row cannot take it: a
-           button that vanishes teaches nothing, and "why can't I?" is the
-           question this panel exists to answer. */
-        actions={zoom ? (
-          <button type="button" data-testid="lightbox-camera-angles"
-            onClick={() => setCameraFor(zoom)}
-            disabled={!!cameraRefusal(zoom)}
-            title={cameraRefusal(zoom) || 'Re-shoot this scene from another camera position'}
-            /* Auto width, NOT `w-full sm:w-auto` like the improve engines: two
-               engine buttons side by side would each be a stub on a 400 px
-               phone, but ONE verb beside ⬇ Download fits and costs no row. It
-               was full-width first and the measurement said no — at 360×800
-               the fourth stacked row put this button at y=926 in an 800 px
-               window, i.e. reachable only by scrolling the details column. */
-            className="min-h-10 lg:min-h-0 inline-flex items-center gap-2 rounded-lg border border-indigo-400/50 bg-indigo-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-indigo-100 hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-45">
-            <Camera className="size-3.5" aria-hidden />
-            Camera angles
-          </button>
-        ) : null}
+        /* 📷 and ✦ are the VIEWER's own verbs now — this host used to wire the
+           camera button itself through `actions`, which is exactly how the
+           Canvas ended up with ✦ but no 📷. The one thing the viewer cannot
+           know is how to refresh THIS list after a repair rewrote a file. */
+        onRowChanged={() => load(filters)}
         onPrev={zoomIndex > 0 ? () => setZoomIndex(zoomIndex - 1) : null}
         onNext={zoomIndex != null && zoomIndex < images.length - 1
           ? () => setZoomIndex(zoomIndex + 1) : null} />
-
-      {/* The picker sits ABOVE the viewer (both are fixed layers) so the
-          reference picture stays visible behind it while positions are chosen —
-          picking an angle of something you cannot see is guesswork. */}
-      {cameraFor && (
-        <CameraAnglePicker
-          onClose={() => setCameraFor(null)}
-          onShoot={async (poses) => {
-            const ok = await shootCameraViews(cameraFor.id, poses);
-            if (ok) setCameraFor(null);
-          }} />
-      )}
     </div>
   );
 }

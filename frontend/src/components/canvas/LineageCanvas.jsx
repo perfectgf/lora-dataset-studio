@@ -2643,18 +2643,10 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
         /* ↩ A pinned ✨ result can hand its recorded settings back to the
            global improve knobs — same ONE handler as the other hosts. */
         onUseImproveSettings={restoreImproveSettings}
-        /* ✦ Fix ONE part of a render instead of regenerating it (.samexit,
-           Discord). Offered on the same pictures ✨ is: a board image with a
-           library row behind it — that row's id is what the route addresses. */
-        onRepair={canImproveCanvasImage(pinnedZoom) ? {
-          submit: (imageId, boxes, prompt, mask) =>
-            postJson(`/api/studio/image/${imageId}/repair`, { boxes, prompt, mask }),
-          done: () => onRefetchDataset?.(pinnedZoom?.dataset_id),
-        } : undefined}
-        /* ↩ One step back, so trying another description costs nothing. */
-        onRepairUndo={canImproveCanvasImage(pinnedZoom)
-          ? () => postJson(`/api/studio/image/${pinnedZoom.id}/repair/undo`, {})
-          : undefined}
+        /* ✦ and 📷 are the viewer's own verbs now (it wires the standard
+           repair routes itself) — this host only says how to refresh ITS
+           board once a repair rewrote the file. */
+        onRowChanged={() => onRefetchDataset?.(pinnedZoom?.dataset_id)}
         datasetId={pinnedZoom?.dataset_id ?? null} />
 
       {/* 🪪 The lane's reference face, full size — and only that. A reference

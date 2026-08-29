@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-same-verbs-every-viewer',
+    date: '2026-08-29',
+    title: 'Every generated-image viewer now offers the same verbs',
+    blurb:
+      'Open a render anywhere — the Gallery, the ◉ Canvas, a checkpoint '
+      + 'gallery — and the same footer is there: ⬇ Download, ✨ Improve, '
+      + '✦ Repair and 📷 Camera angles. The Canvas used to lack the camera '
+      + 'button and only the Canvas had Repair; now the viewer itself owns '
+      + 'its verbs, so a picture has the same powers wherever you meet it.',
+    to: '/gallery',
+  },
+  {
     id: '2026-08-28-krea-base-pick-saves',
     date: '2026-08-28',
     title: 'The Krea 2 base-model pick actually saves now',

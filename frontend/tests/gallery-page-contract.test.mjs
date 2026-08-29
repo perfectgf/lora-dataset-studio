@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'
 
-import { createElement, renderToStaticMarkup } from './support/mountJsx.mjs'
+import { render } from './support/mountJsx.mjs'
 
 const { default: GeneratedImageLightbox } =
   await import('../src/components/shared/GeneratedImageLightbox.jsx')
@@ -28,7 +28,7 @@ const row = { id: 4211, dataset_id: 7, url: '/api/dataset/7/img/x.png', step: 25
 // ---- the chevrons are an opt-in, proved in the DOM --------------------------
 
 test('both chevrons render when the host can go both ways', () => {
-  const html = renderToStaticMarkup(createElement(GeneratedImageLightbox, {
+  const html = render(GeneratedImageLightbox, Object.assign({
     img: row, alt: 'x', onClose: () => {}, onPrev: () => {}, onNext: () => {},
   }))
   assert.match(html, /data-testid="lightbox-prev"/)
@@ -38,7 +38,7 @@ test('both chevrons render when the host can go both ways', () => {
 })
 
 test('an END of the feed loses its chevron instead of greying it', () => {
-  const html = renderToStaticMarkup(createElement(GeneratedImageLightbox, {
+  const html = render(GeneratedImageLightbox, Object.assign({
     img: row, alt: 'x', onClose: () => {}, onPrev: null, onNext: () => {},
   }))
   assert.doesNotMatch(html, /data-testid="lightbox-prev"/)
@@ -46,7 +46,7 @@ test('an END of the feed loses its chevron instead of greying it', () => {
 })
 
 test('a host that passes nothing renders NO navigation — the three old hosts', () => {
-  const html = renderToStaticMarkup(createElement(GeneratedImageLightbox, {
+  const html = render(GeneratedImageLightbox, Object.assign({
     img: row, alt: 'x', onClose: () => {},
   }))
   assert.doesNotMatch(html, /lightbox-prev|lightbox-next/)

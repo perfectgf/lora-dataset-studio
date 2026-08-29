@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useImageZoomPan } from '../../hooks/useImageZoomPan';
 import RepairDialog from './RepairDialog';
+import CameraAnglePicker from './CameraAnglePicker';
+import { useCameraAngles } from '../../hooks/useCameraAngles';
 import { useImageDownload } from '../../hooks/useImageDownload';
 import { useCapabilities } from '../../context/CapabilitiesContext';
+import { postJson } from '../../api/fetchClient';
+import { cameraRefusal } from '../../utils/cameraAngles';
+import { canImproveCanvasImage } from '../../utils/canvasImprove';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
 import { canRestoreImproveSettings } from '../../utils/improveSettingsRestore';
 import KleinImproveNote from '../dataset/KleinImproveNote';
@@ -187,9 +193,16 @@ function ImproveActions({ img, onImprove, improvePending, improveReady, busy,
 export default function GeneratedImageLightbox({ img, alt, actions = null,
   facts = true, onClose, onImprove = null, improvePending = false,
   improveReady = false, busy = false, subjectType = '', datasetId = null,
-  /* ✦ Repair one detail instead of regenerating the whole picture
-     (.samexit, Discord). Absent = the button is not drawn, so a surface that
-     has no route for it shows nothing rather than a dead control. */
+  /* ✦ Repair and 📷 Camera angles are the VIEWER's own verbs now, not the
+     hosts': every host shows the same library row, the routes address that
+     row's id, and the one time the verbs were host-wired the Canvas had ✦
+     but no 📷 while the Gallery had 📷 but no ✦ — the exact "forgot one
+     surface" hole this component exists to close. `onRepair`/`onRepairUndo`
+     remain as OVERRIDES for a host that must route differently; passing
+     nothing gets the standard wiring on any picture with a library row.
+     `onRowChanged` is the one thing a host still knows better than the
+     viewer: how to refresh ITS list after a repair rewrote the file. */
+  onRowChanged = null,
   onRepair = null, onRepairUndo = null,
   /* ‹ › Walk the host's list without closing the viewer — the 🖼 Gallery's
      whole browsing loop. Same contract as every optional action here: absent =
@@ -211,6 +224,10 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
      early return: an effect depends on it, and a hook may not sit behind a
      conditional return. */
   const [repairOpen, setRepairOpen] = useState(false);
+  // 📷 The picker is a layer of this viewer now, exactly like ✦ — see the
+  // props note: verbs belong to the viewer, hosts supply context.
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const shootCameraViews = useCameraAngles();
   /* 🔍 Are the facts on screen? They are what this viewer is FOR, so they open
      with it — but they are not what you want while you are looking. Measured at
      412x780, the panel open, the picture is 35 % of the screen; put away, it is
@@ -250,6 +267,15 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     // were in the middle of inspecting.
     const onKey = (e) => {
       if (repairOpen) return;
+      // 📷 The picker is a layer like ✦: while it is open, keys pressed inside
+      // its tree never get here (its root stops them), and a key pressed with
+      // focus elsewhere must not walk or close the viewer UNDER the dial —
+      // Escape peels the picker first, arrows do nothing. The same lesson the
+      // dataset lightbox already carries.
+      if (cameraOpen) {
+        if (e.key === 'Escape') setCameraOpen(false);
+        return;
+      }
       // ← → walk the list even while magnified: the zoom resets with the new
       // picture anyway (resetKey follows img), so making the user un-zoom
       // first would add a step that buys nothing.
@@ -261,7 +287,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [img, onClose, repairOpen, zoom, onPrev, onNext]);
+  }, [img, onClose, repairOpen, cameraOpen, zoom, onPrev, onNext]);
   useEffect(() => { if (img) closeRef.current?.focus(); }, [img]);
   /* Folding the details resizes the frame under a held zoom, and a view that
      was legally at its edge before is a strip of backdrop afterwards. Settle
@@ -277,6 +303,23 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   const settings = imageSettingFacts(img);
   const blocks = imagePromptBlocks(img);
   const label = alt || 'Generated image';
+  /* One question, asked once, for every viewer-owned verb: does this picture
+     have a library row to address? The preview hosts (a step preview, the
+     lane's reference face) pass a bare URL — no id, no verbs, exactly as
+     before. `cameraRefusal` then narrows 📷 further on rows the lane refuses
+     (a camera view of a camera view), shown disabled WITH its reason. */
+  const hasRow = canImproveCanvasImage(img);
+  /* ✦ The standard wiring, owned here: the repair routes address the row id,
+     which is the same id space on every host. A host override still wins —
+     and `done` stays the host's voice either way, because only the host knows
+     how to refresh its own list. */
+  const repairApi = onRepair || (hasRow ? {
+    submit: (imageId, boxes, prompt, mask) =>
+      postJson(`/api/studio/image/${imageId}/repair`, { boxes, prompt, mask }),
+    done: (result) => onRowChanged?.(result),
+  } : null);
+  const repairUndo = onRepairUndo
+    || (hasRow ? () => postJson(`/api/studio/image/${img.id}/repair/undo`, {}) : null);
 
   // The ‹ › chevrons pin to the OVERLAY, like ✕ — inside the zoom pane they
   // would feed the pan/tap gesture machinery a press that meant "next". The
@@ -472,13 +515,27 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
                 with a render: keep it, improve it — or fix the ONE part that is
                 wrong. Regenerating for a stray finger throws away the image you
                 liked; this repaints only what you draw. (.samexit, Discord.) */}
-            {onRepair && img.id != null && (
+            {repairApi && img.id != null && (
               <button type="button" data-testid="lightbox-repair"
                 onClick={(e) => { e.stopPropagation(); setRepairOpen(true); }}
                 disabled={busy}
                 title="Repaint one area of this image from your own description — draw the zone, say what should be there, and everything outside it stays byte-identical"
                 className="rounded-md border border-sky-400/50 bg-sky-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-sky-50 hover:bg-sky-500/30 disabled:opacity-40">
                 <span aria-hidden>✦</span> Repair
+              </button>
+            )}
+            {/* 📷 In the same footer, on every host that shows a library row.
+                Shown DISABLED with its reason rather than hidden when the row
+                cannot take it: a button that vanishes teaches nothing, and
+                "why can't I?" is the question this panel exists to answer. */}
+            {hasRow && (
+              <button type="button" data-testid="lightbox-camera-angles"
+                onClick={(e) => { e.stopPropagation(); setCameraOpen(true); }}
+                disabled={busy || !!cameraRefusal(img)}
+                title={cameraRefusal(img) || 'Re-shoot this scene from another camera position'}
+                className="min-h-10 lg:min-h-0 inline-flex items-center gap-2 rounded-lg border border-indigo-400/50 bg-indigo-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-indigo-100 hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-45">
+                <Camera className="size-3.5" aria-hidden />
+                Camera angles
               </button>
             )}
             {actions}
@@ -495,9 +552,23 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
       {/* The zone editor, mounted INSIDE the overlay so it inherits its stacking
           context — a sibling would need a fragment and would sit under it. */}
       <RepairDialog open={repairOpen} src={img?.url} alt={alt}
-        onClose={(result) => { setRepairOpen(false); if (result && onRepair?.done) onRepair.done(result); }}
-        onSubmit={({ boxes, mask, prompt }) => onRepair.submit(img.id, boxes, prompt, mask)}
-        onUndo={onRepairUndo} />
+        onClose={(result) => { setRepairOpen(false); if (result && repairApi?.done) repairApi.done(result); }}
+        onSubmit={({ boxes, mask, prompt }) => repairApi.submit(img.id, boxes, prompt, mask)}
+        onUndo={repairUndo} />
+      {/* 📷 The picker, a layer of this viewer like ✦ above it. The reference
+          picture stays visible behind the dial — picking an angle of something
+          you cannot see is guesswork — and the keydown effect freezes ‹ › and
+          Escape-to-close while it is open, so the row under the dial cannot
+          change. On success the views land in the Gallery feed; the hook's
+          toast says so, which is true from every host. */}
+      {cameraOpen && hasRow && (
+        <CameraAnglePicker
+          onClose={() => setCameraOpen(false)}
+          onShoot={async (poses) => {
+            const ok = await shootCameraViews(img.id, poses);
+            if (ok) setCameraOpen(false);
+          }} />
+      )}
     </div>
   );
 }

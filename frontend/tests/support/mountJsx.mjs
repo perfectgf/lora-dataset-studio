@@ -97,9 +97,18 @@ registerHooks({
   },
 })
 
-/** Render a component to static HTML, executing it and all of its children. */
+/* The app mounts everything under its providers, so the harness does too —
+   a component whose hook throws outside ToastProvider (useToast does, by
+   design) is not broken, it is being rendered somewhere the real app never
+   renders it. Imported DYNAMICALLY: a static import would be hoisted above
+   registerHooks and hit the raw .jsx before the loader exists. */
+const { ToastProvider } = await import('../../src/components/common/Toast.jsx')
+
+/** Render a component to static HTML, executing it and all of its children —
+ *  under the same providers the real app roots everything in. */
 export function render(Component, props = {}) {
-  return renderToStaticMarkup(createElement(Component, props))
+  return renderToStaticMarkup(
+    createElement(ToastProvider, null, createElement(Component, props)))
 }
 
 export { createElement, renderToStaticMarkup }

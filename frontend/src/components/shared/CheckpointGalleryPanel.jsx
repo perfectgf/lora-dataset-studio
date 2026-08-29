@@ -637,6 +637,11 @@ export default function CheckpointGalleryPanel({ target, onClose, onDeleted, onD
         onImprove={canImproveCanvasImage(zoom) ? improveImage : undefined}
         onUseImproveSettings={restoreImproveSettings}
         datasetId={zoom?.dataset_id ?? null}
+        /* ✦ and 📷 arrive with the viewer now; this gallery only refreshes
+           its own grid after a repair rewrote a file. 📌 Pin stays in the
+           `actions` slot — it is genuinely THIS host's verb, not a shared one:
+           it needs the board the panel sits beside. */
+        onRowChanged={() => load()}
         actions={typeof onPin === 'function' && zoom ? (
           <button type="button" data-testid="gallery-pin-image"
             onClick={() => { onPin(zoom); setZoom(null); }}

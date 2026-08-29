@@ -77,16 +77,23 @@ test('the same lightbox with NO handler renders no improve button at all', () =>
   assert.match(html, /data-testid="lightbox-download"/)
 })
 
-test('the pill preview gains NOTHING — and never asks for capabilities', () => {
-  /* Rendered with NO provider around it on purpose. If the improve group ever
-     leaked into this host, `useCapabilities()` would throw here instead of on a
-     user's screen — which is the failure this test exists to move forward in
-     time. */
-  const html = renderToStaticMarkup(createElement(PreviewLightbox, {
-    target: { url: '/api/dataset/7/img/p.png', step: 1500 }, onClose: () => {},
-  }))
+test('the pill preview gains NOTHING — no improve, no repair, no camera', () => {
+  /* The viewer owns ✦ and 📷 now (lightbox-owns-the-verbs contract), so the
+     proof moved from "a hook throws outside its provider" to the markup
+     itself: a picture the host holds only as a URL has no library row, and a
+     row-less picture gets NO verb — not improve (the host passes none), not
+     ✦, not 📷 (the viewer's own hasRow gate). Mounted under the app's
+     ToastProvider because the viewer's root legitimately uses the toast
+     infrastructure; `useCapabilities` is still only reached through the
+     improve group, which this host must never render. */
+  const html = renderToStaticMarkup(createElement(ToastProvider, null,
+    createElement(PreviewLightbox, {
+      target: { url: '/api/dataset/7/img/p.png', step: 1500 }, onClose: () => {},
+    })))
   assert.deepEqual(improveButtons(html), [])
   assert.doesNotMatch(html, /Improve via|Upscale via/)
+  assert.doesNotMatch(html, /data-testid="lightbox-repair"/)
+  assert.doesNotMatch(html, /data-testid="lightbox-camera-angles"/)
   assert.match(html, /data-testid="generated-image-lightbox"/, 'it still renders')
 })
 
