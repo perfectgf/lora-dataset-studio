@@ -134,6 +134,27 @@ def test_a_head_crop_never_loads_the_vision_model(app, tmp_path):
         f'a head crop reached Ollama and would load the vision model: {wire.hits}')
 
 
+def test_the_refusal_looks_like_a_daemon_that_is_not_running():
+    """The SHAPE of the refusal is load-bearing, not decoration.
+
+    `ollama_gpu_fence._connection_refused` walks the exception chain looking
+    for ECONNREFUSED to tell "nothing is listening" from "something broke", and
+    files the endpoint as `down` or `unknown` accordingly. A bare
+    ConnectionError from this guard would produce `unknown` — a third answer
+    that neither a developer machine nor CI ever gives, which is exactly what
+    the guard exists to prevent. Pinned against the real consumer rather than
+    against the constructor, so the two cannot drift apart."""
+    import requests
+    from app.services import ollama_gpu_fence as fence
+    try:
+        requests.get('http://127.0.0.1:11434/api/tags', timeout=1)
+    except Exception as exc:
+        assert fence._connection_refused(exc), (
+            'the guard refuses in a shape the fence reads as `unknown`, not `down`')
+    else:
+        raise AssertionError('the guard let the request through')
+
+
 def test_the_guard_is_armed_for_an_ordinary_test():
     """The negative of the test below: without the marker, the guard IS on.
     Asserting only the opt-out would pass just as well on a guard that never

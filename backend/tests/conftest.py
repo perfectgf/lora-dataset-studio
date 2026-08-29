@@ -286,6 +286,8 @@ def _nothing_else_reads_this_machines_ollama(request, monkeypatch):
     """
     if request.node.get_closest_marker('ollama_http'):
         return
+    import errno as _errno
+
     import requests as _requests
 
     # Cut the SOCKET, not the functions. The first version of this guard
@@ -300,9 +302,19 @@ def _nothing_else_reads_this_machines_ollama(request, monkeypatch):
     real_get, real_post = _requests.get, _requests.post
 
     def _refuse(url):
+        # Shaped like the refusal a machine with no daemon actually produces —
+        # a ConnectionRefusedError carrying ECONNREFUSED, wrapped by requests.
+        # The shape is load-bearing, not decoration: ollama_gpu_fence walks the
+        # exception chain (`_connection_refused`) to tell "nothing is listening"
+        # from "something went wrong", and a bare ConnectionError would be filed
+        # as `unknown` instead of `down`. A guard whose whole argument is "every
+        # machine agrees with CI" must not invent a third answer of its own.
+        # Same constructor as tests/test_ollama_gpu_fence.py::_refused.
         raise _requests.exceptions.ConnectionError(
-            f'the unit suite must not reach this machine\'s Ollama ({url}). '
-            'A test that means to drive it takes @pytest.mark.ollama_http.')
+            ConnectionRefusedError(
+                _errno.ECONNREFUSED,
+                f'the unit suite must not reach this machine\'s Ollama ({url}). '
+                'A test that means to drive it takes @pytest.mark.ollama_http.'))
 
     def _get(url, *args, **kwargs):
         if ':11434' in str(url):
