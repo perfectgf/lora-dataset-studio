@@ -8368,6 +8368,26 @@ def preview_caption(user_id, dataset_id, image_id, *, backend=None, ollama_model
     path = _img_path(img)
     if not os.path.isfile(path):
         raise ValueError('image file missing on disk')
+    return preview_caption_path(
+        path, backend=backend, ollama_model=ollama_model, vocabulary=vocabulary,
+        length=length, instructions=instructions, should_cancel=should_cancel)
+
+
+def preview_caption_path(path, *, backend=None, ollama_model='', vocabulary=None,
+                         length=None, instructions=None, should_cancel=None) -> dict:
+    """The Caption Lab's bench, on ONE FILE: validate a candidate config, compose its
+    instructions, run it, and return the text. Writes NOTHING, anywhere.
+
+    SURFACE-AGNOSTIC ON PURPOSE. A candidate is engine x vision model x vocabulary
+    register x length preset, and that definition must not fork: the Bank runs the same
+    bench through image_bank_service.preview_caption, and a second hand-maintained copy
+    of this validation is the exact divergence CLAUDE.md's "two surfaces of one product"
+    section exists to prevent (the face size gate shipped twice, drifted, and the bug was
+    reported on the surface nobody had fixed). The CALLER owns what genuinely differs:
+    finding the row, resolving its path, and holding its own busy lease / GPU window.
+
+    Raises ValueError on a bad config; RuntimeError (engine unavailable) and GpuBusyError
+    travel up untouched for the route to map."""
     backend = (backend or '').strip().lower() or None
     if backend and backend not in _CAPTION_BACKENDS:
         raise ValueError(f'invalid captioning backend: {backend}')

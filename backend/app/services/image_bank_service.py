@@ -9859,6 +9859,89 @@ def _caption_scope_q(bank_id, statuses):
     return _scoped_pool(bank_id, statuses)
 
 
+@_serialized_bank_mutation('caption')
+def preview_caption(user_id, bank_id, image_id, *, backend=None, ollama_model='',
+                    vocabulary=None, length=None, instructions=None,
+                    _bank_lease=None) -> dict | None:
+    """🧪 Caption Lab, Bank side: run ONE candidate config on ONE bank image and
+    return the caption WITHOUT writing it. The Bank's half of
+    face_dataset_service.preview_caption, and the two share their WHOLE definition of a
+    candidate (preview_caption_path). What differs here is only what genuinely differs
+    between the surfaces: a BankImage row instead of a dataset row, the resolved path the
+    Bank's own passes read (cleaned, turn baked in), and the Bank lease instead of
+    dataset_activity.
+
+    IT TAKES THE LEASE UNDER KIND 'caption', the same kind as the batch pass, even though
+    it writes nothing. Two reasons, both measured elsewhere in this file: it holds the GPU
+    for seconds, so a caption pass admitted mid-bench would leave both fighting for it;
+    and reusing the kind means the Bank's existing ▶ Stop and progress affordances abort
+    a bench with no new vocabulary to learn.
+
+    Returns None when the image is unknown (404). Raises ValueError (bad bank or bad
+    config) -> 400, BankJobBusy -> 409, GpuBusyError -> 503."""
+    from .face_dataset_service import preview_caption_path
+    from ..gpu_window import gpu_exclusive_vision_window
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    row = BankImage.query.filter_by(bank_id=bank_id, id=int(image_id)).first()
+    if row is None:
+        return None
+    path = analysis_image_path(bank, row, refresh_rotation=True)
+    if not _is_safe_bank_source(path, label='bank caption preview'):
+        raise ValueError('the image could not be read from its folder')
+    # SAY WHAT IS RUNNING. The lease is taken under kind 'caption', which is what makes
+    # the existing Stop work — but with no detail the bank announces (and refuses with)
+    # a plain 'Captioning', indistinguishable from a pass over the whole pile. The
+    # dataset route names its own the same way (dataset_activity.begin(..., detail=)).
+    bank_jobs.progress(_bank_lease, done=0, total=1, detail='Caption Lab')
+    with gpu_exclusive_vision_window(flag_ttl=600):
+        return preview_caption_path(
+            path, backend=backend, ollama_model=ollama_model, vocabulary=vocabulary,
+            length=length, instructions=instructions,
+            should_cancel=lambda: bank_jobs.cancelled(_bank_lease))
+
+
+@_serialized_bank_mutation('caption_edit')
+def set_image_caption(user_id, bank_id, image_id, caption, *,
+                      _bank_lease=None) -> dict | None:
+    """Write ONE bank image's caption, by hand. Returns the stored text and its origin,
+    or None when the image is unknown (404).
+
+    THIS IS NEW GROUND FOR THE BANK, and it is here because the 🧪 Caption Lab needs
+    somewhere to put a winning candidate: ✓ Keep this one has always dropped its text
+    into the per-image caption editor, and until now that editor existed only on the
+    Dataset side (face_dataset_service still calls itself "THE APP'S ONLY CAPTION
+    EDITOR"). A bench whose Keep button had nowhere to write would be a mirror in name.
+
+    The text lands stamped ASSERTED, which is not a detail: the whole
+    protect-what-you-wrote machinery on this surface — caption_origin.is_protected, the
+    "kept (written by you)" figure, the include_asserted opt-out on 🔄 Re-caption — is
+    already built and already honoured by the batch pass. This gives it its first local
+    writer instead of inventing a second notion of authorship."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    row = BankImage.query.filter_by(bank_id=bank_id, id=int(image_id)).first()
+    if row is None:
+        return None
+    if caption is not None and not isinstance(caption, str):
+        raise ValueError('caption must be a string')
+    # The SAME cap as the dataset editor (face_dataset_service.set_image_caption): a
+    # caption is a caption on both surfaces, and an unbounded write here would be the
+    # one place in the app where 200 kB of pasted text lands in a row read by the
+    # search, the promotion and the training export.
+    from .face_dataset_service import _cap_caption
+    text = (_cap_caption(caption) or '').strip()
+    # Same gesture as every other writer: text and origin together, never two lines.
+    # An emptied box clears the stamp too, so a blanked caption never keeps a
+    # "written by you" label that would then be spared by a forced pass.
+    caption_origin.stamp(row, text or None, caption_origin.ASSERTED)
+    stored_origin = row.caption_origin
+    db.session.commit()
+    return {'caption': row.caption or '', 'caption_origin': stored_origin}
+
+
 def start_caption(app, user_id, bank_id, ids=None, force=False, vocabulary=None,
                   length=None, backend=None, ollama_model=None, statuses=None,
                   include_asserted=False):

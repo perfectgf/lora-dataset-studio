@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-caption-lab-on-a-bank',
+    date: '2026-08-29',
+    title: 'Try caption models on a bank before captioning thousands of images',
+    blurb:
+      'The 🧪 Caption Lab now runs on an image bank too: open the 🏷️ Caption '
+      + 'window, press Caption Lab, pick one image, and line up to four configs — '
+      + 'engine, vision model, vocabulary register and length — side by side. '
+      + 'Nothing is written until you choose, and the winning config loads straight '
+      + 'into the dials the next pass will use. A bank caption can also be edited by '
+      + 'hand for the first time, and what you write is protected from a later '
+      + 're-caption exactly as it is on a dataset.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-29-queue-hold-has-an-answer',
     date: '2026-08-29',
     title: 'A queue held by another app now has a way out',

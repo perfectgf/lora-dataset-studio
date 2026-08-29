@@ -48,7 +48,7 @@ test('registry ids are unique within sections and target ids are globally unique
 test('character destinations expose real character-only panels', () => {
   assert.deepEqual(ids('add'), ['reference', 'generate', 'import']);
   assert.deepEqual(ids('curation'), ['face-analysis', 'watermarks']);
-  assert.deepEqual(ids('captions'), ['generate', 'leak-review', 'tools']);
+  assert.deepEqual(ids('captions'), ['generate', 'leak-review', 'lab', 'tools']);
 });
 
 test('scrape is a standalone destination for every dataset kind', () => {
@@ -60,8 +60,9 @@ test('scrape is a standalone destination for every dataset kind', () => {
 test('concept and style destinations omit character-only or inapplicable panels', () => {
   assert.deepEqual(ids('add', { kind: 'concept' }), ['import']);
   assert.deepEqual(ids('curation', { kind: 'concept' }), ['watermarks']);
-  assert.deepEqual(ids('captions', { kind: 'concept' }), ['generate', 'leak-review', 'tools']);
-  assert.deepEqual(ids('captions', { kind: 'style' }), ['generate', 'tools']);
+  assert.deepEqual(ids('captions', { kind: 'concept' }), ['generate', 'leak-review', 'lab', 'tools']);
+  // Style has no leak concept, but it captions — so it benches.
+  assert.deepEqual(ids('captions', { kind: 'style' }), ['generate', 'lab', 'tools']);
 });
 
 test('data and capability predicates expose only destinations that currently exist', () => {
