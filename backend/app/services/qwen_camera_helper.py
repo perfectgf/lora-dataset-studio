@@ -312,9 +312,18 @@ def camera_missing_assets():
     return missing
 
 
-def camera_ready():
-    """True when a view can actually be rendered right now."""
-    return not any(a in camera_missing_assets() for a in CAMERA_REQUIRED)
+def camera_ready(missing=None):
+    """True when a view can actually be rendered right now.
+
+    THE lane's readiness verdict — capabilities, the catalog route and both
+    enqueue preflights all ask this function, so no surface can re-derive
+    readiness from a different subset of the gaps. `missing` takes an already
+    computed camera_missing_assets() list, so a caller that has paid for the
+    disk scan does not pay for it twice.
+    """
+    if missing is None:
+        missing = camera_missing_assets()
+    return not any(a in missing for a in CAMERA_REQUIRED)
 
 
 def _comfy_input_dir() -> str:
@@ -349,9 +358,9 @@ def enqueue_camera_view(user_id, source_filename, source_path, pose_prompt,
     unet_ref = resolve_camera_unet()
     te_ref = resolve_camera_text_encoder()
     vae_ref = resolve_camera_vae()
-    angles_lora, angles_path = resolve_camera_lora()
+    angles_lora = resolve_camera_lora()[0]
     missing = camera_missing_assets()
-    if any(a in missing for a in CAMERA_REQUIRED):
+    if not camera_ready(missing):
         raise CameraModelsMissing(missing)
 
     comfy_input_dir = comfy_fs.ensure_input_usable(_comfy_input_dir())

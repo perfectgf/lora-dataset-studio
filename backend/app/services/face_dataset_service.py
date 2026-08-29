@@ -10697,7 +10697,7 @@ def camera_views_for_dataset_image(user_id, image_id, poses):
     # Weights BEFORE rows — the Klein lane's lesson, already paid for once: a
     # preflight that ran too late left a dataset full of failed tiles.
     missing = qch.camera_missing_assets()
-    if any(a in missing for a in qch.CAMERA_REQUIRED):
+    if not qch.camera_ready(missing):
         raise qch.CameraModelsMissing(missing)
 
     # Same anti-DoS shape as generate_variations: the fan-out shares one GPU.

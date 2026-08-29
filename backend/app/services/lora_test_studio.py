@@ -4160,7 +4160,7 @@ def camera_views_for_canvas_image(user_id, image_id, poses):
     # model cannot leave a dataset full of failed tiles — the lesson the Klein
     # lane already paid for (preflight in generate_variations).
     missing = qch.camera_missing_assets()
-    if any(a in missing for a in qch.CAMERA_REQUIRED):
+    if not qch.camera_ready(missing):
         raise qch.CameraModelsMissing(missing)
 
     views = []

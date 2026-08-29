@@ -1814,7 +1814,8 @@ def canvas_image_camera_angles(image_id):
             return _camera_missing_response(e)
         return _map_error(e)
     if result is None:
-        return jsonify({'error': 'not found'}), 404
+        from ..services import camera_angles as ca
+        return jsonify({'error': ca.SOURCE_GONE}), 404
     return jsonify({'ok': True, **result})
 
 
@@ -1841,7 +1842,8 @@ def dataset_image_camera_angles(image_id):
             return _camera_missing_response(e)
         return _map_error(e)
     if result is None:
-        return jsonify({'error': 'not found'}), 404
+        from ..services import camera_angles as ca
+        return jsonify({'error': ca.SOURCE_GONE}), 404
     return jsonify({'ok': True, **result})
 
 
@@ -1888,7 +1890,7 @@ def camera_catalog():
     missing = qch.camera_missing_assets()
     effective = qch.resolve_camera_unet()
     return jsonify({**ca.catalog(),
-                    'ready': not any(a in missing for a in qch.CAMERA_REQUIRED),
+                    'ready': qch.camera_ready(missing),
                     'missing': missing,
                     'unet': {'setting': (cfg.get('camera.unet') or '').strip(),
                              'effective': effective,

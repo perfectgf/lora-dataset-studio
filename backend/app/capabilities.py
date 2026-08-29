@@ -1973,8 +1973,7 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         'camera_missing': camera_missing,
         # The speed LoRA missing does NOT make the lane un-ready: it renders at
         # 20 steps instead of 4. Only the four REQUIRED assets gate it.
-        'camera_ready': not any(a in camera_missing
-                                for a in _qch.CAMERA_REQUIRED),
+        'camera_ready': _qch.camera_ready(camera_missing),
         # Klein assets PRESENT on disk but not real, loadable weights:
         # [{asset, filename, verdict, blocking, reason}]. Distinct from
         # klein_missing (the file exists, it just can't load) — drives the Setup

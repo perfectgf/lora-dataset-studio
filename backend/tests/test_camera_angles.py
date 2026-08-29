@@ -149,6 +149,8 @@ def test_a_missing_required_asset_names_the_setup_buttons(app, monkeypatch):
     monkeypatch.setattr(qch, 'resolve_camera_speed_lora', lambda: ('y', 'path'))
     assert qch.camera_missing_assets() == ['camera_model', 'camera_lora']
     assert qch.camera_ready() is False
+    # The reuse form agrees with the scan form — one verdict, either way in.
+    assert qch.camera_ready(qch.camera_missing_assets()) is False
 
 
 def test_the_speed_lora_alone_missing_does_not_block_the_lane(app, monkeypatch):
@@ -162,6 +164,7 @@ def test_the_speed_lora_alone_missing_does_not_block_the_lane(app, monkeypatch):
     monkeypatch.setattr(qch, 'resolve_camera_speed_lora', lambda: ('s', None))
     assert qch.camera_missing_assets() == ['camera_speed_lora']
     assert qch.camera_ready() is True
+    assert qch.camera_ready(['camera_speed_lora']) is True
     assert qch.STEPS_WITHOUT_SPEED_LORA > qch.STEPS_WITH_SPEED_LORA
 
 
@@ -434,10 +437,14 @@ def test_the_route_refuses_an_unknown_pose(client, app, monkeypatch, tmp_path):
     assert ca.UNKNOWN_POSE in (r.get_json() or {}).get('error', '')
 
 
-def test_an_unknown_image_is_a_404_not_a_crash(client, app):
+def test_an_unknown_image_is_a_404_that_says_the_picture_is_gone(client, app):
+    """A stale grid entry can outlive its row (deleted in another tab). The
+    refusal family words every other camera refusal; the vanished-row case
+    gets its wording too, not a bare 'not found'."""
     r = client.post('/api/canvas/image/999999/camera',
                     json={'poses': ['back/eye/medium']})
     assert r.status_code == 404
+    assert r.get_json()['error'] == ca.SOURCE_GONE
 
 
 # --- Setup: the group install -------------------------------------------------
@@ -610,3 +617,4 @@ def test_the_dataset_route_answers_like_its_canvas_twin(client, app,
     r = client.post('/api/dataset/image/999999/camera',
                     json={'poses': ['back/eye/medium']})
     assert r.status_code == 404
+    assert r.get_json()['error'] == ca.SOURCE_GONE
