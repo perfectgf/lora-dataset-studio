@@ -56,11 +56,13 @@ COMFYUI_RECOVERY_REQUIRED_MESSAGE = (
 HOLD_TRAINING = 'training'
 HOLD_VISION = 'vision'
 HOLD_COMFYUI_RECOVERY = 'comfyui_recovery'
+HOLD_OLLAMA_FENCE = 'ollama_fence'
 # Noun phrases, for a caller writing "waiting for {x}".
 HOLD_LABELS = {
     HOLD_TRAINING: 'LoRA training',
     HOLD_VISION: 'a vision pass',
     HOLD_COMFYUI_RECOVERY: 'a paused ComfyUI job',
+    HOLD_OLLAMA_FENCE: 'a busy local Ollama endpoint',
 }
 
 
@@ -1163,6 +1165,19 @@ class JobQueueManager:
             return HOLD_VISION
         if self.has_comfyui_stalled_barrier():
             return HOLD_COMFYUI_RECOVERY
+        # The Ollama release fence refuses AFTER a row is claimed, so it is not
+        # one of the pre-claim gates above — but to the user it is the same
+        # frozen queue. The fence publishes its last refusal (freshness-bounded,
+        # re-asserted every worker cycle while jobs wait) exactly so this reader
+        # can name it; before this, a fence refusal was the ONE hold with no
+        # explanation anywhere in the app (found via a KoboldCPP endpoint that
+        # answers /api/ps but can never unload).
+        try:
+            from .services.ollama_gpu_fence import last_block
+            if last_block() is not None:
+                return HOLD_OLLAMA_FENCE
+        except Exception:
+            logger.exception('job_queue: could not read the Ollama fence refusal state')
         return None
 
     def held_off_gpu_reason(self):

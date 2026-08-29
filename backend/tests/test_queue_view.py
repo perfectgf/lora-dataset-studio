@@ -256,12 +256,16 @@ def test_the_hold_sentence_is_written_for_whoever_is_reading_it(app):
     sentences are written for the Test Studio — so someone in the dataset
     workspace was told "the studio is unavailable", about a screen they were not
     on, and pointed at a paused test they had never opened."""
-    from app.job_queue import HOLD_COMFYUI_RECOVERY, HOLD_TRAINING, HOLD_VISION
+    from app.job_queue import (HOLD_COMFYUI_RECOVERY, HOLD_LABELS,
+                               HOLD_OLLAMA_FENCE, HOLD_TRAINING, HOLD_VISION)
     from app.services import queue_view
 
-    # The keys the worker answers with are the keys this module words.
+    # The keys the worker answers with are the keys this module words. The
+    # fence hold is deliberately NOT in the static dict: its sentence is
+    # dynamic (_ollama_fence_sentence), worded from what the fence saw.
     assert set(queue_view._HOLD_SENTENCES) == {
         HOLD_TRAINING, HOLD_VISION, HOLD_COMFYUI_RECOVERY}
+    assert set(queue_view._HOLD_SENTENCES) | {HOLD_OLLAMA_FENCE} == set(HOLD_LABELS)
     for sentence in queue_view._HOLD_SENTENCES.values():
         assert 'studio' not in sentence.lower(), sentence
         assert sentence.endswith('.')
@@ -283,6 +287,43 @@ def test_the_in_process_vision_window_is_a_hold_the_dock_can_name(app, monkeypat
     with app.app_context():
         assert job_queue.queue_manager.gpu_hold() == job_queue.HOLD_VISION
         assert 'vision pass' in (queue_view.paused_reason() or '')
+
+
+def test_the_ollama_fence_refusal_is_a_hold_the_dock_can_name(app, monkeypatch):
+    """The fence refuses AFTER a row is claimed, so it sits outside the four
+    pre-claim gates — and it was therefore the remaining pause with no
+    explanation anywhere in the app: jobs queued forever, no banner, no log a
+    user would recognise (found via a KoboldCPP endpoint in the Ollama slot).
+    When the squatter self-identifies as KoboldCPP, the remedy is the Ollama
+    URL itself — telling that user to 'unload the model' would be a dead end,
+    kcpp never unloads."""
+    from app import job_queue
+    from app.services import ollama_gpu_fence, queue_view
+    monkeypatch.setattr(ollama_gpu_fence, 'last_block',
+                        lambda max_age_s=15: {'reason': 'foreign',
+                                              'endpoint': 'http://127.0.0.1:5001',
+                                              'models': ['kcpp-model'],
+                                              'families': ['koboldcpp']})
+    with app.app_context():
+        assert job_queue.queue_manager.gpu_hold() == job_queue.HOLD_OLLAMA_FENCE
+        sentence = queue_view.paused_reason() or ''
+    assert 'KoboldCPP' in sentence
+    assert 'Ollama URL' in sentence
+
+
+def test_the_fence_sentence_names_the_squatting_model_when_it_is_not_kcpp(app, monkeypatch):
+    """An ordinary foreign residency (someone's own Ollama session) is worded
+    with the model's NAME, so the user is not sent hunting for it."""
+    from app.services import ollama_gpu_fence, queue_view
+    monkeypatch.setattr(ollama_gpu_fence, 'last_block',
+                        lambda max_age_s=15: {'reason': 'foreign',
+                                              'endpoint': 'http://127.0.0.1:11434',
+                                              'models': ['llama3:8b'],
+                                              'families': []})
+    with app.app_context():
+        sentence = queue_view.paused_reason() or ''
+    assert 'llama3:8b' in sentence
+    assert 'Unload it there' in sentence
 
 
 def test_a_cancelled_job_is_not_reported_to_the_user_as_a_failure(app, client):

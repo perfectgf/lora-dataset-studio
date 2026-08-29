@@ -379,3 +379,70 @@ def test_nothing_short_of_the_consent_route_ever_unloads_a_foreign_model(fence_d
         assert fence.ensure_released_for_comfy() is False
         assert fence.release_owned_models(ollama_url=endpoint) is False
     post.assert_not_called()
+
+
+# --- a fence refusal is PUBLISHED (named hold), cleared, and rate-limited ---
+
+
+def _kcpp_ps(name='kcpp-model'):
+    """KoboldCPP's /api/ps: always one resident model, family self-identified,
+    expires_at hardcoded decades away — the exact shape that froze a user's
+    queue with no explanation anywhere in the app."""
+    return _Response({'models': [
+        {'name': name, 'model': f'{name}:latest',
+         'expires_at': '2055-06-04T19:06:25.5433636+08:00',
+         'details': {'family': 'koboldcpp'}},
+    ]})
+
+
+def test_a_refused_handoff_publishes_why_and_success_clears_it():
+    endpoint = 'http://127.0.0.1:5001'
+    with patch.object(fence, '_configured_local_endpoint', return_value=('local', endpoint)):
+        with patch.object(fence.requests, 'get', return_value=_kcpp_ps()):
+            assert fence.ensure_released_for_comfy() is False
+        blk = fence.last_block()
+        assert blk is not None
+        assert blk['reason'] == 'foreign'
+        assert blk['models'] == ['kcpp-model']
+        assert 'koboldcpp' in blk['families']
+        # The runner empties (kcpp closed) -> the next hand-off passes and clears.
+        with patch.object(fence.requests, 'get', return_value=_ps()):
+            assert fence.ensure_released_for_comfy() is True
+        assert fence.last_block() is None
+
+
+def test_a_stale_refusal_stops_explaining_the_queue():
+    """A held queue re-refuses every worker cycle, so a LIVE block is always
+    fresh; one from a queue that has since emptied must go silent on its own."""
+    endpoint = 'http://127.0.0.1:5001'
+    with patch.object(fence, '_configured_local_endpoint', return_value=('local', endpoint)), \
+            patch.object(fence.requests, 'get', return_value=_kcpp_ps()):
+        assert fence.ensure_released_for_comfy() is False
+    assert fence.last_block() is not None
+    assert fence.last_block(max_age_s=-1) is None
+
+
+def test_an_unollama_endpoint_is_a_named_refusal_not_a_silent_one():
+    """A daemon that answers /api/ps with something else entirely (404, alien
+    JSON) used to refuse with NO log and NO published reason — the completely
+    invisible frozen queue."""
+    endpoint = 'http://127.0.0.1:5001'
+    with patch.object(fence, '_configured_local_endpoint', return_value=('local', endpoint)), \
+            patch.object(fence.requests, 'get',
+                         return_value=_Response({'nope': 1}, status_code=404)):
+        assert fence.ensure_released_for_comfy() is False
+    blk = fence.last_block()
+    assert blk is not None and blk['reason'] == 'unreachable'
+
+
+def test_repeated_refusals_warn_once_per_interval(caplog):
+    """The worker retries a held queue every second; the per-attempt warning was
+    sixty identical lines a minute. One a minute carries the same information."""
+    endpoint = 'http://127.0.0.1:5001'
+    with patch.object(fence, '_configured_local_endpoint', return_value=('local', endpoint)), \
+            patch.object(fence.requests, 'get', return_value=_kcpp_ps()):
+        with caplog.at_level('WARNING', logger='app.services.ollama_gpu_fence'):
+            for _ in range(5):
+                assert fence.ensure_released_for_comfy() is False
+    warnings = [r for r in caplog.records if 'stays blocked' in r.getMessage()]
+    assert len(warnings) == 1

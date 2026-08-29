@@ -173,7 +173,34 @@ def paused_reason() -> str | None:
     except Exception:   # noqa: BLE001 — a listing must not die on a state read
         logger.exception('queue_view: could not read why the queue is held')
         return None
+    if hold == 'ollama_fence':
+        return _ollama_fence_sentence()
     return _HOLD_SENTENCES.get(hold)
+
+
+def _ollama_fence_sentence() -> str:
+    """The fence hold, worded from what the fence actually saw — this is the one
+    hold whose remedy depends on WHO is squatting on the endpoint. KoboldCPP
+    self-identifies in /api/ps and can never unload (that is its design), so
+    telling its user to "unload the model" would be a dead end; the honest
+    remedy there is the Ollama URL itself."""
+    try:
+        from .ollama_gpu_fence import last_block
+        blk = last_block() or {}
+    except Exception:   # noqa: BLE001 — same contract as the caller: never die
+        blk = {}
+    if 'koboldcpp' in (blk.get('families') or ()):
+        return ('Nothing is starting — the Ollama URL in Settings points at KoboldCPP, '
+                'which never unloads its model, so LDS cannot hand the GPU to ComfyUI. '
+                'Point it at a real Ollama (or close KoboldCPP) and the queue resumes.')
+    models = ', '.join(blk.get('models') or ())
+    if models:
+        return (f'Nothing is starting — a local model outside LDS ({models}) is holding '
+                'the GPU at the configured Ollama endpoint. Unload it there, or close '
+                'the app that loaded it, and the queue resumes.')
+    return ('Nothing is starting — the configured Ollama endpoint cannot prove the GPU '
+            'is free (it does not answer the way Ollama does). Check the Ollama URL in '
+            'Settings ▸ Local tools, and the queue resumes.')
 
 
 def _live_rows():

@@ -50,6 +50,29 @@ _CLAIM_MAX_AGE_S = 3600.0    # a claim never speaks for a runner an hour later
 _RUNNER_HOLDS_NOTHING = ('empty', 'down')
 _claims_loaded = False
 
+# Why the last ComfyUI hand-off was refused. The queue dock reads this through
+# job_queue.gpu_hold(), so a fence refusal becomes a NAMED hold with a remedy
+# instead of a silently frozen queue — it used to warn once per worker cycle
+# (every second) while the dock showed nothing at all. Refreshed by every
+# refused hand-off (the worker retries each second while jobs wait), cleared by
+# the next successful release, and read with a freshness bound so a stale
+# refusal never explains a queue that is no longer held.
+_BLOCK_LOG_INTERVAL_S = 60.0
+_BLOCK_FRESH_S = 15.0
+_last_block: dict | None = None
+_last_block_log_at = 0.0
+# What _release_endpoint last refused on, for ensure_released_for_comfy to
+# publish. A refusal during a caption-batch unload sets it too, but only the
+# ComfyUI hand-off path promotes it to _last_block — the dock must never blame
+# ComfyUI's queue for a captioning cleanup.
+_last_release_failure: dict | None = None
+# details.family per endpoint from the last parsed /api/ps. A side channel on
+# purpose: _probe's (state, names, expiry) shape is stubbed as-is by conftest
+# and the fence tests, so it does not change. KoboldCPP self-identifies here
+# ('family': 'koboldcpp'), and naming it in the dock is what turns "the queue
+# is frozen" into "the wrong tool sits in the Ollama slot".
+_probe_families: dict[str, set] = {}
+
 
 def _exception_chain(exc):
     seen, pending = set(), [exc]
@@ -342,7 +365,7 @@ def _probe(endpoint):
         models = data.get('models') if isinstance(data, dict) else None
         if not isinstance(models, list):
             return 'unknown', set(), {}
-        names, expiry = set(), {}
+        names, expiry, families = set(), {}, set()
         for item in models:
             if not isinstance(item, dict):
                 return 'unknown', set(), {}
@@ -354,6 +377,15 @@ def _probe(endpoint):
             parsed = _parse_expires_at(item.get('expires_at'))
             if parsed is not None:
                 expiry[name] = parsed
+            details = item.get('details')
+            family = details.get('family') if isinstance(details, dict) else None
+            if isinstance(family, str) and family.strip():
+                families.add(family.strip().lower())
+        with _lock:
+            if names:
+                _probe_families[endpoint] = families
+            else:
+                _probe_families.pop(endpoint, None)
         return ('empty' if not names else 'models'), names, expiry
     except (requests.RequestException, OSError) as exc:
         if _connection_refused(exc):
@@ -375,11 +407,32 @@ def _post_unload(endpoint, model) -> bool:
         return False
 
 
+def _refused(endpoint, reason, models, message) -> bool:
+    """Record why a release was refused and warn about it at most once a minute.
+
+    The worker retries a held queue every second; the old per-attempt warning
+    was 60 lines a minute of the same sentence (and the 'unknown' path said
+    nothing at all). The recorded failure is what ensure_released_for_comfy
+    publishes to the queue dock. Always returns False so refusal sites can
+    `return _refused(...)`."""
+    global _last_release_failure, _last_block_log_at
+    with _lock:
+        _last_release_failure = {'reason': reason, 'endpoint': endpoint,
+                                 'models': sorted(models)}
+    now = time.monotonic()
+    if now - _last_block_log_at >= _BLOCK_LOG_INTERVAL_S:
+        _last_block_log_at = now
+        logger.warning('ollama GPU fence: %s', message)
+    return False
+
+
 def _release_endpoint(endpoint, expected_models) -> bool:
     """Unload only LDS-owned models and prove the runner is empty afterwards."""
     state, loaded, expiry = _probe(endpoint)
     if state == 'unknown':
-        return False
+        return _refused(endpoint, 'unreachable', (),
+                        f'{endpoint} does not answer /api/ps the way an Ollama '
+                        'daemon does; ComfyUI stays blocked')
     if state in _RUNNER_HOLDS_NOTHING:
         # Empty, or not running at all: either way this GPU is free, and any
         # claim left over from a previous life stops speaking for it.
@@ -399,21 +452,23 @@ def _release_endpoint(endpoint, expected_models) -> bool:
     if foreign:
         # A later /api/ps empty response is the only way this endpoint becomes
         # safe again. Never infer that a same-named resident model is still ours.
-        logger.warning('ollama GPU fence: preserving a pre-existing local model; ComfyUI stays blocked')
-        return False
+        return _refused(endpoint, 'foreign', loaded,
+                        'preserving a pre-existing local model; ComfyUI stays blocked')
 
     unknown = loaded - expected_models
     if unknown:
         with _lock:
             _foreign_local_endpoints.add(endpoint)
-        logger.warning('ollama GPU fence: local runner has an unowned model; ComfyUI stays blocked')
-        return False
+        return _refused(endpoint, 'foreign', loaded,
+                        'local runner has an unowned model; ComfyUI stays blocked')
     for model in loaded:
         if not _post_unload(endpoint, model):
-            return False
+            return _refused(endpoint, 'stuck', (model,),
+                            f'{model} did not accept the unload request; ComfyUI stays blocked')
     state, remaining, _ = _probe(endpoint)
     if state not in _RUNNER_HOLDS_NOTHING or remaining:
-        return False
+        return _refused(endpoint, 'stuck', remaining,
+                        'runner still holds a model after the unload; ComfyUI stays blocked')
     with _lock:
         _owned_models.pop(endpoint, None)
         _foreign_local_endpoints.discard(endpoint)
@@ -470,6 +525,41 @@ def _configured_local_endpoint() -> tuple[str, str | None]:
     return _endpoint_scope(url)
 
 
+def _note_block(failure: dict) -> None:
+    """Publish a refused ComfyUI hand-off for the queue dock to explain."""
+    global _last_block
+    endpoint = failure.get('endpoint') or ''
+    with _lock:
+        _last_block = {
+            'at': time.time(),
+            'reason': failure.get('reason') or 'unreachable',
+            'endpoint': endpoint,
+            'models': list(failure.get('models') or ()),
+            'families': sorted(_probe_families.get(endpoint, set())),
+        }
+
+
+def _clear_block() -> None:
+    global _last_block
+    with _lock:
+        _last_block = None
+
+
+def last_block(max_age_s: float = _BLOCK_FRESH_S):
+    """The last refused ComfyUI hand-off, or None once cleared or stale.
+
+    The freshness bound is what keeps this honest: a held queue re-refuses every
+    worker cycle (about a second), so a live block is always fresh, while a
+    refusal from a queue that has since emptied or recovered goes silent on its
+    own instead of explaining a pause that no longer exists."""
+    with _lock:
+        blk = _last_block
+    if not blk or time.time() - float(blk.get('at') or 0) > max_age_s:
+        return None
+    return {'reason': blk['reason'], 'endpoint': blk['endpoint'],
+            'models': list(blk['models']), 'families': list(blk['families'])}
+
+
 def ensure_released_for_comfy() -> bool:
     """Prove local Ollama is empty before every new ComfyUI prompt admission.
 
@@ -477,6 +567,8 @@ def ensure_released_for_comfy() -> bool:
     user can start Ollama after the previous image. It never unloads ComfyUI
     models; it either verifies the runner is empty, releases a model LDS proved
     it owns, or blocks safely without touching a pre-existing user model.
+    A refusal is published via ``last_block`` so the queue dock can say WHY the
+    queue is standing still; success clears it.
     """
     with _lock:
         candidates = {key: set(value) for key, value in _owned_models.items()}
@@ -485,12 +577,18 @@ def ensure_released_for_comfy() -> bool:
 
     scope, endpoint = _configured_local_endpoint()
     if scope == 'unknown':
+        _note_block({'reason': 'bad_url', 'endpoint': None, 'models': ()})
         return False
     if scope == 'local':
         candidates.setdefault(endpoint, set())
     for local_endpoint, expected in candidates.items():
         if not _release_endpoint(local_endpoint, expected):
+            with _lock:
+                failure = dict(_last_release_failure or {})
+            _note_block(failure or {'reason': 'unreachable',
+                                    'endpoint': local_endpoint, 'models': ()})
             return False
+    _clear_block()
     return True
 
 
@@ -575,6 +673,11 @@ def unload_foreign_models() -> dict:
 
 def reset_for_tests() -> None:
     """Forget process-local bookkeeping only; never call a local service."""
+    global _last_block, _last_release_failure, _last_block_log_at
     with _lock:
         _owned_models.clear()
         _foreign_local_endpoints.clear()
+        _probe_families.clear()
+        _last_block = None
+        _last_release_failure = None
+        _last_block_log_at = 0.0
