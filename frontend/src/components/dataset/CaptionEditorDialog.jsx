@@ -29,7 +29,12 @@ function authorshipNote(draft, saved, origin) {
 
 export default function CaptionEditorDialog({
   initialCaption, initialShortCaption, showShort = false, imageUrl, imageLabel, onClose, onSave,
-  datasetId, imageId, captionOrigin = null, shortCaptionOrigin = null,
+  labSurface = null, captionOrigin = null, shortCaptionOrigin = null,
+  initialMode = 'edit', onPickAnotherImage = null,
+  // "without the face" is a DATASET rule (identity must bind to the trigger, not to the
+  // text). A bank caption is the opposite: a plain description whose job is search. The
+  // dialog is mounted on both now, so the instruction belongs to the host.
+  captionPlaceholder = 'Caption (without the face)…',
 }) {
   const [draft, setDraft] = useState(initialCaption || '');
   const [shortDraft, setShortDraft] = useState(initialShortCaption || '');
@@ -37,8 +42,18 @@ export default function CaptionEditorDialog({
   const [shortOpen, setShortOpen] = useState(Boolean((initialShortCaption || '').trim()));
   // 'edit' (the default caption editor) | 'lab' (🧪 try several caption configs). The Lab
   // is one click away and only offered when we know which image to caption.
-  const [mode, setMode] = useState('edit');
-  const labAvailable = datasetId != null && imageId != null;
+  //
+  // `labAvailable` is read by the initialiser below, so it is declared BEFORE it:
+  // a useState initialiser runs on the first render and would read `undefined`
+  // from a const declared under it.
+  // The bench is offered when the HOST could name a surface for it — which is the
+  // Dataset (a row it owns) or the Bank (a bank image). A host that cannot say where a
+  // candidate would run gets the plain editor, not a button that would 404.
+  const labAvailable = labSurface != null;
+  // The Captions section opens this dialog to reach the BENCH, not the textarea
+  // — landing on 'edit' there would hide the Lab behind one more click, which is
+  // the whole defect that entry point exists to fix.
+  const [mode, setMode] = useState(labAvailable && initialMode === 'lab' ? 'lab' : 'edit');
   const textareaRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -48,6 +63,26 @@ export default function CaptionEditorDialog({
      here: a dismissal mid-POST would leave the write running with nothing on
      screen to report it. */
   const dismiss = () => { if (!busy) onClose(); };
+
+  /* LEAVING FOR ANOTHER IMAGE IS NOT A DISMISSAL — it unmounts the dialog, so the draft
+     goes with it. This whole component exists because a refused save once destroyed a
+     caption the user had just written; a new button that throws one away silently would
+     put the same hole back, one door further along. So a dirty draft is refused ONCE,
+     in words, and the second press leaves anyway (the user has now been told). */
+  const dirty = draft !== (initialCaption || '')
+    || (showShort && shortDraft !== (initialShortCaption || ''));
+  const [leaveArmed, setLeaveArmed] = useState(false);
+  const leaveForAnotherImage = () => {
+    if (busy) return;
+    if (dirty && !leaveArmed) {
+      setLeaveArmed(true);
+      setError('You have an unsaved caption on this image. Save it first, or press '
+        + '‹ Another image again to leave it behind.');
+      return;
+    }
+    setLeaveArmed(false);
+    onPickAnotherImage();
+  };
 
   /* A refusal used to land on a caption editor that had already closed, so the
      long AND short captions the user had just written were gone — on the most
@@ -66,13 +101,18 @@ export default function CaptionEditorDialog({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     textareaRef.current?.focus();
+    /* CAPTURE PHASE, and the event dies here: on the Bank this dialog is opened from
+       inside the 🏷️ Caption launch window, which also closes on Escape. One key press
+       was closing both. The topmost layer owns the key. */
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') dismiss();
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      dismiss();
     };
-    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', closeOnEscape, true);
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('keydown', closeOnEscape, true);
     };
   }, [onClose, busy]);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -94,31 +134,54 @@ export default function CaptionEditorDialog({
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 p-3 sm:p-6"
       onMouseDown={(event) => { if (event.target === event.currentTarget) dismiss(); }}>
+      {/* chrome + layer, the DatasetLightbox pattern: the responsive probe scans
+          touch targets and truncation ONLY inside a [data-probe-chrome] subtree,
+          so an unmarked dialog is never "clean" — it is unmeasured. `layer` keeps
+          it out of the fold budget and the overlap pairing: covering the page is
+          what a dialog is for. */}
       <section role="dialog" aria-modal="true" aria-labelledby="caption-editor-title"
+        data-probe-chrome="caption-editor" data-probe-layer
         className="flex h-[min(92vh,50rem)] w-[min(96vw,72rem)] flex-col overflow-hidden rounded-2xl border border-border bg-app shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-border bg-surface px-4 py-3 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <div className="min-w-0">
-              <p className="m-0 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-content-subtle">Dataset image</p>
+              {/* Opened from the Captions section, the bench is about the SET, not
+                  about the one image that happened to be picked — so the eyebrow
+                  becomes the way back to the picker. `inline-flex items-center`
+                  travels with the 40 px touch floor: an inline box ignores
+                  min-height, which is how a "floored" control stays at 21 px. */}
+              {onPickAnotherImage ? (
+                <button type="button" onClick={leaveForAnotherImage} disabled={busy}
+                  title={dirty
+                    ? 'You have an unsaved caption on this image — save it or clear the edit first'
+                    : 'Pick another image to bench captions on'}
+                  className="m-0 inline-flex min-h-10 items-center text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-content-subtle hover:text-content disabled:opacity-40 lg:min-h-0">
+                  ‹ Another image
+                </button>
+              ) : (
+                <p className="m-0 text-[0.6875rem] font-semibold uppercase tracking-[0.18em] text-content-subtle">Dataset image</p>
+              )}
               <h2 id="caption-editor-title" className="m-0 mt-0.5 text-lg font-semibold text-content">
                 {mode === 'lab' ? 'Caption Lab' : 'Edit caption'}
               </h2>
             </div>
             {labAvailable && (
               <div className="ml-1 flex rounded-lg border border-border bg-app p-0.5" role="tablist" aria-label="Caption editor mode">
+                {/* min-h-10 lg:min-h-0 with inline-flex: the two tabs measured 24 px
+                    on a phone, and an inline box ignores min-height on its own. */}
                 <button type="button" role="tab" aria-selected={mode === 'edit'} onClick={() => setMode('edit')}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${mode === 'edit' ? 'bg-surface text-content shadow-sm' : 'text-content-muted hover:text-content'}`}>
+                  className={`inline-flex min-h-10 items-center rounded-md px-2.5 py-1 text-xs font-semibold lg:min-h-0 ${mode === 'edit' ? 'bg-surface text-content shadow-sm' : 'text-content-muted hover:text-content'}`}>
                   Edit
                 </button>
                 <button type="button" role="tab" aria-selected={mode === 'lab'} onClick={() => setMode('lab')}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold ${mode === 'lab' ? 'bg-surface text-content shadow-sm' : 'text-content-muted hover:text-content'}`}>
+                  className={`inline-flex min-h-10 items-center rounded-md px-2.5 py-1 text-xs font-semibold lg:min-h-0 ${mode === 'lab' ? 'bg-surface text-content shadow-sm' : 'text-content-muted hover:text-content'}`}>
                   🧪 Caption Lab
                 </button>
               </div>
             )}
           </div>
           <button type="button" onClick={dismiss} disabled={busy} aria-label="Close expanded caption editor"
-            className="rounded-lg border border-border bg-app px-2.5 py-1.5 text-sm text-content-muted hover:text-content disabled:opacity-40">
+            className="inline-flex min-h-10 items-center rounded-lg border border-border bg-app px-2.5 py-1.5 text-sm text-content-muted hover:text-content disabled:opacity-40 lg:min-h-0">
             ✕
           </button>
         </header>
@@ -135,7 +198,7 @@ export default function CaptionEditorDialog({
 
           {mode === 'lab' ? (
             <div className="flex min-h-0 flex-col p-4 sm:p-5">
-              <CaptionLab datasetId={datasetId} imageId={imageId} currentCaption={draft}
+              <CaptionLab surface={labSurface} currentCaption={draft}
                 onKeep={(text) => { setDraft(text); setMode('edit'); textareaRef.current?.focus(); }} />
             </div>
           ) : (
@@ -167,7 +230,7 @@ export default function CaptionEditorDialog({
                   save();
                 }
               }}
-              placeholder="Caption (without the face)…"
+              placeholder={captionPlaceholder}
               /* min-h-[6rem], not min-h-0: the column is a flex box, so once the
                  refusal box and the short-caption section are both open at
                  400 px a flex-1 child is free to be squeezed to nothing. The

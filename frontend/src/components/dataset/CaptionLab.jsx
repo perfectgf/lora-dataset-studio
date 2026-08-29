@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch, postJson } from '../../api/fetchClient';
+import { apiFetch } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
 import {
   CAPTION_LENGTH_OPTIONS, ENGINE_OPTIONS, OLLAMA_RELEVANT, VOCABULARY_OPTIONS,
@@ -7,13 +7,17 @@ import {
 
 /* 🧪 Caption Lab — try several caption configs on THIS image and compare them side by
    side, WITHOUT touching the stored caption. A candidate is engine × Ollama model ×
-   vocabulary register × length preset; each runs through the /caption/preview endpoint, which reuses the
-   real caption bricks (descriptive by-path pass) and never writes. Candidates run
+   vocabulary register × length preset; each runs through its surface's caption/preview
+   endpoint (captionLabSurface.js — the two share ONE backend bench, so a candidate
+   cannot mean two things), which reuses the real caption bricks (descriptive by-path
+   pass) and never writes. Candidates run
    SEQUENTIALLY — the GPU is single and serialized server-side, so firing them in parallel
    would just 409/503. Results live only while the modal is open (ephemeral bench).
 
    ✓ Keep this one → drops the caption into the editor's textarea (normal save applies it).
-   ⚙️ Make default → writes the winning config to the dataset's caption options. */
+   ⚙️ The apply verb is the surface's: a Dataset STORES the winning config as its caption
+   options, a Bank loads it into the dials of its next run — same promise, different
+   mechanics, so it wears a different label (surface.applyLabel). */
 
 // A candidate with captioning disabled makes no sense in a comparison bench.
 const CANDIDATE_ENGINES = ENGINE_OPTIONS.filter((o) => o.id !== 'none');
@@ -38,7 +42,11 @@ function configLabel(c) {
   return parts.join(' · ');
 }
 
-export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep }) {
+export default function CaptionLab({ surface, currentCaption, onKeep }) {
+  /* `surface` is the ONLY thing that knows which product this bench is running in:
+     where a candidate runs, what Stop talks to, and what "use this config" means here.
+     See captionLabSurface.js — the Dataset stores a caption method, the Bank picks one
+     per run, and the bench itself does not care which. */
   const toast = useToast();
   const [models, setModels] = useState([]);
   const [modelsReachable, setModelsReachable] = useState(true);
@@ -75,7 +83,7 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
       patch(c.id, { status: 'running', caption: '', error: '', cancelled: false });
       try {
         const started = performance.now();
-        const r = await postJson(`/api/dataset/${datasetId}/image/${imageId}/caption/preview`,
+        const r = await surface.preview(
           { backend: c.backend, ollama_model: c.ollamaModel, vocabulary: c.vocabulary,
             length: c.length });
         const elapsed = Math.round(performance.now() - started);
@@ -100,38 +108,45 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
   const stop = async () => {
     abortRef.current = true;
     // Ask the in-flight preview to stop at its image boundary (idempotent; 409 = nothing running).
-    await postJson(`/api/dataset/${datasetId}/caption/cancel`, {}).catch(() => null);
+    await surface.cancel().catch(() => null);
   };
 
   const makeDefault = async (c) => {
     try {
-      await postJson(`/api/dataset/${datasetId}/caption/options`,
+      await surface.applyConfig(
         { backend: c.backend, ollama_model: c.ollamaModel, vocabulary: c.vocabulary,
           length: c.length });
-      toast.success('Saved as this dataset’s default caption method');
+      toast.success(surface.applyDone);
     } catch (e) {
-      toast.error(e.message || 'Could not save the default');
+      toast.error(e.message || 'Could not apply this config');
     }
   };
 
   const selectCls = 'w-full px-2 py-1 rounded-lg bg-app/60 border border-border text-content text-xs';
 
+  /* TOUCH FLOOR. Every control below carries `min-h-10 lg:min-h-0` (with
+     inline-flex, since an inline box ignores min-height): the bench was built
+     desktop-first and its buttons measured 14-28 px on a phone — ✕ Remove
+     candidate was the smallest target in the app. Nothing caught it because the
+     caption dialog carried no data-probe-chrome marker, and the responsive probe
+     only measures targets INSIDE one. It does now. */
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="m-0 text-[0.6875rem] leading-relaxed text-content-subtle">
           Try up to {MAX_CANDIDATES} caption configs on this image and compare them. Nothing is saved
-          until you pick one — “Keep” drops it into the editor, “Make default” stores the config for the dataset.
+          until you pick one — “Keep” drops it into the editor, and “{surface.applyLabel}”
+          applies the winning config.
         </p>
         <div className="flex shrink-0 gap-2">
           {running ? (
             <button type="button" onClick={stop}
-              className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200">
+              className="inline-flex min-h-10 items-center justify-center lg:min-h-0 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-200">
               ■ Stop
             </button>
           ) : (
             <button type="button" onClick={generate}
-              className="rounded-lg bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950">
+              className="inline-flex min-h-10 items-center justify-center lg:min-h-0 rounded-lg bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950">
               ✨ Generate
             </button>
           )}
@@ -163,7 +178,7 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
                 </span>
                 <button type="button" onClick={() => removeCandidate(c.id)} disabled={candidates.length <= 1}
                   aria-label="Remove candidate"
-                  className="text-content-subtle hover:text-content disabled:opacity-30 text-sm leading-none">✕</button>
+                  className="inline-flex min-h-10 min-w-10 items-center justify-center text-content-subtle hover:text-content disabled:opacity-30 text-sm leading-none lg:min-h-0 lg:min-w-0">✕</button>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <select aria-label="Caption engine" value={c.backend} disabled={running}
@@ -208,12 +223,12 @@ export default function CaptionLab({ datasetId, imageId, currentCaption, onKeep 
 
             <div className="flex flex-wrap justify-end gap-2">
               <button type="button" onClick={() => makeDefault(c)} disabled={running}
-                title="Store this config as the dataset's default caption method"
-                className="rounded-lg border border-border bg-surface px-2.5 py-1 text-[0.6875rem] font-medium text-content-muted hover:text-content disabled:opacity-40">
-                ⚙️ Make default
+                title={surface.applyTitle}
+                className="inline-flex min-h-10 items-center justify-center lg:min-h-0 rounded-lg border border-border bg-surface px-2.5 py-1 text-[0.6875rem] font-medium text-content-muted hover:text-content disabled:opacity-40">
+                {surface.applyLabel}
               </button>
               <button type="button" onClick={() => onKeep(c.caption)} disabled={c.status !== 'done' || !c.caption}
-                className="rounded-lg bg-emerald-600/90 px-2.5 py-1 text-[0.6875rem] font-semibold text-white disabled:opacity-30">
+                className="inline-flex min-h-10 items-center justify-center lg:min-h-0 rounded-lg bg-emerald-600/90 px-2.5 py-1 text-[0.6875rem] font-semibold text-white disabled:opacity-30">
                 ✓ Keep this one
               </button>
             </div>

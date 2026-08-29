@@ -165,7 +165,8 @@ Captions are the text the trainer actually reads. The target family selects the 
 | **Vocabulary and wording options** | Choose Explicit, Clinical or Safe vocabulary and add project-specific instructions |
 | **Caption length** | Aim the captioner at Concise (about one short sentence), Standard or Detailed — a target it follows loosely, not a word cap |
 | **Identity/concept leak checks** | Catch text that accidentally describes the invariant meant to bind to the trigger |
-| **Caption Lab** | Inspect frequencies, find/replace, isolate tags, edit in a larger panel and target only problematic images |
+| **Caption tools** | Inspect frequencies, find/replace, isolate tags, edit in a larger panel and target only problematic images |
+| **Caption Lab** | Bench up to four caption configurations on one image and read them side by side before re-captioning the set |
 | **Long + short captions** | Train supported local families on two editable wordings through ai-toolkit's native text-side augmentation |
 
 Caption batches are stoppable and reload-proof: completed text stays saved, and reopening the page reconnects to a running server-side job.
@@ -190,7 +191,7 @@ A running batch reports its position, can be stopped at any point, and shows the
   <img src="../screenshots/caption/captioning-progress.png" alt="Captions panel mid-batch with a Stop button and the identity-leak scan result" width="820">
 </p>
 
-**Caption Lab** tries up to four caption configurations on one image and shows them next to the current caption, so an engine, vocabulary and vision model can be compared before either keeping one wording or making the configuration the dataset default. Nothing is saved until you pick.
+**Caption Lab** tries up to four caption configurations on one image and shows them next to the current caption, so an engine, vocabulary and vision model can be compared before either keeping one wording or applying the configuration to the whole set. Nothing is saved until you pick. It runs on both surfaces: in a dataset's **Captions** section (and from any image's caption editor), and in an image bank's 🏷️ Caption window — where the winning configuration loads into the dials of the next run, since a bank picks its caption method per run rather than storing one.
 
 <p align="center">
   <img src="../screenshots/caption/caption-lab.png" alt="Caption Lab comparing a candidate caption configuration against the current caption of the same image" width="820">

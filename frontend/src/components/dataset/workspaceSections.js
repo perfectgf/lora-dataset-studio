@@ -48,6 +48,11 @@ export const WORKSPACE_SECTIONS = [
     panels: [
       { id: 'generate', title: 'Generate captions', targetId: 'ds-captions-generate', when: 'always' },
       { id: 'leak-review', title: 'Leak review', targetId: 'ds-captions-leak-review', when: 'leakReview', reveal: 'caption-leak' },
+      // The bench sits between "is my text leaking?" and "rewrite it in bulk",
+      // because that is when it is useful: try the configs on ONE image before
+      // paying for a pass over the whole set. Gated on kept images, not on
+      // captioned ones — the Lab GENERATES, it does not compare stored text.
+      { id: 'lab', title: 'Caption Lab', targetId: 'ds-captions-lab', when: 'hasKeptImages' },
       { id: 'tools', title: 'Caption tools', targetId: 'ds-captions-tools', when: 'hasCaptionedKept', reveal: 'caption-tools' },
     ] },
   { id: 'export', title: 'Import & export', icon: ArrowLeftRight, eyebrow: 'data',

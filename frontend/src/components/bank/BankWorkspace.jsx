@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Archive, BarChart3, FolderInput, FolderOpen, Lightbulb, Palette, Rocket, Search, Target, Trash2, Type, Undo2, Wand2 } from 'lucide-react';
 import { apiFetch, patchJson, postJson, putJson } from '../../api/fetchClient'
 import { useFolderPersons } from './useFolderPersons'
@@ -9,6 +9,14 @@ import { useToast } from '../common/Toast'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useConnectionStatus } from '../../hooks/useConnectionStatus'
 import DupGroupsPanel from './DupGroupsPanel'
+/* 🧪 The Caption Lab, shared with the Dataset side. Lazy for the same reason the
+   dataset lazies it: both only exist behind a click, and the bank entry chunk already
+   sits near vite's size warning. `bankLabSurface` is where the two surfaces differ —
+   see captionLabSurface.js. */
+import { bankLabSurface, imageDisplayName } from '../dataset/captionLabSurface'
+import { imageVersionQuery } from './bankEdits.js'
+const CaptionLabPicker = lazy(() => import('../dataset/CaptionLabPicker'))
+const CaptionEditorDialog = lazy(() => import('../dataset/CaptionEditorDialog'))
 // ── The pieces this screen used to define inline ────────────────────────────
 // Split out by the Encre redesign: the top bar, the filter rail, the passes
 // panel and the grid are four files now, and all four drew the same chips.
@@ -285,6 +293,10 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
 
      🏷️ Caption reads its entry under the name it has always used, because the
      re-caption arithmetic beside it is written against that name. */
+  /* 🧪 Caption Lab: which image to bench (picker), then the image it named. The
+     Bank's half of the entry point the Dataset's Captions section carries. */
+  const [labPickerOpen, setLabPickerOpen] = useState(false)
+  const [labImage, setLabImage] = useState(null)
   const [passScopes, setPassScopes] = useState({})
   const [passRedo, setPassRedo] = useState({})
   const setPassScope = (id, v) => setPassScopes((p) => ({ ...p, [id]: v }))
@@ -1315,6 +1327,31 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     piles: passScopeOption(captionScope).piles,
     engineId: captionEngine,
   })
+  /* WHICH images the bench offers. A dataset hands its whole KEPT pile to the picker;
+     a bank cannot — it pages over SQL and can hold six figures of rows, so a picker
+     rendering "every non-rejected image" would be a different feature. It offers what
+     you are actually looking at: your selection when there is one, otherwise this page.
+     Same behaviour ("pick one of these and bench it"), in this surface's mechanics —
+     the parity rule's "two surfaces, two mechanics, ONE contract". */
+  const labPile = useMemo(() => {
+    const rows = page.images || []
+    /* A selection SURVIVES paging and sorting (only a filter change clears it), so the
+       intersection can legitimately be empty while rows are right there on screen — and
+       the button would then grey out saying "nothing on this page to bench", which is
+       false. The page is the honest fallback. */
+    const scoped = rows.filter((im) => selected.has(im.id))
+    return selected.size && scoped.length ? scoped : rows
+  }, [page.images, selected])
+  /* ⚙️ "Use for the next run" — what ⚙️ Make default means on a surface with nothing
+     to persist to. The four dials ARE the bank's caption method (useCaptionOptions:
+     "a bank has no caption_options row"), so loading them keeps the dataset button's
+     promise: the next pass runs the config that won the bench. */
+  const applyLabConfig = useCallback((config) => {
+    setCaptionEngine(config.backend || '')
+    setCaptionModel(config.ollama_model || '')
+    setCaptionVocab(config.vocabulary || '')
+    setCaptionLength(config.length || '')
+  }, [setCaptionEngine, setCaptionModel, setCaptionVocab, setCaptionLength])
   const captionRunControls = (
     <div className="space-y-2 rounded-md border border-border bg-surface-raised p-2">
       <p className="m-0 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
@@ -1324,6 +1361,28 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
         These override your Settings for this run only — the global values are never
         written from here.
       </p>
+      {/* 🧪 The bench, in the window that launches the pass — the Bank's half of the
+          entry point the Dataset's Captions section carries. Same bench, same shared
+          definition of a candidate (one backend function, pinned by
+          test_bank_caption_lab.py); what it offers to bench and what "use this config"
+          means are this surface's own. */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2">
+        <button type="button" onClick={() => setLabPickerOpen(true)}
+          disabled={live || labPile.length === 0}
+          aria-label="Open the Caption Lab"
+          title={labPile.length === 0
+            ? 'Nothing on this page to bench — clear a filter, or select the images you want.'
+            : 'Try up to four caption configs (engine, vision model, register, length) on '
+              + 'one image and read them side by side. Nothing is written until you keep a '
+              + 'result, and the winning config can be loaded into the dials above.'}
+          className="inline-flex min-h-10 items-center rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-semibold text-content disabled:opacity-40 lg:min-h-0">
+          🧪 Caption Lab
+        </button>
+        <span className="text-[11px] leading-snug text-content-subtle">
+          Compare engines, models and registers on ONE image before paying for a pass
+          over the pile.
+        </span>
+      </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="block text-[11px] text-content-subtle">
           Engine
@@ -2377,6 +2436,52 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
           onClose={() => setForgettingMissing(false)}
           onDone={() => { refreshPayload({ force: true }); refreshImages() }} />
       )}
+
+      {/* 🧪 Caption Lab — pick the subject, then the shared caption editor opens on
+          its bench tab. ‹ Another image comes back to the picker instead of closing:
+          benching is a comparison across rows. */}
+      <Suspense fallback={null}>
+        {labPickerOpen && (
+          <CaptionLabPicker images={labPile}
+            thumbUrl={(img) => `/api/bank/${bankId}/thumb/${img.id}${imageVersionQuery(img)}`}
+            emptyNote="Nothing on this page to bench — clear a filter, or select the images you want."
+            onClose={() => setLabPickerOpen(false)}
+            onPick={(img) => { setLabPickerOpen(false); setLabImage(img) }} />
+        )}
+        {labImage && (
+          <CaptionEditorDialog initialMode="lab"
+            initialCaption={labImage.caption || ''}
+            imageUrl={`/api/bank/${bankId}/file/${labImage.id}${imageVersionQuery(labImage)}`}
+            imageLabel={imageDisplayName(labImage)}
+            /* A bank caption is a plain description whose job is SEARCH — the dataset's
+               "without the face" rule is about binding identity to a trigger and does
+               not apply here. */
+            captionPlaceholder="Caption — a plain description, used for search…"
+            labSurface={bankLabSurface({
+              bankId, imageId: labImage.id, onApplyRunConfig: applyLabConfig })}
+            captionOrigin={labImage.caption_origin}
+            onPickAnotherImage={() => { setLabImage(null); setLabPickerOpen(true) }}
+            onClose={() => setLabImage(null)}
+            /* Awaited, and the refusal handed BACK so the dialog draws it beside the
+               text instead of closing on top of an unsaved caption — the same contract
+               the dataset editor has had since a refused save destroyed one. */
+            onSave={async (nextCaption) => {
+              if (nextCaption === (labImage.caption || '')) return { ok: true }
+              try {
+                await putJson(`/api/bank/${bankId}/image/${labImage.id}/caption`,
+                              { caption: nextCaption })
+              } catch (e) {
+                return { ok: false, error: e.message || 'Could not save the caption' }
+              }
+              setLabImage((cur) => (cur ? { ...cur, caption: nextCaption } : cur))
+              // BOTH: the rows carry the caption, but the 🏷️ Caption window's figures
+              // (and the re-caption arithmetic beside them) read payload.counts.
+              refreshPayload({ force: true })
+              refreshImages()
+              return { ok: true }
+            }} />
+        )}
+      </Suspense>
     </div>
   )
 }
