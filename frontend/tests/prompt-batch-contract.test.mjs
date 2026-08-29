@@ -78,7 +78,10 @@ test('the batch reaches BOTH launch routes, through the channel both hooks sprea
   // one half would have proved the feature on one screen only.
   // `allPickedPrompts` = the history batch plus the 🎬 scene batch, one channel:
   // the scenes ride the SAME `prompts` key, so both screens get both features.
-  assert.match(SETUP, /const settings = launchSettings\(genSettings, allPickedPrompts\)/)
+  // (The 🔤 Trigger word box DERIVES the launch body from this base instead of
+  // writing into it — launchSettings hands back the state object by identity,
+  // and mutating it made the unticked key sticky. Same channel, still one call.)
+  assert.match(SETUP, /const base = launchSettings\(genSettings, allPickedPrompts\)/)
   assert.match(SETUP, /form\.genCount, settings,/)
   assert.match(STUDIO_HOOK, /count, family, \.\.\.genSettings \}/)
   assert.match(CANVAS_HOOK, /count, \.\.\.genSettings,/)
