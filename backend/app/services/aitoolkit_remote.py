@@ -155,17 +155,31 @@ class RemoteAiToolkit:
         return self._json('GET', '/api/settings')
 
     def ensure_settings(self, hf_token=None) -> dict:
-        """POST /api/settings requires all three keys — echo back the folders
-        read from GET so only HF_TOKEN actually changes. Only POSTs when a
-        token is provided: a None hf_token must never clear a token already
-        set on the pod (GET may omit secrets). Returns the applied state."""
+        """Put HF_TOKEN on the pod without dropping anything else.
+
+        This endpoint is NOT a patch: it upserts every key it destructures out
+        of the body, so a key the request omits is written as `undefined` and
+        the whole call fails — one 500 `Failed to update settings`, with no
+        word about which key. That is exactly how a body written against the
+        2026-07-12 image died on the 2026-08-27 one (measured on a rented pod,
+        run #164): `MODELS_PATH` had joined the schema in between, three keys
+        were no longer all of them, and the run ended before the dataset was
+        even uploaded — money spent, nothing trained.
+
+        So the body is the GET payload echoed back with HF_TOKEN swapped in,
+        rather than a list of key names kept in step by hand. A key added
+        upstream tomorrow rides along; an image pinned to an older UI simply
+        ignores the extra field it does not destructure. None values are sent
+        as empty strings — the same undefined that breaks the upsert.
+
+        Only POSTs when a token is provided: a None hf_token must never clear a
+        token already set on the pod (GET may omit secrets). Returns the
+        applied state."""
         st = self.get_settings()
         if hf_token:
-            self._json('POST', '/api/settings', json={
-                'HF_TOKEN': hf_token,
-                'TRAINING_FOLDER': st.get('TRAINING_FOLDER') or '',
-                'DATASETS_FOLDER': st.get('DATASETS_FOLDER') or '',
-            })
+            body = {k: ('' if v is None else v) for k, v in st.items()}
+            body['HF_TOKEN'] = hf_token
+            self._json('POST', '/api/settings', json=body)
             st = {**st, 'HF_TOKEN': hf_token}
         return st
 

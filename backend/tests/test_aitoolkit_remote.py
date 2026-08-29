@@ -68,6 +68,33 @@ def test_ensure_settings_round_trips_folders(remote, monkeypatch):
                              'DATASETS_FOLDER': '/root/aitk/datasets'}
 
 
+def test_ensure_settings_echoes_back_every_key_the_pod_reported(remote, monkeypatch):
+    """The pod upserts EVERY key its POST handler destructures, so one the body
+    leaves out is written as undefined and the call fails whole — a single 500
+    that names no key. The 2026-08-27 image added MODELS_PATH to that list, and
+    a three-key body (correct against the 2026-07-12 image) killed a rented pod
+    before its dataset was even uploaded. The body is therefore derived from
+    what the pod REPORTS, never from a list of names kept in step by hand."""
+    posts = {}
+
+    def fake(method, url, **kw):
+        if method == 'GET':
+            return FakeResp(200, {'TRAINING_FOLDER': '/root/aitk/out',
+                                  'DATASETS_FOLDER': '/root/aitk/datasets',
+                                  'MODELS_PATH': '/root/aitk/models',
+                                  'A_KEY_ADDED_UPSTREAM_LATER': None})
+        posts['json'] = kw.get('json')
+        return FakeResp(200, {'success': True})
+
+    monkeypatch.setattr('app.services.aitoolkit_remote.requests.request', fake)
+    remote.ensure_settings(hf_token='hf_xyz')
+    assert posts['json']['MODELS_PATH'] == '/root/aitk/models'
+    assert posts['json']['HF_TOKEN'] == 'hf_xyz'
+    # A null goes back as '': sending None would reproduce, from our side, the
+    # very undefined that breaks the upsert on theirs.
+    assert posts['json']['A_KEY_ADDED_UPSTREAM_LATER'] == ''
+
+
 def test_ensure_settings_without_token_never_posts(remote, monkeypatch):
     calls = []
 
