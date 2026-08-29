@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml) [![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/perfectgf) [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/perfectgf)
 
-**A complete, self-hosted LoRA workflow in one browser tab:** source or generate a Character, Concept or Style dataset, curate it, caption it, clean watermarks, train locally or in the cloud, then compare checkpoints before export.
+**A complete, self-hosted training workflow in one browser tab:** source or generate a Character, Concept or Style dataset, curate it, caption it, clean watermarks, then train — a LoRA on five model families, locally or in the cloud, or a full Krea 2 model on a rented GPU — and compare checkpoints before export.
 
 No account, paid tier or telemetry. API engines and rented GPUs are optional; local and manual workflows remain available.
 
