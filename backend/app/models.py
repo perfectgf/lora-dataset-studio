@@ -733,6 +733,9 @@ class LoraTestImage(db.Model):
     # Parité Generate (2026-07-01) — réglages persistés par cellule pour un resume fidèle.
     negative = db.Column(Text, nullable=True)             # Z-Image : prompt négatif (node 5)
     sampler = db.Column(String(32), nullable=True)        # Krea : node 26 sampler_name
+    # Krea : preset du sampler maison (voie SamplerCustomAdvanced). NULL = off,
+    # c.-a-d. le KSampler standard — et donc aucun node maison dans le graphe.
+    sampler_preset = db.Column(String(24), nullable=True)
     scheduler = db.Column(String(32), nullable=True)      # Krea : node 26 scheduler
     weight_dtype = db.Column(String(24), nullable=True)   # Krea : node 20 précision UNET (weight_dtype)
     enhancer_strength = db.Column(Float, nullable=True)   # Krea2T-Enhancer : NULL=OFF, sinon force ON

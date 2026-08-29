@@ -298,6 +298,7 @@ _SCHEMA_ADDITIONS = (
     ('cloud_training_run', 'dataset_table', 'VARCHAR(32)'),
     ('lora_test_image', 'error', 'TEXT'),
     ('lora_test_image', 'resolution_multiplier', 'REAL'),
+    ('lora_test_image', 'sampler_preset', 'VARCHAR(24)'),
     # WHICH checkpoint produced this image, written at generation time instead of
     # re-parsed from the filename on every render. Existing rows stay NULL until
     # services.checkpoint_link_backfill attributes the ones it can prove.

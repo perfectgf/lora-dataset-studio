@@ -1881,6 +1881,7 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
     validity, launcher support, the model scan, and every per-engine gap
     list the Setup screen turns into a button."""
     from .services import lanpaint_helper as _lph
+    from .services import krea_sampler_helper as _ksh
     from .services import qwen_camera_helper as _qch
     # 📷 Camera angles. Computed here rather than in a probe of its own for the
     # same reason LanPaint is: the lane has no pins, no custom-node pack and no
@@ -1966,6 +1967,18 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         'lanpaint_nodes_missing': (_lph.lanpaint_missing_nodes()
                                    if comfy['ok'] else []),
         'lanpaint_nodes_installed': _lph.lanpaint_node_pack_installed(),
+        # Krea 2 preset sampler — the OPTIONAL custom-sampling lane
+        # (services/krea_sampler_helper). Same two-part shape as the packs
+        # above, with one difference the UI must respect: this one gates
+        # NOTHING. It is deliberately absent from `krea_ready` and from the
+        # krea install group, because the Krea engine is complete without it —
+        # publishing it as a gap of that engine would tell every user they are
+        # missing something they are not. `installed` is true only for a copy
+        # matching THIS app version: unlike a third-party pack, a stale one is
+        # the app's problem to fix, not the user's to keep.
+        'krea_sampler_nodes_missing': (_ksh.krea_sampler_missing_nodes()
+                                       if comfy['ok'] else []),
+        'krea_sampler_nodes_installed': _ksh.krea_sampler_pack_installed(),
         # setup_installer action names for the camera-angle assets NOT on disk.
         # One of them is `krea_vae` on purpose — the Qwen VAE ships with the
         # Krea 2 lane and this lane points at that button rather than declaring

@@ -103,11 +103,20 @@ export default function StudioPreflightBanner({ missing, archMismatch, onDismiss
                   </code>
                   {p && (
                     <span className="text-red-200/70 text-[0.625rem]">
-                      Install <b className="font-semibold">{p.pack}</b> via ComfyUI-Manager
-                      {p.search ? <> (search “{p.search}”)</> : null} —{' '}
-                      <a href={p.url} target="_blank" rel="noreferrer"
-                        className="underline break-all hover:text-red-100">{p.url}</a>
-                      , then restart ComfyUI.
+                      {p.url ? (
+                        <>
+                          Install <b className="font-semibold">{p.pack}</b> via ComfyUI-Manager
+                          {p.search ? <> (search “{p.search}”)</> : null} —{' '}
+                          <a href={p.url} target="_blank" rel="noreferrer"
+                            className="underline break-all hover:text-red-100">{p.url}</a>
+                          , then restart ComfyUI.
+                        </>
+                      ) : (
+                        <>
+                          Install <b className="font-semibold">{p.pack}</b> from {p.setup},
+                          then restart ComfyUI.
+                        </>
+                      )}
                     </span>
                   )}
                 </li>

@@ -32,6 +32,9 @@ import ResolutionSelector from '../../shared/ResolutionSelector';
 import LockableSlider from '../../shared/LockableSlider';
 import ZImageLoraConfig from '../../shared/ZImageLoraConfig';
 import StudioSection from './StudioSection';
+import {
+  KREA_SAMPLER_PRESETS_FALLBACK, presetChoice, splitSamplerChoice,
+} from '../../../utils/kreaSamplerChoice';
 
 // Repli si /api/index_config n'est pas encore chargé (doit refléter la whitelist
 // backend KREA_ALLOWED_* — la liste réelle vient de config.krea_samplers/schedulers).
@@ -141,6 +144,11 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
 
   const kreaSamplers = config?.krea_samplers?.length ? config.krea_samplers : KREA_SAMPLERS_FALLBACK;
   const kreaSchedulers = config?.krea_schedulers?.length ? config.krea_schedulers : KREA_SCHEDULERS_FALLBACK;
+  // Presets du sampler maison. Servis par /api/index_config comme les deux listes
+  // ci-dessus ; le repli couvre le seul cas où le serveur est trop ancien pour les
+  // connaître — et lui offrir ceux qu'il connaît est alors exactement juste.
+  const kreaSamplerPresets = config?.krea_sampler_presets?.length
+    ? config.krea_sampler_presets : KREA_SAMPLER_PRESETS_FALLBACK;
 
   // Candidats LoRA « always-on » : liste fournie par le studio riche (family-scopée,
   // payload) sinon dérivée de config.krea_loras (on écarte les `lora_*` = perso entraînés,
@@ -174,7 +182,12 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
       s.detail_amount = detailAmount;
     }
     if (isKrea) {
-      if (sampler) s.sampler = sampler;
+      // UN choix, DEUX champs : un preset écrit dans `sampler` serait un nom de
+      // sampler inconnu de ComfyUI et le graphe entier serait refusé. Voir
+      // utils/kreaSamplerChoice.js.
+      const samplerChoice = splitSamplerChoice(sampler);
+      if (samplerChoice.sampler) s.sampler = samplerChoice.sampler;
+      if (samplerChoice.sampler_preset) s.sampler_preset = samplerChoice.sampler_preset;
       if (scheduler) s.scheduler = scheduler;
       s.weight_dtype = weightDtype;
       s.rebalance = rebalanceOn;
@@ -243,7 +256,14 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
                 className="w-full bg-app/60 border border-border rounded-md px-2 py-1.5 text-content text-[0.8125rem] focus:border-primary focus:outline-none normal-case tracking-normal"
               >
                 <option value="">Auto (er_sde)</option>
-                {kreaSamplers.map((s) => (<option key={s} value={s}>{s}</option>))}
+                <optgroup label="ComfyUI samplers">
+                  {kreaSamplers.map((s) => (<option key={s} value={s}>{s}</option>))}
+                </optgroup>
+                <optgroup label="Preset sampler (tuned for 8 steps)">
+                  {kreaSamplerPresets.map((p) => (
+                    <option key={p} value={presetChoice(p)}>{p}</option>
+                  ))}
+                </optgroup>
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted uppercase tracking-wide">

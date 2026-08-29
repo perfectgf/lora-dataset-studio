@@ -65,6 +65,7 @@ from . import capabilities
 from . import config as cfg
 from .utils.redact import redact_user_paths
 from .services import infer_env
+from .version import APP_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -323,11 +324,39 @@ _NODE_PACKS = {
     },
 }
 
+# Node packs the app SHIPS (backend/comfy_nodes/<folder>), installed by COPY into
+# the user's ComfyUI instead of fetched from a remote. See
+# backend/comfy_nodes/README.md for the contract these folders sign.
+#
+# Why a second registry rather than a `local: True` flag on _NODE_PACKS: the two
+# differ on the rule that matters most, which is what to do when the folder is
+# already there. A third-party pack is LEFT ALONE (the user may have pinned a
+# version of somebody else's code). Ours is OVERWRITTEN when the stamp inside it
+# is not this app version — nobody pins ours, and a stale copy is how a user ends
+# up running last month's sampler against this month's graph. One flag would have
+# hidden an inverted rule inside a shared code path.
+_BUNDLED_NODE_PACKS = {
+    'krea_sampler_nodes': {
+        'pack': 'Krea 2 preset sampler',
+        'folder': 'lds_krea_sampler',
+    },
+}
+
+# The stamp file written into a deployed folder. Its presence is ALSO the
+# permission to delete that folder: the installer only ever removes a directory
+# it can prove it wrote itself.
+_BUNDLED_STAMP = '.lds-version'
+
+# Every action that lands something in <ComfyUI>/custom_nodes, whatever its
+# source. The post-install cache clears and the ComfyUI-folder precondition apply
+# to all of them; only the FETCH differs between the two registries.
+_ALL_NODE_PACKS = tuple(_NODE_PACKS) + tuple(_BUNDLED_NODE_PACKS)
+
 INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model',
                    'face_scoring', 'masks', 'watermark_inpaint',
                    'bank_scoring', 'bank_siglip2',
                    'watermark_detect',
-                   'video', 'shot_detect', 'video_text') + tuple(_MODEL_DOWNLOADS) + tuple(_NODE_PACKS)
+                   'video', 'shot_detect', 'video_text') + tuple(_MODEL_DOWNLOADS) + _ALL_NODE_PACKS
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
@@ -842,6 +871,14 @@ def manual_command(action) -> str:
         except Precondition:
             dest = os.path.join('<ComfyUI>', 'custom_nodes', spec['folder'])
         return f'git clone --depth 1 {spec["repo"]} "{dest}"'
+    if action in _BUNDLED_NODE_PACKS:
+        # No remote to fetch: the "manual command" is the copy this action performs.
+        try:
+            dest = _bundled_pack_dest(action)
+        except Precondition:
+            dest = os.path.join('<ComfyUI>', 'custom_nodes',
+                                _BUNDLED_NODE_PACKS[action]['folder'])
+        return f'copy "{_bundled_pack_source(action)}" -> "{dest}"'
     return ''
 
 
@@ -878,6 +915,8 @@ def start(action) -> dict:
             _check_download_precondition(action)
         if action in _NODE_PACKS:
             _node_pack_dest(action)      # raises Precondition without a valid ComfyUI
+        if action in _BUNDLED_NODE_PACKS:
+            _bundled_pack_dest(action)   # same precondition, shipped source
         _runs[action] = _new_run()
         if action in _PIP_ACTIONS and _pip_current is not None:
             # A pip install already owns the worker -> queue this one (FIFO, click
@@ -976,6 +1015,52 @@ def _node_pack_dest(action) -> str:
     <ComfyUI>/custom_nodes/<pack folder>. The folder name is a constant from
     _NODE_PACKS, never anything a request supplied."""
     return os.path.join(_comfyui_root(), 'custom_nodes', _NODE_PACKS[action]['folder'])
+
+
+def _bundled_pack_source(action) -> str:
+    """Where the shipped folder lives inside THIS install: backend/comfy_nodes/<folder>.
+
+    `packaging/build_release_zip.ps1` robocopies all of `backend/` into the
+    release, so this path is as valid in a downloaded ZIP as in a git checkout —
+    which is the reason the folder lives under backend/ and not at the repo root."""
+    return str(cfg.BACKEND_DIR / 'comfy_nodes' / _BUNDLED_NODE_PACKS[action]['folder'])
+
+
+def _bundled_pack_dest(action) -> str:
+    """Absolute destination for a shipped pack: <validated ComfyUI>/custom_nodes/<folder>.
+    Raises Precondition (via _comfyui_root) when ComfyUI's folder isn't set yet."""
+    return os.path.join(_comfyui_root(), 'custom_nodes',
+                        _BUNDLED_NODE_PACKS[action]['folder'])
+
+
+def _bundled_pack_stamp(dest) -> str | None:
+    """The app version recorded inside a deployed folder, or None when there is no
+    stamp — which also means "we did not put this here", and the installer must
+    not delete it."""
+    try:
+        with open(os.path.join(dest, _BUNDLED_STAMP), encoding='utf-8') as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def _bundled_pack_state(action) -> str:
+    """'absent' | 'current' | 'stale' | 'foreign' for the deployed copy.
+
+    'foreign' is a real folder under our name that carries no stamp: either a
+    hand-installed copy or a leftover. It is reported, never overwritten — the
+    app does not get to silently delete something in the user's ComfyUI that it
+    cannot prove it wrote."""
+    try:
+        dest = _bundled_pack_dest(action)
+    except Precondition:
+        return 'absent'
+    if not os.path.isdir(dest):
+        return 'absent'
+    stamp = _bundled_pack_stamp(dest)
+    if stamp is None:
+        return 'foreign'
+    return 'current' if stamp == APP_VERSION else 'stale'
 
 
 def _check_download_precondition(action):
@@ -1220,7 +1305,7 @@ def _execute(action):
                 capabilities.clear_import_cache()
             except Exception:
                 logger.debug('probe-cache clear failed after ollama_model', exc_info=True)
-        if (action in _MODEL_DOWNLOADS or action in _NODE_PACKS) and rc == 0:
+        if (action in _MODEL_DOWNLOADS or action in _ALL_NODE_PACKS) and rc == 0:
             # The training-base/model listers cache their scans 5 min and
             # /object_info is cached per API address — a freshly downloaded model
             # (or an installed node pack, once ComfyUI has been restarted) must
@@ -1233,7 +1318,7 @@ def _execute(action):
                 comfyui.clear_model_caches()
             except Exception:
                 logger.debug('clear_model_caches failed after %s', action, exc_info=True)
-        if action in _NODE_PACKS and rc == 0:
+        if action in _ALL_NODE_PACKS and rc == 0:
             # Both node caches only ever hold a POSITIVE answer, so clearing
             # them regardless of which pack just landed costs one probe each
             # and can never turn a present pack into a missing one.
@@ -1247,6 +1332,12 @@ def _execute(action):
                 lanpaint_helper.clear_nodes_cache()
             except Exception:
                 logger.debug('lanpaint node-cache clear failed after %s', action, exc_info=True)
+            try:
+                from .services import krea_sampler_helper
+                krea_sampler_helper.clear_nodes_cache()
+            except Exception:
+                logger.debug('krea sampler node-cache clear failed after %s', action,
+                             exc_info=True)
     except Cancelled:
         _append(action, 'cancelled by user')
         _finish_run(action, None, 'cancelled')
@@ -2766,6 +2857,106 @@ def _zip_node_pack(action, spec, dest) -> bool:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _deploy_bundled_pack(action, log=None) -> tuple[bool, str]:
+    """Copy backend/comfy_nodes/<folder> into the user's ComfyUI. (ok, message).
+
+    Shared by the Setup button and the boot-time refresh, so the two can never
+    disagree about what "installed" means. `log` is an optional one-arg callable
+    for progress lines (the Setup run log); the boot path passes None.
+
+    Replaces rather than merges: a `copytree(..., dirs_exist_ok=True)` over an old
+    version leaves behind any file the new version dropped, and a stray module in
+    a ComfyUI package folder is imported all the same. The delete is gated on the
+    stamp, so the only directory this can ever remove is one a previous run of
+    this same function wrote."""
+    def say(line):
+        if log:
+            log(line)
+
+    src = _bundled_pack_source(action)
+    if not os.path.isdir(src):
+        # Only reachable from a truncated install (the folder is copied verbatim
+        # into every release). Say which folder, so a support answer is one line.
+        return False, (f'the shipped node folder is missing from this install '
+                       f'({os.path.basename(src)}) — reinstall the app files')
+    dest = _bundled_pack_dest(action)
+    state = _bundled_pack_state(action)
+
+    if state == 'current':
+        return True, f'already up to date ({APP_VERSION})'
+    if state == 'foreign':
+        return False, ('a folder of that name already exists in your ComfyUI and was '
+                       'not put there by this app — it was left untouched. Remove or '
+                       'rename it if you want the shipped version.')
+    if state == 'stale':
+        say(f'replacing the previous copy ({_bundled_pack_stamp(dest)} -> {APP_VERSION})')
+        try:
+            shutil.rmtree(dest)
+        except OSError as e:
+            return False, f'could not remove the previous copy: {e}'
+
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        # __pycache__ is the user's ComfyUI's business, not ours to seed: a .pyc
+        # compiled by a different interpreter version is at best ignored and at
+        # worst imported in preference to the source next to it.
+        shutil.copytree(src, dest,
+                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        with open(os.path.join(dest, _BUNDLED_STAMP), 'w', encoding='utf-8') as fh:
+            fh.write(APP_VERSION)
+    except OSError as e:
+        # Never leave a half-copied package behind: ComfyUI would import it and
+        # report a broken node rather than a missing one, which is a much harder
+        # thing for a user to describe.
+        shutil.rmtree(dest, ignore_errors=True)
+        return False, f'could not copy the node into ComfyUI: {e}'
+    return True, f'installed {_BUNDLED_NODE_PACKS[action]["pack"]} ({APP_VERSION})'
+
+
+def _run_bundled_node_pack(action) -> int:
+    """Setup action for a node pack this app ships. No network, no git: the source
+    is already on disk beside the code that installs it.
+
+    Like every node install, success does not mean the node is usable yet —
+    ComfyUI registers nodes at startup only."""
+    try:
+        _bundled_pack_dest(action)
+    except Precondition as e:
+        _append(action, f'{e}')
+        _append(action, "the node has to go inside YOUR ComfyUI's custom_nodes folder, "
+                        "and the app doesn't know where that is yet — nothing was installed.")
+        return 1
+    ok, message = _deploy_bundled_pack(action, log=lambda line: _append(action, line))
+    _append(action, message)
+    if not ok:
+        return 1
+    _append(action, 'restart ComfyUI for it to load.')
+    return 0
+
+
+def refresh_bundled_node_packs() -> dict:
+    """Re-deploy every shipped pack whose installed copy is out of date. {action: message}
+    for the ones that were actually touched (empty when there is nothing to do).
+
+    Called at boot. This is the piece that makes an app update reach the node:
+    "Update & restart" replaces the app's files and nothing else — it has no
+    business writing to the user's ComfyUI on its own — so without this, someone
+    who installed the node once would keep the version they first clicked, forever,
+    while the app's graph moved on. Absent copies are LEFT absent: installing is
+    the user's decision, refreshing what they already chose is not a new one."""
+    out = {}
+    for action in _BUNDLED_NODE_PACKS:
+        try:
+            if _bundled_pack_state(action) != 'stale':
+                continue
+            ok, message = _deploy_bundled_pack(action)
+            out[action] = message
+            logger.info('bundled node pack %s: %s', action, message)
+        except Exception:       # noqa: BLE001 — boot must not die over a node folder
+            logger.warning('bundled node pack %s: refresh failed', action, exc_info=True)
+    return out
+
+
 def _run_node_pack(action) -> int:
     """Install a custom-node pack into THIS user's ComfyUI. git clone first, ZIP
     fallback, and an explicit "here is what to do by hand" when both fail — never
@@ -3037,7 +3228,8 @@ _WORKERS = {**{a: _run_ml_extras for a in _PIP_REQUIREMENTS},   # ml_extras + sc
             'watermark_detect': _run_watermark_detect,
             'shot_detect': _run_shot_detect,
             **{a: _run_model_download for a in _MODEL_DOWNLOADS},
-            **{a: _run_node_pack for a in _NODE_PACKS}}
+            **{a: _run_node_pack for a in _NODE_PACKS},
+            **{a: _run_bundled_node_pack for a in _BUNDLED_NODE_PACKS}}
 # Structural invariant: every whitelisted action MUST have a worker — a missing
 # entry surfaces as a cryptic "error: '<action>'" KeyError at runtime (live
 # repro: scrape_extras was added to INSTALL_ACTIONS but not here).
