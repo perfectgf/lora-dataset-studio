@@ -44,6 +44,20 @@ RESULT_PREFIX = dph.RESULT_PREFIX
 DEFAULT_PROBE_BUDGET_SECONDS = 300
 
 
+class PodProbeUnavailable(RuntimeError):
+    """The probe could not be RUN — which is not the same as failing it.
+
+    vast's remote-exec endpoint is constrained to `ls`, `rm` and `du`, so the
+    program below never reaches a pod rented there (measured, run #165). That is
+    a missing capability of the provider, not a fact about the clips, and the
+    caller must not turn it into a failed run: refusing to launch over a check
+    that cannot run anywhere would keep the lane down for as long as the
+    restriction lasts, which is exactly the opposite of what the check is for.
+
+    Kept separate from `PodDecoderUnusable` so the two never blur: one says the
+    pod answered no, this one says nobody asked."""
+
+
 class PodDecoderUnusable(RuntimeError):
     """This pod cannot read this dataset's clips, and the reason is stated.
 
@@ -133,5 +147,17 @@ def probe_decoder(remote, *, instance_id, pod_dataset_dir, tmp_dir,
             budget_seconds=int(budget_seconds or DEFAULT_PROBE_BUDGET_SECONDS),
             tmp_dir=tmp_dir, on_state=on_state, should_cancel=should_cancel,
             need_token=False)
+    except vast_command_unsupported() as e:
+        raise PodProbeUnavailable(str(e)) from e
     except dph.PodHubError as e:
         raise PodDecoderUnusable(str(e)) from e
+
+
+def vast_command_unsupported():
+    """The provider-refused-the-command type, resolved late.
+
+    A function and not a top-level import because `vast_client` reads config at
+    import time and this module is imported by the launch path; the lazy shape
+    is the one `dense_pod_hub` already uses for the same client."""
+    from . import vast_client
+    return vast_client.VastCommandUnsupported

@@ -3388,7 +3388,17 @@ def _assert_pod_can_decode(run, remote, pod_settings):
 
     A refusal RAISES, and the monitor's generic handler turns it into a failed
     run with the pod released. Standing down "just in case the probe is wrong"
-    would restore exactly the blind launch this exists to remove."""
+    would restore exactly the blind launch this exists to remove.
+
+    A probe that cannot be RUN is the other case entirely, and it is not
+    hypothetical: vast's remote-exec endpoint accepts `ls`, `rm` and `du` and
+    nothing else, so on that provider this program never reaches the pod at all
+    (measured, run #165). Treating that as a refusal would ground every video
+    run for as long as the restriction lasts — a check standing between the user
+    and the feature it was written to protect. So the absence of a verdict is
+    carried forward as an absence: logged, named in the phase, and the launch
+    continues, exactly as blind as it was before the probe existed and no
+    blinder."""
     from . import pod_video_probe
     if not crd.is_video(run):
         return None
@@ -3401,10 +3411,16 @@ def _assert_pod_can_decode(run, remote, pod_settings):
     want_audio = bool((profile.get('audio') or {}).get('muxed'))
     pod_dir = (pod_settings['DATASETS_FOLDER'].rstrip('/') + '/' + run.job_name)
     _set(run, phase_detail='Checking the pod can read the clips…')
-    verdict = pod_video_probe.probe_decoder(
-        remote, instance_id=run.vast_instance_id, pod_dataset_dir=pod_dir,
-        want_audio=want_audio, tmp_dir=run.staging_dir or str(_staging_root()),
-        should_cancel=lambda: _stop_event_for(run.id).is_set())
+    try:
+        verdict = pod_video_probe.probe_decoder(
+            remote, instance_id=run.vast_instance_id, pod_dataset_dir=pod_dir,
+            want_audio=want_audio, tmp_dir=run.staging_dir or str(_staging_root()),
+            should_cancel=lambda: _stop_event_for(run.id).is_set())
+    except pod_video_probe.PodProbeUnavailable as e:
+        logger.warning('run %s: the pod check could not run — %s', run.id, e)
+        _set(run, phase_detail='Pod check unavailable on this provider — '
+                               'starting the job anyway')
+        return None
     logger.info('run %s: the pod decoded %s with %s (%s frames)', run.id,
                 verdict.get('clip'), verdict.get('decoder'), verdict.get('frames'))
     _set(run, phase_detail=f'Pod reads the clips with '

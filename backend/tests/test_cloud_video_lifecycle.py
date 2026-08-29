@@ -479,6 +479,35 @@ def test_a_pod_that_cannot_decode_the_clips_refuses_before_the_job_starts(
         assert 'decode' in str(e.value).lower()
 
 
+def test_a_check_that_cannot_run_does_not_ground_the_run(app, tmp_path, monkeypatch):
+    """A probe that FAILED and a probe that could not be RUN are opposite facts,
+    and only the first is about this pod's clips.
+
+    vast's remote-exec endpoint accepts `ls`, `rm` and `du` and nothing else, so
+    the probe program never reaches a pod rented there — measured on run #165,
+    where it ended the run a minute after boot with the money spent and the
+    dataset already uploaded. A guard that turns a missing capability of the
+    provider into a failed launch takes the whole lane down for as long as the
+    restriction lasts, which is the exact opposite of what the guard is for. The
+    launch carries on, no blinder than it was before the probe existed, and the
+    phase says so rather than claiming a check that never happened."""
+    from app.services import cloud_training as ct
+    from app.services import pod_video_probe as pvp
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'surf clips')
+        run = _run(vid.id, crd.VIDEO, status='uploading')
+        run.job_name = 'lds9_video_surf'
+        from app.extensions import db
+        db.session.commit()
+        monkeypatch.setattr(
+            pvp, 'probe_decoder',
+            lambda *a, **k: (_ for _ in ()).throw(
+                pvp.PodProbeUnavailable('vast will not run this command')))
+        assert ct._assert_pod_can_decode(
+            run, object(), {'DATASETS_FOLDER': '/workspace/datasets'}) is None
+        assert 'unavailable' in (run.phase_detail or '').lower()
+
+
 def test_a_pod_that_decodes_fine_lets_the_run_through(app, tmp_path, monkeypatch):
     from app.services import cloud_training as ct
     from app.services import pod_video_probe as pvp

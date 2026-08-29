@@ -51,6 +51,23 @@ class VastError(RuntimeError):
     pass
 
 
+class VastCommandUnsupported(VastError):
+    """vast refused the COMMAND ITSELF, not the work it described.
+
+    Its remote-exec endpoint is documented as constrained: vast-cli's own
+    `execute` help lists the available commands as `ls`, `rm` and `du`, and
+    answers anything else with HTTP 400 `invalid_args` / "Invalid command
+    given." A caller that ships a PROGRAM therefore never gets a verdict here —
+    not today's, not any.
+
+    It has its own type because "the answer is no" and "there is no answer" are
+    different facts and callers owe them different behaviour. A feature whose
+    whole point is the remote program (the fp8 twin, the checkpoint assembly)
+    has genuinely failed and must say so. A PRE-FLIGHT has merely lost its
+    pre-flight, and refusing to launch over a check that cannot run anywhere
+    would take the lane down for the life of the restriction."""
+
+
 def _scrub(text: str) -> str:
     """Same text minus every secret shape we know how to send."""
     out = str(text or '')
@@ -239,19 +256,30 @@ def execute_command(instance_id, command: str) -> str:
     output will appear once the command finishes. Nothing about the response
     says the command succeeded — only ``fetch_command_result`` can.
 
-    This is a deliberately small, single-purpose surface: the ONLY caller is the
-    post-training fp8 export, whose whole failure mode is "no fp8 twin", never
-    "the run is lost". Do not grow it into a general remote shell.
+    It CANNOT be grown into a general remote shell, and not by choice: vast
+    documents this endpoint as constrained to `ls`, `rm` and `du` (vast-cli
+    `execute`, "available commands"), and refuses anything else with
+    `invalid_args` — measured on a rented pod, run #165, against a `python -c`
+    that had never been run against a live one. Callers that ship a program get
+    `VastCommandUnsupported`, which says the capability is absent rather than
+    that their work failed.
     """
     if not str(command or '').strip():
         raise VastError('execute_command needs a command')
     r = _request('PUT', f'/instances/command/{instance_id}/',
                  json={'command': command})
     try:
-        data = (r.json() or {}) if r.status_code == 200 else {}
+        data = r.json() or {}
     except ValueError:
         data = {}
-    url = str(data.get('result_url') or '')
+    if r.status_code == 400 and str(data.get('error') or '') == 'invalid_args':
+        # Read from the provider's OWN error code rather than matched against
+        # its sentence: the code is the contract, the wording is not.
+        raise VastCommandUnsupported(
+            'vast will not run this command: its remote-exec endpoint accepts '
+            'ls, rm and du only, so a program cannot be run on the pod '
+            f'({_scrub(str(data.get("msg") or ""))[:120]})')
+    url = str(data.get('result_url') or '') if r.status_code == 200 else ''
     if r.status_code != 200 or not data.get('success') or not url:
         raise _failed(r, 'execute_command')
     return url

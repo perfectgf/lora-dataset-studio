@@ -344,3 +344,38 @@ def test_destroy_network_error_returns_false(vc, monkeypatch):
         raise vc.requests.ConnectionError('refused')
     monkeypatch.setattr(vc.requests, 'request', boom)
     assert vc.destroy_instance('12345') is False
+
+
+def test_execute_command_names_the_provider_s_constraint_as_its_own_type(vc, monkeypatch):
+    """vast's remote-exec endpoint is constrained to `ls`, `rm` and `du` (its own
+    CLI's "available commands"), so a caller shipping a program is refused with
+    HTTP 400 `invalid_args` — every time, on every pod, not as a transient. It
+    gets a dedicated type because a pre-flight that cannot RUN and a pre-flight
+    that FAILED call for opposite behaviour: the first must not ground the lane.
+    Recognised by the provider's error CODE, never by its sentence."""
+    def fake_request(method, url, **kw):
+        return FakeResp(400, {'success': False, 'error': 'invalid_args',
+                              'msg': 'Invalid command given.'})
+
+    monkeypatch.setattr(vc, '_request', fake_request)
+    with pytest.raises(vc.VastCommandUnsupported) as e:
+        vc.execute_command(42, "python -c 'print(1)'")
+    assert 'ls, rm and du' in str(e.value)
+    # Still a VastError: callers whose whole feature IS the remote program keep
+    # failing loudly on it, and nothing that catches VastError changes shape.
+    assert isinstance(e.value, vc.VastError)
+
+
+def test_execute_command_keeps_other_refusals_generic(vc, monkeypatch):
+    """Only `invalid_args` means the command itself is unrunnable. A 400 for any
+    other reason, or a 200 that carries no result URL, stays a plain VastError —
+    reading every 400 as "unsupported" would silently turn a real failure into a
+    skipped check."""
+    def fake_request(method, url, **kw):
+        return FakeResp(400, {'success': False, 'error': 'no_such_instance'})
+
+    monkeypatch.setattr(vc, '_request', fake_request)
+    with pytest.raises(vc.VastError) as e:
+        vc.execute_command(42, 'ls -l')
+    assert not isinstance(e.value, vc.VastCommandUnsupported)
+
