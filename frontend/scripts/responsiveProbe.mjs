@@ -212,6 +212,16 @@ const PAGES = {
       // cannot take it (a camera view or an improve result refuses the button).
       { name: 'camera', open: ['[data-testid="gallery-zoom"]',
         '[data-testid="lightbox-camera-angles"]'] },
+      // ✨ The improve settings window, reached the same way: open the viewer,
+      // press the Klein verb. One state on ONE page for a dialog every surface
+      // shares (dataset, Gallery, Canvas, checkpoint galleries mount the same
+      // ImproveModal) — measured here because this page's path to it is the
+      // shortest. It stacks the full Klein note (instruction editor, model,
+      // preset, output size) over a phone screen, which is exactly the density
+      // the source tests cannot see. Skipped, and said so, when the first
+      // tile refuses the verb (an improve result, or a candidate waiting).
+      { name: 'improve', open: ['[data-testid="gallery-zoom"]',
+        '[data-testid="lightbox-improve-klein"]'] },
     ],
   },
   '#/dataset/studio': {

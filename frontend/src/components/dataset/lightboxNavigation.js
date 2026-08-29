@@ -78,6 +78,7 @@ export function freshLightboxImageState(imageId) {
     // is a moment on THIS image, and ⟨ / ⟩ must leave it behind with the image
     // it belonged to rather than carry it onto the next one.
     cameraOpen: false,
+    improveOpen: false,
     deciding: false,
   };
 }

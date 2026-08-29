@@ -4237,6 +4237,26 @@ def _owned_test_image(user_id, image_id):
     return db.session.get(LoraTestImage, image_id)
 
 
+def image_render_status(user_id, image_id):
+    """One library image's render state — the heartbeat the ✨ modal polls.
+
+    Deliberately tiny: {status, url, error} is everything a "is my improve
+    done yet" question needs, and nothing a 4-second poll should pay more
+    for. None when the row is not the caller's."""
+    row = db.session.get(LoraTestImage, image_id)
+    if row is None:
+        return None
+    ds = fds.get_dataset(user_id, row.dataset_id)
+    if not ds:
+        return None
+    return {
+        'id': row.id, 'status': row.status,
+        'url': (f'/api/dataset/{row.dataset_id}/img/{row.filename}'
+                if row.filename else None),
+        'error': row.error if row.status == 'failed' else None,
+    }
+
+
 def rate_image(user_id, image_id, rating) -> bool:
     if rating not in (1, -1, 0):
         return False

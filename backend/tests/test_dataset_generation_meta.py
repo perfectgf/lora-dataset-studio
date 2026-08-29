@@ -16,7 +16,6 @@ Three layers, cheapest proof first:
 """
 import re
 
-import pytest
 
 from app.services import face_dataset_service as svc
 

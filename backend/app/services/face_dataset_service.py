@@ -11092,6 +11092,20 @@ def _enqueue_improve(engine, *, user_id, source, source_path, prompt, label,
         extra_metadata=meta)
 
 
+def image_render_status(user_id, image_id):
+    """One dataset image's render state — the ✨ modal's heartbeat, the twin of
+    lora_test_studio.image_render_status on THIS table's id space."""
+    img = db.session.get(FaceDatasetImage, image_id)
+    if img is None or not get_dataset(user_id, img.dataset_id):
+        return None
+    return {
+        'id': img.id, 'status': img.status,
+        'url': (f'/api/dataset/{img.dataset_id}/img/{img.filename}'
+                if img.filename else None),
+        'error': img.fail_reason if img.status == 'failed' else None,
+    }
+
+
 def improve_existing_image(user_id, image_id, engine=None):
     """Serialize one source's improve request, including the queue hand-off."""
     image = _owned_image(user_id, image_id)

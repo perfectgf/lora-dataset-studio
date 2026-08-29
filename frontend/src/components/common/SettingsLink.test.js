@@ -38,20 +38,19 @@ test('a settings link never triggers the surface it sits on', () => {
 test('the improve link is offered where the improve action is', () => {
   const lightbox = read('../dataset/DatasetLightbox.jsx');
   assert.match(lightbox, /lightboxImproveButtons\(/);
-  assert.match(lightbox, /<KleinImproveNote\b/);
-  // ...but under KLEIN's button only: the note is about Klein's INSTRUCTION
-  // pulling drawn skin towards realism, and SeedVR2 sends no instruction — a
-  // drawn dataset is exactly where SeedVR2 is the right click, so warning
-  // under it would argue against the pass that fixes the complaint.
-  // hidden while it runs — a settings trip mid-job is not the offer being made
-  // Two branches now, one per placement: between the buttons in the rail
-  // (a column, where that is what attaches it to Klein) and under the whole
-  // group in the bottom bar (a row, where a full-width paragraph dropped
-  // mid-row stranded the second button on its own line).
-  assert.match(lightbox, /\{rail && btn\.showKleinNote && !improvementActive && \(/);
-  assert.match(lightbox, /\{!rail && improveButtons\.some\(\(b\) => b\.showKleinNote\)/);
+  // The Klein settings prose no longer mounts inline: the ✨ button opens the
+  // shared ImproveModal, and the note (with its settings links) is that
+  // modal's settings screen — still read in the second before generating,
+  // which is the second that matters. Both lightbox hosts mount the SAME
+  // modal, so the link travels with the action on every surface.
+  const modal = read('../shared/ImproveModal.jsx');
+  assert.match(modal, /<KleinImproveNote\b/);
+  assert.match(lightbox, /<ImproveModal\b/);
+  assert.match(read('../shared/GeneratedImageLightbox.jsx'), /<ImproveModal\b/);
   // The BULK improve is the same action at scale, and it went targetless for a
   // long time: the instruction that spoils one tile spoils the whole selection.
+  // A batch panel SHOWS its instruction before launching a lot, so its inline
+  // note stays.
   assert.match(read('../dataset/DatasetGrid.jsx'), /<KleinImproveNote\b/);
 });
 

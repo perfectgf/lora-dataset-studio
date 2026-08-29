@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-improve-settings-window',
+    date: '2026-08-29',
+    title: '✨ Improve now opens its settings in a window — and shows you the result',
+    blurb:
+      'Press ✨ Improve via Klein anywhere — dataset, Gallery, Canvas, a '
+      + 'checkpoint gallery — and a window opens with the instruction '
+      + '(editable in place), model, LoRA preset and output size, then a '
+      + 'Generate button. Stay and the finished picture appears right there; '
+      + 'leave early and it lands where it always did, with a toast saying '
+      + 'where. The image viewers keep their action bars short — the batch '
+      + 'toolbar keeps its inline note, since a batch should show its '
+      + 'instruction before launching a lot.',
+  },
+  {
     id: '2026-08-29-run-details-from-checkpoints',
     date: '2026-08-29',
     title: 'Run details and run-vs-run compare, right on the checkpoint cards',

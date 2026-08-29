@@ -41,4 +41,8 @@ test('the probe knows the page: its states and the selector that means "data arr
   // …and the openers still exist in the page, or the states silently skip.
   assert.match(page, /data-testid=\{picking \? 'gallery-pick' : 'gallery-zoom'\}/);
   assert.match(page, /data-testid="gallery-select-toggle"/);
+  // The ✨ improve state opens the shared settings window from the viewer's
+  // Klein verb; its testid lives in the shared lightbox, not the page.
+  assert.match(probe, /open: \['\[data-testid="gallery-zoom"\]',\s*\n\s*'\[data-testid="lightbox-improve-klein"\]'\]/);
+  assert.match(lightbox, /data-testid=\{`lightbox-improve-\$\{btn\.id\}`\}/);
 });

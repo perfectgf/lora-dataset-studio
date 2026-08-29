@@ -172,9 +172,9 @@ test('Escape peels one layer, not two', () => {
      change), then a magnified picture is put back, then the viewer closes.
      Escape must never throw away the render you were in the middle of
      inspecting to get you out of a viewer you did not ask to leave. */
-  assert.match(generated, /if \(repairOpen\) return;/);
+  assert.match(generated, /if \(repairOpen \|\| improveOpen\) return;/);
   assert.match(generated,
-    /if \(repairOpen\) return;[^]{0,700}if \(cameraOpen\) \{[^]{0,300}if \(e\.key === 'ArrowLeft' && onPrev\)/);
+    /if \(repairOpen \|\| improveOpen\) return;[^]{0,700}if \(cameraOpen\) \{[^]{0,300}if \(e\.key === 'ArrowLeft' && onPrev\)/);
   assert.match(generated, /if \(zoom\.zoomed\) \{ zoom\.reset\(\); return; \}/);
   assert.match(generated, /if \(zoom\.zoomed\) \{ zoom\.reset\(\); return; \}[^]{0,40}onClose\?\.\(\);/);
 });
@@ -182,6 +182,6 @@ test('Escape peels one layer, not two', () => {
 test('the guards are re-read when the dialog opens, not captured stale', () => {
   // A listener registered once with repairOpen=false would keep closing forever.
   assert.match(review, /doDismiss, doReject, repairOpen\]\);/);
-  assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, patchImageState\]\);/);
-  assert.match(generated, /\}, \[img, onClose, repairOpen, cameraOpen, zoom, onPrev, onNext\]\);/);
+  assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, improveOpen, patchImageState\]\);/);
+  assert.match(generated, /\}, \[img, onClose, repairOpen, cameraOpen, improveOpen, zoom, onPrev, onNext\]\);/);
 });

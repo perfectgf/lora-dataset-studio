@@ -3,6 +3,7 @@ import { Camera } from 'lucide-react';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useImageZoomPan } from '../../hooks/useImageZoomPan';
 import RepairDialog from './RepairDialog';
+import ImproveModal from './ImproveModal';
 import CameraAnglePicker from './CameraAnglePicker';
 import { useCameraAngles } from '../../hooks/useCameraAngles';
 import { useImageDownload } from '../../hooks/useImageDownload';
@@ -12,7 +13,6 @@ import { cameraRefusal } from '../../utils/cameraAngles';
 import { canImproveCanvasImage } from '../../utils/canvasImprove';
 import { lightboxImproveButtons } from '../../utils/improveEngines';
 import { canRestoreImproveSettings } from '../../utils/improveSettingsRestore';
-import KleinImproveNote from '../dataset/KleinImproveNote';
 import {
   imageHeadlineFacts, imagePromptBlocks, imageSettingFacts, promptFold,
 } from '../../utils/generatedImageFacts';
@@ -129,7 +129,7 @@ function PromptBlock({ block }) {
  *  the same pass.
  */
 function ImproveActions({ img, onImprove, improvePending, improveReady, busy,
-  subjectType, datasetId }) {
+  onOpenImproveModal }) {
   const { caps } = useCapabilities();
   const [improving, setImproving] = useState(false);
   const active = improving || improvePending;
@@ -139,6 +139,13 @@ function ImproveActions({ img, onImprove, improvePending, improveReady, busy,
   const run = (engineId, disabled) => async (event) => {
     event.stopPropagation();
     if (disabled) return;
+    // ✨ Klein's settings and result live in the MODAL now (user-asked):
+    // its button opens the dialog instead of firing blind. The dial-less
+    // engines keep firing straight — nothing to check first.
+    if (engineId === 'klein' && onOpenImproveModal) {
+      onOpenImproveModal();
+      return;
+    }
     setImproving(true);
     try {
       await onImprove(img.id, engineId);
@@ -159,14 +166,6 @@ function ImproveActions({ img, onImprove, improvePending, improveReady, busy,
           {btn.label}
         </button>
       ))}
-      {/* The note takes its OWN line under the whole group. `w-full` in a wrap
-          container IS a line break — the dataset lightbox learned this the hard
-          way: inline, the paragraph took the width the second engine button
-          needed and stranded it alone at the bottom of the screen. */}
-      {buttons.some((b) => b.showKleinNote) && !active && (
-        <KleinImproveNote subjectType={subjectType} datasetId={datasetId}
-          className="w-full border-t border-white/10 pt-2" />
-      )}
     </>
   );
 }
@@ -227,6 +226,9 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   // 📷 The picker is a layer of this viewer now, exactly like ✦ — see the
   // props note: verbs belong to the viewer, hosts supply context.
   const [cameraOpen, setCameraOpen] = useState(false);
+  // ✨ The improve modal — settings on demand, result in place. Held HERE like
+  // every other layer, so the keydown effect can stand down under it.
+  const [improveOpen, setImproveOpen] = useState(false);
   const shootCameraViews = useCameraAngles();
   /* 🔍 Are the facts on screen? They are what this viewer is FOR, so they open
      with it — but they are not what you want while you are looking. Measured at
@@ -266,7 +268,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     // before it closes the viewer, so the key never throws away the render you
     // were in the middle of inspecting.
     const onKey = (e) => {
-      if (repairOpen) return;
+      if (repairOpen || improveOpen) return;
       // 📷 The picker is a layer like ✦: while it is open, keys pressed inside
       // its tree never get here (its root stops them), and a key pressed with
       // focus elsewhere must not walk or close the viewer UNDER the dial —
@@ -287,7 +289,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [img, onClose, repairOpen, cameraOpen, zoom, onPrev, onNext]);
+  }, [img, onClose, repairOpen, cameraOpen, improveOpen, zoom, onPrev, onNext]);
   useEffect(() => { if (img) closeRef.current?.focus(); }, [img]);
   /* Folding the details resizes the frame under a held zoom, and a view that
      was legally at its edge before is a strip of backdrop afterwards. Settle
@@ -495,7 +497,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
             {onImprove && (
               <ImproveActions img={img} onImprove={onImprove}
                 improvePending={improvePending} improveReady={improveReady}
-                busy={busy} subjectType={subjectType} datasetId={datasetId} />
+                busy={busy} onOpenImproveModal={() => setImproveOpen(true)} />
             )}
             {/* ↩ On a ✨ result you LIKE: make every next improve run the way
                 this one did — the recorded instruction back into the global
@@ -561,6 +563,12 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
           Escape-to-close while it is open, so the row under the dial cannot
           change. On success the views land in the Gallery feed; the hook's
           toast says so, which is true from every host. */}
+      {/* ✨ The improve modal — a layer like ✦ and 📷. The viewer's rows are
+          library rows on every host, so the modal polls the library routes. */}
+      {improveOpen && hasRow && (
+        <ImproveModal img={img} host="library" datasetId={datasetId}
+          subjectType={subjectType} onClose={() => setImproveOpen(false)} />
+      )}
       {cameraOpen && hasRow && (
         <CameraAnglePicker
           onClose={() => setCameraOpen(false)}

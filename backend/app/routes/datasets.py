@@ -1845,6 +1845,29 @@ def dataset_image_camera_angles(image_id):
     return jsonify({'ok': True, **result})
 
 
+@bp.get('/canvas/image/<int:image_id>/status')
+def canvas_image_render_status(image_id):
+    """Render state of ONE library image — the ✨ modal's 4-second heartbeat.
+
+    {ok, id, status, url, error}: everything "is my improve done yet" needs
+    and nothing more. Its own route per table for the same reason improve has
+    two: the two id spaces are independent, and a wrong-table poll would
+    happily report a REAL but unrelated row forever."""
+    out = lts.image_render_status(LOCAL_USER, image_id)
+    if out is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **out})
+
+
+@bp.get('/dataset/image/<int:image_id>/status')
+def dataset_image_render_status(image_id):
+    """The dataset twin of the canvas status poll — face_dataset_image ids."""
+    out = svc.image_render_status(LOCAL_USER, image_id)
+    if out is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **out})
+
+
 @bp.get('/camera/catalog')
 def camera_catalog():
     """The camera vocabulary the picker draws, plus whether the lane can run.

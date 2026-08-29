@@ -113,7 +113,7 @@ test('state computed for one image is never rendered for another', () => {
   // about to repaint a picture that is no longer the one you are looking at.
   const stale = {
     imageId: 11, full: true, compareMode: 'reference', improving: true, actionsOpen: true,
-    repairOpen: true, cameraOpen: true, deciding: true,
+    repairOpen: true, cameraOpen: true, improveOpen: true, deciding: true,
   }
   const live = lightboxImageState(stale, 22)
   assert.deepEqual(live, {
@@ -121,7 +121,9 @@ test('state computed for one image is never rendered for another', () => {
     // 📷 The picker is the same literal case as ✦ Repair: a full-screen overlay
     // about ONE image — carried over, ⟩ would aim a camera run at a picture
     // that is no longer the one on screen.
-    repairOpen: false, cameraOpen: false, deciding: false,
+    // ✨ The improve modal is the same case again: its settings-then-result
+    // panel is about the image it was opened on, never the one ⟩ lands on.
+    repairOpen: false, cameraOpen: false, improveOpen: false, deciding: false,
   })
   // The derived pane is the one that would be actively MISLEADING: captioned
   // "Original", showing the previous image's parent.

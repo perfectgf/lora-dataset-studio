@@ -57,11 +57,24 @@ test('the gallery lightbox, given what the panel passes, shows ✨ beside ⬇', 
   assert.deepEqual(improveButtons(html), ['klein'],
     'Klein is always offered; SeedVR2 only once it is installed')
   assert.match(html, /data-testid="lightbox-download"/, 'and Download is still there')
-  // Klein's amber note follows Klein, and it is the note that pulls in the
-  // settings pointers AND the in-place instruction editor — the branch most
-  // likely to throw on a bare render. (The editor's own behaviour is covered by
+  // Klein's amber note no longer rides along inline — ✨ opens the shared
+  // ImproveModal and the note is that modal's settings screen. The bare viewer
+  // must therefore NOT carry the note's markers any more…
+  assert.doesNotMatch(html, /data-testid="klein-improve-edit-toggle"/)
+})
+
+test("the modal ✨ opens carries Klein's note — pointers and the instruction editor", async () => {
+  // …and the modal must. Its settings phase is the initial one, so a bare
+  // render shows the note with the settings pointers AND the in-place
+  // instruction editor — the branch most likely to throw on a bare render.
+  // (The editor's own behaviour is covered by
   // tests/klein-improve-inline-editor.test.mjs; what is asserted here is that
-  // this host still renders it at all.)
+  // the modal renders it at all, for the same host props the gallery passes.)
+  const { default: ImproveModal } = await import('../src/components/shared/ImproveModal.jsx')
+  const html = inApp(createElement(ImproveModal, {
+    img: row(), host: 'library', datasetId: 7, subjectType: 'person', onClose: () => {},
+  }))
+  assert.match(html, /data-testid="improve-modal-generate"/)
   assert.match(html, /data-testid="klein-improve-edit-toggle"/)
   assert.match(html, /focus=identity-prompt-klein-improve/)
 })

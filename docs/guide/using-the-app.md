@@ -283,12 +283,14 @@ From the viewer you can also:
 - **⬇ Download** — the file lands under a name that still says which dataset,
   run, step and seed made it.
 - **✨ Upscale & improve** — Klein (re-renders detail; sharper, but skin can
-  shift) or SeedVR2 (upscales and keeps the look). The result arrives at the
-  top of this gallery as its own ✨ image; the original is untouched. The
-  amber note under the buttons is where the Klein instruction is edited in
-  place, the Klein model is chosen, a **LoRA preset** can be chained into
-  every improve and the **output size (MP)** picked — all app-wide, the same
-  values Settings shows.
+  shift) or SeedVR2 (upscales and keeps the look). **Klein opens a small
+  window first**: the exact instruction it is about to send (editable in
+  place, or switched off), the Klein model, a **LoRA preset** to chain and
+  the **output size (MP)** — all app-wide, the same values Settings shows —
+  then **✨ Generate** starts the pass and the finished picture appears right
+  in that window. Close it early and nothing is lost: the result arrives at
+  the top of this gallery as its own ✨ image. SeedVR2 has no dials, so it
+  runs straight away. Either way the original is untouched.
 - **↩ Use these improve settings** — on a ✨ result you like: the
   instruction, LoRA preset, strength, steps, output size and model that made
   THIS image become the app-wide improve settings again, so the next
@@ -3853,8 +3855,10 @@ you are already comparing a checkpoint's renders when you decide one of them
 deserves a bigger pass. Both surfaces are the same action on the same picture:
 
 - **✨ Improve via Klein** re-renders detail and texture. Sharper, but skin and
-  colour can shift. The note under the button quotes the exact instruction it is
-  about to send and links to where you can edit it or switch it off.
+  colour can shift. Pressing it opens a small settings window that quotes the
+  exact instruction it is about to send — editable in place, or switched off —
+  with the Klein model, LoRA preset and output size, and a **✨ Generate**
+  button. Stay, and the finished picture appears right in that window.
 - **🔍 Upscale via SeedVR2** resolves detail at a higher resolution and keeps the
   original look. It appears once SeedVR2 is installed; until then Setup ▸ ComfyUI
   can download it for you, and pressing ✨ before that answers with the same
@@ -3864,9 +3868,11 @@ deserves a bigger pass. Both surfaces are the same action on the same picture:
 improvement arrives as its **own image in that checkpoint's gallery**, right next
 to the original — open the gallery from the checkpoint pill (🖼) and you can
 compare the two, download either, or pin the improved one onto the board beside
-its source. Nothing moves on its own, which is why the confirmation says where to
-look. The pass takes minutes, and a gallery already open does not refresh by
-itself: close it and open it again to find the new picture waiting at the top.
+its source. A Klein pass shows its result **in the ✨ window itself** if you stay
+on it; close the window early (or run SeedVR2, which has no window) and nothing
+moves on its own, which is why the confirmation says where to look. The pass
+takes minutes, and a gallery already open does not refresh by itself: close it
+and open it again to find the new picture waiting at the top.
 
 Two things it deliberately will not do. An **improvement cannot be improved
 again** — running two passes over the same pixels is how a face turns to

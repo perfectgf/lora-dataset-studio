@@ -131,14 +131,16 @@ export const ACTION_TOPICS = [
     ['filter', 'decision', 'undecided', 'awaiting', 'pending', 'kept', 'keep', 'rejected',
      'reject', 'improve', 'candidates', 'klein', 'isolate', 'triage', 'select all', 'grid'],
     '/datasets?section=images', 'dataset-guide', '2-how-many-images-and-which-ones'),
-  // ✎ Edit this instruction here — the improve prompt, editable from the note
-  // under the ✨ button instead of only from Settings. Its own topic because the
-  // question it answers is "how do I change this sentence WITHOUT leaving my
-  // images", and because the panel has a property the Settings card does not:
-  // it writes the app-wide value from a per-dataset-looking screen, which is the
-  // one thing a user must be told before they use it.
+  // ✎ Edit this instruction here — the improve prompt, editable from the
+  // settings window the ✨ button opens (inline note on the bulk toolbar)
+  // instead of only from Settings. Its own topic because the question it
+  // answers is "how do I change this sentence WITHOUT leaving my images", and
+  // because the panel has a property the Settings card does not: it writes the
+  // app-wide value from a per-dataset-looking screen, which is the one thing a
+  // user must be told before they use it.
   action('action-edit-improve-instruction', 'Edit the improve instruction without leaving the images',
     ['improve', 'upscale', 'instruction', 'prompt', 'edit', 'edit here', 'inline', 'in place',
+     'window', 'modal', 'popup', 'settings window', 'generate button',
      'change the prompt', 'turn off', 'disable', 'toggle', 'no prompt', 'upscale only',
      'klein', 'anime', 'drawn', 'realistic', 'texture', 'skin', 'detail', 'lightbox',
      'reset to default', 'built-in default', 'global', 'app-wide', 'every dataset',

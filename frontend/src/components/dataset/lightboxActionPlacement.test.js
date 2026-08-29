@@ -209,7 +209,6 @@ test('tab order follows the eye: one DOM order, no CSS reordering', () => {
     // The improve actions are now rendered from a list (one button per engine),
     // so the DOM-order anchor is the map that emits them rather than one label.
     'improveButtons.map',
-    '<KleinImproveNote',
   ].map(at);
   for (let i = 1; i < order.length; i += 1) {
     assert.ok(order[i] > order[i - 1], 'the action DOM order must not change');
@@ -421,13 +420,13 @@ test('the panel is a detour, not a second window', () => {
 });
 
 test('the bottom bar keeps the improve buttons on ONE row', () => {
-  // THE reported break: the Klein note is full-width, and dropped between the
-  // two buttons it pushes the second one onto its own line — "stranded alone,
-  // centred, at the very bottom". It may sit between them in the rail (a
-  // column, where that is what attaches it to Klein) and nowhere else.
-  assert.match(lightbox, /\{rail && btn\.showKleinNote && !improvementActive && \(/);
-  assert.match(lightbox, /\{!rail && improveButtons\.some\(\(b\) => b\.showKleinNote\)/);
-  // Exactly two renders of the note, one per placement — never both at once.
-  const notes = lightbox.match(/<KleinImproveNote\b/g) || [];
-  assert.equal(notes.length, 2, 'one note per placement branch, no more');
+  // THE reported break was a full-width Klein note dropped between the two
+  // buttons, stranding the second on its own line. The note no longer mounts
+  // inline AT ALL — it lives in the ImproveModal the ✨ button opens — which
+  // retires the breakage by construction. The pin flips accordingly: NO
+  // inline note in either placement, and the modal mounted exactly once.
+  assert.ok(!lightbox.includes('<KleinImproveNote'),
+    'the Klein note must not mount inline in the lightbox any more');
+  const modals = lightbox.match(/<ImproveModal\b/g) || [];
+  assert.equal(modals.length, 1, 'one shared improve modal, no more');
 });

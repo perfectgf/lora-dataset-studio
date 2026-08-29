@@ -27,8 +27,10 @@ test('lightbox exposes an accessible responsive image improvement action', () =>
   // Klein's amber note follows KLEIN's button, never SeedVR2's: it is about
   // Klein's instruction pulling drawn skin towards realism, and SeedVR2 sends
   // no instruction at all.
-  assert.match(lightbox, /\{rail && btn\.showKleinNote &&/);
-  assert.match(lightbox, /\{!rail && improveButtons\.some\(\(b\) => b\.showKleinNote\)/);
+  // The Klein settings prose no longer mounts inline: the ✨ button opens
+  // the shared ImproveModal (settings + Generate + result in place).
+  assert.match(lightbox, /improveOpen: true/);
+  assert.match(lightbox, /<ImproveModal\b/);
 });
 
 // The comparison is what makes an improvement judgeable: before this, the
@@ -80,7 +82,7 @@ test('any dataset image can be inspected next to the reference photo', () => {
   // id-STAMPED per-image slot, not in a useState of its own: that is what makes
   // ⟩ leave the comparison behind with the image it belonged to, instead of
   // carrying an "Original" pane onto a picture whose parent is someone else's.
-  assert.match(lightbox, /full, compareMode, improving, actionsOpen, repairOpen, cameraOpen, deciding,\n  \} = lightboxImageState\(/);
+  assert.match(lightbox, /full, compareMode, improving, actionsOpen, repairOpen, cameraOpen, improveOpen, deciding,\n  \} = lightboxImageState\(/);
   assert.doesNotMatch(lightbox, /useState\((true|false|'none')\)/);
   assert.match(lightbox,
     /patchImageState\(\{\s*full: false,\s*compareMode: compareMode === mode \? 'none' : mode,/);
@@ -135,7 +137,7 @@ test('✦ Repair owns every shortcut while it is open, not just Escape', () => {
   assert.ok(guard < grammar,
     'a close-only guard still lets R reject the picture under the dialog');
   // A listener registered once with repairOpen=false would keep judging forever.
-  assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, patchImageState\]\);/);
+  assert.match(lightbox, /panelOpen, closePanel,\s*\n\s*repairOpen, cameraOpen, improveOpen, patchImageState\]\);/);
 });
 
 test('a verdict advances only once the write has landed, and skip touches nothing', () => {
