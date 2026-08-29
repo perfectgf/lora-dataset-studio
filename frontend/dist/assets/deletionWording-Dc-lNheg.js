@@ -1,0 +1,1 @@
+function t(e){return e==="trash"?"your system Recycle Bin":e==="app_trash"?"the app's Trash (Settings ▸ Storage)":"nowhere — they are deleted for good"}function r(e){return e==="trash"||e==="app_trash"}export{t as d,r as i};
