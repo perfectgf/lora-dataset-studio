@@ -153,9 +153,15 @@ const PAGES = {
      after that (each state still gets a fresh load). A prime whose control is
      absent is not a failure: the workspace is already open, or the instance
      holds nothing to open, and the coverage line says which. */
+  /* ⚠️ Both primes carry `:visible`. The libraries render their rows TWICE (a
+     compact list and a card grid, one hidden per breakpoint), and the hidden
+     twin comes first in the DOM: the bare selector then waits on an element
+     that will never appear, the prime reports "absent", and EVERY state of the
+     page is skipped — silently clean, measuring nothing. Seen at 360×800 on an
+     instance whose dataset was right there on screen. */
   '#/bank': {
     label: 'Bank',
-    prime: ['[aria-label^="Open the bank"]'],
+    prime: ['[aria-label^="Open the bank"]:visible'],
     states: [
       { name: 'resting', open: [] },
       // The ☰ button exists only where the rail cannot sit beside the grid, so
@@ -168,7 +174,7 @@ const PAGES = {
   },
   '#/datasets': {
     label: 'Datasets',
-    prime: ['[aria-label^="Open the dataset"]'],
+    prime: ['[aria-label^="Open the dataset"]:visible'],
     states: [
       { name: 'resting', open: [] },
       { name: 'more', open: ['summary:has-text("More")'] },
@@ -180,6 +186,18 @@ const PAGES = {
       { name: 'training', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Training")'] },
       { name: 'lightbox', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Images"):not(:has-text("Add"))',
         '[aria-label^="Inspect"]'] },
+      // ☁ The checkpoints manager's run groups — a dense header (run chip,
+      // family, version, status, GPU, cost, then ⚙ Details / ⇄ Compare / a
+      // Runs link) that NO state opened until now. That gap was not theory:
+      // four "View in Runs ↗" links sat at 21 px on a phone, under the 40 px
+      // floor, for as long as the panel existed, because nothing here could
+      // reach them. Reached as a user does — the sidebar section, then ☰ List,
+      // since the groups render in the list view and NOT in the default graph.
+      // `:visible` is required: the phone rail's hidden twin comes first in the
+      // DOM. Skipped, and said so, on an instance with no cloud run whose
+      // provenance record exists (the actions only render for one).
+      { name: 'checkpoints', open: ['button:visible:has-text("Checkpoints & LoRAs")',
+        'button:visible:has-text("☰ List")'] },
     ],
   },
   '#/gallery': {

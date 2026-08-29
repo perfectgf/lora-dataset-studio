@@ -286,8 +286,12 @@ export default function BankFilterRail({
               Only {(payload.counts.scanned ?? 0).toLocaleString()} of{' '}
               {(payload.counts.total ?? 0).toLocaleString()} images are scanned —
               these flags only see that part.{' '}
+              {/* Sits mid-sentence, so it inherits the prose's 11 px and was
+                  15 px tall — a target you aim at with a fingertip and miss.
+                  inline-flex keeps it in the text flow while giving min-height
+                  something to apply to (a plain inline box ignores it). */}
               <button type="button" onClick={() => setPassOpen('scan')}
-                className="underline underline-offset-2 hover:text-amber-200">
+                className="min-h-10 lg:min-h-0 inline-flex items-center underline underline-offset-2 hover:text-amber-200">
                 <Search aria-hidden="true" className="mr-1 inline h-3 w-3 align-[-1px]" />Scan the rest
               </button>
             </p>

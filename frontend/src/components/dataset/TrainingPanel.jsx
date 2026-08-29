@@ -1742,7 +1742,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               {/* Full progress bar, loss curve and samples live on the Runs hub —
                   this panel's own TrainingProgress only covers THIS dataset. */}
               <Link to="/cloud" title="Open the Runs page — full progress, loss curve and samples"
-                className="px-1 py-0.5 text-indigo-300 hover:text-indigo-200 text-[0.6875rem] font-medium underline decoration-indigo-300/40">
+                className="min-h-10 lg:min-h-0 inline-flex items-center px-1 py-0.5 text-indigo-300 hover:text-indigo-200 text-[0.6875rem] font-medium underline decoration-indigo-300/40">
                 View in Runs ↗
               </Link>
             </span>
@@ -1921,7 +1921,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             )}
             {/* Full progress bar, loss curve and samples live on the Runs hub. */}
             <Link to="/cloud" title="Open the Runs page — full progress, loss curve and samples"
-              className="ml-auto px-1 py-0.5 text-sky-300 hover:text-sky-200 font-medium underline decoration-sky-300/40">
+              className="ml-auto min-h-10 lg:min-h-0 inline-flex items-center px-1 py-0.5 text-sky-300 hover:text-sky-200 font-medium underline decoration-sky-300/40">
               View in Runs ↗
             </Link>
             <button type="button" className="px-2 py-0.5 rounded bg-red-600/80 text-white text-[0.6875rem] font-semibold"
@@ -3584,7 +3584,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     {li && (
                       <Link to={`/cloud#${runRowDomId(li.source, li.id)}`}
                         title="Jump to this run on the Runs page"
-                        className="ml-auto px-1 py-0.5 text-violet-300 hover:text-violet-200 text-[0.6875rem] font-medium underline decoration-violet-300/40">
+                        className="ml-auto min-h-10 lg:min-h-0 inline-flex items-center px-1 py-0.5 text-violet-300 hover:text-violet-200 text-[0.6875rem] font-medium underline decoration-violet-300/40">
                         View in Runs ↗
                       </Link>
                     )}
@@ -3784,7 +3784,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                         </>)}
                         <Link to={`/cloud#${runRowDomId('cloud', g.run_id)}`}
                           title="Jump to this run on the Runs page"
-                          className="px-1 py-0.5 text-sky-300 hover:text-sky-200 text-[0.6875rem] font-medium underline decoration-sky-300/40">
+                          className="min-h-10 lg:min-h-0 inline-flex items-center px-1 py-0.5 text-sky-300 hover:text-sky-200 text-[0.6875rem] font-medium underline decoration-sky-300/40">
                           View in Runs ↗
                         </Link>
                       </span>

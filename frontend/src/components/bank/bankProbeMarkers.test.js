@@ -64,7 +64,12 @@ test('the review lightbox is a layer', () => {
 test('the bank list names its opener, so the probe can prime the workspace', () => {
   assert.match(page, /aria-label=\{`Open the bank \$\{b\.name\}`\}/);
   assert.match(probe, /'#\/bank': \{/);
-  assert.match(probe, /prime: \['\[aria-label\^="Open the bank"\]'\]/);
+  // `:visible` is not decoration: the library renders its rows twice (compact
+  // list + card grid, one hidden per breakpoint) and the HIDDEN twin comes
+  // first in the DOM. Without it the prime waits on an element that will never
+  // appear, reports "absent", and every state of the page is skipped — a run
+  // that measures nothing while printing no violations.
+  assert.match(probe, /prime: \['\[aria-label\^="Open the bank"\]:visible'\]/);
 });
 
 test('the header gives the fold back on a phone', () => {

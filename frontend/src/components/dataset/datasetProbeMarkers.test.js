@@ -48,7 +48,29 @@ test('controls reach 40 px below lg — the section chips, the header, the menu,
 
 test('the probe opens the dataset first, and names the Images button exactly', () => {
   assert.match(probe, /'#\/datasets': \{/);
-  assert.match(probe, /prime: \['\[aria-label\^="Open the dataset"\]'\]/);
+  // See bankProbeMarkers for why `:visible` is load-bearing — the hidden twin
+  // of the row comes first in the DOM and swallows the whole page's coverage.
+  assert.match(probe, /prime: \['\[aria-label\^="Open the dataset"\]:visible'\]/);
   // `text=Images` is a substring match that lands on "Add images" first
   assert.match(probe, /button:has-text\("Images"\):not\(:has-text\("Add"\)\)/);
+});
+
+test('the probe reaches the checkpoints manager — the panel it used to skip', () => {
+  /* This state exists because of what its absence cost: four "View in Runs ↗"
+     links sat at 21 px on a phone — under the 40 px touch floor — for as long
+     as the panel existed, and no page state could reach them to say so. The
+     two-step path is load-bearing and easy to "simplify" wrongly: the run
+     groups render in the ☰ List view, NOT in the default ◉ Graph, and the
+     phone rail's HIDDEN twin button comes first in the DOM, so `:visible` is
+     what keeps the click landing on a real control. */
+  assert.match(probe, /\{ name: 'checkpoints', open: \['button:visible:has-text\("Checkpoints & LoRAs"\)',\s*\n\s*'button:visible:has-text\("☰ List"\)'\] \}/);
+  // …and the controls the state exists to measure are still there to be found.
+  const panel = read('./TrainingPanel.jsx');
+  assert.match(panel, /button:has-text|Checkpoints & LoRAs/);
+  assert.match(panel, /☰ List/);
+  // The links that were under the floor keep the remedy: min-height needs a
+  // non-inline display on an <a>, which is why inline-flex travels with it.
+  const floored = panel.match(/min-h-10 lg:min-h-0 inline-flex items-center/g) || [];
+  assert.equal(floored.length, 4,
+    'the four "View in Runs ↗" links must keep the 40 px touch floor');
 });
