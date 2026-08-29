@@ -2,7 +2,7 @@ import { CARD_H } from '../../utils/lineageGraph';
 import { resumeCaption } from '../../utils/lineageTree';
 import { famLabel, ModeChip, StatusDot, SavesChip } from './lineageChrome';
 import { trainingRunVariantLabel } from '../../utils/trainingRuns';
-import { runNumber, cloudNumber, runIdentityLabel } from '../../utils/runIdentity';
+import { runNumber, runIdentityLabel } from '../../utils/runIdentity';
 import {
   DEPLOY_BAR_CLASS, deployState, deployTitleSuffix,
 } from '../../utils/checkpointDeployState';
@@ -53,17 +53,15 @@ export function GraphCard({ node, lit, annotated, compareRole, onSelect }) {
         + (clickable ? 'cursor-pointer' : '')}>
       <div className="flex min-w-0 items-center gap-1.5">
         <StatusDot status={node.status} />
-        {/* THE run number = the record id, the same one the inspector shows.
-            The cloud id rides along as an explicit secondary (and in the title)
-            so the card can still be matched to a row on the Runs page — it is
-            never printed as a bare number that would read like the run's own. */}
+        {/* THE run number = the record id, the same one the inspector, the
+            chips and the Runs history show — ONE number per run, everywhere.
+            The cloud id is context, not identity: it stays in the title (and
+            the inspector), never printed beside the number where it read as a
+            second id. Matching a card to a Runs row is the deep-link's job. */}
         <span className="shrink-0 font-mono text-content-muted text-[0.625rem]"
           title={runIdentityLabel(node)}>
           <span aria-hidden>{node.source === 'cloud' ? '☁' : '💻'}</span>{' '}
           {runNumber(node)}
-          {cloudNumber(node) != null && (
-            <span className="text-content-subtle"> · cloud #{cloudNumber(node)}</span>
-          )}
         </span>
         <span className={`min-w-0 truncate text-[0.75rem] font-semibold ${dim ? 'text-content-muted' : 'text-content'}`}
           title={`${famLabel(node.train_type)}${variantLabel(node) ? ` · ${variantLabel(node)}` : ''}`}>

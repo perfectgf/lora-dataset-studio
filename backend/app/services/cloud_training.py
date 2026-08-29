@@ -6889,6 +6889,21 @@ def launch_view(run, *, now=None, cloud_cfg=None):
     }
 
 
+def _record_id_for_cloud(cloud_run_id) -> int | None:
+    """THE run number behind a cloud run: its TrainingRunRecord id. Every
+    surface prints this ONE number (a local run has no cloud id at all, so the
+    cloud id cannot be a run's identity); the cloud id stays a secondary for
+    tooltips and debugging. None for runs that predate the provenance registry
+    — the chips then fall back to the cloud id and say so."""
+    if cloud_run_id is None:
+        return None
+    from ..models import TrainingRunRecord
+    rec = (TrainingRunRecord.query
+           .filter_by(cloud_run_id=int(cloud_run_id))
+           .order_by(TrainingRunRecord.id.asc()).first())
+    return rec.id if rec else None
+
+
 def _run_payload(run) -> dict:
     family = _run_family(run)
     training_mode = _run_training_mode(run)
@@ -6918,6 +6933,10 @@ def _run_payload(run) -> dict:
     diagnostic = lt.zimage_recipe_diagnostic(
         family, variant, effective_base, training_adapter, recipe_version)
     payload = {'run_id': run.id, 'dataset_id': run.dataset_id, 'status': run.status,
+            # THE run number for the ☁ #N chip (see _record_id_for_cloud):
+            # actives and legacy fallback rows get it here; registry-backed
+            # history rows overwrite it with the same value via all_runs.
+            'record_id': _record_id_for_cloud(run.id),
             # Stable id for the per-run "Share configuration" download. Every
             # cloud row (active/finished/legacy) addresses by its pod row id;
             # local rows use 'rec-<record id>' (set in all_runs).
@@ -7153,6 +7172,10 @@ def all_runs(limit: int = 20) -> dict:
             row.update(_run_payload(crun))
             if row.get('steps') is None:
                 row['steps'] = registry_steps
+            # This row IS the record — its own id beats the payload's reverse
+            # lookup (identical in the single-record case, and the record in
+            # hand wins if a cloud run ever gains two).
+            row['record_id'] = rec.id
             row['settings'] = settings
             row['source'] = 'cloud'
         _annotate_preview(row, crun, rec)
@@ -9232,6 +9255,11 @@ def cloud_checkpoint_groups(dataset_id, train_type=None, variant=None,
             continue
         entries.sort(key=lambda e: (e['step'], e['final']))
         groups.append({
+            # THE run number (TrainingRunRecord id) — what the header chip
+            # prints and what ⚙ Details / ⇄ Compare address the lineage tree
+            # with (its nodes key on record_id, never on the cloud id). None
+            # on a pre-registry run: no record means no recipe to open.
+            'record_id': _record_id_for_cloud(run.id),
             'run_id': run.id, 'source': 'cloud', 'status': run.status,
             'active': run.status in ACTIVE_STATES, 'gpu': run.gpu_name,
             'price_per_hour': run.price_per_hour,

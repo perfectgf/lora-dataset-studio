@@ -934,7 +934,8 @@ export default function CloudRunsPage() {
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {ident ? (
-              <RunIdChip source={ident.source} id={ident.id} />
+              <RunIdChip source={run.source === 'cloud' ? 'cloud' : 'local'}
+                recordId={run.record_id} cloudId={run.source === 'cloud' ? run.run_id : null} />
             ) : (
               <span aria-hidden title={run.source === 'cloud' ? 'Cloud run (vast.ai)' : 'Local run'}>
                 {run.source === 'cloud' ? <Cloud aria-hidden="true" className="h-3.5 w-3.5" /> : <Monitor aria-hidden="true" className="h-3.5 w-3.5" />}
@@ -1204,7 +1205,7 @@ export default function CloudRunsPage() {
             className="flex flex-col gap-2 rounded-xl border border-violet-500/30 bg-violet-500/5 p-3">
             <div className="flex flex-wrap items-center gap-2">
               {data.local_active.record_id != null
-                ? <RunIdChip source="local" id={data.local_active.record_id} />
+                ? <RunIdChip source="local" recordId={data.local_active.record_id} />
                 : <Monitor aria-hidden="true" className="h-3.5 w-3.5" />}
               <button type="button" onClick={() => openDataset(data.local_active.current.dataset_id)}
                 title="Open this dataset"
@@ -1272,7 +1273,7 @@ export default function CloudRunsPage() {
             <div key={run.run_id} id={runRowDomId('cloud', run.run_id)}
               className="flex flex-col gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <RunIdChip source="cloud" id={run.run_id} />
+                <RunIdChip source="cloud" recordId={run.record_id} cloudId={run.run_id} />
                 <button type="button" onClick={() => openDataset(run.dataset_id)}
                   title="Open this dataset"
                   className="text-content font-semibold text-sm hover:underline">

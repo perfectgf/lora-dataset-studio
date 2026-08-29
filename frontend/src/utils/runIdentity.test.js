@@ -56,13 +56,22 @@ test('localRunIdentity picks the newest checkpoint that carries a run id', () =>
     { step: 2500, run_id: 12, run_source: 'local' },
     { step: 1000 },   // untagged legacy file — ignored
   ];
-  assert.deepEqual(localRunIdentity(cks), { source: 'local', id: 12 });
+  // `id` stays the ADDRESS (Runs-row anchor); recordId is what the chip
+  // prints — for a local tag they are the same number by construction.
+  assert.deepEqual(localRunIdentity(cks),
+    { source: 'local', id: 12, recordId: 12, cloudId: null });
   assert.equal(localRunIdentity([{ step: 500 }]), null);   // nothing tagged
   assert.equal(localRunIdentity([]), null);
-  // a cloud-sourced local record maps to the cloud family
+  // A cloud-sourced set keeps the cloud id as its ADDRESS but displays the
+  // record id the save was stamped with — ONE run number on every surface.
+  assert.deepEqual(
+    localRunIdentity([{ step: 100, run_id: 4, run_source: 'cloud', record_id: 9 }]),
+    { source: 'cloud', id: 4, recordId: 9, cloudId: 4 });
+  // A pre-registry cloud set has no record: recordId stays null and the chip
+  // falls back to the cloud id, saying which kind of number it is.
   assert.deepEqual(
     localRunIdentity([{ step: 100, run_id: 4, run_source: 'cloud' }]),
-    { source: 'cloud', id: 4 });
+    { source: 'cloud', id: 4, recordId: null, cloudId: 4 });
 });
 
 test('cloudGroupsFrom prefers the server groups payload verbatim', () => {

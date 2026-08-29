@@ -12,12 +12,25 @@
    TrainingPanel. The pure identity/deep-link helpers live in
    utils/runIdentity.js (framework-free, unit-tested). */
 
-export function RunIdChip({ source, id, className = '' }) {
+export function RunIdChip({ source, recordId, cloudId, className = '' }) {
+  /* ONE number on the chip: the provenance RECORD id — the same #N the
+     lineage card, the 🌳 tree and the run inspector print, so a run wears the
+     same number on every surface (it used to wear its cloud id here and its
+     record id there, and ⚙ Details on a checkpoints card chased the wrong
+     one). The cloud id is context in the tooltip only. A pre-registry cloud
+     run has no record: the chip then shows the only number that exists and
+     the tooltip says which kind it is, never wearing the wrong identity
+     silently. */
+  const id = recordId ?? cloudId;
   if (id == null) return null;
   const cloud = source === 'cloud';
+  const title = recordId != null
+    ? `Training run #${recordId} — the run that produced this LoRA`
+      + (cloudId != null ? ` (cloud run #${cloudId})` : '')
+    : `Cloud run #${cloudId} — from before run tracking, so it has no run number`;
   return (
     <span
-      title="Training run id — the run that produced this LoRA"
+      title={title}
       className={'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 '
         + 'text-[0.625rem] font-semibold tabular-nums '
         + (cloud

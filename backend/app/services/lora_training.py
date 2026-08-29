@@ -6605,6 +6605,24 @@ def list_imported_checkpoints(user_id, dataset_id, family=None) -> list[dict]:
             entry['arch_mismatch'] = detected
             entry['arch_label'] = _LORA_ARCH_LABEL.get(detected, detected)
         out.append(entry)
+    # THE run number for each deployed file's chip: a local tag already IS the
+    # record id; a cloud tag carries the cloud run id, which the provenance
+    # registry maps back — one grouped query, not one per file. A file whose
+    # cloud run predates the registry stays record-less (the chip falls back
+    # to the cloud id and says so). The tag in the FILENAME is never rewritten.
+    cloud_rids = {e['run_id'] for e in out if e.get('run_source') == 'cloud'}
+    rec_by_cloud = {}
+    if cloud_rids:
+        from ..models import TrainingRunRecord
+        for rec in (TrainingRunRecord.query
+                    .filter(TrainingRunRecord.cloud_run_id.in_(cloud_rids))
+                    .order_by(TrainingRunRecord.id.asc()).all()):
+            rec_by_cloud.setdefault(rec.cloud_run_id, rec.id)
+    for e in out:
+        if e.get('run_source') == 'local':
+            e['record_id'] = e['run_id']
+        elif e.get('run_id') in rec_by_cloud:
+            e['record_id'] = rec_by_cloud[e['run_id']]
     return out
 
 

@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-one-run-number',
+    date: '2026-08-29',
+    title: 'One number per training run, on every screen',
+    blurb:
+      'A cloud run used to wear two ids — its run number on the lineage '
+      + 'cards and a different cloud number on the Checkpoints and Runs '
+      + 'chips — and ⚙ Details on a checkpoints card could answer "not in '
+      + 'the lineage tree" because of it. Every card, chip and tree row now '
+      + 'prints the same single run number; the cloud id moved into the '
+      + 'tooltip for when support asks. Deep links and stored data are '
+      + 'untouched.',
+  },
+  {
     id: '2026-08-29-improve-settings-window',
     date: '2026-08-29',
     title: '✨ Improve now opens its settings in a window — and shows you the result',

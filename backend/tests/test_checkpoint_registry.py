@@ -572,3 +572,62 @@ def test_import_never_overwrites_a_different_lora_silently(app, ds_with_images, 
         lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src))
         dup = lt.import_checkpoint(LOCAL_USER, ds_id, ck.name, src_dir=str(src))
         assert os.path.basename(dup) == first_name   # same name, overwritten in place
+
+
+def test_one_run_number_record_id_rides_every_cloud_payload(app, ds_with_images, tmp_path):
+    """THE run number is the provenance record id — every payload that names a
+    cloud run carries it, so no surface prints the cloud id as the run's own
+    number. The two-number display was user-reported (2026-08-29): the
+    checkpoints chip wore the cloud id while the lineage card wore the record
+    id, and the card's ⚙ Details chased the cloud id through record-keyed
+    lineage nodes, answering "not in the lineage tree" for a run whose tree
+    was one click away. A run that predates the registry stays record-less
+    (record_id None) — the chip then falls back to the cloud id AND SAYS SO,
+    instead of silently wearing the wrong identity."""
+    import json as _json
+    from app.models import CloudTrainingRun
+    from app.services import checkpoint_registry as reg
+    from app.services import cloud_training as ct
+    ds_id, _ = ds_with_images
+    with app.app_context():
+        def mk_run(i):
+            d = tmp_path / f'onenum{i}'
+            d.mkdir()
+            (d / f'lds9{i}_x_000000500.safetensors').write_bytes(b'W')
+            r = CloudTrainingRun(
+                dataset_id=ds_id, status='done', job_name='j',
+                vast_label=f'lds-9{i}', staging_dir=str(d),
+                train_params=_json.dumps({'train_type': 'krea', 'version': 1}))
+            db.session.add(r)
+            db.session.commit()
+            return r
+        tracked, legacy = mk_run(1), mk_run(2)
+        rec = reg.register_launch(LOCAL_USER, ds_id, 'krea', 'cloud',
+                                  steps=500, cloud_run_id=tracked.id)
+        assert rec is not None
+
+        by_run = {g['run_id']: g for g in ct.cloud_checkpoint_groups(ds_id, 'krea')}
+        assert by_run[tracked.id]['record_id'] == rec.id
+        assert by_run[legacy.id]['record_id'] is None
+
+        # The Runs-hub payloads (actives and the legacy-fallback history rows
+        # both go through _run_payload) resolve the same mapping.
+        assert ct._run_payload(tracked)['record_id'] == rec.id
+        assert ct._run_payload(legacy)['record_id'] is None
+
+        # Deployed files carry the run in their NAME (`_rc<cloud id>` — never
+        # rewritten), so the listing maps the tag back to the record at read
+        # time: tracked run -> its record id, pre-registry run -> no record_id
+        # key at all (the chip falls back to the cloud id and says so).
+        from app import config as cfg
+        from app.services import lora_training as lt
+        cfg.save_config({'comfyui': {'base_dir': str(tmp_path / 'comfy')}})
+        dest = tmp_path / 'comfy' / 'models' / 'loras' / 'krea'
+        dest.mkdir(parents=True)
+        (dest / f'lds{tracked.id}_x_000000500_rc{tracked.id}.safetensors').write_bytes(b'W')
+        (dest / f'lds{legacy.id}_x_000000500_rc{legacy.id}.safetensors').write_bytes(b'W')
+        rows = {c['run_id']: c for c in
+                lt.list_imported_checkpoints(LOCAL_USER, ds_id, family='krea')
+                if c.get('run_source') == 'cloud'}
+        assert rows[tracked.id]['record_id'] == rec.id
+        assert 'record_id' not in rows[legacy.id]

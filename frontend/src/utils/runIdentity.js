@@ -28,7 +28,16 @@ export function localRunIdentity(checkpoints) {
   const withRun = (checkpoints || []).filter((c) => c.run_id != null);
   if (!withRun.length) return null;
   const c = withRun.reduce((a, b) => ((b.step ?? 0) >= (a.step ?? 0) ? b : a));
-  return { source: c.run_source === 'cloud' ? 'cloud' : 'local', id: c.run_id };
+  const cloud = c.run_source === 'cloud';
+  return {
+    source: cloud ? 'cloud' : 'local',
+    // `id` is the ADDRESS (Runs-row anchor key: cloud id for a cloud run) —
+    // unchanged. The chip displays recordId: THE run number, stamped on every
+    // registry-tagged save; a local tag already is one.
+    id: c.run_id,
+    recordId: c.record_id ?? (cloud ? null : c.run_id),
+    cloudId: cloud ? c.run_id : null,
+  };
 }
 
 /* ── ONE number for a run, across every lineage surface ──────────────────────
@@ -39,9 +48,13 @@ export function localRunIdentity(checkpoints) {
    card opened a panel bearing a different number with nothing tying them.
 
    The record id wins as THE run number: a local run has no cloud id at all, so
-   the cloud id cannot BE a run's identity. The cloud id is not hidden — it is
-   shown as an explicit secondary ("Run #107 · cloud #103"), never as a bare
-   number that reads like the run's own.
+   the cloud id cannot BE a run's identity. The cloud id is not hidden — but it
+   is CONTEXT, not identity: it lives in tooltips (runIdentityLabel) and in the
+   run inspector, never printed beside the number on cards, chips or tree rows.
+   (It used to be printed as a "· cloud #103" secondary; two numbers on every
+   card read as noise, and the checkpoints chip printed the cloud id ALONE —
+   the same run wore different numbers on different screens, and ⚙ Details
+   chased the wrong one. Maintainer, 2026-08-29: one number, everywhere.)
 
    Display only: no stored key changes. What was keyed by record id (checkpoint
    selections, notes) or by cloud run id (Runs deep links, checkpoint replays)

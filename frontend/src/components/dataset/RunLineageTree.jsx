@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { buildLineageRows, resumeCaption } from '../../utils/lineageTree';
 import { famLabel, ModeChip, StatusDot, SavesChip } from './lineageChrome';
-import { runNumber, cloudNumber, runIdentityLabel } from '../../utils/runIdentity';
+import { runNumber, runIdentityLabel } from '../../utils/runIdentity';
 import RunLineageGraph from './RunLineageGraph';
 
 /* 🌳 A run's lineage — the runs linked by continuations (run → continue →
@@ -74,9 +74,6 @@ function LineageNode({ row, onSelect, index }) {
             title={runIdentityLabel(node)}>
             <span aria-hidden>{node.source === 'cloud' ? '☁' : '💻'}</span>{' '}
             {runNumber(node)}
-            {cloudNumber(node) != null && (
-              <span className="text-content-subtle"> · cloud #{cloudNumber(node)}</span>
-            )}
           </span>
           <span className={`min-w-0 truncate text-[0.75rem] font-semibold ${dim ? 'text-content-muted' : 'text-content'}`}
             title={`${famLabel(node.train_type)}${node.variant ? ` · ${node.variant}` : ''}`}>
