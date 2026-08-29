@@ -3676,6 +3676,13 @@ def _pick_offer(offers, requested_gpu, strict=False):
     return _best_of(offers)
 
 
+# The video lane's pod disk, in GB, below which a run cannot be provisioned.
+# Not a tuning knob: 42.5 GB of MiniMax H3 weights plus an unpacked ai-toolkit
+# image already exceed the 60 GB the face lane rents, and the overflow arrives
+# after the rental is paid for.
+_VIDEO_DISK_FLOOR_GB = 120
+
+
 def _disk_gb_for(cloud_cfg, params) -> int:
     """Pod disk size: the configured default, bumped when the run trains on a
     LARGE custom base (stamped remote size). The pod holds the raw download
@@ -3687,6 +3694,17 @@ def _disk_gb_for(cloud_cfg, params) -> int:
         # Safety floor, even when an old/user-edited config carries a smaller
         # number: base + working weights + one ~26 GB save do not fit below it.
         disk_gb = max(200, int(dense.get('disk_gb') or 200))
+    elif params.get('train_type') == 'video':
+        # Same shape as the dense floor above, for the same reason: the video
+        # lane's base does not fit the shared default. Its weights are pulled
+        # file by file from the Comfy repack (42.5 GB for MiniMax H3) and land
+        # beside an unpacked image on ONE vast allocation, and this arch caches
+        # its latents to disk on top. The floor is in code rather than in the
+        # config alone because `config.json` freezes whatever `cloud` block was
+        # saved before the key existed — a user who saved Settings in July would
+        # otherwise still rent 60 GB and lose the run at 58.
+        disk_gb = max(_VIDEO_DISK_FLOOR_GB,
+                      int(cloud_cfg.get('video_disk_gb') or _VIDEO_DISK_FLOOR_GB))
     else:
         disk_gb = int(cloud_cfg.get('disk_gb') or 60)
     try:

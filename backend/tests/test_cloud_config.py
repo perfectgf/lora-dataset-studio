@@ -33,6 +33,10 @@ def test_cloud_defaults_present(app):
     # The video lane boots its own, fresher image (minimax_h3 landed in
     # ai-toolkit on 2026-08-03; the face pin above predates it on purpose).
     assert cfg.get('cloud.video_image', '').startswith('vastai/ostris-ai-toolkit:')
+    # …and rents its own disk: 42.5 GB of MiniMax H3 weights plus an unpacked
+    # image do not fit the 60 GB above, and a pod that fills up mid-download has
+    # already been paid for.
+    assert cfg.get('cloud.video_disk_gb') == 120
 
 
 def test_vast_api_key_is_a_secret(app):

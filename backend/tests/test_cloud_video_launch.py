@@ -548,3 +548,32 @@ def test_the_video_family_rents_at_least_48_gb_of_vram():
     from app.config import DEFAULTS
     floors = DEFAULTS['cloud']['min_vram_gb']
     assert floors.get('video', 24) >= 48
+
+
+def test_a_video_pod_is_never_rented_with_the_face_lane_s_disk():
+    """A video pod holds its base, an unpacked image and a latent cache on ONE
+    vast allocation, and MiniMax H3's base alone is 42.5 GB — the 60 GB the face
+    lane rents cannot hold it, and the shortfall surfaces mid-download, after the
+    pod is paid for. Third of the same family as the image pin and the VRAM
+    floor: everything that decides whether the money buys a training must be
+    decided BEFORE the rental.
+
+    The floor lives in code and not only in DEFAULTS because `config.json`
+    freezes the whole `cloud` block as it was saved: an install that opened
+    Settings before this key existed carries `disk_gb: 60` and no
+    `video_disk_gb` at all, and a resolver reading the config alone would rent
+    60 GB from it forever."""
+    from app.config import DEFAULTS
+    from app.services.cloud_training import _VIDEO_DISK_FLOOR_GB, _disk_gb_for
+    from app.services.video_training_local import WEIGHT_FOOTPRINTS
+    stale = {'disk_gb': 60}                      # a cloud block frozen in July
+    assert _disk_gb_for(stale, {'train_type': 'video'}) >= _VIDEO_DISK_FLOOR_GB
+    # The face lane is untouched by all of this — its pin is its own verdict.
+    assert _disk_gb_for(stale, {'train_type': 'zimage'}) == 60
+    # Not a round number picked for comfort: the floor has to clear the largest
+    # base this lane declares AND still leave the face lane's entire allocation
+    # over for the image, the caches and the saves. Declaring a bigger base
+    # later fails HERE rather than on a rented pod.
+    biggest = max(f['gigabytes'] for f in WEIGHT_FOOTPRINTS.values())
+    assert _VIDEO_DISK_FLOOR_GB > biggest + 60
+    assert DEFAULTS['cloud']['video_disk_gb'] >= _VIDEO_DISK_FLOOR_GB

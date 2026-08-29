@@ -265,6 +265,17 @@ DEFAULTS = {
         'unreachable_grace_minutes': 6,  # tolerated mid-run network blackout before giving up on the pod
         'monthly_budget_usd': 0,       # 0 = unlimited; launches blocked past this
         'disk_gb': 60,                 # instance disk (base model + dataset + checkpoints)
+        # The VIDEO lane rents its disk separately, and the number is not a
+        # preference. vast counts the UNPACKED image against the same allocation
+        # as the workspace, and this lane's base is an order of magnitude larger
+        # than the face lane's: MiniMax H3's four Comfy repack files measure
+        # 42.5 GB (Hub API, 2026-08-29) under a 7.6 GB compressed image — the
+        # two ALONE overrun the 60 GB above, before the latent cache this arch
+        # writes to disk and the saves. A pod that fills up mid-download is
+        # money already spent, which is the failure the whole lane's floors
+        # exist to remove. Floored in code like the dense lane's, so a config
+        # frozen before this key existed cannot undercut it.
+        'video_disk_gb': 120,
         # min_vram_gb est PAR FAMILLE (pas par variante) : pour flux2klein on prend
         # 32 — le 9B (32-48 GB) est la voie cloud principale de cette famille, et un
         # pod 32 GB entraîne aussi le 4B sans problème (l'inverse serait faux).

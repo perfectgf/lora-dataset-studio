@@ -54,6 +54,7 @@
     "stall_timeout_minutes": 30,
     "monthly_budget_usd": 0,
     "disk_gb": 60,
+    "video_disk_gb": 120,
     "min_vram_gb": {
       "zimage": 24,
       "sdxl": 16,
