@@ -2495,6 +2495,23 @@ def _stack_signature(members) -> str:
 _STACK_SCAN_ROWS = 600
 
 
+def _shared_cell(r) -> dict:
+    """Une cellule du Studio publiée d'abord comme TOUTE image de gallery.
+
+    Le serializer partagé (cloud_training.gallery_image) EST la parité : le
+    viewer du Studio lit les mêmes faits que la Gallery — prompt, seed,
+    checkpoint, LoRAs annexes, base, sampler, dérivation, pose caméra. Chaque
+    payload du Studio étale ses clés spécifiques PAR-DESSUS ce socle, jamais à
+    la place : trois blocs de cellules avaient dérivé en trois formes, et
+    c'est ce que l'utilisateur a vu (« des infos qu'on ne retrouve pas »).
+    Import paresseux — cloud_training importe déjà ce module à l'exécution."""
+    from . import cloud_training as ct
+    cell = ct.gallery_image(r)
+    if not r.filename:
+        cell['url'] = None   # pending/failed : pas de fichier, pas d'URL mensongère
+    return cell
+
+
 def stack_variants(run_id, rows, limit=8) -> list:
     """Les runs de la MÊME pile (mêmes LoRA, poids éventuellement différents), du plus
     récent au plus ancien, run courant compris et marqué `active`.
@@ -2559,13 +2576,14 @@ def stack_variants(run_id, rows, limit=8) -> list:
             'likes': sum(1 for c in cells if c.rating == 1),
             'dislikes': sum(1 for c in cells if c.rating == -1),
             'done': sum(1 for c in cells if c.status == 'done' and c.filename),
-            'cells': [{'id': c.id, 'dataset_id': c.dataset_id, 'checkpoint': c.checkpoint,
+            # Superset du serializer PARTAGÉ (cloud_training.gallery_image) : le
+            # viewer du Studio lit désormais les mêmes faits que la Gallery
+            # (prompt, LoRAs, base, sampler…) — une cellule qui en sait moins
+            # qu'une image de gallery était le trou signalé. Les clés
+            # spécifiques du bloc restent par-dessus.
+            'cells': [{**_shared_cell(c),
                        'label': _basename(c.checkpoint or '').rsplit('.', 1)[0],
-                       'filename': c.filename, 'rating': c.rating, 'status': c.status,
-                       'seed': c.seed, 'aspect': c.aspect, 'strength': c.strength,
-                       # Même clé que studio_payload_run : ces cellules ÉCLIPSENT les
-                       # complètes dans la lightbox (displayedCells), le champ doit suivre.
-                       'inject_trigger': c.inject_trigger,
+                       'filename': c.filename, 'status': c.status,
                        'error': c.error if c.status == 'failed' else None} for c in cells],
         })
     # Le run courant d'abord, le reste dans l'ordre de scan (récent → ancien).
@@ -4833,29 +4851,25 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
         # ou null quand l'historique est trop court : l'estimation de durée du
         # panneau cesse d'être « ~12 s/image » sur toutes les cartes du monde.
         'seconds_per_image': measured_seconds_per_image(eff),
-        'cells': [{'id': r.id, 'checkpoint': r.checkpoint,
+        # Superset du serializer PARTAGÉ (cloud_training.gallery_image) — voir
+        # stack_variants : mêmes faits que la Gallery, plus les clés que seule
+        # cette grille lit. `run_id` : la colonne a toujours été écrite
+        # (`create_run`) mais n'était pas servie → la grille devinait un run
+        # depuis run_seed+prompt, et un batch de N prompts semblait N runs.
+        'cells': [{**_shared_cell(r),
                    'label': _checkpoint_display_label(r.checkpoint, known),
-                   'strength': r.strength, 'aspect': r.aspect, 'filename': r.filename,
-                   'rating': r.rating, 'seed': r.seed, 'run_seed': r.run_seed,
-                   # WHICH launch this cell belongs to. The column has always been
-                   # written (`create_run`), but it was never served, so the grid
-                   # had to guess a run from `run_seed` + prompt — and a batch of N
-                   # prompts then looked like N separate runs, of which it showed
-                   # one. Null on rows predating the column; the frontend keeps the
-                   # old grouping for those.
-                   'run_id': r.run_id, 'status': r.status,
+                   'filename': r.filename, 'run_seed': r.run_seed,
+                   'status': r.status,
                    'queue_status': activity['queue_status'].get(r.job_id),
                    'queue_error': activity['queue_error'].get(r.job_id),
-                   'prompt': r.prompt, 'z_model': r.z_model,
+                   'z_model': r.z_model,
                    'z_model_label': (_basename(r.z_model).rsplit('.', 1)[0] if r.z_model else None),
-                   'cfg': r.cfg, 'steps': r.steps, 'steps2': r.steps2,
+                   'steps2': r.steps2,
                    'batch_lora': _batch_lora_label(r),
                    'combined_loras': _combined_lora_labels(r),
-                   # False = prompt envoyé sans le trigger word (méta de cellule).
-                   'inject_trigger': r.inject_trigger,
                    # Why the tile is empty (failed cells only) → shown on hover (P0-b).
                    'error': r.error if r.status == 'failed' else None,
-                   'face_score': r.face_score, 'face_state': r.face_state}
+                   'face_state': r.face_state}
                   for r in rows],
         # cell_scores scanne la table une fois (filtré famille) → partagé entre
         # best_cell/best_preset/best_per_checkpoint (sinon 4 scans identiques).
@@ -4927,16 +4941,16 @@ def studio_payload_run(user_id, run_id) -> dict | None:
         'run_id': run_id,
         'loras': [{'dataset_id': d, 'lora_label': _lbl(d), 'dataset_name': _name(d)}
                   for d in sorted(ds_ids)],
-        'cells': [{'id': r.id, 'dataset_id': r.dataset_id, 'checkpoint': r.checkpoint,
-                   'label': _basename(r.checkpoint).rsplit('.', 1)[0], 'strength': r.strength,
-                   'aspect': r.aspect, 'filename': r.filename, 'rating': r.rating, 'seed': r.seed,
-                   'run_seed': r.run_seed, 'status': r.status,
+        # Superset du serializer PARTAGÉ (cloud_training.gallery_image) — même
+        # doctrine que studio_payload ci-dessus.
+        'cells': [{**_shared_cell(r),
+                   'label': _basename(r.checkpoint).rsplit('.', 1)[0],
+                   'filename': r.filename, 'run_seed': r.run_seed, 'status': r.status,
                    'queue_status': activity['queue_status'].get(r.job_id),
-                   'queue_error': activity['queue_error'].get(r.job_id), 'prompt': r.prompt,
-                   'z_model': r.z_model, 'cfg': r.cfg, 'steps': r.steps, 'steps2': r.steps2,
+                   'queue_error': activity['queue_error'].get(r.job_id),
+                   'z_model': r.z_model, 'steps2': r.steps2,
                    'batch_lora': _batch_lora_label(r),
                    'combined_loras': _combined_lora_labels(r),
-                   'inject_trigger': r.inject_trigger,
                    'error': r.error if r.status == 'failed' else None} for r in rows],
         'lora_ranking': lora_net_scores(run_id),
         # Run PILE (🧬 combine) : sa composition (chaque LoRA, son poids, son trigger)

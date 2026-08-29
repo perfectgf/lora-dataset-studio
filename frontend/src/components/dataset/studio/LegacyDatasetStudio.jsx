@@ -4,7 +4,7 @@
  * rail de réglages (RunSetupPanel), grilles de résultats (ResultsArea), meilleur
  * réglage temps réel (BestPresetCard) + persisté (BestSettingsBanner), meilleur
  * réglage par modèle (BestPerModelList), comparaison des bases (ModelComparison),
- * vote rapide (QuickVoteModal) et lightbox (ResultLightbox).
+ * vote rapide (QuickVoteModal) et lightbox (StudioResultViewer).
  *
  * Extrait 1:1 du corps de l'ancien StudioShell (avant la réécriture multi-LoRA) :
  * c'est la branche « 1 LoRA coché » de StudioShell. Reçoit `datasetId` (le
@@ -25,7 +25,7 @@ import BestPerModelList from './BestPerModelList';
 import ModelComparison from './ModelComparison';
 import ResultsArea from './ResultsArea';
 import QuickVoteModal from './QuickVoteModal';
-import ResultLightbox from './ResultLightbox';
+import StudioResultViewer from './StudioResultViewer';
 
 export default function LegacyDatasetStudio({ datasetId, initialFamily = null,
   initialBase = null }) {
@@ -112,8 +112,8 @@ function StudioBody({ datasetId, family, onFamilyChange, initialBase = null }) {
 
       <QuickVoteModal vote={vote} datasetId={datasetId} fmt={fmt} />
       {lbImg && (
-        <ResultLightbox img={lbImg} items={lbItems} datasetId={datasetId}
-          onRate={rateLightbox} onNavigate={setLbImg} onClose={() => setLbImg(null)} fmt={fmt} />
+        <StudioResultViewer img={lbImg} items={lbItems}
+          onRate={rateLightbox} onNavigate={setLbImg} onClose={() => setLbImg(null)} />
       )}
     </div>
   );

@@ -29,7 +29,6 @@ const COMPONENTS = join(HERE, '..', 'src', 'components')
 const IMAGE_VIEWER_ALLOWLIST = new Set([
   'CropModal.jsx',
   'DatasetLightbox.jsx',
-  'ResultLightbox.jsx',
   'WatermarkReviewLightbox.jsx',
   'QuickVoteModal.jsx',        // fullscreen bg-black/95 image vote
   'BankReviewLightbox.jsx',    // fullscreen bg-black/95 bank triage viewer

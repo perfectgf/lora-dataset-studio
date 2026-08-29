@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-studio-viewer-facts',
+    date: '2026-08-29',
+    title: 'The Test Studio viewer now tells you everything about a render',
+    blurb:
+      'Open an image in the Test Studio — or in a comparison of two training '
+      + 'runs — and you get the same full viewer as the Gallery: prompt, '
+      + 'seed, checkpoint, extra LoRAs, base model, sampler, and the same '
+      + 'verbs (download, improve, repair, camera angles), with the 👍/👎 '
+      + 'vote kept right there. Comparing two runs no longer shows less '
+      + 'about an image than the Gallery knows about the very same file.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-29-same-verbs-every-viewer',
     date: '2026-08-29',
     title: 'Every generated-image viewer now offers the same verbs',

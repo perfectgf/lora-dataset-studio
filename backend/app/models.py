@@ -790,7 +790,7 @@ class LoraTestImage(db.Model):
     # stored can never drift from what executed. Klein only (a restoration
     # pass has no knobs to record); NULL on every row that is not an improve
     # result and on rows that predate the column. Read by ↩ "Use these
-    # improve settings"; keys are published as-is by _gallery_image, so they
+    # improve settings"; keys are published as-is by gallery_image, so they
     # are part of the frontend contract (improveSettingsRestore.js) — never
     # rename one without an alias. Additive column (see _SCHEMA_ADDITIONS).
     improve_profile = db.Column(Text, nullable=True)

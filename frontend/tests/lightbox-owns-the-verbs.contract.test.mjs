@@ -24,6 +24,11 @@ const HOSTS = [
   'src/components/canvas/LineageCanvas.jsx',
   'src/components/shared/CheckpointGalleryPanel.jsx',
   'src/components/dataset/PreviewLightbox.jsx',
+  // The Test Studio (normal view AND run comparison) — it replaced its own
+  // fifth lightbox with the shared viewer, exactly the move this contract
+  // exists to make cheap: facts and verbs arrived for free, the host kept
+  // only its ordered wrap-around set and the 👍/👎 verdict.
+  'src/components/dataset/studio/StudioResultViewer.jsx',
 ];
 
 const viewer = read(VIEWER);

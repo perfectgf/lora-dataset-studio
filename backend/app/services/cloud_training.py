@@ -7610,14 +7610,17 @@ def checkpoint_gallery(record_id, step, limit=120) -> dict:
         # Where a deleted image WOULD land, resolved the same way the deletion
         # resolves it, so the confirmation never promises the wrong thing.
         'delete_mode': trash.disposal_mode(),
-        'images': [_gallery_image(r) for r in rows],
+        'images': [gallery_image(r) for r in rows],
     }
 
 
-def _gallery_image(r) -> dict:
-    """One image row as the galleries publish it. Extracted so the checkpoint
-    gallery and the run gallery can never drift into two shapes — the panel is
-    ONE component and it reads these keys."""
+def gallery_image(r) -> dict:
+    """One image row as EVERY surface publishes it. Extracted so the checkpoint
+    gallery and the run gallery can never drift into two shapes — and now the
+    Test Studio's cell payloads build on it too (lora_test_studio spreads it
+    under their cell-specific keys), because the Studio viewer reads the same
+    facts the Gallery viewer does. One serializer, one shape, no surface where
+    a row quietly knows less about itself."""
     return {
         'id': r.id,
         'dataset_id': r.dataset_id,
@@ -7768,7 +7771,7 @@ def run_gallery(record_id, limit=RUN_GALLERY_LIMIT,
             'step': step, 'count': n,
             'truncated': len(rows) < n,
             'note': notes.get(step) or '',
-            'images': [_gallery_image(r) for r in rows],
+            'images': [gallery_image(r) for r in rows],
         })
     return {
         'record_id': record_id, 'count': total, 'shown': shown,
@@ -7803,7 +7806,7 @@ def app_gallery(limit=APP_GALLERY_PAGE, before_id=None, dataset_id=None,
     this one answers "what did I make", across every dataset and every surface
     at once (Test Studio cells, inline canvas previews, comparison runs, and
     the ✨ Upscale & improve results derived from them). Same rows, same
-    serializer (`_gallery_image`) — a third shape here would be a third chance
+    serializer (`gallery_image`) — a third shape here would be a third chance
     for the viewers to disagree about what an image row carries.
 
     Pagination is a cursor, not an offset: `before_id` returns rows strictly
@@ -7862,7 +7865,7 @@ def app_gallery(limit=APP_GALLERY_PAGE, before_id=None, dataset_id=None,
         # the feed is exhausted, so the client never asks for a page that can
         # only be empty.
         'next_before_id': rows[-1].id if rows and has_more else None,
-        'images': [_gallery_image(r) for r in rows],
+        'images': [gallery_image(r) for r in rows],
         'datasets': datasets,
         # Where a deleted image WOULD land — same promise, same source as the
         # checkpoint gallery, so the confirmation never promises the wrong thing.
@@ -8820,7 +8823,7 @@ def canvas_image_nodes(user_id, dataset_ids=None) -> dict:
             # every row of a database that predates the columns.
             'group_id': r.group_id or None,
             'group_pos': None if r.group_pos is None else int(r.group_pos),
-            'image': _gallery_image(img),
+            'image': gallery_image(img),
         })
     if pruned:
         db.session.commit()

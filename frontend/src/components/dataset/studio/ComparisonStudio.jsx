@@ -7,7 +7,7 @@
  * /api/studio/run → useStudioRun(run_id) pilote l'affichage (poll + vote +
  * cancel/resume). Grille colonnes = LoRA × lignes = strength (LoraComparisonGrid),
  * panneau « 🏆 Classement LoRA » (data.lora_ranking). Vote rapide (file + swipe)
- * et lightbox réutilisent useQuickVote / QuickVoteModal / ResultLightbox.
+ * et lightbox réutilisent useQuickVote / QuickVoteModal / StudioResultViewer.
  *
  * Le LoraPicker reste dans StudioShell (partagé avec la branche 1-LoRA) ; ici on
  * reçoit la sélection figée et on pilote uniquement le run.
@@ -36,7 +36,7 @@ import LoraComparisonGrid from './LoraComparisonGrid';
 import LoraRankingPanel from './LoraRankingPanel';
 import RunSelector from './RunSelector';
 import QuickVoteModal from './QuickVoteModal';
-import ResultLightbox from './ResultLightbox';
+import StudioResultViewer from './StudioResultViewer';
 
 const rollSeed = () => Math.floor(Math.random() * 2 ** 31);
 
@@ -486,8 +486,8 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
 
       <QuickVoteModal vote={vote} datasetId={vote.current?.dataset_id} fmt={fmt} />
       {lbImg && (
-        <ResultLightbox img={lbImg} items={navImages} datasetId={lbImg.dataset_id}
-          onRate={rateLightbox} onNavigate={setLbImg} onClose={() => setLbImg(null)} fmt={fmt} />
+        <StudioResultViewer img={lbImg} items={navImages}
+          onRate={rateLightbox} onNavigate={setLbImg} onClose={() => setLbImg(null)} />
       )}
 
       {/* Barre de commande fixe : Run toujours visible + raccourcis de sections. */}

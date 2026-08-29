@@ -14,7 +14,7 @@ const promptField = readFileSync(new URL('./PromptField.jsx', import.meta.url), 
 const panel = readFileSync(new URL('./RunSetupPanel.jsx', import.meta.url), 'utf8');
 const runSetup = readFileSync(new URL('./StudioRunSetup.jsx', import.meta.url), 'utf8');
 const comparison = readFileSync(new URL('./ComparisonStudio.jsx', import.meta.url), 'utf8');
-const lightbox = readFileSync(new URL('./ResultLightbox.jsx', import.meta.url), 'utf8');
+const viewer = readFileSync(new URL('./StudioResultViewer.jsx', import.meta.url), 'utf8');
 const pref = readFileSync(new URL('./triggerPref.js', import.meta.url), 'utf8');
 const canvasPanel = readFileSync(
   new URL('../../canvas/CanvasGenerationPanel.jsx', import.meta.url), 'utf8');
@@ -79,8 +79,11 @@ test('the stack surfaces stop promising an injection the box cancels', () => {
   assert.match(stackComposition, /NOT injected/);
 });
 
-test('the lightbox meta and the gallery facts both say when a cell ran without the trigger', () => {
-  assert.match(lightbox, /inject_trigger === false \? ' · no trigger'/);
+test('the studio viewer shows the shared facts, which say when a cell ran without the trigger', () => {
+  // The Studio's own lightbox is gone: it mounts the unified viewer, whose
+  // facts panel (generatedImageFacts) carries the 'not injected' line — ONE
+  // renderer for the meta, not one per surface.
+  assert.match(viewer, /GeneratedImageLightbox/);
   assert.match(facts, /inject_trigger === false/);
   assert.match(facts, /'Trigger word', 'not injected'/);
 });
