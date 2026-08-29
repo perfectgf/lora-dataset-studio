@@ -551,10 +551,10 @@ def test_the_video_family_rents_at_least_48_gb_of_vram():
 
 
 def test_a_video_pod_is_never_rented_with_the_face_lane_s_disk():
-    """A video pod holds its base, an unpacked image and a latent cache on ONE
-    vast allocation, and MiniMax H3's base alone is 42.5 GB — the 60 GB the face
-    lane rents cannot hold it, and the shortfall surfaces mid-download, after the
-    pod is paid for. Third of the same family as the image pin and the VRAM
+    """A video pod holds its base, its transfer's working copy and a latent
+    cache on ONE vast allocation, and MiniMax H3's base alone is 42.5 GB — the
+    60 GB the face lane rents cannot hold that, and the shortfall surfaces
+    mid-download, after the pod is paid for. Third of the same family as the image pin and the VRAM
     floor: everything that decides whether the money buys a training must be
     decided BEFORE the rental.
 
@@ -577,3 +577,22 @@ def test_a_video_pod_is_never_rented_with_the_face_lane_s_disk():
     biggest = max(f['gigabytes'] for f in WEIGHT_FOOTPRINTS.values())
     assert _VIDEO_DISK_FLOOR_GB > biggest + 60
     assert DEFAULTS['cloud']['video_disk_gb'] >= _VIDEO_DISK_FLOOR_GB
+
+
+def test_only_the_video_family_carries_a_compute_capability_floor():
+    """Fourth of the "decide before the rental" family, and the one that only a
+    price list makes visible: every video job this app writes sets dtype bf16,
+    Turing has no bf16 — and Turing is where the cheapest offer lives. Measured
+    on the live market (2026-08-29): the cheapest board clearing this lane's
+    48 GB VRAM and 120 GB disk floors was a Quadro RTX 8000, compute_cap 750, at
+    $0.261/h against $0.802 for the next one up. Cheapest-above-the-floors
+    therefore reaches for the single card in the list that cannot do the work.
+
+    Scoped to 'video' on purpose: the face families' offer pools are what their
+    recipes were measured against, and widening or narrowing them here would be
+    a change nobody asked for, made invisibly."""
+    from app.config import DEFAULTS
+    floors = DEFAULTS['cloud']['min_compute_cap']
+    assert floors['video'] >= 800          # Ampere is the first bf16 generation
+    assert set(floors) == {'video'}
+

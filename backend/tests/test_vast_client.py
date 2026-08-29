@@ -379,3 +379,24 @@ def test_execute_command_keeps_other_refusals_generic(vc, monkeypatch):
         vc.execute_command(42, 'ls -l')
     assert not isinstance(e.value, vc.VastCommandUnsupported)
 
+
+def test_search_offers_sends_a_compute_floor_only_when_asked(vc, monkeypatch):
+    """bf16 is not a speed on Turing, it is absent — so a lane whose recipe
+    trains in bf16 has to filter on the GPU generation, not just on VRAM. vast
+    reports it as an integer (750 Turing, 800 Ampere, 900 Hopper, 1200
+    Blackwell) and the predicate goes in the search, before any rental.
+
+    Sent ONLY when non-zero: every other lane's offer pool is a measured thing,
+    and a floor arriving by default would quietly change what those lanes see."""
+    seen = {}
+
+    def fake_request(method, url, **kw):
+        seen['json'] = kw.get('json')
+        return FakeResp(200, {'offers': []})
+
+    monkeypatch.setattr(vc, '_request', fake_request)
+    vc.search_offers(min_vram_gb=48, max_dph=1.0, min_compute_cap=800)
+    assert seen['json']['compute_cap'] == {'gte': 800}
+    vc.search_offers(min_vram_gb=24, max_dph=1.0)
+    assert 'compute_cap' not in seen['json']
+

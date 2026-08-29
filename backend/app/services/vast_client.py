@@ -117,7 +117,8 @@ def _request(method, path, *, base=API_BASE, **kwargs):
 def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
                   min_inet_down_mbps: int = 0, min_reliability: float = 0.95,
                   min_disk_bw_mbps: int = 0, verified_only: bool = True,
-                  secure_cloud_only: bool = False, min_disk_gb: int = 0) -> list:
+                  secure_cloud_only: bool = False, min_disk_gb: int = 0,
+                  min_compute_cap: int = 0) -> list:
     """Offers matching the configured trust tier and resource constraints.
 
     Vast calls its normal host trust flag ``verified`` and exposes Secure
@@ -135,7 +136,14 @@ def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
     live search on 2026-08-04 returned a $0.081/h box with 57 GB against 19
     others averaging 500+, and "cheapest" is what the quantization lane picked.
     Callers MUST pass the same number they will send as ``disk``; filtering for
-    less than you ask for is the failure this parameter exists to remove."""
+    less than you ask for is the failure this parameter exists to remove.
+
+    min_compute_cap is the same idea applied to the GPU itself. vast reports
+    each offer's compute capability as an integer (750 Turing, 800/860 Ampere,
+    900 Hopper, 1200 Blackwell), and a recipe that trains in bf16 needs 800 or
+    better — bf16 is not a speed on Turing, it is absent. Left at 0 the
+    predicate is not sent at all, so no lane inherits a floor it did not
+    choose."""
     body = {
         'gpu_ram': {'gte': int(min_vram_gb) * 1024},
         'reliability': {'gte': float(min_reliability)},
@@ -155,6 +163,8 @@ def search_offers(min_vram_gb: int, max_dph: float, limit: int = 20,
         body['disk_bw'] = {'gte': int(min_disk_bw_mbps)}
     if min_disk_gb:
         body['disk_space'] = {'gte': int(min_disk_gb)}
+    if min_compute_cap:
+        body['compute_cap'] = {'gte': int(min_compute_cap)}
     r = _request('POST', '/bundles/', json=body)
     if r.status_code != 200:
         raise _failed(r, 'offer search')

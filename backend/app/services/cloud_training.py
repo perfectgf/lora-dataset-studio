@@ -3693,9 +3693,9 @@ def _pick_offer(offers, requested_gpu, strict=False):
 
 
 # The video lane's pod disk, in GB, below which a run cannot be provisioned.
-# Not a tuning knob: 42.5 GB of MiniMax H3 weights plus an unpacked ai-toolkit
-# image already exceed the 60 GB the face lane rents, and the overflow arrives
-# after the rental is paid for.
+# Not a tuning knob: 42.5 GB of MiniMax H3 weights, pulled through a transfer
+# that holds the chunks AND the reconstructed file at once, against the 60 GB
+# the face lane rents — and the overflow arrives after the rental is paid for.
 _VIDEO_DISK_FLOOR_GB = 120
 
 
@@ -3854,7 +3854,16 @@ def _provision(run):
             secure_cloud_only=bool(c.get('secure_cloud_only', False)),
             # Ask only machines that HAVE the disk this pod is about to claim —
             # a dense run asks for 200 GB and the market is full of 60 GB boxes.
-            min_disk_gb=disk_gb)
+            min_disk_gb=disk_gb,
+            # …and machines whose GPU can run the recipe's dtype. Every video
+            # job this app writes trains in bf16, which Turing does not have —
+            # and Turing is exactly where the cheapest offer lives: on
+            # 2026-08-29 the cheapest board clearing this lane's 48 GB and
+            # 120 GB floors was a Quadro RTX 8000 at $0.261/h, compute_cap 750,
+            # against $0.802 for the next one up. Picking by price alone rents
+            # the one card in the list that cannot do the work. Per family and
+            # absent by default: nothing here changes what the face lane sees.
+            min_compute_cap=int((c.get('min_compute_cap') or {}).get(fam, 0)))
 
     def _stamp(offer):
         # Stamp the host identity so a boot failure can blacklist THIS machine —

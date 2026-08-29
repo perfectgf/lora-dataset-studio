@@ -61,6 +61,9 @@
       "krea": 24,
       "video": 48
     },
+    "min_compute_cap": {
+      "video": 800
+    },
     "onstart": "",
     "template_hash": "471ed5903d8cdb8e63b0d0e50f6cd519",
     "min_inet_down_mbps": 400,
