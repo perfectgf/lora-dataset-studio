@@ -83,7 +83,7 @@ export const LONG_RUN_SECONDS = 300
  *  view of a session (a 20 GB model loads from disk). Used to say what a
  *  selection will cost BEFORE it is spent, never to promise a deadline. */
 export const SECONDS_PER_VIEW = 13
-export const FIRST_VIEW_LOAD_SECONDS = 54
+const FIRST_VIEW_LOAD_SECONDS = 54
 
 export const CAMERA_ANGLE = 'camera_angle'
 

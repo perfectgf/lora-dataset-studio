@@ -697,7 +697,7 @@ export function kreaNeedsComfyuiRestart(caps) {
 
 /** Same restart rule for the LanPaint pack (masked Repair's sampler): on disk
  *  but absent from /object_info means "restart ComfyUI", never "install it". */
-export function lanpaintNeedsComfyuiRestart(caps) {
+function lanpaintNeedsComfyuiRestart(caps) {
   const cu = (caps || {}).comfyui || {}
   return !!(cu.lanpaint_nodes_installed
     && Array.isArray(cu.lanpaint_nodes_missing) && cu.lanpaint_nodes_missing.length)
