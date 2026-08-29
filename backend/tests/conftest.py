@@ -249,3 +249,75 @@ def _ollama_fence_never_reads_this_machine(request, monkeypatch):
     _fence.reset_for_tests()
     yield
     _fence.reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _nothing_else_reads_this_machines_ollama(request, monkeypatch):
+    """Keep the unit suite off THIS machine's Ollama — the OTHER two doors.
+
+    The fence guard above closed one door in 2026-08-02 and left the building
+    open. Measured 2026-08-29 with a socket tripwire on port 11434, full suite:
+    **119 real connections, 59 tests, 24 files**. Two distinct leaks, and they
+    do not cost the same thing:
+
+    * `capabilities.probe_ollama` / `probe_ollama_model` — GET /api/tags, 118 of
+      them, from every test that builds a capabilities payload (diagnostic,
+      cloud routes, krea bases, seedvr2, setup_state, watermark…). A read: it
+      lists installed models, loads nothing, reserves no VRAM. Cheap, but it
+      still lets a daemon nobody declared decide a verdict.
+    * `vision_ollama.describe_image_ollama` — **POST /api/generate**, reached by
+      `detect_head_bbox` whenever a test uploads an image (test_dataset_routes,
+      test_json_body_strict). That one is not a read: it LOADS the 8 GB vision
+      model onto the shared GPU. Through LDS's own GPU fence that can stall a
+      running Test Studio queue, and it competes with whatever else holds the
+      card. A unit suite must never be able to do that.
+
+    Forcing both to the "no daemon" answer is what CI already sees (no Ollama on
+    the runner), so every machine agrees with CI instead of inventing a third
+    behaviour. The stubs return exactly what the real failure path returns —
+    False / [] / '' — so no caller learns a shape it would not see in the wild.
+
+    `/api/tags` is the discriminator for the probe half on purpose: it is
+    Ollama's path and nothing else's — ComfyUI probes `/history` through the
+    same `_http_ok` and must keep working.
+
+    Tests that are ABOUT any of this opt back in with @pytest.mark.ollama_http
+    and drive `requests` themselves, so the behaviour stays covered.
+    """
+    if request.node.get_closest_marker('ollama_http'):
+        return
+    import requests as _requests
+
+    # Cut the SOCKET, not the functions. The first version of this guard
+    # stubbed `describe_image_ollama` & co. and turned 30 tests red — because
+    # test_captioning (26 of them), test_vision_keepalive and test_studio_service
+    # mock `vision_ollama.requests.post` and then exercise the REAL function to
+    # assert its parsing, its retries and its lease bookkeeping. Replacing the
+    # function stepped over their mock and tested nothing. Refusing the
+    # connection underneath leaves every line of app logic running, on the exact
+    # path a machine with no daemon takes; a test that installs its own
+    # `requests` double still wins, because its setattr comes after this one.
+    real_get, real_post = _requests.get, _requests.post
+
+    def _refuse(url):
+        raise _requests.exceptions.ConnectionError(
+            f'the unit suite must not reach this machine\'s Ollama ({url}). '
+            'A test that means to drive it takes @pytest.mark.ollama_http.')
+
+    def _get(url, *args, **kwargs):
+        if ':11434' in str(url):
+            _refuse(url)
+        return real_get(url, *args, **kwargs)
+
+    def _post(url, *args, **kwargs):
+        if ':11434' in str(url):
+            _refuse(url)
+        return real_post(url, *args, **kwargs)
+
+    # Port, not path: 11434 IS "the daemon on this machine", while a test that
+    # points ollama.url at a fixture server of its own is not talking to it and
+    # must keep working. Everything else on `requests` — ComfyUI, Hugging Face,
+    # the cloud provider — is delegated untouched.
+    _get.lds_ollama_guard = _post.lds_ollama_guard = True
+    monkeypatch.setattr(_requests, 'get', _get)
+    monkeypatch.setattr(_requests, 'post', _post)
