@@ -1203,6 +1203,64 @@ def test_run_watermark_inpaint_rebuilds_missing_managed_env(app, monkeypatch):
     assert any(c[1:3] == ['-m', 'venv'] for c in seen)       # rebuilt
 
 
+# --- managed-venv pip freshness (the old-pip wheel refusal) ----------------
+
+
+def test_ensure_modern_pip_upgrades_an_old_pip(monkeypatch):
+    """A 3.10 base seeds the venv with pip 21.x, which rejects current wheels
+    ("inconsistent Name") and then fails their sdist build against the CPU torch
+    index. Anything below the floor gets one upgrade."""
+    from app import setup_installer
+    calls = []
+    monkeypatch.setattr(setup_installer, '_pip_version', lambda p: (21, 2))
+    monkeypatch.setattr(setup_installer, '_run_pip',
+                        lambda a, cmd: (calls.append(cmd), 0)[1])
+    setup_installer._runs['bank_scoring'] = setup_installer._new_run()
+    setup_installer._ensure_modern_pip('bank_scoring', r'C:\envs\x\python.exe')
+    assert len(calls) == 1
+    assert calls[0][1:] == ['-m', 'pip', 'install', '--upgrade', 'pip']
+    assert calls[0][0] == r'C:\envs\x\python.exe'   # the venv's own python, never PATH pip
+
+
+def test_ensure_modern_pip_leaves_recent_and_unreadable_pips_alone(monkeypatch):
+    """At or above the floor: nothing to do. Unreadable (missing/fake interpreter):
+    no blind upgrade either — the guard must never touch what it cannot read."""
+    from app import setup_installer
+    calls = []
+    monkeypatch.setattr(setup_installer, '_run_pip',
+                        lambda a, cmd: (calls.append(cmd), 0)[1])
+    setup_installer._runs['bank_scoring'] = setup_installer._new_run()
+    for version in ((23, 1), (25, 0), None):
+        monkeypatch.setattr(setup_installer, '_pip_version', lambda p, v=version: v)
+        setup_installer._ensure_modern_pip('bank_scoring', r'C:\envs\x\python.exe')
+    assert calls == []
+
+
+def test_reused_managed_envs_get_the_pip_freshness_check(app, monkeypatch):
+    """The check runs on REUSE too, not only on creation: installs out there
+    already carry a venv seeded with the old pip, and a re-click of Install must
+    repair it — that is the whole retrofit path."""
+    import os
+    from app import setup_installer
+    seen = []
+    monkeypatch.setattr(setup_installer, '_ensure_modern_pip',
+                        lambda a, p: seen.append(p))
+    with app.app_context():
+        for ensure, managed_python, action in (
+            (setup_installer._ensure_bank_scoring_env,
+             setup_installer._bank_scoring_env_python(), 'bank_scoring'),
+            (setup_installer._ensure_watermark_env,
+             setup_installer._watermark_env_python(), 'watermark_inpaint'),
+        ):
+            os.makedirs(os.path.dirname(managed_python), exist_ok=True)
+            open(managed_python, 'w').close()             # the venv already exists
+            setup_installer._runs[action] = setup_installer._new_run()
+            got = ensure(action)
+            assert got == managed_python
+    assert seen == [setup_installer._bank_scoring_env_python(),
+                    setup_installer._watermark_env_python()]
+
+
 # --- base-Python discovery (version checked by EXECUTION, not name) --------
 
 

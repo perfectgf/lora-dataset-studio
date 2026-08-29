@@ -1396,6 +1396,58 @@ def _install_cpu_torch_pair(action, python, *, constraint=False) -> int:
     return rc
 
 
+# `python -m venv` seeds a new env with the pip BUNDLED IN THE BASE PYTHON, not a
+# current one. A 3.10 base ships pip 21.x, which rejects several of today's wheels
+# ("inconsistent Name: expected 'typing-extensions', but metadata has
+# 'typing_extensions'"), falls back to their sdists, and then cannot even build
+# those against the CPU torch index (it has no flit_core) — all four optional
+# installs died exactly this way on one user's machine. pip normalises that name
+# check from 23.x, so anything older gets ONE upgrade. Checked on creation AND on
+# reuse: existing installs out there already carry the old pip.
+_MIN_PIP = (23, 1)
+
+
+def _pip_version(python):
+    """(major, minor) of `python`'s pip — read by RUNNING it — or None when it
+    cannot be read (missing/fake interpreter, no pip module)."""
+    try:
+        proc = subprocess.run([python, '-m', 'pip', '--version'],
+                              capture_output=True, text=True, timeout=30,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    parts = (proc.stdout or '').split()
+    if len(parts) < 2 or parts[0] != 'pip':
+        return None
+    nums = parts[1].split('.')
+    try:
+        major = int(nums[0])
+        minor = int(nums[1]) if len(nums) > 1 else 0
+    except ValueError:
+        return None
+    return major, minor
+
+
+def _ensure_modern_pip(action, python) -> None:
+    """Upgrade a MANAGED venv's pip once when it is too old for current wheels.
+
+    Only ever called on the app's own venvs — never on a user-configured
+    interpreter, whose environment is theirs. Non-fatal by design: an unreadable
+    version or a failed upgrade logs and moves on, leaving the install to behave
+    exactly as it did before this guard existed."""
+    ver = _pip_version(python)
+    if ver is None or ver >= _MIN_PIP:
+        return
+    _append(action, f'pip {ver[0]}.{ver[1]} in this environment is too old for '
+                    "today's packages — upgrading it once")
+    rc = _run_pip(action, [python, '-m', 'pip', 'install', '--upgrade', 'pip'])
+    if rc != 0:
+        _append(action, 'pip upgrade failed — continuing with the bundled pip '
+                        '(the install may still hit the old-pip wheel refusal)')
+
+
 def _watermark_env_dir():
     """The app-managed watermark venv directory (deterministic, under the data dir), so
     a re-click resolves the SAME venv — idempotent build/repair, never a duplicate."""
@@ -1557,6 +1609,7 @@ def _ensure_watermark_env(action) -> str:
     except Exception as e:
         _append(action, f'warning: could not save watermark.python ({e}); '
                         'the environment still works for this run')
+    _ensure_modern_pip(action, env_python)
     return env_python
 
 
@@ -1727,6 +1780,7 @@ def _ensure_bank_scoring_env(action, *, save_score_python=True) -> str:
         except Exception as e:
             _append(action, f'warning: could not save bank_scoring.python ({e}); '
                             'the environment still works for this run')
+    _ensure_modern_pip(action, env_python)
     return env_python
 
 
