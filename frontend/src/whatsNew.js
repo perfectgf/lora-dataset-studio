@@ -83,6 +83,23 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-video-lora-in-the-cloud',
+    date: '2026-08-29',
+    title: 'Train a video LoRA on a rented GPU — MiniMax H3 included',
+    blurb:
+      'Promote clips out of a 🎬 video bank, pick a target model, and '
+      + '☁️ Train in cloud now rents a pod that can actually run it: the '
+      + 'right ai-toolkit, enough VRAM, and enough disk for a base that weighs '
+      + '42 GB — all settled before the rental instead of discovered after it. '
+      + 'MiniMax H3 has now been trained end to end that way, on clips cut to '
+      + 'its own geometry (107 frames at 24 fps, audio kept at 32 kHz stereo), '
+      + 'and the checkpoints come back to the dataset. Check your territory '
+      + 'first: H3’s licence grants no rights in the EU, the UK, South Korea '
+      + 'or the USA without MiniMax’s free authorisation, and it covers what '
+      + 'you generate as well as the model.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-29-krea-preset-sampler',
     date: '2026-08-29',
     title: 'A second way to sample Krea renders, built for its 8-step setting',
