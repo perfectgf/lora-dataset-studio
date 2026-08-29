@@ -745,11 +745,18 @@ def test_index_config_returns_documented_fields(client):
     assert resp.status_code == 200
     body = resp.get_json()
     # Exact field set: the only fields StudioGenerationSettings.jsx reads off
-    # config (config.krea_loras / config.krea_samplers / config.krea_schedulers).
-    assert set(body.keys()) == {'krea_loras', 'krea_samplers', 'krea_schedulers'}
+    # config (krea_loras / krea_samplers / krea_schedulers / krea_sampler_presets).
+    assert set(body.keys()) == {'krea_loras', 'krea_samplers', 'krea_schedulers',
+                                'krea_sampler_presets'}
     assert body['krea_loras'] == []
     assert 'er_sde' in body['krea_samplers']
     assert 'simple' in body['krea_schedulers']
+    # The presets feed the SAME dropdown as krea_samplers but land in a different
+    # payload field, so the route must publish them as their own list — merging
+    # them into krea_samplers would put a preset name into the KSampler's
+    # `sampler_name`, which ComfyUI refuses at validation.
+    assert 'neutral' in body['krea_sampler_presets']
+    assert not set(body['krea_sampler_presets']) & set(body['krea_samplers'])
 
 
 # --- /api/studio/run: combine flag + /api/studio/enhance-prompt ---------------
