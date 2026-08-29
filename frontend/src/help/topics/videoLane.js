@@ -551,7 +551,9 @@ export const VIDEO_LANE_TOPICS = [
   action('lineage-inspect-notes', 'Inspect a run & take notes',
     ['inspect run', 'run settings', 'settings used', 'lineage notes', 'config',
      'compare runs', 'note', 'annotate', 'lab', 'rank', 'learning rate',
-     'which params', 'experiment'],
+     'which params', 'experiment',
+     // Also reachable straight from a checkpoint card's ⚙ Details button.
+     'run details', 'details button', 'from checkpoints', 'checkpoint card'],
     '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   action('lineage-compare-runs', 'Compare two runs side by side',
     ['compare runs', 'compare two runs', 'diff', 'difference', 'what changed',
@@ -562,7 +564,9 @@ export const VIDEO_LANE_TOPICS = [
      'caption changed', 'which captions changed', 'caption diff', 'which images',
      'image added', 'image removed', 'deleted image', 'which image did i delete',
      'dataset changed', 'ai-toolkit version', 'torch version', 'cuda', 'gpu',
-     'base model changed', 'snapshot', 'provenance', 'reproduce a run'],
+     'base model changed', 'snapshot', 'provenance', 'reproduce a run',
+     // Also reachable straight from a checkpoint card's ⇄ Compare picks.
+     'compare from checkpoints', 'compare button', 'checkpoint card'],
     '/cloud', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   action('lineage-remove-gone-run', 'Remove a gone run from the graph',
     ['remove run', 'delete run', 'gone', 'tidy graph', 'clean up runs',

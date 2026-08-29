@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-run-details-from-checkpoints',
+    date: '2026-08-29',
+    title: 'Run details and run-vs-run compare, right on the checkpoint cards',
+    blurb:
+      'Every cloud-run card in a dataset’s checkpoints now has ⚙ Details '
+      + '— the full recipe that trained it (rank, learning rate, optimizer, '
+      + 'resolution, notes) — and ⇄ Compare: pick two runs to see exactly '
+      + 'what changed between them, including the frozen dataset (images '
+      + 'added, removed or re-captioned) and the machine. Same panels as the '
+      + 'Lineage graph, one click closer.',
+    to: '/datasets?section=training',
+  },
+  {
     id: '2026-08-29-dataset-made-with',
     date: '2026-08-29',
     title: 'Generated dataset images now remember what made them',
