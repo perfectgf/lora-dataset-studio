@@ -588,6 +588,10 @@ async function main() {
   const seenSurfaces = new Set();
   const skipped = [];
   let measured = 0;
+  /* Set when the page's anchor EXISTS but cannot be reached (see the prime
+     block): the run is void from that point, so it is carried past the
+     teardown and reported as "did not run" rather than as a clean sheet. */
+  let unreachable = null;
 
   try {
     for (const [width, height] of args.viewports) {
@@ -611,10 +615,35 @@ async function main() {
           await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
           await page.waitForTimeout(900);
           for (const selector of pageSpec.prime) {
+            /* TWO counts, because "absent" hid two opposite answers and only
+               one of them is benign. `exists` drops the :visible filter and
+               asks whether the anchor is in the DOM at all; `el` asks whether
+               it can be clicked.
+                 nothing in the DOM  → an instance with nothing to open. A fact
+                   about the fixture: reported in the coverage line, never failed.
+                 in the DOM, unreachable → the probe is about to measure the LIST
+                   while claiming to measure the workspace, and every state of
+                   this page becomes a green that means nothing. That is the
+                   exact failure this script exists to make impossible, so it is
+                   loud and exits 2.
+               Measured 2026-08-29: both libraries render their rows twice (one
+               hidden per breakpoint) and the HIDDEN twin comes first, so the
+               bare selector reported "absent" with the row plainly on screen —
+               and the pages read as clean for weeks without being measured. */
+            const exists = await page.locator(selector.replace(/:visible\b/g, '')).count();
             const el = page.locator(selector).first();
             if ((await el.count()) && (await el.isVisible())) {
               await el.click({ timeout: 4000 });
               await page.waitForTimeout(600);
+            } else if (exists) {
+              unreachable = {
+                why: `${width}×${height}: ${exists} element(s) match `
+                  + `${selector.replace(/:visible\b/g, '')} but none can be clicked — the workspace `
+                  + 'never opened, so every state of this page would have been measured on the list behind it.',
+                how: 'A hidden twin (two renderings, one per breakpoint), a collapsed group, or an overlay. '
+                  + 'Add :visible to the prime selector, or open the item once by hand and re-run.',
+              };
+              break;
             } else {
               skipped.push(`${width}×${height} prime (${selector} absent)`);
             }
@@ -622,6 +651,7 @@ async function main() {
         } catch (e) {
           skipped.push(`${width}×${height} prime (${e.message.split('\n')[0]})`);
         }
+        if (unreachable) break;   // the run is void — stop before measuring air
       }
 
       for (const state of states) {
@@ -718,6 +748,10 @@ async function main() {
   } finally {
     await browser.close();
   }
+
+  // After the teardown, never inside the loop: exiting there would leave a
+  // headless browser running on every void run.
+  if (unreachable) cannotRun(unreachable.why, unreachable.how);
 
   /* A clean run STAMPS the tree, which is what closes the loop: layoutGuard's
      Stop hook compares that stamp against the layout-dirty mark and refuses to
