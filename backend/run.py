@@ -1,4 +1,5 @@
 import atexit
+import logging
 import sys, os
 import threading
 import time
@@ -144,6 +145,22 @@ if __name__ == '__main__':
     if ':' in local_host and not local_host.startswith('['):
         local_host = f'[{local_host}]'
     url = f"http://{local_host}:{port}/"
+    # Refresh the ComfyUI nodes this app ships, for users who already installed
+    # them. "Update & restart" replaces the app's files and nothing else — it has
+    # no business writing into somebody's ComfyUI on its own — so without this a
+    # user would keep the version of the node they first clicked while the app's
+    # graphs moved on. Only STALE copies are touched: an absent one stays absent,
+    # because installing is the user's decision and refreshing what they already
+    # chose is not a new one.
+    #
+    # Here rather than in create_app(): the test suite builds hundreds of apps,
+    # and none of them should be writing into a real ComfyUI folder.
+    try:
+        from app import setup_installer
+        for action, message in setup_installer.refresh_bundled_node_packs().items():
+            print(f"[LDS] {action}: {message} — restart ComfyUI to load it.")
+    except Exception:                       # noqa: BLE001 — never block boot
+        logging.getLogger(__name__).warning('bundled node refresh failed', exc_info=True)
     threading.Thread(target=_announce_when_ready, args=(url,),
                      kwargs={'open_browser': os.environ.get('LDS_OPEN_BROWSER') == '1'},
                      daemon=True).start()

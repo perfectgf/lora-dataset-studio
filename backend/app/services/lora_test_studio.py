@@ -1466,7 +1466,8 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
                                   filename_prefix=None, allowed_loras=None, extra_loras=None,
                                   rebalance=None, sampler=None, scheduler=None,
                                   weight_dtype=None, enhancer_strength=None,
-                                  base_model=None, allowed_bases=None):
+                                  base_model=None, allowed_bases=None,
+                                  sampler_preset=None):
     """Configure une cellule de test sur le workflow Krea 2 Turbo : le LoRA testé est
     injecté après le UNETLoader (node 20 → KSampler node 26), + prompt/seed/dims/steps/cfg.
     `extra_loras` = LoRA « always-on » (style/utilitaire) chaînés EN PLUS dans le même
@@ -1570,6 +1571,14 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
     # sinon ON à cette force (clampée 0..2 dans inject_krea2t_enhancer).
     if enhancer_strength is not None:
         inject_krea2t_enhancer(workflow, True, enhancer_strength)
+    # Preset sampler LAST, and it has to stay last: it reads KSampler.model, which
+    # both injections above rewrite. Ahead of them it would wire the guider to the
+    # bare UNETLoader and drop the whole stack, silently. `sampler_preset` None/off
+    # (the default) leaves the KSampler exactly as it is — which is also what keeps
+    # the shipped node OPTIONAL: no preset, no class in the graph, nothing to
+    # install. Pinned by test_krea_preset_sampler_contract.
+    from ..utils.comfyui import inject_krea_preset_sampler
+    inject_krea_preset_sampler(workflow, sampler_preset)
 
 
 # --- Node-class resolution (variant-tolerant custom nodes) --------------------
@@ -1641,7 +1650,8 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
                          cfg=None, steps=None, steps2=None, dataset_id=None, train_type='zimage',
                          extra_loras=None, rebalance=None, negative=None, sampler=None,
                          scheduler=None, weight_dtype=None, enhancer_strength=None,
-                         detail_amount=None, trigger_word=None, available_classes=None):
+                         detail_amount=None, trigger_word=None, available_classes=None,
+                         sampler_preset=None):
     """Load the ZTurbo (Z-Image) / HQ (SDXL) / Krea workflow and configure one grid cell.
     `extra_loras` = LoRA « always-on » (style/utilitaire) appliqués à CETTE cellule en plus
     du checkpoint testé (hors batch). `rebalance` = node 30 NSFW/texture (Krea uniquement,
@@ -1703,7 +1713,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
             batch_size=1, filename_prefix=fname, allowed_loras=allowed_krea,
             extra_loras=extra_loras, rebalance=rebalance,
             sampler=sampler, scheduler=scheduler, weight_dtype=weight_dtype,
-            enhancer_strength=enhancer_strength,
+            enhancer_strength=enhancer_strength, sampler_preset=sampler_preset,
             # Base Krea locale optionnelle (z_model, même canal que SDXL/Z-Image) ;
             # None = UNET câblé du workflow. Whitelist = scan disque (anti-injection).
             base_model=z_model, allowed_bases=set(get_krea_models()),
@@ -1846,7 +1856,7 @@ def _persist_and_enqueue_cell(img, user_id, dataset_id, prompt, build_workflow) 
 def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=None,
                         weight_dtype=None, enhancer=None, enhancer_strength=None,
                         detail_amount=None, resolution_tier=None, resolution_multiplier=None,
-                        init_image=None, denoise=None) -> dict:
+                        init_image=None, denoise=None, sampler_preset=None) -> dict:
     """Normalise + valide les réglages de génération GLOBAUX d'un run (parité Generate),
     filtrés PAR FAMILLE (un sampler Krea n'a aucun sens en Z-Image). Renvoie un dict prêt
     à la fois à persister sur LoraTestImage ET à passer à `_build_cell_workflow`. Chaque
@@ -1858,6 +1868,15 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
     fam = (run_family or 'zimage').lower()
     neg = ((negative or '').strip() or None) if fam == 'zimage' else None
     smp = sampler if (fam == 'krea' and sampler in KREA_ALLOWED_SAMPLERS) else None
+    # Preset du sampler maison. Whitelist SEPAREE de KREA_ALLOWED_SAMPLERS a
+    # dessein : les deux nourrissent le meme menu cote UI mais pas le meme endroit
+    # du graphe — un preset ecrit dans `sampler_name` serait un nom de sampler que
+    # ComfyUI ne connait pas, et le graphe serait refuse a la validation. Hors
+    # liste = None = KSampler standard.
+    from ..utils.comfyui import KREA_SAMPLER_PRESETS
+    smp_preset = (sampler_preset
+                  if (fam == 'krea' and sampler_preset in KREA_SAMPLER_PRESETS)
+                  else None)
     sch = scheduler if (fam == 'krea' and scheduler in KREA_ALLOWED_SCHEDULERS) else None
     wdt = weight_dtype if (fam == 'krea' and weight_dtype in KREA_ALLOWED_WEIGHT_DTYPES) else None
     enh = None
@@ -1884,7 +1903,8 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
         except (TypeError, ValueError):
             den = None
     ini = ((init_image or '').strip() or None) if fam == 'krea' else None
-    return {'negative': neg, 'sampler': smp, 'scheduler': sch, 'weight_dtype': wdt,
+    return {'negative': neg, 'sampler': smp, 'sampler_preset': smp_preset,
+            'scheduler': sch, 'weight_dtype': wdt,
             'enhancer_strength': enh, 'detail_amount': dta, 'resolution_tier': tier,
             'resolution_multiplier': mult, 'init_image': ini, 'denoise': den}
 
@@ -2209,6 +2229,16 @@ STUDIO_NODE_PACKS = {
         'url': 'https://github.com/nova452/ComfyUI-Conditioning-Rebalance',
         'search': 'Krea 2 Conditioning',
     },
+    # Krea 2 preset sampler (the optional custom-sampling lane). Unlike every other
+    # entry here there is no `url` and no `search`: the code is already on the
+    # user's disk, shipped with the app, and the fix is a button on the Setup
+    # screen rather than a trip to ComfyUI-Manager. The banner branches on the
+    # missing `url` — sending someone to search a manager for a pack that is not
+    # published anywhere would be a dead end dressed as an instruction.
+    'LDSKrea2PresetSampler': {
+        'pack': 'Krea 2 preset sampler',
+        'setup': 'the Setup screen, under Krea 2',
+    },
     # Detail Daemon sampler (node 57 of image_real_HQ.json, the SDXL family's pass
     # 2) — EVERY fresh SDXL Studio install needs this pack, so its absence must
     # name the pack, not just the class (GitHub #36, KingyWolf).
@@ -2234,11 +2264,19 @@ def studio_missing_node_hints(nodes):
 
 
 def _preflight_run(user_id, run_family, checkpoint, bases, allowed, prompt, seed,
-                   dataset_id, trigger_word):
+                   dataset_id, trigger_word, sampler_preset=None):
     """Build a representative cell workflow for `run_family` (one per distinct base
     in `bases`) and run `preflight_family` on it. Raises StudioAssetsMissing when
     the target ComfyUI can't run the grid. A representative build that itself fails
-    is skipped (the enqueue loop would surface that path's own error)."""
+    is skipped (the enqueue loop would surface that path's own error).
+
+    `sampler_preset` has to be threaded in even though the preflight cares about
+    NOTHING else in the gen knobs: it is the one setting that changes which node
+    CLASSES the graph names. Left out, the representative build carries a plain
+    KSampler, the preflight finds nothing missing, and the run is enqueued to fail
+    tile by tile on a ComfyUI validation error — the exact grid of mute failures
+    this preflight exists to replace. Any future knob that adds a node class owes
+    the same thread."""
     wfs = []
     seen = set()
     for base in (bases or [None]):
@@ -2249,7 +2287,8 @@ def _preflight_run(user_id, run_family, checkpoint, bases, allowed, prompt, seed
         try:
             wfs.append(_build_cell_workflow(
                 user_id, checkpoint, 1.0, prompt or '', seed or 1, base, allowed,
-                dataset_id=dataset_id, train_type=run_family, trigger_word=trigger_word))
+                dataset_id=dataset_id, train_type=run_family, trigger_word=trigger_word,
+                sampler_preset=sampler_preset))
         except Exception as e:  # noqa: BLE001 — a bad representative build ≠ a missing asset
             logger.warning('studio preflight: representative build failed (base=%r): %s', base, e)
     preflight_family(run_family, wfs)
@@ -2619,6 +2658,8 @@ class StudioGenSettings:
     rebalance_strength: object = None
     negative: object = None
     sampler: object = None
+    # Preset du sampler maison (Krea). None = off = KSampler standard.
+    sampler_preset: object = None
     scheduler: object = None
     weight_dtype: object = None
     enhancer: object = None
@@ -2654,6 +2695,7 @@ class StudioGenSettings:
             rebalance_strength=d.get('rebalance_strength'),
             negative=d.get('negative'),
             sampler=d.get('sampler'),
+            sampler_preset=d.get('sampler_preset'),
             scheduler=d.get('scheduler'),
             weight_dtype=d.get('weight_dtype'),
             enhancer=d.get('enhancer'),
@@ -2702,6 +2744,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     rebalance_strength = settings.rebalance_strength
     negative = settings.negative
     sampler = settings.sampler
+    sampler_preset = settings.sampler_preset
     scheduler = settings.scheduler
     weight_dtype = settings.weight_dtype
     enhancer = settings.enhancer
@@ -2781,6 +2824,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     # Réglages de génération GLOBAUX du run (parité Generate), validés + gatés par famille.
     knobs = _sanitize_gen_knobs(
         run_family, negative=negative, sampler=sampler, scheduler=scheduler,
+        sampler_preset=sampler_preset,
         weight_dtype=weight_dtype, enhancer=enhancer, enhancer_strength=enhancer_strength,
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         resolution_multiplier=resolution_multiplier,
@@ -2856,7 +2900,8 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     # (Krea/SDXL n'avaient AUCUN preflight ; seul Klein en avait un.)
     _preflight_run(user_id, run_family, cells[0][0], valid_models, allowed,
                    prompt, seeds[0], dataset_id,
-                   ds.trigger_word if inject_trigger else None)
+                   ds.trigger_word if inject_trigger else None,
+                   sampler_preset=knobs['sampler_preset'])
 
     # Classes du ComfyUI cible, lues UNE fois pour toute la grille : le builder s'en
     # sert pour réécrire les nodes à variantes (node 30 Krea) vers le nom réellement
@@ -2897,6 +2942,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
                                 prompt=cell_prompt, cfg=cell_cfg, steps=cell_steps, steps2=cell_steps2,
                                 extra_loras=cell_extra_json, krea_rebalance=cell_rebalance,
                                 negative=knobs['negative'], sampler=knobs['sampler'],
+                                sampler_preset=knobs['sampler_preset'],
                                 scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
                                 enhancer_strength=knobs['enhancer_strength'],
                                 detail_amount=knobs['detail_amount'],
@@ -2918,6 +2964,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
                                              train_type=run_family, extra_loras=wf_extra,
                                              rebalance=cell_rebalance,
                                              negative=knobs['negative'], sampler=knobs['sampler'],
+                                             sampler_preset=knobs['sampler_preset'],
                                              scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
                                              enhancer_strength=knobs['enhancer_strength'],
                                              detail_amount=knobs['detail_amount'],
@@ -3102,7 +3149,8 @@ def _cmp_collect_extra_loras(run_type, permanent_loras, external_loras):
 def _cmp_cell_knobs(run_type, batch_loras, rebalance, rebalance_strength,
                     negative, sampler, scheduler, weight_dtype, enhancer,
                     enhancer_strength, detail_amount, resolution_tier,
-                    resolution_multiplier, init_image, denoise):
+                    resolution_multiplier, init_image, denoise,
+                    sampler_preset=None):
     """Les réglages portés par chaque cellule, déplacés tels quels : l'axe
     ⚖ batch, l'encodage du rebalance Krea, et les réglages globaux validés
     et gatés par famille. Retourne (batch_axis, cell_rebalance, knobs)."""
@@ -3122,6 +3170,7 @@ def _cmp_cell_knobs(run_type, batch_loras, rebalance, rebalance_strength,
     # Réglages de génération GLOBAUX (parité Generate), validés + gatés par famille.
     knobs = _sanitize_gen_knobs(
         run_type, negative=negative, sampler=sampler, scheduler=scheduler,
+        sampler_preset=sampler_preset,
         weight_dtype=weight_dtype, enhancer=enhancer, enhancer_strength=enhancer_strength,
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         resolution_multiplier=resolution_multiplier,
@@ -3130,7 +3179,7 @@ def _cmp_cell_knobs(run_type, batch_loras, rebalance, rebalance_strength,
 
 
 def _cmp_preflight(user_id, run_type, selections, externals, valid_models,
-                   prompt_axis, seeds, inject_trigger=True):
+                   prompt_axis, seeds, inject_trigger=True, sampler_preset=None):
     """Les preflights du run, déplacés tels quels : l'arch réelle de chaque
     checkpoint (externes compris) contre la famille, puis le workflow de la
     famille essayé sur la première sélection valable — un seul 409
@@ -3173,7 +3222,8 @@ def _cmp_preflight(user_id, run_type, selections, externals, valid_models,
                            prompt_axis[0] or identity_prompt(_pf_ds, with_trigger=inject_trigger),
                            seeds[0], _sel.get('dataset_id'),
                            (getattr(_pf_ds, 'trigger_word', None)
-                            if inject_trigger else None))
+                            if inject_trigger else None),
+                           sampler_preset=sampler_preset)
             break
     return _dataset_and_checkpoints
 
@@ -3317,6 +3367,7 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
                                 prompt=cell_prompt, cfg=cell_cfg, steps=cell_steps, steps2=cell_steps2,
                                 extra_loras=cell_extra_json, krea_rebalance=cell_rebalance,
                                 negative=knobs['negative'], sampler=knobs['sampler'],
+                                sampler_preset=knobs['sampler_preset'],
                                 scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
                                 enhancer_strength=knobs['enhancer_strength'],
                                 detail_amount=knobs['detail_amount'],
@@ -3338,6 +3389,7 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
                                      train_type=run_type, extra_loras=wf_extra,
                                      rebalance=cell_rebalance,
                                      negative=knobs['negative'], sampler=knobs['sampler'],
+                                     sampler_preset=knobs['sampler_preset'],
                                      scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
                                      enhancer_strength=knobs['enhancer_strength'],
                                      detail_amount=knobs['detail_amount'],
@@ -3398,6 +3450,7 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
     rebalance_strength = settings.rebalance_strength
     negative = settings.negative
     sampler = settings.sampler
+    sampler_preset = settings.sampler_preset
     scheduler = settings.scheduler
     weight_dtype = settings.weight_dtype
     enhancer = settings.enhancer
@@ -3418,11 +3471,12 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
         run_type, batch_loras, rebalance, rebalance_strength, negative,
         sampler, scheduler, weight_dtype, enhancer, enhancer_strength,
         detail_amount, resolution_tier, resolution_multiplier, init_image,
-        denoise)
+        denoise, sampler_preset=sampler_preset)
 
     _dataset_and_checkpoints = _cmp_preflight(
         user_id, run_type, selections, externals, valid_models,
-        prompt_axis, seeds, inject_trigger=inject_trigger)
+        prompt_axis, seeds, inject_trigger=inject_trigger,
+        sampler_preset=knobs['sampler_preset'])
 
     # Classes du ComfyUI cible, lues UNE fois pour tout le run (cf. create_run) →
     # réécriture des nodes à variantes (node 30 Krea) vers le nom réellement enregistré.
@@ -3703,6 +3757,7 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
                                             rebalance=img.krea_rebalance,
                                             negative=getattr(img, 'negative', None),
                                             sampler=getattr(img, 'sampler', None),
+                                            sampler_preset=getattr(img, 'sampler_preset', None),
                                             scheduler=getattr(img, 'scheduler', None),
                                             weight_dtype=getattr(img, 'weight_dtype', None),
                                             enhancer_strength=getattr(img, 'enhancer_strength', None),

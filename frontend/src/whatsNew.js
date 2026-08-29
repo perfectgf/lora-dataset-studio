@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-krea-preset-sampler',
+    date: '2026-08-29',
+    title: 'A second way to sample Krea renders, built for its 8-step setting',
+    blurb:
+      'Krea 2 Turbo runs at eight steps, where the sampler has to make every '
+      + 'one of them count. The Studio’s Sampler menu now offers five presets '
+      + 'that change how those steps are taken — more texture and finer detail '
+      + 'as you go up the scale, at no extra generation time. Pick “neutral” '
+      + 'to render exactly as before, so you can judge the others against it at '
+      + 'the same seed. It is optional: install it from the Krea card on the '
+      + 'Setup screen, and everything works as it always did if you do not.',
+    to: '/studio',
+  },
+  {
     id: '2026-08-29-caption-lab-on-a-bank',
     date: '2026-08-29',
     title: 'Try caption models on a bank before captioning thousands of images',

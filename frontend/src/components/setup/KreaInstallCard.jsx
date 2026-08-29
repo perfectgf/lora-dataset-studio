@@ -7,6 +7,7 @@ import {
 import { localEngineReadiness } from '../../utils/localEngineReason'
 import { HelpBadge } from '../../help/HelpMode'
 import { fmtSize } from './fmtSize'
+import KreaSamplerInstallRow from './KreaSamplerInstallRow'
 
 const POLL_MS = 1200
 
@@ -201,6 +202,11 @@ export default function KreaInstallCard({ caps, onDone }) {
             restart it, then this page turns green on its own.</span>
         </p>
       )}
+
+      {/* The optional sampler, offered only once there is a ComfyUI to copy it
+          into. Below the engine's own state on purpose: it is an addition to a
+          working Krea, never a piece of one. */}
+      {dirValid && <KreaSamplerInstallRow caps={caps} onDone={onDone} />}
     </section>
   )
 }

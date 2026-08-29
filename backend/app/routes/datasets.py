@@ -31,7 +31,8 @@ from ..services.face_variations import (NSFW_VARIATION_CATALOG, VARIATION_CATALO
                                         preset_meta_for, all_catalog_labels,
                                         sanitize_custom_shots,
                                         MAX_CUSTOM_SHOTS_PER_SUBJECT)
-from ..utils.comfyui import KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS, get_krea_loras
+from ..utils.comfyui import (KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS,
+                            KREA_SAMPLER_PRESETS, get_krea_loras)
 from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
                       _studio_arch_mismatch_response, _studio_missing_response)
 
@@ -2462,4 +2463,10 @@ def index_config():
         'krea_loras': get_krea_loras(),
         'krea_samplers': KREA_ALLOWED_SAMPLERS,
         'krea_schedulers': KREA_ALLOWED_SCHEDULERS,
+        # Presets of the sampler this app ships (utils/kreaSamplerChoice.js splits
+        # them back out of the one dropdown). Published unconditionally, NOT gated
+        # on the node being installed: the preflight is what turns "you picked one
+        # and it isn't there" into an actionable 409, and hiding the option instead
+        # would leave someone who wants it with nothing to click and no explanation.
+        'krea_sampler_presets': list(KREA_SAMPLER_PRESETS),
     })

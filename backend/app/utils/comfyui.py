@@ -2421,6 +2421,145 @@ def inject_krea2t_enhancer(workflow, enabled, strength):
     return 1
 
 
+# --- Krea 2 preset sampler (custom-sampling swap) ----------------------------
+# The class shipped in backend/comfy_nodes/lds_krea_sampler and installed into the
+# user's ComfyUI by setup_installer's `krea_sampler_nodes` action.
+KREA_PRESET_SAMPLER_CLASS = "LDSKrea2PresetSampler"
+
+# The presets the node understands, in the order the UI offers them. `neutral`
+# first because it is the A/B reference (plain Euler through the same wiring),
+# not because it is the weakest. Pinned against the node's own PRESETS by
+# test_krea_preset_sampler_contract — the app and the node it ships cannot drift.
+KREA_SAMPLER_PRESETS = ('neutral', 'soft', 'balanced', 'detailed', 'max')
+
+# Node ids for the five nodes the swap adds. Named, not numbered: this graph gets
+# numeric ids from a JSON template ('20'..'32') and from krea_edit_helper ('1'..'14'),
+# so a named prefix cannot collide with either, and it reads in a ComfyUI error.
+_KREA_PS_NOISE = 'krea_ps_noise'
+_KREA_PS_SAMPLER = 'krea_ps_sampler'
+_KREA_PS_SIGMAS = 'krea_ps_sigmas'
+_KREA_PS_GUIDER = 'krea_ps_guider'
+_KREA_PS_RUN = 'krea_ps_run'
+
+
+def inject_krea_preset_sampler(workflow, preset, ksampler_node="26"):
+    """Swap the Krea KSampler for a custom-sampling chain driven by our preset sampler.
+
+    WHY THIS IS A REWIRE AND NOT A WIDGET
+    -------------------------------------
+    The node returns a `SAMPLER` object. The core `KSampler` has no input of that
+    type — it picks its sampler from a NAME, out of a fixed list. So there is no
+    way to "select" this sampler on the existing node; the sampling stage has to
+    become the custom-sampling chain that can accept one:
+
+        KSampler(seed, steps, cfg, sampler_name, scheduler, denoise,
+                 model, positive, negative, latent_image)
+              becomes
+        RandomNoise(noise_seed)          ─┐
+        <our node>(preset)               ─┤
+        BasicScheduler(model, scheduler, steps, denoise) ─┤→ SamplerCustomAdvanced
+        CFGGuider(model, positive, negative, cfg)        ─┘
+
+    Every value is READ OFF the KSampler being replaced, so the swap carries the
+    dials the caller already set rather than re-deciding them. `sampler_name` is
+    the one input with nowhere to go — our node IS the sampler now, which is
+    exactly what selecting a preset means.
+
+    CFGGuider, not BasicGuider: BasicGuider takes only the positive conditioning,
+    so it would silently drop the negative prompt AND make `cfg` inert. The two
+    would still render, which is what makes that mistake expensive.
+
+    CALL IT LAST
+    ------------
+    It reads `KSampler.model`, which is rewritten by `inject_krea_loras` (LoRA
+    chain) and again by `inject_krea2t_enhancer`. Called before either, it would
+    wire the guider and the scheduler to the bare UNETLoader and drop the whole
+    stack — with no error, and a render that merely looks wrong. The order is
+    pinned by test_krea_preset_sampler_contract.
+
+    preset falsy / unknown -> returns 0, workflow untouched (fail-safe: an
+    unrecognised preset must not be able to un-wire a graph).
+    Missing / non-KSampler node, or one lacking an input we need -> 0, same reason.
+    Otherwise mutates `workflow` in place and returns 1.
+    """
+    if not preset:
+        return 0
+    preset = str(preset).strip()
+    if preset not in KREA_SAMPLER_PRESETS:
+        return 0
+    ks = workflow.get(ksampler_node)
+    if not isinstance(ks, dict) or ks.get('class_type') not in ('KSampler', 'KSamplerAdvanced'):
+        return 0
+    ins = ks.get('inputs') or {}
+    if not all(k in ins for k in ('model', 'positive', 'negative', 'latent_image')):
+        return 0
+
+    model_src = ins['model']
+
+    workflow[_KREA_PS_NOISE] = {
+        'class_type': 'RandomNoise',
+        # RandomNoise calls the SAME comfy.sample.prepare_noise KSampler uses
+        # internally, so a given seed produces the identical starting noise on
+        # both paths. That is what keeps an A/B at a fixed seed meaningful: only
+        # the denoising changes, never the starting point.
+        'inputs': {'noise_seed': int(ins.get('seed', 0) or 0)},
+        '_meta': {'title': 'Krea preset sampler: noise'},
+    }
+    workflow[_KREA_PS_SAMPLER] = {
+        'class_type': KREA_PRESET_SAMPLER_CLASS,
+        'inputs': {'preset': preset},
+        '_meta': {'title': f'Krea preset sampler: {preset}'},
+    }
+    workflow[_KREA_PS_SIGMAS] = {
+        'class_type': 'BasicScheduler',
+        # `denoise` lives here now. It is what makes the img2img template work
+        # through this path: BasicScheduler truncates the sigma schedule exactly
+        # the way KSampler's own denoise argument does.
+        'inputs': {'model': model_src,
+                   'scheduler': ins.get('scheduler', 'simple'),
+                   'steps': int(ins.get('steps', 8) or 8),
+                   'denoise': float(ins.get('denoise', 1.0) or 1.0)},
+        '_meta': {'title': 'Krea preset sampler: sigmas'},
+    }
+    workflow[_KREA_PS_GUIDER] = {
+        'class_type': 'CFGGuider',
+        'inputs': {'model': model_src,
+                   'positive': ins['positive'],
+                   'negative': ins['negative'],
+                   'cfg': float(ins.get('cfg', 1.0) or 1.0)},
+        '_meta': {'title': 'Krea preset sampler: guider'},
+    }
+    workflow[_KREA_PS_RUN] = {
+        'class_type': 'SamplerCustomAdvanced',
+        'inputs': {'noise': [_KREA_PS_NOISE, 0],
+                   'guider': [_KREA_PS_GUIDER, 0],
+                   'sampler': [_KREA_PS_SAMPLER, 0],
+                   'sigmas': [_KREA_PS_SIGMAS, 0],
+                   'latent_image': ins['latent_image']},
+        '_meta': {'title': 'Krea preset sampler'},
+    }
+
+    # Repoint whatever consumed the KSampler's latent. Found by SCANNING for the
+    # link rather than assuming the VAEDecode's id: the two graphs that reach here
+    # number it differently (27 in krea2_turbo*.json, 12 in krea_edit_helper), and
+    # a hardcoded id would leave one of them wired to a node that no longer exists.
+    # SamplerCustomAdvanced output 0 is `output`, the same latent KSampler returns
+    # (output 1 is `denoised_output`, a different tensor — do not "fix" this to 1).
+    for node in workflow.values():
+        if not isinstance(node, dict):
+            continue
+        for key, value in (node.get('inputs') or {}).items():
+            if isinstance(value, list) and len(value) == 2 and value[0] == ksampler_node:
+                node['inputs'][key] = [_KREA_PS_RUN, 0]
+
+    # Drop the replaced node. Leaving it orphaned would be executed by nobody, but
+    # it would still answer to every class_type scan in this module — the sampler
+    # param override, the workflow-portability assertions — as if it were the live
+    # sampler, which is a lie the next reader has to disprove.
+    del workflow[ksampler_node]
+    return 1
+
+
 def inject_zimage_loras(workflow, requested, allowed,
                         unet_node="1", consumers=("7", "9")):
     """Chain LoraLoaderModelOnly nodes after the Z-Image UNETLoader and repoint
