@@ -75,6 +75,35 @@ def test_the_unload_route_evicts_only_once_the_user_has_said_so(app, client):
     unload.assert_called_once_with()
 
 
+def test_the_share_route_refuses_without_an_explicit_confirmation(app, client):
+    """Sharing one card between two loaded models is not free — on Windows it
+    pages instead of failing. So it is a decision, taken once, in words."""
+    with patch.object(fence, 'share_gpu_with_foreign_model') as share:
+        assert client.post('/api/system/ollama-fence/share', json={}).status_code == 400
+        assert client.post('/api/system/ollama-fence/share',
+                           json={'confirmed_share_gpu': 'yes'}).status_code == 400
+    share.assert_not_called()
+
+
+def test_the_share_route_answers_the_hold_once_the_user_has_said_so(app, client):
+    with patch.object(fence, 'share_gpu_with_foreign_model',
+                      return_value={'ok': True, 'reason': 'sharing', 'seconds': 900,
+                                    'models': ['other-app-model']}) as share:
+        res = client.post('/api/system/ollama-fence/share',
+                          json={'confirmed_share_gpu': True})
+    assert res.status_code == 200 and res.get_json()['seconds'] == 900
+    share.assert_called_once_with()
+
+
+def test_sharing_when_nothing_is_held_says_so_instead_of_pretending(app, client):
+    with patch.object(fence, 'share_gpu_with_foreign_model',
+                      return_value={'ok': False, 'reason': 'not-blocked', 'seconds': 0}):
+        res = client.post('/api/system/ollama-fence/share',
+                          json={'confirmed_share_gpu': True})
+    assert res.status_code == 409
+    assert 'Nothing is holding the queue' in res.get_json()['error']
+
+
 def test_a_failed_unload_answers_409_with_a_sentence_the_user_can_act_on(app, client):
     with patch.object(fence, 'unload_foreign_models',
                       return_value={'ok': False, 'reason': 'still-loaded',

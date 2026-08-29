@@ -329,6 +329,40 @@ def ollama_fence_unload():
                     **result}), 409
 
 
+@bp.post('/ollama-fence/share')
+def ollama_fence_share():
+    """"Run it anyway" — the OTHER answer to a fence hold, when unloading is not one.
+
+    Unloading assumes the resident model is disposable. Often it is not: it may
+    be another tool's live work, or another LDS instance halfway through a
+    caption batch. Before this, such a user had no second answer — the queue
+    simply waited, for as long as the other model stayed loaded, which for some
+    runners (KoboldCPP) is for ever.
+
+    Consent is required for the same reason as the unload route, pointed the
+    other way: sharing one card between two loaded models is not free, and on
+    Windows it degrades silently rather than failing. Nothing calls this on a
+    retry or a timer — only a user who has read what it costs.
+    """
+    data = request.get_json(silent=True) or {}
+    if data.get('confirmed_share_gpu') is not True:
+        return jsonify({'error': 'Confirm sharing the GPU with the external Ollama '
+                                 'model before LDS generates next to it.'}), 400
+    from ..services import ollama_gpu_fence
+    result = ollama_gpu_fence.share_gpu_with_foreign_model()
+    if result['ok']:
+        return jsonify({'ok': True, **result})
+    reasons = {
+        'not-blocked': 'Nothing is holding the queue right now — there is nothing to '
+                       'share the GPU with.',
+        'not-local': 'LDS is configured with a remote Ollama endpoint, so the fence is '
+                     'not what is holding the queue.',
+    }
+    return jsonify({'ok': False, 'error': reasons.get(result['reason'],
+                                                      'The GPU could not be shared.'),
+                    **result}), 409
+
+
 # --- The generation queue, app-wide -----------------------------------------
 # One ComfyUI, one serialized queue, fed by the dataset workspace, the Test
 # Studio, the ◉ Canvas and the Bank. It lives here for the same reason the
@@ -375,7 +409,8 @@ def generation_queue():
     names = _queue_dataset_names(listing['jobs'])
     for job in listing['jobs']:
         job['dataset_name'] = names.get(job['dataset_id'])
-    return jsonify({'ok': True, 'paused_reason': queue_view.paused_reason(), **listing})
+    return jsonify({'ok': True, 'paused_reason': queue_view.paused_reason(),
+                    'paused_action': queue_view.paused_action(), **listing})
 
 
 @bp.post('/queue/<job_id>/next')

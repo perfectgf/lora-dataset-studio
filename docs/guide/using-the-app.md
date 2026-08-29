@@ -258,6 +258,33 @@ Two things still take the GPU exclusively and are not queued behind anything:
 a training run, and a vision pass (captioning, framing, face analysis). While
 one of those is running, new generations wait for it and the app says so.
 
+### When the queue waits for something that is not LDS
+
+Ollama shares your graphics card with ComfyUI, and only one of them can have it.
+So before every generation LDS checks that the local Ollama is not holding a
+model — and if one is loaded that LDS did not load itself, it waits rather than
+evict somebody else's work. The dock says exactly what is in the way and, once
+the wait passes a minute, how long it has been standing there.
+
+That wait usually ends on its own: Ollama drops an idle model after a few
+minutes and the queue resumes with nobody touching anything. When it does not —
+another app is captioning, a second LDS instance is running a batch, or the
+runner in the Ollama slot never unloads at all — you have two answers, and
+neither is "quit and come back":
+
+- **Unload it and continue** evicts the other model. Right when you know what it
+  is and that it is idle; it is never done automatically, because LDS cannot
+  tell your live work from a leftover.
+- **Run anyway** shares the card instead: LDS starts generating next to the other
+  model. Nothing of yours is unloaded. The cost is real — two loaded models on
+  one card do not crash on Windows, they page, and generation can get much
+  slower — so it asks once, in those words, and the guard comes back on its own
+  after fifteen minutes.
+
+An Ollama URL the app cannot use at all (a typo, or an address with a path on the
+end) is not treated as a busy card: captioning will tell you it cannot reach its
+model, and image generation keeps running.
+
 ## The Gallery (every image you generated)
 
 **🖼 Gallery** in the top bar is one feed of everything the app ever rendered —

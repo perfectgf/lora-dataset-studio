@@ -190,17 +190,69 @@ def _ollama_fence_sentence() -> str:
     except Exception:   # noqa: BLE001 — same contract as the caller: never die
         blk = {}
     if 'koboldcpp' in (blk.get('families') or ()):
-        return ('Nothing is starting — the Ollama URL in Settings points at KoboldCPP, '
-                'which never unloads its model, so LDS cannot hand the GPU to ComfyUI. '
-                'Point it at a real Ollama (or close KoboldCPP) and the queue resumes.')
-    models = ', '.join(blk.get('models') or ())
-    if models:
-        return (f'Nothing is starting — a local model outside LDS ({models}) is holding '
-                'the GPU at the configured Ollama endpoint. Unload it there, or close '
-                'the app that loaded it, and the queue resumes.')
-    return ('Nothing is starting — the configured Ollama endpoint cannot prove the GPU '
-            'is free (it does not answer the way Ollama does). Check the Ollama URL in '
-            'Settings ▸ Local tools, and the queue resumes.')
+        sentence = ('Nothing is starting — the Ollama URL in Settings points at KoboldCPP, '
+                    'which never unloads its model, so LDS cannot hand the GPU to ComfyUI. '
+                    'Point it at a real Ollama (or close KoboldCPP) and the queue resumes.')
+    elif blk.get('models'):
+        models = ', '.join(blk['models'])
+        sentence = (f'Nothing is starting — a local model outside LDS ({models}) is holding '
+                    'the GPU at the configured Ollama endpoint. Unload it there, or close '
+                    'the app that loaded it, and the queue resumes.')
+    else:
+        sentence = ('Nothing is starting — the configured Ollama endpoint cannot prove the '
+                    'GPU is free (it does not answer the way Ollama does). Check the Ollama '
+                    'URL in Settings ▸ Local tools, and the queue resumes.')
+    return f'{sentence}{_held_clause(blk)}'
+
+
+def _held_clause(blk) -> str:
+    """" It has been waiting 4 min." — only once the wait is worth naming.
+
+    A block that clears on its own within a minute (Ollama's idle unload, the
+    other app closing) does not need a stopwatch on screen. One that does not is
+    the whole reason this hold now has an answer next to it: the user cannot
+    decide whether to wait or to share the card without knowing which of the two
+    they are looking at.
+    """
+    from .ollama_gpu_fence import OFFER_SHARE_AFTER_S
+    held = float(blk.get('held_seconds') or 0)
+    if held < OFFER_SHARE_AFTER_S:
+        return ''
+    minutes = max(1, int(held // 60))
+    return f' It has been waiting {minutes} min.'
+
+
+def paused_action() -> dict | None:
+    """The ANSWER a held queue can offer the user, or None when waiting IS the answer.
+
+    Only the Ollama fence has one. Training, a vision pass and a ComfyUI recovery
+    all end by themselves or have their remedy on another screen; a fence hold can
+    outlive every one of them, because the thing holding the card belongs to
+    somebody else and may never be handed back (KoboldCPP never unloads at all).
+
+    Deliberately withheld for the first minute: most fence holds end on their own
+    when Ollama drops an idle model, and offering to share a card the user did not
+    have to share would trade a self-healing wait for a real, measured slowdown.
+    """
+    from ..job_queue import queue_manager
+    try:
+        if queue_manager.gpu_hold() != 'ollama_fence':
+            return None
+        from .ollama_gpu_fence import OFFER_SHARE_AFTER_S, last_block
+        blk = last_block() or {}
+    except Exception:   # noqa: BLE001 — a listing must not die on a state read
+        logger.exception('queue_view: could not read whether the hold can be answered')
+        return None
+    if float(blk.get('held_seconds') or 0) < OFFER_SHARE_AFTER_S:
+        return None
+    return {
+        'kind': 'share_gpu',
+        'label': 'Run anyway',
+        'models': list(blk.get('models') or ()),
+        'confirm': ('LDS will start generating next to the other model instead of '
+                    'waiting for it. Nothing of yours is unloaded — but with both on '
+                    'one card, generation can be much slower. Share the GPU?'),
+    }
 
 
 def _live_rows():

@@ -73,6 +73,26 @@ _last_release_failure: dict | None = None
 # is frozen" into "the wrong tool sits in the Ollama slot".
 _probe_families: dict[str, set] = {}
 
+# A refusal must not be able to hold the queue open-endedly with no answer.
+# The fence's own remedy — "unload it there" — is not always available: the
+# resident model may be another tool's live work, or another LDS instance in
+# the middle of a caption batch, and neither is the user's to evict. So a held
+# queue needs a SECOND door, and this is it: share the card knowingly.
+#
+# Nothing below evicts a foreign model. The absolute rule does not move. What
+# moves is that a refusal becomes a BOUNDED, answerable state instead of an
+# open wait — which is the whole difference between a guard and a wall.
+_BLOCK_CONTINUITY_S = 15.0   # a gap longer than this starts a new block episode
+# How long a block must have stood before the surfaces offer to share. A block
+# that clears on its own in a few seconds (Ollama's idle unload, the other app
+# closing) must never tempt anyone into sharing a card they did not have to.
+OFFER_SHARE_AFTER_S = 60.0
+# Long enough for a batch someone is watching, short enough that a forgotten
+# click cannot quietly disable the fence for the rest of the day.
+SHARE_SECONDS = 900.0
+_share_until = 0.0
+_share_endpoint: str | None = None
+
 
 def _exception_chain(exc):
     seen, pending = set(), [exc]
@@ -529,10 +549,23 @@ def _note_block(failure: dict) -> None:
     """Publish a refused ComfyUI hand-off for the queue dock to explain."""
     global _last_block
     endpoint = failure.get('endpoint') or ''
+    reason = failure.get('reason') or 'unreachable'
+    now = time.time()
     with _lock:
+        prior = _last_block
+        # The worker republishes the SAME refusal every second while jobs wait,
+        # so `at` (freshness) cannot answer "how long has this stood still?" —
+        # it is always a second old. `since` is the start of the episode, kept
+        # across republications and reset only when the block actually lapsed
+        # or changed into a different refusal.
+        continues = bool(prior
+                         and prior.get('reason') == reason
+                         and prior.get('endpoint') == endpoint
+                         and now - float(prior.get('at') or 0) <= _BLOCK_CONTINUITY_S)
         _last_block = {
-            'at': time.time(),
-            'reason': failure.get('reason') or 'unreachable',
+            'at': now,
+            'since': float(prior['since']) if continues else now,
+            'reason': reason,
             'endpoint': endpoint,
             'models': list(failure.get('models') or ()),
             'families': sorted(_probe_families.get(endpoint, set())),
@@ -557,7 +590,71 @@ def last_block(max_age_s: float = _BLOCK_FRESH_S):
     if not blk or time.time() - float(blk.get('at') or 0) > max_age_s:
         return None
     return {'reason': blk['reason'], 'endpoint': blk['endpoint'],
-            'models': list(blk['models']), 'families': list(blk['families'])}
+            'models': list(blk['models']), 'families': list(blk['families']),
+            'held_seconds': max(0.0, time.time() - float(blk.get('since') or blk['at']))}
+
+
+def _shared_endpoint() -> str | None:
+    """The endpoint the user consented to share, while that consent is live."""
+    global _share_until, _share_endpoint
+    with _lock:
+        if _share_endpoint is None:
+            return None
+        if time.monotonic() < _share_until:
+            return _share_endpoint
+        _share_until, _share_endpoint = 0.0, None   # expired: back to fencing
+    return None
+
+
+def share_state() -> dict:
+    """Whether a consented share is live, and for how much longer."""
+    endpoint = _shared_endpoint()
+    if endpoint is None:
+        return {'sharing': False, 'endpoint': None, 'seconds_left': 0}
+    with _lock:
+        left = max(0.0, _share_until - time.monotonic())
+    return {'sharing': True, 'endpoint': endpoint, 'seconds_left': int(left)}
+
+
+def share_gpu_with_foreign_model() -> dict:
+    """"Run it anyway" — proceed WITH a foreign model resident, ON CONSENT ONLY.
+
+    The other half of `unload_foreign_models`, for the case where evicting is
+    not an option: the resident model may be another tool's live work, or
+    another LDS instance mid-batch. Nothing here touches it. The fence simply
+    stops holding the queue for this endpoint until the consent runs out.
+
+    This is deliberately NOT free of cost, and the surfaces say so: on Windows
+    an over-committed card does not raise, it pages silently — a measured 13x
+    slowdown on the vision side (see `services/vision_keepalive.py`). Sharing
+    is therefore the user's call to make about their own card, never a fallback
+    the app takes on its own. Nothing calls this on a timer or on a retry.
+    """
+    blk = last_block()
+    if blk is None:
+        return {'ok': False, 'reason': 'not-blocked', 'seconds': 0}
+    scope, configured = _configured_local_endpoint()
+    target = blk.get('endpoint') or (configured if scope == 'local' else None)
+    if not target:
+        return {'ok': False, 'reason': 'not-local', 'seconds': 0}
+    global _share_until, _share_endpoint
+    with _lock:
+        _share_until = time.monotonic() + SHARE_SECONDS
+        _share_endpoint = target
+    # The hold is over as far as the queue is concerned: clear it now rather
+    # than let the dock keep explaining a pause the user just answered.
+    _clear_block()
+    logger.warning('ollama GPU fence: user consented to SHARE the GPU with a model '
+                   'LDS does not own for %d s', int(SHARE_SECONDS))
+    return {'ok': True, 'reason': 'sharing', 'seconds': int(SHARE_SECONDS),
+            'models': list(blk.get('models') or ())}
+
+
+def stop_sharing() -> None:
+    """Hand the card back to the fence before the consent runs out."""
+    global _share_until, _share_endpoint
+    with _lock:
+        _share_until, _share_endpoint = 0.0, None
 
 
 def ensure_released_for_comfy() -> bool:
@@ -576,11 +673,22 @@ def ensure_released_for_comfy() -> bool:
             candidates.setdefault(foreign_endpoint, set())
 
     scope, endpoint = _configured_local_endpoint()
-    if scope == 'unknown':
-        _note_block({'reason': 'bad_url', 'endpoint': None, 'models': ()})
-        return False
     if scope == 'local':
         candidates.setdefault(endpoint, set())
+    # `unknown` — an unparseable Ollama URL, or one with a proxy base-path — is
+    # deliberately NOT a block. LDS cannot address such an endpoint, so
+    # `mark_before_generate` refuses every vision call on it and LDS has nothing
+    # loaded there to release. Refusing the hand-off anyway made a mistyped
+    # CAPTIONING setting stop image GENERATION, with a dock sentence pointing at
+    # a URL the user may never have meant to use — a blast radius far larger
+    # than the risk being managed. Endpoints LDS did use before the URL changed
+    # are still in `candidates` above, and are still released properly.
+
+    # A consented share covers exactly one endpoint, and only until it expires.
+    shared = _shared_endpoint()
+    if shared is not None:
+        candidates.pop(shared, None)
+
     for local_endpoint, expected in candidates.items():
         if not _release_endpoint(local_endpoint, expected):
             with _lock:
@@ -674,6 +782,7 @@ def unload_foreign_models() -> dict:
 def reset_for_tests() -> None:
     """Forget process-local bookkeeping only; never call a local service."""
     global _last_block, _last_release_failure, _last_block_log_at
+    global _share_until, _share_endpoint
     with _lock:
         _owned_models.clear()
         _foreign_local_endpoints.clear()
@@ -681,3 +790,5 @@ def reset_for_tests() -> None:
         _last_block = None
         _last_release_failure = None
         _last_block_log_at = 0.0
+        _share_until = 0.0
+        _share_endpoint = None

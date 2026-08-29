@@ -530,7 +530,12 @@ export const PAGE_TOPICS = [
       'why is it greyed out', 'greyed out', 'disabled button', 'cannot generate',
       'too many generations in flight', 'run next', 'reorder', 'priority',
       'cancel one job', 'what is the gpu doing', 'still generating', 'dock',
-      'bottom left', 'improve batch blocks', 'klein batch blocks'],
+      'bottom left', 'improve batch blocks', 'klein batch blocks',
+      // The words people type when the queue is held by a model LDS does not
+      // own — and the answer the dock now offers instead of an open wait.
+      'nothing is starting', 'queue stuck', 'queue frozen', 'nothing happens',
+      'run anyway', 'share the gpu', 'generate anyway', 'keep waiting',
+      'a local model outside LDS', 'holding the gpu', 'it has been waiting'],
     '/datasets', 'using-the-app', 'the-generation-queue'),
   action('studio-recover-paused-batch', 'Recover a paused Test Studio batch',
     ['studio', 'test studio', 'paused', 'pause', 'stalled', 'queue', 'queue error',

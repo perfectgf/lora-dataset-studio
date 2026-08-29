@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-29-queue-hold-has-an-answer',
+    date: '2026-08-29',
+    title: 'A queue held by another app now has a way out',
+    blurb:
+      'When something outside LDS is holding a model on your graphics card, '
+      + 'generations wait rather than evict it — and that wait could last as '
+      + 'long as the other app did. The queue dock now tells you how long it '
+      + 'has been waiting and offers Run anyway, which starts generating next '
+      + 'to the other model instead (nothing of yours is unloaded, it can be '
+      + 'slower, and the guard returns after fifteen minutes). An Ollama URL '
+      + 'the app cannot use no longer stops image generation at all.',
+  },
+  {
     id: '2026-08-29-one-run-number',
     date: '2026-08-29',
     title: 'One number per training run, on every screen',

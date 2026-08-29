@@ -45,6 +45,34 @@ export function pausedReason(listing) {
   return reason || null;
 }
 
+/**
+ * The ANSWER the server offers for a queue standing still, or null when waiting
+ * is the only answer there is.
+ *
+ * Most holds end by themselves — a training run finishes, Ollama drops an idle
+ * model — and those get a sentence and nothing else. One does not: a model
+ * another app (or another LDS instance) holds on the shared card may never be
+ * handed back, and some runners never unload at all. That hold used to be an
+ * open wait with no way out but quitting the other program.
+ *
+ * Validated rather than trusted: an older backend sends no action at all, and a
+ * future kind this dock does not know must not become a button that does
+ * nothing. A button with no words on it is worse than no button.
+ */
+export function pausedAction(listing) {
+  const action = listing?.paused_action;
+  if (!action || action.kind !== 'share_gpu') return null;
+  const label = (action.label || '').trim();
+  const confirm = (action.confirm || '').trim();
+  if (!label || !confirm) return null;
+  return {
+    kind: action.kind,
+    label,
+    confirm,
+    models: Array.isArray(action.models) ? action.models : [],
+  };
+}
+
 /** "Upscale & improve · Klein" — the engine only when there is one to name. */
 export function jobLabel(job) {
   return job?.engine ? `${job.title} · ${job.engine}` : (job?.title || '');

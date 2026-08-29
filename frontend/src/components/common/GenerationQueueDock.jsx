@@ -3,8 +3,8 @@ import { useLocation } from 'react-router'
 import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from './Toast'
 import {
-  elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedReason, promoteBlockedReason,
-  rowNote, summarize,
+  elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedAction, pausedReason,
+  promoteBlockedReason, rowNote, summarize,
 } from '../../utils/queuePanel'
 import { dockBottomClass } from '../../utils/dockPlacement'
 
@@ -38,6 +38,7 @@ export default function GenerationQueueDock() {
   const [listing, setListing] = useState(null)
   const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(null)   // job_id of the action in flight
+  const [sharing, setSharing] = useState(false)  // the GPU-share consent in flight
   const aliveRef = useRef(true)
 
   const poll = useCallback(async () => {
@@ -85,13 +86,38 @@ export default function GenerationQueueDock() {
     }
   }, [poll, toast])
 
+  /**
+   * "Run anyway" — answer a hold instead of outlasting it.
+   *
+   * Only ever reached by a click on the offer the server publishes, and the
+   * consent flag travels with it: nothing about this is a retry or a fallback.
+   * It unloads nothing — it tells the fence that sharing the card with the
+   * other model is this user's call to make.
+   */
+  const shareGpu = useCallback(async () => {
+    setSharing(true)
+    try {
+      const res = await postJson('/api/system/ollama-fence/share',
+        { confirmed_share_gpu: true })
+      const minutes = Math.max(1, Math.round((res?.seconds || 0) / 60))
+      toast.success(`Sharing the GPU — the queue starts again. `
+        + `The guard comes back in ${minutes} min.`)
+    } catch (e) {
+      toast.error(e?.message || 'The GPU could not be shared.')
+    } finally {
+      if (aliveRef.current) setSharing(false)
+      await poll()
+    }
+  }, [poll, toast])
+
   if (!hasQueue(listing)) return null
   return (
-    <QueueDockBody listing={listing} open={open} pending={pending}
+    <QueueDockBody listing={listing} open={open} pending={pending} sharing={sharing}
       bottomClass={dockBottomClass(pathname)}
       onToggle={() => setOpen((v) => !v)}
       onPromote={(job) => act(job, 'next')}
-      onCancel={(job) => act(job, 'cancel')} />
+      onCancel={(job) => act(job, 'cancel')}
+      onShare={shareGpu} />
   )
 }
 
@@ -102,12 +128,13 @@ export default function GenerationQueueDock() {
  * effects, so mounting the default export would prove nothing about what a user
  * with a full queue actually sees.
  */
-export function QueueDockBody({ listing, open = false, pending = null,
+export function QueueDockBody({ listing, open = false, pending = null, sharing = false,
                                 bottomClass = 'bottom-4',
-                                onToggle, onPromote, onCancel }) {
+                                onToggle, onPromote, onCancel, onShare }) {
   if (!hasQueue(listing)) return null
   const jobs = listing.jobs
   const paused = pausedReason(listing)
+  const action = pausedAction(listing)
   return (
     <div className={`fixed ${bottomClass} left-3 z-40 w-[min(23rem,calc(100vw-1.5rem))]`}>
       {open && (
@@ -115,9 +142,12 @@ export function QueueDockBody({ listing, open = false, pending = null,
           {/* Above the list, because it explains the whole list: nothing here is
               moving, and this is what is holding the GPU instead. */}
           {paused && (
-            <p className="border-b border-border bg-amber-400/10 px-3 py-2 text-content text-[0.6875rem] leading-snug">
-              {paused}
-            </p>
+            <div className="border-b border-border bg-amber-400/10 px-3 py-2">
+              <p className="text-content text-[0.6875rem] leading-snug">{paused}</p>
+              {/* A hold that can be ANSWERED says so here, and nowhere else: the
+                  offer belongs next to the sentence that explains the wait. */}
+              {action && <ShareGpuOffer action={action} busy={sharing} onShare={onShare} />}
+            </div>
           )}
           <ul className="divide-y divide-border">
             {jobs.map((job) => (
@@ -146,6 +176,51 @@ export function QueueDockBody({ listing, open = false, pending = null,
           {open ? '▾' : '▴'}
         </span>
       </button>
+    </div>
+  )
+}
+
+/**
+ * "Run anyway" — in two steps, because the first one is not the decision.
+ *
+ * The dock's other controls act on LDS's own jobs; this one accepts a real cost
+ * on the user's card (two loaded models on one GPU do not crash on Windows, they
+ * page — silently, and much slower). So the first click only reveals what it
+ * means, and the second is the consent that travels to the server. No browser
+ * dialog: a modal would block the very queue this panel is watching.
+ *
+ * "Keep waiting" is a first-class answer, not a cancel: for most holds it is
+ * still the right one, and the hold clears on its own.
+ */
+function ShareGpuOffer({ action, busy, onShare }) {
+  const [confirming, setConfirming] = useState(false)
+  // Finger-sized below lg, unchanged on a desktop — kept together in one string
+  // so the pair stays readable as the rule it is.
+  const button = 'min-h-10 lg:min-h-0 rounded px-2 py-1 text-[0.6875rem]'
+    + ' disabled:cursor-not-allowed disabled:opacity-40'
+  if (!confirming) {
+    return (
+      <button type="button" onClick={() => setConfirming(true)} disabled={busy}
+        title="Generate next to the other model instead of waiting for it"
+        className={`mt-1.5 bg-app/60 text-content hover:bg-app ${button}`}>
+        {action.label}
+      </button>
+    )
+  }
+  return (
+    <div className="mt-1.5">
+      <p className="text-content-subtle text-[0.6875rem] leading-snug">{action.confirm}</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        <button type="button" disabled={busy}
+          onClick={() => { setConfirming(false); onShare?.() }}
+          className={`bg-amber-400/20 text-content hover:bg-amber-400/30 ${button}`}>
+          Share the GPU
+        </button>
+        <button type="button" disabled={busy} onClick={() => setConfirming(false)}
+          className={`bg-app/60 text-content-subtle hover:bg-app ${button}`}>
+          Keep waiting
+        </button>
+      </div>
     </div>
   )
 }

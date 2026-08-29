@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedReason, promoteBlockedReason,
-  rowNote, summarize,
+  elapsedLabel, hasQueue, jobLabel, jobOrigin, pausedAction, pausedReason,
+  promoteBlockedReason, rowNote, summarize,
 } from './queuePanel.js';
 
 const job = (patch = {}) => ({
@@ -45,6 +45,34 @@ test('a queue held by something outside it says what is holding it', () => {
   for (const listing of [{ jobs: [job()] }, { jobs: [job()], paused_reason: null },
     { jobs: [job()], paused_reason: '   ' }, null])
     assert.equal(pausedReason(listing), null);
+});
+
+// Some holds end by themselves and some never do. Only the second kind earns a
+// button — and it must carry its own words, because a control the dock cannot
+// explain is the failure mode this whole panel exists to remove.
+test('a hold the user can answer offers the answer, with what it costs', () => {
+  const action = pausedAction({
+    jobs: [job()],
+    paused_action: {
+      kind: 'share_gpu', label: 'Run anyway', models: ['llama3:8b'],
+      confirm: 'Nothing of yours is unloaded — but generation can be much slower.',
+    },
+  });
+  assert.equal(action.label, 'Run anyway');
+  assert.deepEqual(action.models, ['llama3:8b']);
+  assert.match(action.confirm, /slower/);
+});
+
+test('an unknown, empty or absent offer is no button at all', () => {
+  // An older backend sends nothing; a future kind is one this dock cannot drive;
+  // an offer with no words on it would render as a mystery control.
+  for (const paused_action of [
+    undefined, null, {},
+    { kind: 'reboot_the_gpu', label: 'Do it', confirm: 'Sure?' },
+    { kind: 'share_gpu', label: '  ', confirm: 'Sure?' },
+    { kind: 'share_gpu', label: 'Run anyway', confirm: '' },
+  ]) assert.equal(pausedAction({ jobs: [job()], paused_action }), null);
+  assert.equal(pausedAction(null), null);
 });
 
 test('a job names its engine only when it has one', () => {

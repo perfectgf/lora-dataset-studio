@@ -326,6 +326,50 @@ def test_the_fence_sentence_names_the_squatting_model_when_it_is_not_kcpp(app, m
     assert 'Unload it there' in sentence
 
 
+def _fence_block(held_seconds, models=('llama3:8b',)):
+    return lambda max_age_s=15: {'reason': 'foreign', 'endpoint': 'http://127.0.0.1:11434',
+                                 'models': list(models), 'families': [],
+                                 'held_seconds': held_seconds}
+
+
+def test_a_short_fence_hold_is_left_alone_to_clear_on_its_own(app, monkeypatch):
+    """Most fence holds end by themselves — Ollama drops an idle model after a
+    few minutes. Offering to share the card during the first minute would trade
+    a self-healing wait for a real, measured slowdown."""
+    from app.services import ollama_gpu_fence, queue_view
+    monkeypatch.setattr(ollama_gpu_fence, 'last_block', _fence_block(5))
+    with app.app_context():
+        assert queue_view.paused_action() is None
+        assert 'has been waiting' not in (queue_view.paused_reason() or '')
+
+
+def test_a_hold_that_outlives_the_minute_says_how_long_and_offers_an_answer(app, monkeypatch):
+    """The fix for the open-ended freeze: a wall the user can neither see the
+    length of nor answer is what made this hold feel like a bug in the queue."""
+    from app.services import ollama_gpu_fence, queue_view
+    monkeypatch.setattr(ollama_gpu_fence, 'last_block', _fence_block(260))
+    with app.app_context():
+        sentence = queue_view.paused_reason() or ''
+        action = queue_view.paused_action()
+    assert 'It has been waiting 4 min.' in sentence
+    assert action['kind'] == 'share_gpu' and action['models'] == ['llama3:8b']
+    # The offer states the cost. Sharing one card between two loaded models is
+    # not free, and on Windows it degrades silently instead of failing.
+    assert 'slower' in action['confirm']
+
+
+def test_only_the_fence_hold_is_answerable_the_others_end_by_themselves(app, monkeypatch):
+    """A training run and a vision pass finish on their own, and a paused
+    ComfyUI job has its remedy on another screen: none of them earns a button."""
+    from app import job_queue
+    from app.services import queue_view
+    monkeypatch.setattr(job_queue.queue_manager, '_get_system_state',
+                        lambda key, default=False: key == 'training_in_progress')
+    with app.app_context():
+        assert job_queue.queue_manager.gpu_hold() == job_queue.HOLD_TRAINING
+        assert queue_view.paused_action() is None
+
+
 def test_a_cancelled_job_is_not_reported_to_the_user_as_a_failure(app, client):
     """`link_completed_dataset_image` falls back to a message pointing at the
     server log when no reason is given — so a job the user had just cancelled
