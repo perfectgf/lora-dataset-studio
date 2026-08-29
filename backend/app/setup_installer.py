@@ -48,6 +48,7 @@ one venv fail 6/6 with WinError 2 / Errno 13). Each pip run also retries once on
 transient file-lock error (an antivirus holding a fresh file). Model downloads and the
 ollama pull don't touch a venv, so they stay parallel.
 """
+import contextlib
 import importlib
 import json
 import logging
@@ -56,6 +57,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -1462,7 +1464,7 @@ _TORCH_CPU_INDEX = 'https://download.pytorch.org/whl/cpu'
 _WARM_IMPORT_TIMEOUT = 300
 
 
-def _install_cpu_torch_pair(action, python, *, constraint=False) -> int:
+def _install_cpu_torch_pair(action, python, *, constraints=None) -> int:
     """Install torch AND torchvision together from _TORCH_CPU_INDEX into a managed
     environment. Always the PAIR, never torch alone: the stacks that land in these
     envs afterwards (open_clip_torch, timm, simple-lama-inpainting) depend on
@@ -1479,8 +1481,10 @@ def _install_cpu_torch_pair(action, python, *, constraint=False) -> int:
                     '(download.pytorch.org/whl/cpu) if needed')
     cmd = [python, '-m', 'pip', 'install', 'torch', 'torchvision',
            '--index-url', _TORCH_CPU_INDEX]
-    if constraint:
-        cmd += ['-c', str(_ML_REQUIREMENTS)]
+    if constraints:
+        # A PATH, never the raw requirements file: the one caller that constrains
+        # this install (the watermark env) must not inherit the app's Pillow pin.
+        cmd += ['-c', str(constraints)]
     rc = _run_pip(action, cmd)
     if rc != 0:
         _append(action, f'torch install failed (rc={rc}) — see the log above')
@@ -1704,23 +1708,65 @@ def _ensure_watermark_env(action) -> str:
     return env_python
 
 
+# The pins requirements-ml.txt carries FOR THE APP that this environment must
+# never inherit. Pillow is the whole reason the watermark venv exists: the app
+# needs 12 (the burned-in-text reader's unicode-path fallback), and
+# simple-lama-inpainting refuses anything above 9. Handing pip both at once is
+# an unsatisfiable request, and pip answers with ResolutionImpossible naming
+# "The user requested (constraint) pillow<13,>=12" — GitHub #59, on an install
+# that had worked until the app pinned its own Pillow in requirements-ml.txt.
+# The constraint file is still worth passing: it is what keeps a torch pull from
+# bumping numpy past insightface's <2 ceiling in a user's OWN environment.
+_WATERMARK_CONSTRAINT_EXCLUDES = frozenset({_canon('pillow')})
+
+
+@contextlib.contextmanager
+def _watermark_constraint_file():
+    """requirements-ml.txt MINUS the pins the watermark env cannot honour.
+
+    Yields a path to a temporary constraints file, or None when the source file
+    cannot be read (then the caller passes no -c at all — an unconstrained
+    install still works, a crashed one does not).
+
+    A filtered COPY rather than a second checked-in file on purpose: the floors
+    stay in one place, so a version bump in requirements-ml.txt reaches this
+    environment too, and nobody has to remember a parallel list exists.
+    """
+    lines = _ml_requirement_specs(exclude=_WATERMARK_CONSTRAINT_EXCLUDES)
+    if not lines:
+        yield None
+        return
+    with tempfile.TemporaryDirectory(prefix='lds-watermark-') as tmp:
+        path = os.path.join(tmp, 'constraints.txt')
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write('\n'.join(lines) + '\n')
+        yield path
+
+
 def _pip_install_watermark(action, python, *, managed: bool) -> int:
     """Install simple-lama-inpainting into `python` (a dedicated 3.10-3.12 env). The
     version floor is read from requirements-ml.txt (single source of truth), which also
     rides along as a -c constraint so pulling torch can't bump numpy past insightface's
-    <2 ceiling. For the app-managed venv (managed=True) CPU torch is installed FIRST and
-    explicitly (small/reliable/cross-OS); a user's OWN env keeps whatever torch it has —
-    we never downgrade a CUDA build there."""
+    <2 ceiling — MINUS the app's own Pillow pin, which this environment exists to
+    contradict (see _WATERMARK_CONSTRAINT_EXCLUDES). For the app-managed venv
+    (managed=True) CPU torch is installed FIRST and explicitly (small/reliable/
+    cross-OS); a user's OWN env keeps whatever torch it has — we never downgrade a
+    CUDA build there."""
     spec = _requirement_spec(_WATERMARK_PKG)
     _append(action, f'target interpreter: {python}')
-    if managed:
-        # simple-lama-inpainting depends on torchvision, so the pair matters here
-        # exactly as it does for the bank-scoring stack (see _install_cpu_torch_pair).
-        rc = _install_cpu_torch_pair(action, python, constraint=True)
-        if rc != 0:
-            return rc
-    _append(action, f'installing {spec}  (constraints: requirements-ml.txt)')
-    return _run_pip(action, [python, '-m', 'pip', 'install', spec, '-c', str(_ML_REQUIREMENTS)])
+    with _watermark_constraint_file() as constraints:
+        if managed:
+            # simple-lama-inpainting depends on torchvision, so the pair matters here
+            # exactly as it does for the bank-scoring stack (see _install_cpu_torch_pair).
+            rc = _install_cpu_torch_pair(action, python, constraints=constraints)
+            if rc != 0:
+                return rc
+        _append(action, f'installing {spec}  (constraints: requirements-ml.txt '
+                        'without the app Pillow pin)')
+        cmd = [python, '-m', 'pip', 'install', spec]
+        if constraints:
+            cmd += ['-c', constraints]
+        return _run_pip(action, cmd)
 
 
 def _verify_watermark_import(action, python) -> bool:
