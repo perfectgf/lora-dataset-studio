@@ -19,7 +19,6 @@ Nothing here renders anything: no GPU second, no paid call. The numeric test run
 on CPU tensors of shape (1, 4, 8, 8).
 """
 import os
-import shutil
 import sys
 
 import pytest
@@ -469,3 +468,107 @@ def test_no_preset_leaves_the_stock_graph_untouched(app, monkeypatch):
     classes = {n.get('class_type') for n in wf.values() if isinstance(n, dict)}
     assert 'KSampler' in classes
     assert not any(c.startswith('LDSKrea2') for c in classes)
+
+
+# --- 6. The ComfyUI-facing contract ------------------------------------------
+# Everything above calls the sampling FUNCTION directly. ComfyUI never does: it
+# imports the package, reads NODE_CLASS_MAPPINGS, and calls the node's `build`.
+# That method was the one part of the file no test had ever executed.
+
+def _with_stub_comfy(monkeypatch):
+    """Install a minimal fake `comfy.samplers` so `build()` can run without ComfyUI.
+
+    The stub records what KSAMPLER was handed, which is the actual contract: the
+    preset table has to arrive as `extra_options`, since that is how ComfyUI feeds
+    them back to the sampler function as keyword arguments. A preset dict that
+    never reaches this call renders as the DEFAULTS, silently — every preset
+    producing the same image, with nothing failing."""
+    import types
+    calls = []
+
+    class _KSampler:
+        def __init__(self, fn, extra_options=None, **kw):
+            self.sampler_function = fn
+            self.extra_options = extra_options or {}
+            calls.append(self)
+
+    samplers = types.ModuleType('comfy.samplers')
+    samplers.KSAMPLER = _KSampler
+    comfy = types.ModuleType('comfy')
+    comfy.samplers = samplers
+    monkeypatch.setitem(sys.modules, 'comfy', comfy)
+    monkeypatch.setitem(sys.modules, 'comfy.samplers', samplers)
+    return calls
+
+
+def test_the_node_registers_under_the_class_the_app_writes(monkeypatch):
+    _load_node_module()
+    from lds_krea_sampler import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
+
+    assert list(NODE_CLASS_MAPPINGS) == ['LDSKrea2PresetSampler']
+    # The display name is what a human sees in ComfyUI's menu, and it has to say
+    # which app put the folder there — someone auditing their custom_nodes should
+    # not have to open a file to find out.
+    assert 'LoRA Dataset Studio' in NODE_DISPLAY_NAME_MAPPINGS['LDSKrea2PresetSampler']
+
+
+def test_build_hands_each_preset_its_own_values(monkeypatch):
+    sampler = _load_node_module()
+    calls = _with_stub_comfy(monkeypatch)
+    from lds_krea_sampler import NODE_CLASS_MAPPINGS
+
+    node = NODE_CLASS_MAPPINGS['LDSKrea2PresetSampler']()
+    seen = []
+    for preset in sampler.PRESETS:
+        built, settings = node.build(preset)
+        assert built is calls[-1]
+        assert built.sampler_function is sampler.sample_lds_krea_multistep
+        assert built.extra_options['history'] == sampler.PRESETS[preset]['history']
+        assert built.extra_options['terminal'] == sampler.PRESETS[preset]['terminal']
+        # The echoed STRING carries what RAN, not what was asked for — the two
+        # differ whenever a value is clamped.
+        assert preset in settings
+        seen.append(tuple(sorted(built.extra_options.items())))
+    assert len(set(seen)) == len(seen), 'two presets built the same sampler'
+
+
+def test_build_accepts_custom_and_clamps_what_it_is_given(monkeypatch):
+    _load_node_module()
+    calls = _with_stub_comfy(monkeypatch)
+    from lds_krea_sampler import NODE_CLASS_MAPPINGS
+
+    node = NODE_CLASS_MAPPINGS['LDSKrea2PresetSampler']()
+    node.build('custom', history=5.0, history_from=-2.0, terminal_strength='nonsense')
+    opts = calls[-1].extra_options
+    assert opts['history'] == 1.0            # clamped down
+    assert opts['history_from'] == 0.0       # clamped up
+    assert opts['terminal_strength'] == 1.0  # unusable -> the documented fallback
+
+
+def test_an_unknown_preset_still_builds_a_sampler(monkeypatch):
+    """An install mid-update can send a name this node does not know. It must
+    degrade to a render, not to a dead tile — the same fail-safe the app-side
+    injector applies from the other direction."""
+    _load_node_module()
+    calls = _with_stub_comfy(monkeypatch)
+    from lds_krea_sampler import NODE_CLASS_MAPPINGS
+
+    NODE_CLASS_MAPPINGS['LDSKrea2PresetSampler']().build('a_preset_from_the_future')
+    assert calls[-1].extra_options['history'] is not None
+
+
+def test_the_declared_inputs_match_what_build_accepts(monkeypatch):
+    """INPUT_TYPES is what ComfyUI renders AND validates against. A widget it
+    declares that `build` has no parameter for is a TypeError at execution time,
+    on somebody's graph."""
+    import inspect
+    _load_node_module()
+    from lds_krea_sampler import NODE_CLASS_MAPPINGS
+
+    node_cls = NODE_CLASS_MAPPINGS['LDSKrea2PresetSampler']
+    spec = node_cls.INPUT_TYPES()
+    declared = set(spec.get('required', {})) | set(spec.get('optional', {}))
+    accepted = set(inspect.signature(node_cls.build).parameters) - {'self'}
+    assert declared == accepted, f'declared {declared} vs accepted {accepted}'
+    assert node_cls.FUNCTION == 'build'
+    assert node_cls.RETURN_TYPES[0] == 'SAMPLER'
