@@ -9,6 +9,7 @@ import { displayLabel } from '../../utils/labels';
 import { captionIsAsserted, captionOriginInfo } from '../../utils/captionOrigin.js';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import CaptionEditorDialog from './CaptionEditorDialog';
+import { datasetLabSurface } from './captionLabSurface';
 import PromptEditPopover from './PromptEditPopover';
 import SourceAttribution from './SourceAttribution';
 import { ENGINE_ACCENTS, ENGINE_LABELS } from './engineSelection.js';
@@ -478,7 +479,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
       )}
       {captionEditorOpen && (
         <CaptionEditorDialog initialCaption={cap} imageUrl={url}
-          datasetId={datasetId} imageId={img.id}
+          labSurface={datasetLabSurface({ datasetId, imageId: img.id })}
           initialShortCaption={img.caption_short || ''} showShort={dualCaptions}
           captionOrigin={img.caption_origin} shortCaptionOrigin={img.caption_short_origin}
           imageLabel={displayLabel(img.variation_label)}

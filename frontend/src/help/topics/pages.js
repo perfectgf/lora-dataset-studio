@@ -551,4 +551,15 @@ export const PAGE_TOPICS = [
       'start comfyui', 'cancel and resume', 'batch did not continue', 'no later prompt',
       '.bat', 'bat file', 'safe local profile'],
     '/setup?step=comfyui', 'using-the-app', 'recover-a-paused-test-studio-batch'),
+  // The Bank's half of 🧪 Caption Lab. Its own topic rather than keywords bolted
+  // onto the dataset one: the two live on different screens, and a topic carries ONE
+  // route — a user searching from a bank must land on the bank, not be told to open
+  // a dataset they may not have.
+  action('bank-caption-lab', '🧪 Caption Lab on a bank — compare caption configs',
+    ['caption lab', 'bank caption lab', 'bench', 'bench captions', 'compare captions',
+      'a/b', 'ab test', 'side by side', 'which model', 'try a model', 'candidate',
+      'engine', 'joycaption', 'ollama', 'vision model', 'vocabulary', 'register',
+      'explicit', 'clinical', 'length', 'concise', 'detailed',
+      'edit a bank caption', 'fix a caption', 'rewrite one caption'],
+    '/bank', 'using-the-app', 'the-image-bank-triage-a-big-folder'),
 ];

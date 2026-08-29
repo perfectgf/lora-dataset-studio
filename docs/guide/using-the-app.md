@@ -655,6 +655,14 @@ The funnel itself:
    🔍 box — `red dress`, `sunset`, a file name — and the grid filters to
    matching images, combinable with every other filter. It's the fast way to
    find shots in a 9 000-image dump.
+   → **🧪 Caption Lab**, in the same 🏷️ Caption window, benches up to four
+   configurations — engine, vision model, vocabulary register and length — on ONE
+   image you pick, side by side, before you spend a pass on thousands. Nothing is
+   written until you keep a result; **⚙️ Use for the next run** loads the winning
+   configuration into the dials above (a bank picks its caption method per run rather
+   than storing one, which is what that button means here). A bank caption can also be
+   edited by hand from that window — what you write is stamped as yours, so a forced
+   🔄 Re-caption spares it unless you tick the opt-out.
 6. **⬆ Promote** — the kept images are **copied** into the dataset you choose
    through the normal import path: normalized to webp, near-duplicates already
    in the dataset skipped. Any bank caption **rides along**, so a captioned

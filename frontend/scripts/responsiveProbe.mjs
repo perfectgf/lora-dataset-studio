@@ -170,6 +170,18 @@ const PAGES = {
       { name: 'passes', open: ['[aria-controls="bank-passes-panel"]'] },
       { name: 'auto-reject', open: ['button:has-text("Auto-reject")'] },
       { name: 'review', open: ['[aria-label^="Review from"]'] },
+      // 🧪 The Caption Lab, on the surface it was ported to. Same three steps a
+      // user takes: the passes panel, the 🏷️ Caption window, then the bench. The
+      // Caption pass button's label is computed (it carries the run's count), so it
+      // is matched on the one word that never leaves it. Skipped, and said so, on a
+      // viewport where the panel is already open — the toggle would then CLOSE it.
+      { name: 'caption-lab-picker', open: ['[aria-controls="bank-passes-panel"]',
+        '#bank-passes-panel >> button:has-text("Caption")',
+        '[aria-label="Open the Caption Lab"]:visible'] },
+      { name: 'caption-lab', open: ['[aria-controls="bank-passes-panel"]',
+        '#bank-passes-panel >> button:has-text("Caption")',
+        '[aria-label="Open the Caption Lab"]:visible',
+        '[aria-label^="Bench captions on image"]:visible'] },
     ],
   },
   '#/datasets': {
@@ -186,6 +198,20 @@ const PAGES = {
       { name: 'training', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Training")'] },
       { name: 'lightbox', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Images"):not(:has-text("Add"))',
         '[aria-label^="Inspect"]'] },
+      // ✍️ The Captions section, and the bench inside it. Neither existed as a
+      // state: the section was never opened by any of the states above, so its
+      // rows — the engine select, four buttons, the leak badge — were measured
+      // on no screen at all, and the 🧪 Caption Lab's dialogs (a thumbnail grid
+      // and a four-card bench, the densest thing this section can put on a
+      // phone) were not even in the DOM. The Lab is reached the way a user
+      // reaches it: the section, then the button, then the first image — which
+      // is also what proves the entry point is really there.
+      { name: 'captions', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Captions")'] },
+      { name: 'caption-lab-picker', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Captions")',
+        '[aria-label="Open the Caption Lab"]:visible'] },
+      { name: 'caption-lab', open: ['nav[aria-label="Dataset sections"]:visible >> button:has-text("Captions")',
+        '[aria-label="Open the Caption Lab"]:visible',
+        '[aria-label^="Bench captions on image"]:visible'] },
       // ☁ The checkpoints manager's run groups — a dense header (run chip,
       // family, version, status, GPU, cost, then ⚙ Details / ⇄ Compare / a
       // Runs link) that NO state opened until now. That gap was not theory:

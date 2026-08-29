@@ -20,6 +20,7 @@ const AVAILABILITY = {
   // button which is not on screen is worse than no entry.
   watermarkRejectable: (c) => boolStatus(c.watermarkRejectable > 0),
   unused: (c) => boolStatus(c.unused > 0),
+  hasKeptImages: (c) => boolStatus(c.hasKeptImages),
   leakReview: (c) => boolStatus(c.kind !== 'style' && c.hasKeptImages && c.hasLeakMetadata),
   hasCaptionedKept: (c) => boolStatus(c.hasCaptionedKept),
   huggingFace: (c) => boolStatus(c.hfPublish && c.hasKeptImages),

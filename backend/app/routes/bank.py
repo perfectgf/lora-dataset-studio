@@ -870,6 +870,73 @@ def bank_caption(bank_id):
                   include_asserted=bool(data.get('include_asserted')))
 
 
+@bp.post('/bank/<int:bank_id>/image/<int:image_id>/caption/preview')
+def bank_image_caption_preview(bank_id, image_id):
+    """🧪 Caption Lab: run ONE candidate config on ONE bank image and return the
+    caption WITHOUT writing it. The Bank's half of the dataset route of the same name,
+    with the same body ({backend, ollama_model, vocabulary, length, instructions}) and
+    the same meaning — both call one shared bench (face_dataset_service.
+    preview_caption_path), so a candidate cannot mean two things.
+
+    Synchronous, and it holds the bank for its duration under the 'caption' kind: the
+    bench owns the GPU while it runs, and ▶ Stop / POST /bank/<id>/cancel aborts it at
+    the image boundary like any pass.
+    400 = bad config · 404 = unknown bank/image · 409 = a pass holds the bank · 503 = GPU
+    held by training or another vision task."""
+    data = request.get_json(silent=True)
+    if data is None:
+        data = {}
+    elif not isinstance(data, dict):
+        return jsonify({'error': 'JSON body must be an object'}), 400
+    # 404 for an unknown BANK, like the dataset twin (datasets.py checks the container
+    # first). Without this the service's ValueError('bank not found') surfaced as a 400,
+    # so the same mistake answered 404 on one surface and 400 on the other.
+    if banks.get_bank(LOCAL_USER, bank_id) is None:
+        return jsonify({'error': 'not found'}), 404
+    try:
+        result = banks.preview_caption(
+            LOCAL_USER, bank_id, image_id,
+            backend=data.get('backend'), ollama_model=data.get('ollama_model', ''),
+            vocabulary=data.get('vocabulary'), length=data.get('length'),
+            instructions=data.get('instructions'))
+    except bank_jobs.BankJobBusy as e:
+        # BEFORE _map_error, and not for the reason one would guess: BankJobBusy derives
+        # from Exception, NOT RuntimeError, so _map_error does not recognise it at all and
+        # would RE-RAISE it. Caught here so the refusal is a 409 carrying `busy_kind` —
+        # the machine-readable half the UI refuses the click in the user's words with.
+        return _busy(e)
+    except Exception as e:  # noqa: BLE001 — _map_error re-raises what it cannot map
+        return _map_error(e)
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
+@bp.put('/bank/<int:bank_id>/image/<int:image_id>/caption')
+def bank_image_caption(bank_id, image_id):
+    """Write ONE bank image's caption by hand. {caption: "..."} — an empty string
+    clears it. The text lands stamped 'asserted', so a forced 🔄 Re-caption spares it
+    unless the user ticks the include-asserted opt-out.
+
+    Synchronous: it writes one row of ours, like the crop and the watermark undo.
+    400 = bad body · 404 = unknown bank/image · 409 = a pass holds the bank."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'JSON body must be an object'}), 400
+    if banks.get_bank(LOCAL_USER, bank_id) is None:
+        return jsonify({'error': 'not found'}), 404
+    try:
+        result = banks.set_image_caption(LOCAL_USER, bank_id, image_id,
+                                         data.get('caption'))
+    except bank_jobs.BankJobBusy as e:
+        return _busy(e)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
+
+
 @bp.get('/bank/<int:bank_id>/scenes')
 def bank_scenes(bank_id):
     """The bank's captions as ORDERED scene cards — served raw so a generation

@@ -180,6 +180,15 @@ trigger. Keep *person* masking **off** for concepts — a person mask would eras
 very thing you're training. Masking **faces** is the opposite polarity and is
 available on purpose: see §8.
 
+**Trying before you commit.** 🧪 **Caption Lab** in the **Captions** section runs up
+to four caption configurations — engine, vision model, vocabulary register and length —
+on one image you pick, and lays the results side by side with the caption already
+stored. Nothing is written until you keep one, so an engine or a register can be
+settled on a single image instead of on a pass over the whole set. The same bench is
+a tab of the per-image caption editor in **Images**, on whichever tile you opened — and
+of an image bank's 🏷️ Caption window, so a captioner can be settled on the bank before
+anything is promoted.
+
 **Stopping a run.** Started a big caption pass and realized it's captioning badly,
 or an option was mis-set? A **⏹ Stop** button sits in the captioning progress
 banner. It finishes the image being written (an inference is never cut off

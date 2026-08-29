@@ -21,6 +21,8 @@ import KleinModelSetting from '../shared/KleinModelSetting';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
 import CaptionOptionsPopover from './CaptionOptionsPopover';
+import { datasetLabSurface } from './captionLabSurface';
+import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
 import { recaptionConfirmation } from './captionCategory';
 import { defaultEditEngine } from './referenceEdit';
 import { localEngineUnavailableReason, hasComfyui } from '../../utils/localEngineReason.js';
@@ -43,6 +45,13 @@ const CropModal = lazy(() => import('./CropModal'));
 const ReferenceEditModal = lazy(() => import('./ReferenceEditModal'));
 const DatasetLightbox = lazy(() => import('./DatasetLightbox'));
 const PublishHfModal = lazy(() => import('./PublishHfModal'));
+// 🧪 The Caption Lab, reached from the Captions section: the picker names an
+// image, the caption editor opens straight on its Lab tab. Only the PICKER is really
+// deferred by this — CaptionEditorDialog is already in this page's static graph
+// (DatasetGrid -> DatasetGridItem imports it), so its lazy() here buys no split and is
+// kept only so both mount the same way behind the one <Suspense> below.
+const CaptionLabPicker = lazy(() => import('./CaptionLabPicker'));
+const CaptionEditorDialog = lazy(() => import('./CaptionEditorDialog'));
 import {
   summarizeFlagged, rejectableFlagged, rejectFlaggedConfirmText, flaggedSourceNote,
 } from './watermarkFlagged.js';
@@ -298,6 +307,11 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [captionMode, setCaptionMode] = useState(null);   // null → défaut auto selon train_type
   const [showLeaks, setShowLeaks] = useState(false);       // liste dépliée des captions qui fuient
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
+  /* 🧪 Caption Lab, opened from the Captions section: which image to bench
+     (picker), then the image it named. The bench itself is the existing caption
+     editor on its Lab tab — this adds an ENTRY POINT, not a second bench. */
+  const [labPickerOpen, setLabPickerOpen] = useState(false);
+  const [labImage, setLabImage] = useState(null);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
   /* What 🧽 Clean aims at: every flagged page ('all'), only the 🔤 text-flagged
@@ -620,7 +634,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Fidélité corps : captions bannissent aussi les marques corporelles, composition
   // cible plus de bustes/corps, import plein cadre par défaut.
   const bodyFid = d.fidelity === 'body';
-  const kept = images.filter((i) => i.status === 'keep').length;
+  // The kept pile itself, not only its size: it is what a caption pass reads, and
+  // what the 🧪 Caption Lab picker offers as benchable subjects.
+  const keptImages = images.filter((i) => i.status === 'keep');
+  const kept = keptImages.length;
   const unused = images.filter((i) => (i.status === 'reject' || i.status === 'failed')
     && !isSmallImageRescueRow(i)).length;
   const keptUncaptioned = images.filter((i) => i.status === 'keep' && !i.caption).length;
@@ -2076,6 +2093,29 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 </div>
               )}
 
+              {/* 🧪 Caption Lab — the bench, in the section whose whole subject it is.
+                  It shipped reachable ONLY from a tile in Images (⤢ → the 🧪 tab), while
+                  THIS section's help topic already advertised 'caption lab', 'joycaption',
+                  'vocabulary' and routed them to ?section=captions — the app promised a
+                  screen that had no way in. The bench runs on one image, so the button
+                  opens a picker rather than guessing which one. */}
+              <div id="ds-captions-lab" tabIndex={-1}
+                className="flex items-center gap-2 flex-wrap rounded-lg border border-border bg-surface px-3 py-2 scroll-mt-20">
+                <button type="button" data-workspace-focus
+                  onClick={() => setLabPickerOpen(true)} disabled={ds.busy || kept === 0}
+                  aria-label="Open the Caption Lab"
+                  title={kept === 0
+                    ? 'Keep ✓ at least one image first — the bench runs on one of them.'
+                    : 'Try up to four caption configs (engine, vision model, vocabulary, length) on one image and read them side by side. Nothing is written until you keep a result.'}
+                  className="px-3 py-1.5 rounded-lg bg-surface text-content text-sm disabled:opacity-40 border border-border">
+                  🧪 Caption Lab
+                </button>
+                <HelpBadge topic="action-caption-lab" />
+                <span className="text-content-subtle text-[0.8125rem]">
+                  compare engines, models and vocabulary on one image — before re-captioning the whole set
+                </span>
+              </div>
+
               <div id="ds-captions-tools" tabIndex={-1} className="scroll-mt-20">
                 <CaptionToolsBar images={images} kind={d.kind || 'character'} mode={effCaptionMode}
                   excludes={excludeTags} includes={includeTags}
@@ -2437,6 +2477,42 @@ export default function DatasetWorkspace({ ds, onBack }) {
             setReviewQueue(null);
             const summary = recap || buildWatermarkRecap({});
             if (summary) toast.success(`Review done — ${summary}`);
+          }} />
+      )}
+      {/* 🧪 Caption Lab, entered from the Captions section: pick the subject, then
+          the existing editor opens on its Lab tab. ‹ Another image inside the dialog
+          comes back HERE rather than closing — benching is a comparison across rows,
+          not a single shot. */}
+      {labPickerOpen && (
+        <CaptionLabPicker images={keptImages}
+          /* The THUMB, not the original. /img/ serves the full bytes — several MB per
+             row, decoded whole to paint a ~200 px cell — and this picker offers the
+             entire kept pile. datasetThumbUrl is the app's one rewrite for exactly
+             this, used by every other tile grid. */
+          thumbUrl={(img) => datasetThumbUrl(`/api/dataset/${d.id}/img/${encodeURIComponent(img.filename)}`, 256)}
+          emptyNote="No kept image to bench yet — keep ✓ a few shots in Images first."
+          onClose={() => setLabPickerOpen(false)}
+          onPick={(img) => { setLabPickerOpen(false); setLabImage(img); }} />
+      )}
+      {labImage && (
+        <CaptionEditorDialog initialMode="lab"
+          initialCaption={labImage.caption || ''}
+          initialShortCaption={labImage.caption_short || ''}
+          showShort={Boolean(d.dual_captions)}
+          imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(labImage.filename)}`}
+          imageLabel={labImage.filename}
+          labSurface={datasetLabSurface({ datasetId: d.id, imageId: labImage.id })}
+          captionOrigin={labImage.caption_origin} shortCaptionOrigin={labImage.caption_short_origin}
+          onPickAnotherImage={() => { setLabImage(null); setLabPickerOpen(true); }}
+          onClose={() => setLabImage(null)}
+          /* Same contract as the tile's editor: awaited, and the refusal handed BACK
+             so the dialog can draw it next to the text instead of closing on top of
+             an unsaved caption. `silent` because the dialog says it itself. */
+          onSave={async (nextCaption, nextShort) => {
+            const changed = nextCaption !== (labImage.caption || '')
+              || (nextShort !== undefined && nextShort !== (labImage.caption_short || ''));
+            if (!changed) return { ok: true };
+            return ds.setCaption(labImage.id, nextCaption, nextShort, { silent: true });
           }} />
       )}
       </Suspense>
