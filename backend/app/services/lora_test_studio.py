@@ -486,7 +486,13 @@ def _wilson_lower_bound(likes: int, voted: int, z: float = 1.96) -> float:
     return (centre - margin) / denom
 
 
-def identity_prompt(ds) -> str:
+def identity_prompt(ds, with_trigger=True) -> str:
+    """Prompt de test par défaut. `with_trigger=False` (case « Trigger word »
+    décochée) rend le MÊME prompt sans le token : sinon le repli d'un prompt
+    vide réinjectait le trigger PAR LE TEXTE alors que la ligne (et la
+    lightbox) annonçaient « no trigger »."""
+    if not with_trigger:
+        return IDENTITY_PROMPT_TEMPLATE.format(trigger='').lstrip(', ')
     return IDENTITY_PROMPT_TEMPLATE.format(trigger=(ds.trigger_word or '').strip())
 
 
@@ -2557,6 +2563,9 @@ def stack_variants(run_id, rows, limit=8) -> list:
                        'label': _basename(c.checkpoint or '').rsplit('.', 1)[0],
                        'filename': c.filename, 'rating': c.rating, 'status': c.status,
                        'seed': c.seed, 'aspect': c.aspect, 'strength': c.strength,
+                       # Même clé que studio_payload_run : ces cellules ÉCLIPSENT les
+                       # complètes dans la lightbox (displayedCells), le champ doit suivre.
+                       'inject_trigger': c.inject_trigger,
                        'error': c.error if c.status == 'failed' else None} for c in cells],
         })
     # Le run courant d'abord, le reste dans l'ordre de scan (récent → ancien).
@@ -2808,8 +2817,10 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     _MAX = 2**31 - 1
     seeds = [1 + ((seed + i - 1) % _MAX) for i in range(count)]  # distincts, dans [1, 2^31-1]
 
-    # Prompt custom optionnel ; sinon prompt d'identité par défaut (trigger).
-    prompt = (prompt or '').strip() or identity_prompt(ds)
+    # Prompt custom optionnel ; sinon prompt d'identité par défaut — SANS le
+    # trigger quand la case est décochée (le repli doit suivre la décision,
+    # sinon la méta « no trigger » mentait sur le chemin du prompt vide).
+    prompt = (prompt or '').strip() or identity_prompt(ds, with_trigger=inject_trigger)
     # 📝 Lot de prompts : l'axe vaut [prompt] quand rien n'est coché → chemin
     # strictement identique à avant. Le preflight et les journaux parlent du 1er.
     prompt_axis = _prompt_axis(prompts, prompt)
@@ -3141,8 +3152,8 @@ def _cmp_preflight(user_id, run_type, selections, externals, valid_models,
         _pf_cp = _sel.get('checkpoint')
         if _pf_cp in _pf_allowed:
             _preflight_run(user_id, run_type, _pf_cp, valid_models, _pf_allowed,
-                           prompt_axis[0] or identity_prompt(_pf_ds), seeds[0],
-                           _sel.get('dataset_id'),
+                           prompt_axis[0] or identity_prompt(_pf_ds, with_trigger=inject_trigger),
+                           seeds[0], _sel.get('dataset_id'),
                            (getattr(_pf_ds, 'trigger_word', None)
                             if inject_trigger else None))
             break
@@ -3280,7 +3291,7 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
           wf_extra = extra_loras + stack_extra + ([batch_lora] if batch_lora else [])
           cell_extra_json = json.dumps(row_extra) if row_extra else None
           for axis_prompt in prompt_axis:  # AXE 📝 lot : une passe par prompt coché
-           cell_prompt = axis_prompt or identity_prompt(ds)
+           cell_prompt = axis_prompt or identity_prompt(ds, with_trigger=inject_trigger)
            for cell_seed in seeds:
             img = LoraTestImage(dataset_id=ds.id, checkpoint=cp, strength=strength,
                                 seed=cell_seed, run_seed=seed, run_id=run_id,
@@ -3648,13 +3659,21 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
         # (sinon table fixe / multiplicateur 1.0 sur les cellules legacy sans la colonne).
         width, height = _aspect_dims(aspect, cell_family, getattr(img, 'resolution_tier', None),
                                      getattr(img, 'resolution_multiplier', None) or 1.0)
-        prompt = (img.prompt or '').strip() or identity_prompt(cell_ds)
+        prompt = ((img.prompt or '').strip()
+                  or identity_prompt(cell_ds,
+                                     with_trigger=getattr(img, 'inject_trigger', None) is not False))
         seed = img.seed or random.randint(1, 2**31 - 1)
         # LoRA always-on stockés sur la cellule → réappliqués à l'identique au resume.
         try:
             cell_extra = json.loads(img.extra_loras) if img.extra_loras else None
         except (json.JSONDecodeError, TypeError):
             cell_extra = None
+        # Pile 🧬 : les triggers des MEMBRES vivent dans la copie persistée
+        # (entrées `combined`) — relus ici pour que le prompt du resume soit
+        # celui du lancement (ils étaient perdus : seul le trigger de tête
+        # repartait, cf. l'enfilement qui passe [tête] + stack_triggers).
+        _stack_trigs = [e.get('trigger') for e in (cell_extra or [])
+                        if isinstance(e, dict) and e.get('combined') and e.get('trigger')]
         try:
             # Tous les réglages globaux (parité Generate) relus depuis la cellule → resume fidèle.
             workflow = _build_cell_workflow(user_id, img.checkpoint, img.strength,
@@ -3671,10 +3690,14 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
                                             enhancer_strength=getattr(img, 'enhancer_strength', None),
                                             detail_amount=getattr(img, 'detail_amount', None),
                                             # Case « Trigger word » décochée au lancement
-                                            # (colonne False) → le resume reste fidèle.
+                                            # (colonne False) → le resume reste fidèle ;
+                                            # sinon tête + triggers de pile, comme à l'enfilement.
                                             trigger_word=(None
                                                           if getattr(img, 'inject_trigger', None) is False
-                                                          else getattr(cell_ds, 'trigger_word', None)),
+                                                          else ([getattr(cell_ds, 'trigger_word', None)]
+                                                                + _stack_trigs
+                                                                if _stack_trigs
+                                                                else getattr(cell_ds, 'trigger_word', None))),
                                             available_classes=available_classes)
             job_id = _enqueue_cell(user_id, img.dataset_id, workflow, prompt,
                                    cell_id=img.id, run_id=img.run_id)

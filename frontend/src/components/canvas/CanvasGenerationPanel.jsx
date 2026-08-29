@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Palette, Plug } from 'lucide-react';
 import RunSetupPanel from '../dataset/studio/RunSetupPanel';
 import CanvasBlendPanel from './CanvasBlendPanel';
+import { readInjectTrigger, writeInjectTrigger } from '../dataset/studio/triggerPref';
 import { useCanvasStudio } from '../../hooks/useCanvasStudio';
 import { useStudioForm } from '../../hooks/useStudioForm';
 import {
@@ -146,6 +147,12 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
     const list = Array.isArray(cur[k]) ? cur[k] : [];
     return { ...cur, [k]: list.includes(w) ? list.filter((v) => v !== w) : [...list, w] };
   });
+  // 🔤 Case « Trigger word » — tenue ICI (et non dans RunSetupPanel) parce que le
+  // panneau 🧬 Blend au-dessus annonce les triggers ajoutés au prompt : les deux
+  // doivent lire le même état, sinon le blend promet une injection que la case
+  // décochée annule. Même préférence partagée (triggerPref) que le Studio.
+  const [injectTrigger, setInjectTrigger] = useState(readInjectTrigger);
+  const toggleInjectTrigger = (v) => { setInjectTrigger(v); writeInjectTrigger(v); };
 
   // Mixed families kill the whole launch, blend or not, and `verdict` already
   // says so in the better words. Only when the launch is otherwise possible does
@@ -200,6 +207,7 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
           onWeight={(k, v) => setWeights((cur) => ({ ...cur, [k]: v }))}
           sets={sets} onToggleChip={toggleChip} count={form?.genCount ?? 1}
           secondsPerImage={studio.data?.seconds_per_image ?? null}
+          injectTrigger={injectTrigger}
           blocker={blendBlocker} familyReason={familyReason} />
       )}
     </>
@@ -257,6 +265,8 @@ export default function CanvasGenerationPanel({ selection, onToggle, onClear, on
               // image là où la file en recevra neuf.
               cellTotal={blend ? form.axisTotal * configCount : null}
               genStoragePrefix={`studioGen_canvas_${family || 'default'}`}
+              injectTrigger={injectTrigger}
+              onInjectTrigger={toggleInjectTrigger}
               // The Studio's fixed bottom bar would sit ON this sheet at 400 px.
               actionBar={false}
             />

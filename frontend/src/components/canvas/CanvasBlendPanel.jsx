@@ -31,6 +31,10 @@ import { runNumber } from '../../utils/runIdentity';
 export default function CanvasBlendPanel({
   selection, mode, onMode, weights, onWeight, blocker = null, familyReason = null,
   sets = {}, onToggleChip = null, count = 1, secondsPerImage = null,
+  // 🔤 État de la case « Trigger word » du panneau de lancement voisin : la
+  // promesse « Added to the front of your prompt » doit se taire quand elle
+  // est décochée (rien ne sera préfixé).
+  injectTrigger = true,
 }) {
   const blend = mode === 'blend';
   const triggers = canvasStackTriggers(selection);
@@ -139,20 +143,22 @@ export default function CanvasBlendPanel({
           {/* No silent magic: the exact tokens that will be prefixed to whatever
               prompt is typed below, in the order they will be prefixed in. */}
           <p className="m-0 text-content-subtle text-[0.6875rem]" data-testid="canvas-blend-triggers">
-            {triggers.length
-              ? (
-                <>
-                  Added to the front of your prompt:{' '}
-                  {triggers.map((t, i) => (
-                    <span key={t}>
-                      {i > 0 && ', '}
-                      <code className="rounded border border-indigo-400/40 bg-indigo-500/10 px-1 text-indigo-300">{t}</code>
-                    </span>
-                  ))}
-                </>
-              )
-              : 'None of these datasets has a trigger word, so nothing is added to your prompt.'}
-            {triggers.length > 0 && untriggered.length > 0
+            {!injectTrigger
+              ? 'The Trigger word box below is unticked — no trigger word is added to your prompt.'
+              : triggers.length
+                ? (
+                  <>
+                    Added to the front of your prompt:{' '}
+                    {triggers.map((t, i) => (
+                      <span key={t}>
+                        {i > 0 && ', '}
+                        <code className="rounded border border-indigo-400/40 bg-indigo-500/10 px-1 text-indigo-300">{t}</code>
+                      </span>
+                    ))}
+                  </>
+                )
+                : 'None of these datasets has a trigger word, so nothing is added to your prompt.'}
+            {injectTrigger && triggers.length > 0 && untriggered.length > 0
               && ` ${untriggered.length} pick${untriggered.length > 1 ? 's have' : ' has'} no trigger word.`}
           </p>
         </>

@@ -24,7 +24,10 @@ import {
 } from './loraStack';
 
 export default function LoraStackPanel({ selection, mode, onMode, weights, onWeight,
-  sets = {}, onToggleChip = null, count = 1, batchMult = 1, secondsPerImage = null }) {
+  sets = {}, onToggleChip = null, count = 1, batchMult = 1, secondsPerImage = null,
+  // 🔤 État de la case « Trigger word » du panneau de lancement : la phrase du
+  // mode Blend ne doit pas promettre une injection que la case annule.
+  injectTrigger = true }) {
   const combine = mode === 'combine';
   const blocker = combine ? combineBlocker(selection) : null;
   const configCount = blendConfigCount(selection, { weights, sets });
@@ -55,8 +58,10 @@ export default function LoraStackPanel({ selection, mode, onMode, weights, onWei
       <p className="m-0 text-content-subtle text-[0.6875rem]">
         {combine
           ? 'All checked LoRAs load together in the same image, each at its own weight. '
-            + 'Every trigger word is injected into the prompt. Tick several weights on a '
-            + 'LoRA and the launch renders every combination of them.'
+            + (injectTrigger
+              ? 'Every trigger word is injected into the prompt. '
+              : 'The Trigger word box is unticked — no trigger words are injected. ')
+            + 'Tick several weights on a LoRA and the launch renders every combination of them.'
           : 'Each LoRA is tested on its own, one column per LoRA, swept across the '
             + 'strengths below.'}
       </p>

@@ -134,3 +134,88 @@ def test_wire_name_is_read_by_from_payload():
         {'inject_trigger': False}).inject_trigger is False
     assert lts.StudioGenSettings.from_payload(
         {'inject_trigger': True}).inject_trigger is True
+
+
+def test_empty_prompt_fallback_follows_the_box(app, monkeypatch):
+    """Unticked + empty prompt: the identity fallback must NOT smuggle the
+    trigger back in through the text while the row claims « no trigger »."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import LoraTestImage
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Toggle fallback', 'ktog')
+        assert lts.identity_prompt(ds) == 'ktog, close-up portrait, neutral expression, looking at camera'
+        assert lts.identity_prompt(ds, with_trigger=False) == (
+            'close-up portrait, neutral expression, looking at camera')
+        _, prompts = _prep(monkeypatch, lts, [CK])
+        out = lts.create_run(
+            LOCAL_USER, ds.id, [CK], [1.0],
+            lts.StudioGenSettings(prompt=None, count=1, inject_trigger=False))
+        assert prompts == ['close-up portrait, neutral expression, looking at camera']
+        row = LoraTestImage.query.filter_by(run_id=out['run_id']).one()
+        assert 'ktog' not in (row.prompt or '')
+        assert row.inject_trigger is False
+
+
+def test_default_empty_prompt_fallback_keeps_the_trigger(app, monkeypatch):
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Toggle fallback on', 'ktog')
+        _, prompts = _prep(monkeypatch, lts, [CK])
+        lts.create_run(LOCAL_USER, ds.id, [CK], [1.0],
+                       lts.StudioGenSettings(prompt=None, count=1))
+        assert prompts == ['ktog, close-up portrait, neutral expression, looking at camera']
+
+
+def test_resume_reinjects_the_stack_members_triggers(app, monkeypatch):
+    """A 🧬 blend cell resumes with head + member triggers (they lived only in
+    the persisted `combined` copy and used to be dropped), and an unticked
+    blend cell still resumes with none."""
+    import json as _json
+    from app import db
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import LoraTestImage
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Toggle stack resume', 'ktog')
+        triggers, _ = _prep(monkeypatch, lts, [CK])
+        stack = _json.dumps([
+            {'filename': 'krea\lora_bbb_000001000.safetensors', 'strength': 0.7,
+             'combined': True, 'dataset_id': ds.id, 'trigger': 'bbb'},
+        ])
+        for flag in (None, False):
+            db.session.add(LoraTestImage(
+                dataset_id=ds.id, checkpoint=CK, strength=1.0, seed=9,
+                run_id=f'run-stack-{flag}', status='failed', prompt='p',
+                extra_loras=stack, inject_trigger=flag))
+        db.session.commit()
+        assert lts.resume_run(LOCAL_USER, run_id='run-stack-None')['resumed'] == 1
+        assert triggers == [[ds.trigger_word, 'bbb']]
+        triggers.clear()
+        assert lts.resume_run(LOCAL_USER, run_id='run-stack-False')['resumed'] == 1
+        assert triggers == [None]
+
+
+def test_stack_variant_cells_carry_the_column(app, monkeypatch):
+    """The reduced cell projection of stack_variants SHADOWS the full one in
+    the lightbox (displayedCells) — it must serve inject_trigger too."""
+    import json as _json
+    from app import db
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.config import LOCAL_USER
+    from app.models import LoraTestImage
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'Toggle variants', 'ktog')
+        stack = _json.dumps([
+            {'filename': 'krea\lora_bbb_000001000.safetensors', 'strength': 0.7,
+             'combined': True, 'dataset_id': ds.id, 'trigger': 'bbb'},
+        ])
+        row = LoraTestImage(
+            dataset_id=ds.id, checkpoint=CK, strength=1.0, seed=11,
+            run_id='run-var', status='done', filename='x.png', prompt='p',
+            extra_loras=stack, inject_trigger=False)
+        db.session.add(row)
+        db.session.commit()
+        variants = lts.stack_variants('run-var', [row])
+        assert variants and variants[0]['cells'][0]['inject_trigger'] is False

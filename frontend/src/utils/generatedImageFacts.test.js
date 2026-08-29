@@ -139,3 +139,18 @@ test('imageSettingFacts rows: external row present, keyed external_loras', () =>
   assert.doesNotMatch(always.value, /detail/);
 });
 
+
+test('an unticked Trigger word box earns a row — an old run earns silence', () => {
+  // `false` is the only value that means "the box was unticked": NULL/absent is
+  // every image from before the box existed, and a row would claim knowledge
+  // the app does not have.
+  const rows = imageSettingFacts({ ...IMG, inject_trigger: false });
+  const fact = rows.find((r) => r.key === 'inject_trigger');
+  assert.deepEqual(fact, { key: 'inject_trigger', label: 'Trigger word', value: 'not injected' });
+  for (const legacy of [undefined, null, true]) {
+    assert.equal(
+      imageSettingFacts({ ...IMG, inject_trigger: legacy }).some((r) => r.key === 'inject_trigger'),
+      false,
+    );
+  }
+});

@@ -111,6 +111,12 @@ export function imageSettingFacts(img) {
     extraLoraSummary(img?.extra_loras, { only: 'external' }));
   push('extra_loras', 'Always-on LoRAs',
     extraLoraSummary(img?.extra_loras, { only: 'always-on' }));
+  // The "Trigger word" box was unticked for this launch: the prompt went out
+  // as written. Only `false` earns a row — NULL/absent is every run from
+  // before the box existed, and a table row would claim knowledge it lacks.
+  if (img?.inject_trigger === false) {
+    push('inject_trigger', 'Trigger word', 'not injected');
+  }
   if (has(img?.face_score)) {
     const n = Number(img.face_score);
     push('face_score', 'Face similarity', Number.isFinite(n) ? n.toFixed(3) : '');

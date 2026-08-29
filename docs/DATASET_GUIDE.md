@@ -330,9 +330,10 @@ Check two or more LoRAs and Studio asks what you want to do with them:
   swept across the strengths you picked. This is what you want to answer "which of
   these is better".
 - **🧬 Blend** loads them **together in the same image**, each at its own weight,
-  and injects **every trigger word** into the prompt for you. This is what you want
-  to answer "do these two work together" — a character plus a style, or a character
-  plus a concept.
+  and — while the **Trigger word** box next to the prompt is ticked — injects
+  **every trigger word** into the prompt for you. This is what you want to answer
+  "do these two work together" — a character plus a style, or a character plus a
+  concept.
 
 > This mode was called **🧬 Combine** until August 2026. Only the name changed;
 > the ◉ LoRA Canvas offers the very same thing from the board, and calling it two
@@ -382,7 +383,8 @@ refused with both family names in the message.
 **✨ Enhance** rewrites what you typed into a fuller prompt using your local Ollama
 model — it adds framing, pose, lighting, background and mood, and deliberately
 leaves identity and trigger words alone (the LoRA supplies the identity, and Studio
-injects the trigger itself at generation time).
+injects the trigger itself at generation time — while the **Trigger word** box is
+ticked, see below).
 
 By default it runs the same model your captions use. The **⚙️ next to the button**
 picks any other pulled Ollama model instead — the choice applies immediately, is
@@ -395,6 +397,26 @@ the button is **greyed out and says which of the three is missing** rather than
 failing when you press it. Install or start it from **Settings › Local tools**.
 (With a ⚙️ model picked, the last check moves server-side: the refusal names the
 picked model instead of greying the button on the default one.)
+
+### Send the prompt as written — the Trigger word box
+
+Studio normally prefixes the dataset's trigger word to whatever you type, at
+generation time — that is what activates the LoRA, and it is why you never have
+to type the trigger yourself. The **Trigger word** box next to the prompt (on
+the Test Studio, the Compare page and the Canvas run panel — one shared,
+remembered preference) makes that explicit and optional:
+
+- **Ticked** (the default) — the historical behaviour, unchanged.
+- **Unticked** — the prompt is sent **exactly as written**. Useful when a render
+  keeps typing the trigger back into the image (a speech bubble or a sign asked
+  to "say" something will happily spell out the first token it finds), or for
+  pure style and scene tests where the token only adds noise.
+
+Images generated with the box unticked say **"no trigger"** in their details, so
+two runs of the same prompt never look inexplicably different later. One honest
+limit: with the box unticked and an **empty** prompt, the default test prompt is
+used without the trigger — which usually means the LoRA's subject will not
+appear; type a prompt when testing without the trigger.
 
 ### Reuse a dataset caption in Studio
 

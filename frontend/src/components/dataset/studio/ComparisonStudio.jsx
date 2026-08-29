@@ -342,6 +342,7 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
           onToggleChip={toggleStackChip}
           count={count}
           secondsPerImage={axes?.seconds_per_image ?? null}
+          injectTrigger={injectTrigger}
           onWeight={(k, v) => setStackWeights((cur) => ({ ...cur, [k]: v }))} />
         <div id="st-setup" className="scroll-mt-16">
           <StudioRunSetup
@@ -405,7 +406,10 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
             ligne et n'apprend rien. À sa place, ce qui la définit — sa composition. */}
         {showStackView ? (
           <StackCompositionPanel members={shownStack} onSaveBest={saveStackBest}
-            saving={savingBest} savedAt={bestSavedAt} />
+            saving={savingBest} savedAt={bestSavedAt}
+            // La vérité du RUN affiché, pas de la case : une seule cellule
+            // False suffit (toutes le sont sur un run décoché).
+            injectTrigger={!cells.some((c) => c.inject_trigger === false)} />
         ) : (
           <LoraRankingPanel ranking={data?.lora_ranking} />
         )}

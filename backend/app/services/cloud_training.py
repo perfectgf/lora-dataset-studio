@@ -7656,6 +7656,10 @@ def _gallery_image(r) -> dict:
         'scheduler': r.scheduler,
         'aspect': r.aspect,
         'extra_loras': r.extra_loras,
+        # False = the "Trigger word" box was unticked for this launch (prompt
+        # sent as written). NULL on every row that predates the box — absent
+        # line in the viewer, never a guessed one.
+        'inject_trigger': r.inject_trigger,
         'face_score': r.face_score,
         # ✨ Whether this row IS an Upscale & improve result, and of what. The
         # galleries and canvas_image_nodes read this table WITHOUT the studio's

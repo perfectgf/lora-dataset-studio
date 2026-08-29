@@ -16,7 +16,11 @@ import { useState } from 'react';
 import { HelpBadge } from '../../../help/HelpMode';
 import { bestStackPayload, fmtWeight } from './stackResults';
 
-export default function StackCompositionPanel({ members, onSaveBest, saving = false, savedAt = null }) {
+// 🔤 `injectTrigger` = la vérité du RUN AFFICHÉ (relue de ses cellules par le
+// parent), pas l'état courant de la case : un run lancé décoché doit le dire
+// même si la case a été recochée depuis.
+export default function StackCompositionPanel({ members, onSaveBest, saving = false, savedAt = null,
+  injectTrigger = true }) {
   const [open, setOpen] = useState(true);
   if (!members?.length) return null;
   const payload = bestStackPayload(members);
@@ -57,7 +61,9 @@ export default function StackCompositionPanel({ members, onSaveBest, saving = fa
                   )}
                   {m.trigger ? (
                     <code className="min-w-0 truncate rounded border border-indigo-400/40 bg-indigo-500/10 px-1.5 py-px text-[0.625rem] font-semibold text-indigo-300"
-                      title={`Trigger word injected into the prompt: ${m.trigger}`}>
+                      title={injectTrigger
+                        ? `Trigger word injected into the prompt: ${m.trigger}`
+                        : `Trigger word (NOT injected in this run — the Trigger word box was unticked): ${m.trigger}`}>
                       {m.trigger}
                     </code>
                   ) : (
@@ -73,8 +79,10 @@ export default function StackCompositionPanel({ members, onSaveBest, saving = fa
           </ol>
 
           <p className="m-0 text-content-subtle text-[0.625rem] leading-relaxed">
-            All of these load in the same image and every trigger above is injected into
-            the prompt. Change the weights on the left and run again to add a variant.
+            {injectTrigger
+              ? 'All of these load in the same image and every trigger above is injected into the prompt. '
+              : 'All of these load in the same image. This run was launched with the Trigger word box unticked — the triggers above were NOT injected into the prompt. '}
+            Change the weights on the left and run again to add a variant.
           </p>
 
           {payload ? (
