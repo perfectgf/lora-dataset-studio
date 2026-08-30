@@ -376,6 +376,18 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         # has to prove the card is free before a ComfyUI hand-off, and now it can
         # actually free it, because LM Studio's unload really releases the VRAM.
         borrowed = _driver_for(endpoint) == 'lmstudio' and model in loaded
+        # ...and the mirror of it. An EMPTY LM Studio is not "the card is free for
+        # the model I am about to load" -- nothing here loads a model on LDS's
+        # behalf, so this call is simply about to fail with "no models loaded".
+        # Claiming the model anyway is what made LDS adopt, and the keep-warm
+        # lease unload, the copy the USER loads by hand minutes later: they load a
+        # model, LDS frees it, the screen says none is loaded, they load it again.
+        # Reported from a real install as "why do I have to keep loading a model?".
+        # The `down` branch above refuses a claim for the same reason, in almost
+        # the same words; this is that refusal, for the state it missed. Ollama is
+        # untouched: it DOES load on demand, so there the claim is about its own
+        # residency-to-be, and dropping it would leak a warm model past a hand-off.
+        never_ours = _driver_for(endpoint) == 'lmstudio' and state == 'empty'
         if borrowed:
             _borrowed_models.setdefault(endpoint, set()).add(model)
         if state != 'empty' and not loaded.issubset(owned):
@@ -385,7 +397,9 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
             if loaded.issubset(owned):
                 _owned_models.setdefault(endpoint, set()).update(owned)
         if state == 'empty' or loaded.issubset(owned):
-            _owned_models.setdefault(endpoint, set()).add(model)
+            if not never_ours:
+                _owned_models.setdefault(endpoint, set()).add(model)
+            # Still not foreign: an empty server holds nobody else's model either.
             _foreign_local_endpoints.discard(endpoint)
             claim = True
         elif borrowed:
@@ -405,7 +419,7 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         # A borrowed model gets no claim: a claim is what lets a restarted LDS
         # re-adopt — and eventually unload — a model as its own. Writing one for
         # somebody else's residency is exactly the over-adoption above.
-        if not borrowed:
+        if not borrowed and not never_ours:
             _record_claim(endpoint, model, keep_alive)
         return 'local'
     logger.info('ollama GPU fence: preserving a pre-existing local model; LDS inference is blocked')

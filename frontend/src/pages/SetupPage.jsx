@@ -1122,7 +1122,8 @@ export default function SetupPage() {
                   ? step.lmDetail
                   : step.reachable
                     ? 'Open LM Studio, load a vision model in its Developer tab, then Save & re-check. '
-                      + 'It has no just-in-time loading by default, so a model has to be loaded before this app can use it.'
+                      + 'It has no just-in-time loading by default, so a model has to be loaded before this app can use it — '
+                      + 'turn JIT on in LM Studio and it will load the model itself, whenever anything asks for it.'
                     : step.installed
                       ? `LM Studio is installed but its server is not running. Start it below — it will listen at ${step.lmUrl || 'http://127.0.0.1:1234'}.`
                       : `Open LM Studio, go to Developer and press Start Server (expected at ${step.lmUrl || 'http://127.0.0.1:1234'}), then Save & re-check.`}

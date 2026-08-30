@@ -166,6 +166,53 @@ def test_a_preloaded_lmstudio_model_is_adopted_not_treated_as_a_stranger(app, mo
     assert 'qwen/qwen3-vl-4b' not in fence._owned_models.get(LMS_URL, set())
 
 
+def test_an_empty_lmstudio_is_never_claimed_as_ldss_own(app, monkeypatch):
+    """Reported from a real install: "why do I have to keep loading a model?"
+
+    LM Studio reachable with NOTHING loaded is state `empty`. The Ollama reading of
+    that is "the card is free, and the model I am about to name will be MINE",
+    because Ollama loads on demand. LM Studio loads nothing on LDS's behalf, so the
+    claim is about a model LDS will never have loaded — and the moment the user
+    loads it by hand, the keep-warm lease unloads it as its own. They load it again,
+    and the loop repeats. That is the report.
+
+    The `down` branch already refuses to write a claim for exactly this reason, in
+    almost these words. `empty` needs the same refusal, under this provider only.
+    """
+    monkeypatch.setattr(vision_lmstudio, 'probe_resident', lambda ep: ('empty', [], {}))
+    with app.app_context():
+        _as_lmstudio(app)
+        scope = fence.mark_before_generate(LMS_URL, 'qwen/qwen3-vl-4b',
+                                           provider='lmstudio', keep_alive='120s')
+    # The call still goes through — it fails on its own with LM Studio's "no models
+    # loaded", which names the gesture that fixes it. What must NOT happen is a claim.
+    assert scope == 'local'
+    assert 'qwen/qwen3-vl-4b' not in fence._owned_models.get(LMS_URL, set()), (
+        'LDS claimed a model it cannot have loaded; the keep-warm will unload the '
+        "user's own copy of it")
+    assert fence._read_claims() == {}, (
+        'a persisted claim survives a restart and re-adopts the model as LDS own')
+
+
+def test_an_empty_ollama_is_still_claimed_because_it_loads_on_demand(app, monkeypatch):
+    """The other half, so the fix above is a PROVIDER rule and not a blanket one.
+
+    Ollama loads the model it is asked for. A claim written against an empty
+    runner is therefore a claim on LDS's own residency-to-be, and dropping it
+    would leak a warm model past every hand-off.
+    """
+    from app.services import vision_ollama
+    monkeypatch.setattr(vision_ollama, 'probe_resident', lambda ep: ('empty', [], {}),
+                        raising=False)
+    monkeypatch.setattr(fence, '_probe', lambda ep: ('empty', set(), {}))
+    with app.app_context():
+        config.save_config({'local_llm': {'provider': 'ollama'},
+                            'ollama': {'url': OLL_URL}})
+        scope = fence.mark_before_generate(OLL_URL, 'qwen3-vl:8b', keep_alive='120s')
+    assert scope == 'local'
+    assert 'qwen3-vl:8b' in fence._owned_models.get(OLL_URL, set())
+
+
 def test_a_model_that_is_not_even_loaded_is_still_refused(app, monkeypatch):
     """Borrowing only covers a model that is ALREADY resident. Asking for one that
     is not means LDS would have to load it beside a stranger's — the VRAM fight
