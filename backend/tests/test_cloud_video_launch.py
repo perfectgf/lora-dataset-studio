@@ -596,3 +596,52 @@ def test_only_the_video_family_carries_a_compute_capability_floor():
     assert floors['video'] >= 800          # Ampere is the first bf16 generation
     assert set(floors) == {'video'}
 
+
+def test_video_gpu_tiers_prices_every_class_and_refuses_to_invent_estimates(
+        app, tmp_path, monkeypatch):
+    """The face lane's launch shows tiers; the video lane picked the cheapest
+    suitable offer silently. Tiers now exist here too, with two honesty rules:
+    the search applies the SAME floors the launch does (VRAM, disk, compute
+    generation — a picker listing cards the launch refuses is a menu of dead
+    ends), and the estimate comes from one measured run scaled by latent rows,
+    so a frame count off the 17n+5 grid gets None, never a made-up number."""
+    from app.services import cloud_video_training as cvt
+    from app.services import cloud_training as ct
+    from app.services import vast_client
+    seen = {}
+
+    def fake_search(**kw):
+        seen.update(kw)
+        return [
+            {'gpu_name': 'A100 SXM4', 'offer_id': 1, 'dph_total': 1.0,
+             'gpu_ram_gb': 80, 'reliability': 0.99, 'machine_id': 1},
+            {'gpu_name': 'A100 SXM4', 'offer_id': 2, 'dph_total': 0.9,
+             'gpu_ram_gb': 80, 'reliability': 0.99, 'machine_id': 2},
+            {'gpu_name': 'H100 PCIE', 'offer_id': 3, 'dph_total': 2.3,
+             'gpu_ram_gb': 80, 'reliability': 0.99, 'machine_id': 3},
+        ]
+
+    monkeypatch.setattr(vast_client, 'search_offers', fake_search)
+    monkeypatch.setattr(ct.cfg, 'secret', lambda k: 'key' if k == 'VAST_API_KEY' else None)
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'surf clips')      # frames=81: off H3 grid
+        data = cvt.video_gpu_tiers('local', vid.id, steps=100)
+    assert seen['min_vram_gb'] == 48
+    assert seen['min_compute_cap'] == 800
+    assert seen['min_disk_gb'] >= 120
+    by_name = {t['gpu_name']: t for t in data['tiers']}
+    assert by_name['A100 SXM4']['dph_total'] == 0.9       # cheapest of the class
+    # 81 frames is legal for Wan and OFF the measured H3 grid: no estimate.
+    assert by_name['A100 SXM4']['est_minutes'] is None
+    assert by_name['A100 SXM4']['estimate_status'] == 'unavailable'
+
+
+def test_the_video_estimate_reproduces_the_measured_run():
+    """21 s/step at 107 frames on an A100 SXM4 is the one number this model was
+    built from; 100 steps of it took ~35 minutes on run #166. The estimate must
+    give that back exactly - it is a citation, not a curve fit."""
+    from app.services import gpu_speed
+    assert round(gpu_speed.video_estimate_minutes('A100 SXM4', 107, 100)) == 35
+    assert gpu_speed.video_estimate_minutes('A100 SXM4', 40, 100) is None
+    assert gpu_speed.video_latent_rows(39) == 12
+

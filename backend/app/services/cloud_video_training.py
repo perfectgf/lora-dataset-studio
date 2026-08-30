@@ -62,6 +62,78 @@ def _start_pod(run):
     ct._start_monitor(run.id)
 
 
+def video_gpu_tiers(user_id, video_dataset_id, steps=None) -> dict:
+    """Live vast offers for THIS video dataset, one tier per GPU class, priced.
+
+    The face lane has had this for weeks; the video lane launched without it,
+    which meant "cheapest offer above the floors" was chosen for the user,
+    silently, on a rented-by-the-minute decision. Read-only — rents nothing;
+    the launch re-searches and takes the cheapest LIVE offer of the chosen
+    class, exactly as the face lane does.
+
+    Estimates are ROUGH and say so: the speed model behind them is one measured
+    run (21 s/step at 107 frames on an A100), scaled by latent rows and by the
+    shared per-GPU throughput table. A frame count off the 17n+5 grid gets no
+    estimate at all rather than an invented one."""
+    from . import gpu_speed
+    from . import vast_client
+    if not ct.cfg.secret('VAST_API_KEY'):
+        raise RuntimeError('vast.ai API key is not configured — add it in Settings')
+    ds = db.session.get(VideoDataset, int(video_dataset_id))
+    if ds is None or str(ds.user_id) != str(user_id):
+        raise ValueError('video dataset not found')
+    n_steps = max(100, int(steps or 1000))
+    c = ct.cfg.get('cloud') or {}
+    min_vram = (c.get('min_vram_gb') or {}).get('video', 48)
+    disk_gb = ct._disk_gb_for(c, {'train_type': 'video'})
+    price_cap = c.get('max_price_per_hour', 0.80)
+    overhead_min = float(c.get('pod_overhead_minutes') or 0)
+    max_runtime = int(c.get('max_runtime_minutes') or 480)
+    offers = ct._filter_offers(vast_client.search_offers(
+        min_vram_gb=min_vram, max_dph=price_cap,
+        limit=int(c.get('offer_scan_limit') or 100),
+        min_inet_down_mbps=int(c.get('min_inet_down_mbps') or 0),
+        min_reliability=float(c.get('min_reliability') or 0.98),
+        min_disk_bw_mbps=int(c.get('min_disk_bw_mbps') or 0),
+        verified_only=bool(c.get('verified_only', True)),
+        secure_cloud_only=bool(c.get('secure_cloud_only', False)),
+        min_disk_gb=disk_gb,
+        # The same generation floor the launch applies — a picker that lists
+        # cards the launch would refuse is a menu of dead ends.
+        min_compute_cap=int((c.get('min_compute_cap') or {}).get('video', 0))))
+    cheapest = {}
+    for o in offers:
+        name = o.get('gpu_name') or 'GPU'
+        cur = cheapest.get(name)
+        dph = o.get('dph_total')
+        if cur is None or (dph is not None and (cur.get('dph_total') is None
+                           or dph < cur['dph_total'])):
+            cheapest[name] = o
+    tiers = []
+    for name, o in cheapest.items():
+        dph = o.get('dph_total')
+        est_min = gpu_speed.video_estimate_minutes(name, ds.frames, n_steps)
+        est_cost = (round(dph * (est_min + overhead_min) / 60.0, 2)
+                    if (est_min is not None and dph is not None) else None)
+        tiers.append({
+            'gpu_name': name, 'offer_id': o.get('offer_id'),
+            'dph_total': round(dph, 4) if dph is not None else None,
+            'gpu_ram_gb': o.get('gpu_ram_gb'),
+            'speed': round(gpu_speed.speed_factor(name), 2),
+            'est_minutes': int(round(est_min)) if est_min is not None else None,
+            'est_cost': est_cost,
+            'estimate_status': 'rough' if est_min is not None else 'unavailable',
+            'exceeds_cap': ((est_min + overhead_min) > max_runtime
+                            if est_min is not None else None),
+        })
+    tiers.sort(key=lambda t: (t['speed'], t['dph_total']
+                              if t['dph_total'] is not None else 9e9))
+    return {'tiers': tiers, 'steps': n_steps, 'frames': ds.frames,
+            'disk_gb': disk_gb, 'min_vram_gb': min_vram,
+            'max_price_per_hour': price_cap,
+            'max_runtime_minutes': max_runtime}
+
+
 def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                                 base_model=None, low_vram=False, gpu_name=None,
                                 resume_ckpt_paths=None, resume_step=None,

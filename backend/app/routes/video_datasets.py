@@ -251,6 +251,24 @@ def video_dataset_train_cloud(dataset_id):
         return jsonify({'error': str(e)}), 409
 
 
+@bp.get('/video-dataset/<int:dataset_id>/train/cloud/offers')
+def video_dataset_cloud_offers(dataset_id):
+    """Live GPU tiers for the launch — price/h, VRAM, and a rough time+cost per
+    class. Read-only: rents nothing. Estimates are one-measured-run rough and
+    the payload labels them so."""
+    from ..services import cloud_video_training as cvt
+    try:
+        data = cvt.video_gpu_tiers(LOCAL_USER, dataset_id,
+                                   steps=request.args.get('steps', type=int))
+    except ValueError as e:
+        if 'not found' in str(e):
+            return _missing(dataset_id)
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 409
+    return jsonify({'ok': True, **data})
+
+
 @bp.get('/video-dataset/<int:dataset_id>/train/cloud/progress')
 def video_dataset_train_cloud_progress(dataset_id):
     """The newest cloud run OF THIS VIDEO DATASET, for the page to poll.
