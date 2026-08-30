@@ -65,9 +65,24 @@ def owns(run, dataset_id, table=FACE) -> bool:
     serving a run's checkpoints, so with a shared integer space a face dataset's
     endpoint would hand out a video run's weights on a colliding id."""
     try:
-        return int(run.dataset_id) == int(dataset_id) and table_of(run) == table
+        if int(run.dataset_id) != int(dataset_id) or table_of(run) != table:
+            return False
     except (TypeError, ValueError, AttributeError):
         return False
+    # A run whose dataset was DELETED matches nothing, ever again. SQLite
+    # reuses rowids on tables without AUTOINCREMENT, so the next dataset can
+    # legitimately wear the dead one's id — and this test would then hand a
+    # stranger's checkpoints to it (seen live: a fresh stills set displayed a
+    # deleted smoke set's run and offered its weights for download). The
+    # deletion stamps the run instead of nulling the column, because the
+    # column is NOT NULL in every shipped database.
+    try:
+        import json
+        if json.loads(run.train_params or '{}').get('dataset_deleted'):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return True
 
 
 def dataset_row(run):

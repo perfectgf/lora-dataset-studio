@@ -2856,6 +2856,20 @@ def delete_video_dataset(user_id, dataset_id) -> bool:
      .update({'promoted_dataset_id': None}, synchronize_session=False))
     VideoDatasetClip.query.filter_by(dataset_id=ds.id).delete(
         synchronize_session=False)
+    # Divorce this id's cloud-run history from whoever inherits the rowid:
+    # `owns()` refuses stamped runs, so a future dataset reusing the id never
+    # shows — or serves — a stranger's checkpoints.
+    from ..models import CloudTrainingRun
+    from . import cloud_run_dataset as crd
+    for run in CloudTrainingRun.query.filter_by(dataset_id=ds.id).all():
+        if crd.table_of(run) != crd.VIDEO:
+            continue
+        try:
+            params = json.loads(run.train_params or '{}')
+        except (TypeError, ValueError):
+            params = {}
+        params['dataset_deleted'] = True
+        run.train_params = json.dumps(params)
     db.session.flush()
     out_dir = ds.output_dir
     db.session.delete(ds)

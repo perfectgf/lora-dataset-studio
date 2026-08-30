@@ -99,19 +99,19 @@ export default function VideoDatasetsPanel() {
               {d.output_dir}
             </p>
             <VideoTrainingSection ds={d} />
-            {openId !== d.id && (
-              /* The cloud lane and the clip list live in the expanded card so a
-                 library page never fans out their polling per card — but a lane
-                 nobody can SEE is a lane nobody uses (found on a phone: the
-                 local button reads as the only way to train). One button, no
-                 requests: it just opens the card. */
+            {/* Both lanes, same card, same rank — maintainer's call after the
+               stopgap button shipped: local-visible/cloud-hidden read as "local
+               is the only way to train". The clip list alone stays behind the
+               fold; it is the one part that fetches a payload per open. */}
+            <VideoDatasetCloudPanel dataset={d} />
+            {openId === d.id ? (
+              <VideoDatasetClips datasetId={d.id} />
+            ) : (
               <button type="button" onClick={() => setOpenId(d.id)}
                 className="self-start rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:bg-surface">
-                ☁ Cloud training &amp; clips…
+                {d.clips ? `🎞 Clips & captions (${d.clips})…` : '🎞 Clips…'}
               </button>
             )}
-            {openId === d.id && <VideoDatasetCloudPanel dataset={d} />}
-            {openId === d.id && <VideoDatasetClips datasetId={d.id} />}
           </li>
         ))}
       </ul>
@@ -413,6 +413,13 @@ function VideoTrainingSection({ ds }) {
  * while showing the new one. The server does both in one call and tells us
  * whether the disk write landed; a failed sidecar is said out loud.
  */
+const STILL_EXTS = ['.png', '.jpg', '.jpeg', '.webp']
+
+function isStillFile(name) {
+  const n = String(name || '').toLowerCase()
+  return STILL_EXTS.some((ext) => n.endsWith(ext))
+}
+
 function VideoDatasetClips({ datasetId }) {
   const toast = useToast()
   const [items, setItems] = useState(null)
@@ -452,7 +459,7 @@ function VideoDatasetClips({ datasetId }) {
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <button type="button" onClick={() => setPlaying(playing === item.id ? null : item.id)}
               className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.625rem] font-semibold text-content hover:bg-surface">
-              {playing === item.id ? '⏹ Close' : '▶ Play'}
+              {playing === item.id ? '⏹ Close' : isStillFile(item.filename) ? '🖼 View' : '▶ Play'}
             </button>
             <span className="min-w-0 truncate font-mono text-[0.625rem] text-content-subtle"
               title={`${item.src_relpath} — ${clipLabel(item.start_s, item.end_s)}`}>
@@ -460,11 +467,21 @@ function VideoDatasetClips({ datasetId }) {
             </span>
           </div>
           {playing === item.id && (
-            <video controls autoPlay preload="metadata"
-              src={`/api/video-dataset/${datasetId}/clip/${item.id}/media`}
-              className="w-full rounded bg-black">
-              <track kind="captions" />
-            </video>
+            isStillFile(item.filename) ? (
+              /* A stills set holds images; wrapping one in a <video> renders a
+                 dead player (found on a phone the day stills shipped). The
+                 server already serves the right mimetype — the tag has to
+                 match the file. */
+              <img src={`/api/video-dataset/${datasetId}/clip/${item.id}/media`}
+                alt={item.caption || item.filename}
+                className="w-full rounded bg-black" />
+            ) : (
+              <video controls autoPlay preload="metadata"
+                src={`/api/video-dataset/${datasetId}/clip/${item.id}/media`}
+                className="w-full rounded bg-black">
+                <track kind="captions" />
+              </video>
+            )
           )}
           <textarea rows={2} value={drafts[item.id] ?? item.caption ?? ''}
             onChange={(e) => setDrafts((m) => ({ ...m, [item.id]: e.target.value }))}

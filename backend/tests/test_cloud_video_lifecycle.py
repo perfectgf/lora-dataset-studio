@@ -592,3 +592,26 @@ def test_a_pod_program_failure_becomes_a_named_decoder_refusal(app, monkeypatch)
         pvp.probe_decoder(object(), instance_id='i-1',
                           pod_dataset_dir='/workspace/datasets/j', tmp_dir='.')
     assert 'mp4' in str(e.value)
+
+
+def test_a_deleted_dataset_s_runs_never_attach_to_the_id_s_next_owner(
+        app, tmp_path, monkeypatch):
+    """SQLite reuses rowids on tables without AUTOINCREMENT, so a fresh video
+    dataset can legitimately wear a deleted one's id — and ownership by
+    (id, table) alone then hands it the dead dataset's cloud history, weights
+    download included (seen live: a new stills set displayed a deleted smoke
+    set's run #166). Deletion now stamps the runs, and `owns()` refuses stamped
+    runs forever; the column stays NOT NULL as shipped, so the stamp rides the
+    params."""
+    from app.services import video_bank_service as svc
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'doomed')
+        run = _run(vid.id, crd.VIDEO, status='done')
+        old_id = vid.id
+        assert crd.owns(run, old_id, crd.VIDEO)
+        assert svc.delete_video_dataset('local', old_id)
+        db.session.refresh(run)
+        assert json.loads(run.train_params)['dataset_deleted'] is True
+        # The successor wearing the same integer gets NOTHING of the ghost's.
+        assert not crd.owns(run, old_id, crd.VIDEO)
+
