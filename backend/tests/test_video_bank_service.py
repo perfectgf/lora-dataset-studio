@@ -668,3 +668,17 @@ def test_dataset_rows_carry_a_step_suggestion_derived_from_their_own_count(app):
         assert row['clips'] == 53
         assert row['suggested_steps'] == video_training.suggested_steps(53) == 1500
 
+
+def test_the_trigger_rides_every_sidecar_exactly_once():
+    """One trigger, one place: prepended at sidecar-WRITE time, so the stored
+    caption in DB and on screen stays clean, and re-editing a caption keeps the
+    trigger without ever doubling it. Doubling is not cosmetic - fal measured a
+    duplicated trigger degrading prompt adherence. Idempotent on captions that
+    already start with it; absent, the sidecar is the caption verbatim."""
+    from app.services.video_bank_service import _with_trigger
+    assert _with_trigger('mychar', 'a woman walks') == 'mychar, a woman walks'
+    assert _with_trigger('mychar', 'Mychar, a woman walks') == 'Mychar, a woman walks'
+    assert _with_trigger('mychar', '') == 'mychar'
+    assert _with_trigger('', 'a woman walks') == 'a woman walks'
+    assert _with_trigger(None, None) == ''
+

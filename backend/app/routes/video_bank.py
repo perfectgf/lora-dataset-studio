@@ -686,7 +686,8 @@ def video_bank_promote(bank_id):
                                 target_profile=data.get('target_profile'),
                                 frames=data.get('frames'), size=size,
                                 max_per_source=data.get('max_per_source'),
-                                edge_inset_s=data.get('edge_inset_s'))
+                                edge_inset_s=data.get('edge_inset_s'),
+                                trigger_word=data.get('trigger_word'))
     except bank_jobs.BankJobBusy as e:
         return _busy(e)
     except ValueError as e:

@@ -1522,6 +1522,12 @@ class VideoDataset(db.Model):
     width = db.Column(Integer, nullable=True)
     height = db.Column(Integer, nullable=True)
     output_dir = db.Column(Text, nullable=False)
+    # One trigger, one place. It is PREPENDED to every sidecar at promote time —
+    # the captions road, deliberately, because that is the only path every
+    # trainer provably reads; a config-level trigger on top of it would be the
+    # duplication fal measured degrading prompt adherence. Nullable: a style
+    # set legitimately has none.
+    trigger_word = db.Column(String(100), nullable=True)
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(),
                            onupdate=db.func.current_timestamp())

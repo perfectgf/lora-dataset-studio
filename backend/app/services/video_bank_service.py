@@ -2369,7 +2369,7 @@ def _resolve_edge_inset(value):
 
 def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
                   frames=None, size=None, max_per_source=None,
-                  edge_inset_s=None):
+                  edge_inset_s=None, trigger_word=None):
     """Encode the KEPT clips into a new video dataset.
 
     Everything that can be refused is refused HERE, synchronously, before a single
@@ -2464,9 +2464,10 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
                 f'or deselect those clips.')
     _ffmpeg_or_raise()
 
+    trigger = (trigger_word or '').strip() or None
     dataset = VideoDataset(user_id=user_id, name=name,
                            target_profile=target_profile, fps=profile['fps'],
-                           frames=frames,
+                           frames=frames, trigger_word=trigger,
                            width=size[0] if size else None,
                            height=size[1] if size else None,
                            output_dir='')
@@ -2479,7 +2480,7 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
 
     bank_jobs.start(app, job_key(bank_id), 'promote',
                     _promote_job(bank.id, dataset.id, clip_ids, target_profile,
-                                 frames, size, inset),
+                                 frames, size, inset, trigger),
                     total=len(clip_ids))
     return {'id': dataset.id, 'name': dataset.name,
             'output_dir': dataset.output_dir, 'clips': len(clip_ids),
@@ -2487,7 +2488,7 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
 
 
 def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
-                 edge_inset_s=0.0):
+                 edge_inset_s=0.0, trigger_word=None):
     """One ffmpeg per kept clip, straight into a FLAT folder.
 
     NOT ONE SUBFOLDER, EVER. ai-toolkit's dataset scan is os.walk — recursive —
@@ -2587,7 +2588,8 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
             # future on a missing one, and diffusion-pipe drops the clip. An
             # EMPTY sidecar is not neutral either, it trains as an empty prompt
             # in silence, which is what the pre-flight count exists to surface.
-            video_clip_export.write_sidecar(str(dst), clip.caption)
+            video_clip_export.write_sidecar(
+                str(dst), _with_trigger(trigger_word, clip.caption))
             index = candidate
             encoded += 1
             db.session.add(VideoDatasetClip(
@@ -2621,6 +2623,24 @@ def get_video_dataset(user_id, dataset_id) -> VideoDataset | None:
     return VideoDataset.query.filter_by(id=dataset_id, user_id=user_id).first()
 
 
+def _with_trigger(trigger, caption) -> str:
+    """The sidecar text: trigger first, caption after, exactly once.
+
+    Prepended at WRITE time rather than stored inside the caption, so editing a
+    caption in the UI never shows (or loses) the trigger, and changing nothing
+    else about the flow: no trigger, and the sidecar is the caption verbatim.
+    Idempotent on captions that already start with the trigger - a set promoted
+    from a bank whose captions carry it does not get it twice, which is the
+    duplication fal measured degrading prompt adherence."""
+    trigger = (trigger or '').strip()
+    caption = (caption or '').strip()
+    if not trigger:
+        return caption
+    if caption.lower().startswith(trigger.lower()):
+        return caption
+    return f'{trigger}, {caption}' if caption else trigger
+
+
 def _dataset_row(ds: VideoDataset) -> dict:
     profile = video_targets.get(ds.target_profile) or {}
     seconds = video_targets.clip_seconds(ds.target_profile, ds.frames) \
@@ -2642,6 +2662,7 @@ def _dataset_row(ds: VideoDataset) -> dict:
         # for MiniMax H3 needs the territory restriction in front of them when
         # they come back to it, not once at creation.
         'licence_note': profile.get('licence_note'),
+        'trigger_word': ds.trigger_word,
         'created_at': ds.created_at.isoformat() if ds.created_at else None,
     }
 
@@ -2685,7 +2706,8 @@ def set_dataset_clip_caption(user_id, dataset_id, clip_id, caption) -> dict | No
     clip_path = os.path.join(ds.output_dir, row.filename)
     written = True
     try:
-        video_clip_export.write_sidecar(clip_path, row.caption)
+        video_clip_export.write_sidecar(
+            clip_path, _with_trigger(ds.trigger_word, row.caption))
     except OSError as e:
         written = False
         logger.warning('video dataset %s: could not write sidecar: %s', ds.id, e)
