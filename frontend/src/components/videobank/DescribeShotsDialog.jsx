@@ -20,8 +20,12 @@ import { HelpBadge } from '../../help/HelpMode'
  */
 export default function DescribeShotsDialog({ captionModel, initialStyle, onLaunch, onClose }) {
   const styles = captionModel?.styles || []
+  const models = captionModel?.models || []
   const [style, setStyle] = useState(
     initialStyle || captionModel?.style || styles[0]?.key || 'standard')
+  // The configured checkpoint is the default of the picker, whatever it is —
+  // the window offers the vetted alternatives, it never silently re-points.
+  const [model, setModel] = useState(captionModel?.model || models[0]?.key || '')
   const [recaption, setRecaption] = useState(false)
   const [includeEdited, setIncludeEdited] = useState(false)
 
@@ -29,6 +33,7 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
     e.preventDefault()
     onLaunch({
       style,
+      ...(model ? { model } : {}),
       recaption,
       // Meaningless without recaption, so it is never sent without it — the
       // server treats them independently and this window promises otherwise.
@@ -47,9 +52,35 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
         </h2>
         <p className="text-sm text-content-muted">
           Watches each shot and writes what happens in it — the caption a
-          training run reads as the shot&rsquo;s prompt. Captions are written by{' '}
-          <span className="font-mono text-xs">{captionModel?.model || 'the configured model'}</span>.
+          training run reads as the shot&rsquo;s prompt.
         </p>
+
+        {models.length > 1 && (
+          <fieldset>
+            <legend className="text-sm font-medium text-content">Model</legend>
+            <div className="mt-1 space-y-1.5">
+              {models.map((m) => (
+                <label key={m.key}
+                  className="flex cursor-pointer items-start gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-content has-[:checked]:border-sky-400/70 has-[:checked]:bg-sky-500/10">
+                  <input type="radio" name="describe-model" value={m.key}
+                    checked={model === m.key} onChange={() => setModel(m.key)}
+                    className="mt-0.5" />
+                  <span className="min-w-0">
+                    <span className="font-semibold">{m.label}</span>
+                    {/* Downloads are allowed but never silent — the same rule
+                        as the job line's download notice, one screen earlier. */}
+                    <span className={`ml-2 text-[0.6875rem] ${m.cached ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {m.cached ? 'on this machine' : 'downloads on first run'}
+                    </span>
+                    {m.hint && (
+                      <span className="block text-xs text-content-muted">{m.hint}</span>
+                    )}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         <fieldset>
           <legend className="flex items-center gap-2 text-sm font-medium text-content">

@@ -90,10 +90,13 @@ export const WHATS_NEW = [
       'The video bank’s 🗣 Describe button opens a launch window instead of '
       + 'firing blind. Pick the wording there — Standard, or Plain, which '
       + 'names explicit content instead of describing around it (measured on '
-      + 'real adult footage: the prompt matters more than the model). And '
-      + 'choose what it covers: only the shots still missing a caption, or a '
-      + 'rewrite of the whole bank in the new wording — captions you edited '
-      + 'by hand are never touched unless you explicitly say so.',
+      + 'real adult footage: the prompt matters more than the model). Pick '
+      + 'the model too: the proven 4B default, or Qwen3-VL 8B for better '
+      + 'motion writing — each saying whether it is already on your machine '
+      + 'or downloads first. And choose what it covers: only the shots still '
+      + 'missing a caption, or a rewrite of the whole bank in the new wording '
+      + '— captions you edited by hand are never touched unless you '
+      + 'explicitly say so.',
     to: '/video-bank',
   },
   {

@@ -572,7 +572,10 @@ def caption_model_info() -> dict:
             # The prompt style matters MORE than the checkpoint on real footage
             # (see video_caption's measurement), so the picker rides here too.
             'style': video_caption.configured_style(),
-            'styles': video_caption.style_choices()}
+            'styles': video_caption.style_choices(),
+            # And the vetted checkpoints, `cached` included per entry — the
+            # launch window must be able to say "this one downloads first".
+            'models': video_caption.model_choices()}
 
 
 def _capability() -> dict:
@@ -2054,7 +2057,7 @@ def _caption_available():
 
 
 def start_caption(app, user_id, bank_id, recaption=False, include_edited=False,
-                  style=None):
+                  style=None, model=None):
     """🗣 Wave 5's pass: what HAPPENS in each shot, in prose.
 
     The caption is the text the hybrid search matches AND the training prompt the
@@ -2078,10 +2081,12 @@ def start_caption(app, user_id, bank_id, recaption=False, include_edited=False,
             raise RuntimeError(busy)
     return bank_jobs.start(app, job_key(bank_id), 'caption',
                            _caption_job(bank_id, bool(recaption),
-                                        bool(include_edited), use_gpu, style))
+                                        bool(include_edited), use_gpu, style,
+                                        model))
 
 
-def _caption_job(bank_id, recaption, include_edited, use_gpu, style=None):
+def _caption_job(bank_id, recaption, include_edited, use_gpu, style=None,
+                 model_choice=None):
     def run(job):
         from contextlib import nullcontext
 
@@ -2089,9 +2094,10 @@ def _caption_job(bank_id, recaption, include_edited, use_gpu, style=None):
         from . import video_caption
         total = video_caption.pending_clips(bank_id, recaption,
                                             include_edited).count()
-        model = video_caption.configured_model()
-        # A per-run choice with the config key as its default: captioning ONE
-        # bank plainly must not silently re-point every other bank.
+        # Both per-run choices resolve the same way: an explicit legal pick, else
+        # the config default — captioning ONE bank plainly (or on the 8B) must
+        # not silently re-point every other bank.
+        model = video_caption.resolve_model(model_choice)
         chosen_style = (style if style in video_caption.CAPTION_STYLES
                         else video_caption.configured_style())
         # WHICH model, in the line the user is already watching: two checkpoints

@@ -452,7 +452,10 @@ def video_bank_caption(bank_id):
                   # Per-run prompt style; absent = the configured default. An
                   # unknown value falls back rather than failing — and falls back
                   # to `standard`, never to the permissive one.
-                  style=data.get('style'))
+                  style=data.get('style'),
+                  # Per-run checkpoint, restricted to the vetted list (plus the
+                  # configured one); anything else falls back to the config.
+                  model=data.get('model'))
 
 
 @bp.post('/video-bank/<int:bank_id>/dedup')

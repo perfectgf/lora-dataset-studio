@@ -267,6 +267,60 @@ def caption_prompt(style=None):
     return CAPTION_STYLES.get(key, CAPTION_STYLES[DEFAULT_STYLE])['prompt']
 
 
+# The checkpoints a run can be pointed at FROM THE LAUNCH WINDOW. A short vetted
+# list, not a free field: the config key (`video_caption.model`) already accepts
+# any Hugging Face id for whoever knows what they are doing — the per-run picker
+# exists so switching between the known-good options does not require editing
+# config, and a typo'd id that would launch a download of nothing stays
+# impossible from the UI. Hints carry the two facts that decide the choice
+# (measured/benched in the 2026-08-18 captioning survey): the 4B is the proven
+# default, the 8B writes better MOTION but almost fills a 24 GB card.
+MODEL_CHOICES = {
+    DEFAULT_MODEL: {
+        'label': 'Qwen3-VL 4B (default)',
+        'hint': 'The shipped captioner — fits alongside other GPU work.',
+    },
+    'Qwen/Qwen3-VL-8B-Instruct': {
+        'label': 'Qwen3-VL 8B',
+        'hint': 'Describes motion better, at twice the size — it wants the '
+                '24 GB card almost to itself, so close other GPU apps first.',
+    },
+}
+
+
+def model_choices():
+    """[{key, label, hint, cached}] for the launch window — the configured model
+    first (it is the default of the picker, whatever it is), then the vetted
+    list. A custom-configured checkpoint appears as its own entry rather than
+    being hidden by the curation: the picker must be able to SAY what the pass
+    will otherwise silently use."""
+    configured = configured_model()
+    out = []
+    seen = set()
+    for key in [configured, *MODEL_CHOICES]:
+        if key in seen:
+            continue
+        seen.add(key)
+        meta = MODEL_CHOICES.get(key) or {
+            'label': key,
+            'hint': 'Set in video_caption.model — not one of the vetted picks.',
+        }
+        out.append({'key': key, 'label': meta['label'], 'hint': meta['hint'],
+                    'cached': model_is_cached(key)})
+    return out
+
+
+def resolve_model(model=None):
+    """The checkpoint a run should use: an explicit pick from the vetted list
+    (or the configured one, which is always a legal pick), else the configured
+    default. Unknown values fall back rather than failing — same contract as
+    styles, for the same reason — and never fall back to something LARGER than
+    what was configured."""
+    allowed = {c['key'] for c in model_choices()}
+    chosen = (model or '').strip()
+    return chosen if chosen in allowed else configured_model()
+
+
 # Preambles a VLM reaches for even when told not to. Anchored at the start and
 # case-insensitive; the following word is re-capitalised so the caption still
 # reads as a sentence rather than as a decapitated one.

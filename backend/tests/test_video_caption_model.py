@@ -289,3 +289,93 @@ def test_the_infer_script_takes_the_model_from_the_handshake(app):
     assert "req.get('model')" in code
     assert 'from_pretrained(model_id' in code
     assert 'from_pretrained(MODEL_ID' not in code
+
+
+# --- the launch-window picker -------------------------------------------------------
+
+def test_resolve_model_takes_a_vetted_pick_and_falls_back_on_anything_else(app):
+    """The per-run choice is restricted to the vetted list plus whatever the
+    config names: a typo'd id from a client must not launch a download of
+    nothing, and an unknown value falls back rather than failing — the same
+    contract as styles."""
+    with app.app_context():
+        assert vc.resolve_model('Qwen/Qwen3-VL-8B-Instruct') == 'Qwen/Qwen3-VL-8B-Instruct'
+        assert vc.resolve_model('someone/typo-vlm') == DEFAULT_MODEL
+        assert vc.resolve_model(None) == DEFAULT_MODEL
+        assert vc.resolve_model('') == DEFAULT_MODEL
+
+
+def test_a_custom_configured_model_is_always_a_legal_pick(app):
+    """The config key accepts any id; the picker must be able to NAME it and a
+    run must be able to choose it — hiding it behind the curated list would
+    make the window lie about what the pass will use."""
+    from app import config as cfg
+    with app.app_context():
+        cfg.save_config({'video_caption': {'model': 'someone/other-vlm'}})
+        try:
+            assert vc.resolve_model('someone/other-vlm') == 'someone/other-vlm'
+            # And an unknown pick falls back to the CONFIGURED model, not to the
+            # shipped default the user pointedly moved away from.
+            assert vc.resolve_model('someone/typo-vlm') == 'someone/other-vlm'
+            keys = [c['key'] for c in vc.model_choices()]
+            assert keys[0] == 'someone/other-vlm'
+            assert DEFAULT_MODEL in keys
+        finally:
+            cfg.save_config({'video_caption': {'model': ''}})
+
+
+def test_the_choices_lead_with_the_configured_model_and_say_what_is_cached(
+        app, monkeypatch):
+    monkeypatch.setattr(vc, 'model_is_cached', lambda m: m == DEFAULT_MODEL)
+    with app.app_context():
+        choices = vc.model_choices()
+    keys = [c['key'] for c in choices]
+    assert keys == [DEFAULT_MODEL, 'Qwen/Qwen3-VL-8B-Instruct']
+    assert all(c.get('label') and c.get('hint') for c in choices)
+    by_key = {c['key']: c for c in choices}
+    assert by_key[DEFAULT_MODEL]['cached'] is True
+    assert by_key['Qwen/Qwen3-VL-8B-Instruct']['cached'] is False
+
+
+def test_the_route_takes_a_model_for_one_run_without_changing_the_setting(
+        app, client, tmp_path, monkeypatch):
+    """Same shape as the per-run style: captioning one bank on the 8B must not
+    silently re-point every other bank."""
+    from app.services import video_bank_service as svc
+    monkeypatch.setattr(svc, '_probe_file', lambda _p: {
+        'duration_s': 60.0, 'fps_native': 30.0, 'width': 640, 'height': 480,
+        'codec': 'h264', 'probe_state': 'ok', 'file_size': 4096})
+    started = {}
+    monkeypatch.setattr(svc, 'start_caption', lambda *a, **kw: started.update(kw))
+    folder = tmp_path / 'rushes'
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'a.mp4').write_bytes(b'0' * 32)
+    bank_id = client.post('/api/video-bank/create',
+                          json={'name': 'r', 'folder': str(folder)}).get_json()['id']
+
+    r = client.post(f'/api/video-bank/{bank_id}/caption',
+                    json={'model': 'Qwen/Qwen3-VL-8B-Instruct'})
+
+    assert r.status_code == 202
+    assert started.get('model') == 'Qwen/Qwen3-VL-8B-Instruct'
+    with app.app_context():
+        assert vc.configured_model() == DEFAULT_MODEL
+
+
+def test_the_payload_offers_the_models_with_their_cached_flag(
+        app, client, tmp_path, monkeypatch):
+    from app.services import video_bank_service as svc
+    monkeypatch.setattr(svc, '_probe_file', lambda _p: {
+        'duration_s': 60.0, 'fps_native': 30.0, 'width': 640, 'height': 480,
+        'codec': 'h264', 'probe_state': 'ok', 'file_size': 4096})
+    folder = tmp_path / 'rushes'
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'a.mp4').write_bytes(b'0' * 32)
+    bank_id = client.post('/api/video-bank/create',
+                          json={'name': 'r', 'folder': str(folder)}).get_json()['id']
+
+    info = client.get(f'/api/video-bank/{bank_id}').get_json()['caption_model']
+
+    assert [m['key'] for m in info['models']] == [
+        DEFAULT_MODEL, 'Qwen/Qwen3-VL-8B-Instruct']
+    assert all(isinstance(m.get('cached'), bool) for m in info['models'])
