@@ -97,6 +97,21 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-08-30-caption-budget-and-audio',
+    date: '2026-08-30',
+    title: 'The video export counts your words, and tells the truth about sound',
+    blurb:
+      'Two silent failures now speak up at Build the dataset. If captions run '
+      + 'past the target model’s own published prompt budget (Wan caps at '
+      + '200 words, 100 for I2V), the export says how many and how long the '
+      + 'longest is — because the trainer would cut them mid-sentence without '
+      + 'a word. And for targets that keep their audio (MiniMax H3), each '
+      + 'clip’s prompt gains a measured Audio line when the numbers prove one '
+      + '— a missing track, or near-total silence. Audible audio gets no '
+      + 'invented description: only what was measured gets written.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-30-klein-clean-compare',
     date: '2026-08-30',
     title: 'Try your Klein models before the clean commits',

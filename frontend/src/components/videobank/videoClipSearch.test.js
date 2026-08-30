@@ -6,7 +6,7 @@ import {
   frameLabelPhrase, matchLine, seekFragment, playFromSecond,
   VIDEO_CLIP_LIMITS, limitsSentence,
   searchBasisNote, captionMatchNote, captionStateNote, uncaptionedWarning,
-  captionModelNote, captionStyleLabel,
+  captionModelNote, captionStyleLabel, overBudgetWarning,
 } from './videoClipSearch.js'
 
 // ---- what stops a search before it starts ------------------------------------
@@ -232,4 +232,16 @@ test('the caption style is named in words a user can weigh', () => {
   assert.match(captionStyleLabel(styles, 'plain'), /explicit/i)
   assert.equal(captionStyleLabel(styles, 'nope'), '')
   assert.equal(captionStyleLabel(null, 'plain'), '')
+})
+
+test('overBudgetWarning fires only past a PUBLISHED budget, and says the worst case', () => {
+  assert.equal(overBudgetWarning({ over_caption_budget: 0, caption_word_budget: 200 }), '')
+  assert.equal(overBudgetWarning({ over_caption_budget: 3, caption_word_budget: 0 }), '')
+  assert.equal(overBudgetWarning(null), '')
+  const note = overBudgetWarning({
+    over_caption_budget: 3, caption_word_budget: 200, caption_words_max: 241 })
+  assert.match(note, /3 caption\(s\)/)
+  assert.match(note, /200-word/)
+  assert.match(note, /241 words/)
+  assert.match(note, /without saying so/)
 })

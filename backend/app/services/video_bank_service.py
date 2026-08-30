@@ -2444,6 +2444,18 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
     high_fps_ids = {vs.id for vs in VideoSource.query.filter(
         VideoSource.id.in_({c.source_id for c in rows}),
         VideoSource.fps_native >= 48).all()} if rows else set()
+    # Words of the COMPOSED prompt — trigger, caption, measured camera and
+    # audio lines, exactly what the .txt will hold — against the budget the
+    # target's OWN vendor published (WAN: 200/100 words; nothing invented for
+    # targets without one). The trainers truncate past their encoder budget in
+    # silence, so an over-long caption has to be visible BEFORE the encode,
+    # like the uncaptioned count next to it.
+    budget = profile.get('caption_word_budget')
+    keeps_audio = bool(profile.get('audio'))
+    word_counts = [len(compose_sidecar_text(trigger_word, c.caption,
+                                            c.metrics_json,
+                                            keeps_audio=keeps_audio).split())
+                   for c in rows]
     composition = {
         'high_fps_clips': sum(1 for c in rows if c.source_id in high_fps_ids),
         'sources': len(per_source),
@@ -2454,6 +2466,10 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
         # Clips the INSET removes — not clips that were never long enough. Those
         # keep their own count, because only the first is fixed by lowering it.
         'inset_would_drop': would_drop,
+        'caption_word_budget': budget,
+        'caption_words_max': max(word_counts) if word_counts else 0,
+        'over_caption_budget': (sum(1 for w in word_counts if w > budget)
+                                if budget else 0),
     }
     if not clip_ids:
         raise ValueError('nothing to promote — keep some clips first')
@@ -2535,6 +2551,10 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
         # "too short once the inset was taken off". None only for a profile that
         # declares no fps, which start_promote already refused.
         profile_fps = (video_targets.get(profile_key) or {}).get('fps')
+        # Whether this target keeps its audio track — the gate on the measured
+        # `Audio:` line: a Wan sidecar must never discuss a soundtrack its own
+        # export strips.
+        keeps_audio = bool((video_targets.get(profile_key) or {}).get('audio'))
 
         index = 0
         encoded = too_short = failed = dropped_by_inset = 0
@@ -2605,7 +2625,8 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
             # in silence, which is what the pre-flight count exists to surface.
             video_clip_export.write_sidecar(
                 str(dst), compose_sidecar_text(trigger_word, clip.caption,
-                                               clip.metrics_json))
+                                               clip.metrics_json,
+                                               keeps_audio=keeps_audio))
             index = candidate
             encoded += 1
             db.session.add(VideoDatasetClip(
@@ -2657,9 +2678,17 @@ def _with_trigger(trigger, caption) -> str:
     return f'{trigger}, {caption}' if caption else trigger
 
 
-def compose_sidecar_text(trigger, caption, metrics_json) -> str:
-    """The full training prompt for one exported clip: trigger, caption, and
-    the MEASURED camera line.
+# A clip counts as effectively silent when nearly every measured window sat at
+# the floor. 0.98 and not 1.0: one window of handling noise in a five-second
+# clip does not make it audible footage, and the training sentence it earns is
+# still the true one.
+_NEAR_SILENCE_RATIO = 0.98
+
+
+def compose_sidecar_text(trigger, caption, metrics_json, keeps_audio=False) -> str:
+    """The full training prompt for one exported clip: trigger, caption, the
+    MEASURED camera line — and, for targets that keep their audio track, the
+    measured audio line.
 
     The camera comes from our homography classifier, never from the VLM — that
     was tried and refuted twice (the caption prompt now explicitly forbids it),
@@ -2669,6 +2698,14 @@ def compose_sidecar_text(trigger, caption, metrics_json) -> str:
     its encoder expects to read). No phrase when the classifier had nothing
     honest to say (unmeasured, or subject motion drowning the signal): a
     caption silent about the camera teaches nothing false.
+
+    The audio line follows the same doctrine, harder: we have LEVEL metrics and
+    no content classifier, so the only sentences we may write are the ones the
+    numbers prove — a missing track, or near-total silence. Audible audio gets
+    NO line rather than a guessed one ("ambient sound" claims a content type
+    nobody measured). Only targets that keep audio get any line at all: telling
+    a Wan model, whose clips ship with `-an`, about its soundtrack would be a
+    sentence about nothing.
     """
     from . import video_camera_motion
     base = _with_trigger(trigger, caption)
@@ -2676,11 +2713,19 @@ def compose_sidecar_text(trigger, caption, metrics_json) -> str:
         scores = json.loads(metrics_json) if metrics_json else {}
     except (TypeError, ValueError):
         scores = {}
+    parts = [base] if base else []
     phrase = video_camera_motion.camera_phrase(scores)
-    if not phrase:
-        return base
-    line = f'Camera: {phrase}.'
-    return f'{base} {line}' if base else line
+    if phrase:
+        parts.append(f'Camera: {phrase}.')
+    if keeps_audio:
+        state = scores.get('audio_state')
+        ratio = scores.get('silence_ratio')
+        if state == 'none':
+            parts.append('Audio: silent.')
+        elif state == 'ok' and isinstance(ratio, (int, float)) \
+                and ratio >= _NEAR_SILENCE_RATIO:
+            parts.append('Audio: near silence.')
+    return ' '.join(parts)
 
 
 def _dataset_row(ds: VideoDataset) -> dict:

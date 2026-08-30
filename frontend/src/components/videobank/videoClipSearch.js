@@ -259,6 +259,19 @@ export function uncaptionedWarning(composition) {
     + '— the trainer accepts that silently. Run 🗣 Describe shots first, or accept it.'
 }
 
+/** Over the target's PUBLISHED word budget — WAN caps its own prompts at
+ * 200 (T2V) / 100 (I2V) words and its encoder truncates past that in silence.
+ * '' for targets whose vendor published no number: an invented budget would be
+ * a figure somebody plans around. */
+export function overBudgetWarning(composition) {
+  const over = Number(composition?.over_caption_budget) || 0
+  const budget = Number(composition?.caption_word_budget) || 0
+  if (over <= 0 || budget <= 0) return ''
+  return `${over} caption(s) run past this model's ${budget}-word prompt budget `
+    + `(longest: ${composition?.caption_words_max} words) — the trainer will cut `
+    + 'them off mid-sentence without saying so. Shorten them, or accept the cut.'
+}
+
 export function limitsSentence() {
   return 'Best at subjects, settings, styles and framing, in the frames it '
     + 'looked at. It cannot count, cannot hear, and ignores “without” — so '

@@ -811,3 +811,43 @@ def test_a_camera_line_alone_is_still_a_sidecar():
     from app.services.video_bank_service import compose_sidecar_text
     text = compose_sidecar_text('', None, _json.dumps(_pan_scores()))
     assert text.startswith('Camera: ')
+
+
+# --- the measured Audio: line (C12-B) ------------------------------------------------
+
+def test_audio_line_only_for_targets_that_keep_audio_and_only_when_measured():
+    import json as _json
+    from app.services.video_bank_service import compose_sidecar_text
+
+    no_track = _json.dumps({'audio_state': 'none'})
+    near_silent = _json.dumps({'audio_state': 'ok', 'silence_ratio': 1.0,
+                               'rms_dbfs': -120.0})
+    audible = _json.dumps({'audio_state': 'ok', 'silence_ratio': 0.1,
+                           'rms_dbfs': -18.0})
+    unreadable = _json.dumps({'audio_state': 'unreadable'})
+
+    # For a target that keeps audio: the two sentences the numbers prove.
+    assert compose_sidecar_text('', 'a scene', no_track, keeps_audio=True) \
+        == 'a scene Audio: silent.'
+    assert compose_sidecar_text('', 'a scene', near_silent, keeps_audio=True) \
+        == 'a scene Audio: near silence.'
+    # Audible audio: NO line — we have level metrics, not a content classifier,
+    # and "ambient sound" would claim a content type nobody measured.
+    assert compose_sidecar_text('', 'a scene', audible, keeps_audio=True) \
+        == 'a scene'
+    assert compose_sidecar_text('', 'a scene', unreadable, keeps_audio=True) \
+        == 'a scene'
+    # For a target whose export strips audio (Wan, -an): never a word about a
+    # soundtrack the clip will not have.
+    assert compose_sidecar_text('', 'a scene', no_track, keeps_audio=False) \
+        == 'a scene'
+
+
+def test_published_word_budgets_and_only_published_ones():
+    """WAN's own rewriter caps at 200 (T2V) / 100 (I2V) words — published, so
+    carried. H3 published none, so it carries none: an invented budget is a
+    figure somebody plans around."""
+    from app.services import video_targets as vt
+    assert vt.get('wan22_14b').get('caption_word_budget') == 200
+    assert vt.get('wan22_14b_i2v').get('caption_word_budget') == 100
+    assert 'caption_word_budget' not in vt.get('minimax_h3')
