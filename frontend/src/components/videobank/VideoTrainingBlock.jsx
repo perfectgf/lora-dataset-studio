@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiFetch, postJson } from '../../api/fetchClient'
+import { apiFetch, del, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import {
   videoDatasetCloudUrl, videoDatasetCloudProgressUrl,
   videoDatasetCloudCheckpointsUrl, videoDatasetCheckpointUrl,
   videoDatasetCloudRetryUrl, videoDatasetCloudContinueUrl,
+  videoDatasetCloudRunUrl,
 } from './videoBankApi'
 import {
   isActive, launchBlockedReason, runSummary, canRetry, canContinue, stepLabel,
@@ -189,6 +190,21 @@ export default function VideoTrainingBlock({ ds }) {
     }
   }
 
+  const deleteRun = async (g) => {
+    const n = g.steps.reduce((sum, s) => sum + (s.files?.length || 0), 0)
+    if (!window.confirm(
+      `Delete run #${g.run_id} and its ${n} LoRA file(s) from disk?\n\n`
+      + 'The dataset and its clips are untouched — only this run’s '
+      + 'checkpoints and its history line go. This cannot be undone.')) return
+    try {
+      const d = await del(videoDatasetCloudRunUrl(ds.id, g.run_id))
+      toast.success(`Run #${d.deleted} deleted — ${d.files} file(s) removed.`)
+      refreshCloud()
+    } catch (e) {
+      toast.error(e?.message || 'Could not delete that run.')
+    }
+  }
+
   if (!ds.training_verified) return null
 
   const dl = progress?.download
@@ -228,6 +244,13 @@ export default function VideoTrainingBlock({ ds }) {
             )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
+            {/* BETA, and honestly so (maintainer's call, 2026-08-30): the rail
+                is proven end to end but days old, and a label that says "expect
+                rough edges" costs less than a user who assumed a settled
+                feature. Same chip both destinations — the beta is the RAIL. */}
+            <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wider text-amber-200">
+              Beta
+            </span>
             <button type="button" onClick={() => startLocal(false)}
               disabled={busyLocal || !ds.clips}
               className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-50">
@@ -343,9 +366,21 @@ export default function VideoTrainingBlock({ ds }) {
               where the newest run is and what it costs, this one only labels
               which run these files came from — and, when there is one, the run
               they grew out of. */}
-          <p className="font-mono text-[0.625rem] text-content-subtle">
-            Checkpoints — run #{g.run_id}
-            {g.parent_run_id ? ` · continued from #${g.parent_run_id}` : ''}
+          <p className="flex items-center gap-1.5 font-mono text-[0.625rem] text-content-subtle">
+            <span>
+              Checkpoints — run #{g.run_id}
+              {g.parent_run_id ? ` · continued from #${g.parent_run_id}` : ''}
+            </span>
+            {/* The exit this card never had: four runs deep (smokes, a
+                contaminated continuation, superseded step counts) with no way
+                to clear one. Confirm names the file count — this deletes
+                weights from disk. */}
+            <button type="button" onClick={() => deleteRun(g)}
+              aria-label={`Delete run ${g.run_id} and its checkpoints`}
+              title="Delete this run and its LoRA files"
+              className="rounded border border-border px-1 py-0.5 text-content-subtle hover:border-rose-500/60 hover:text-rose-300">
+              🗑
+            </button>
           </p>
           <ul className="flex flex-wrap gap-1.5">
             {g.steps.map((s) => (

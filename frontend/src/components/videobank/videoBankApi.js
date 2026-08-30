@@ -182,3 +182,7 @@ export function videoDatasetCloudRetryUrl(datasetId) {
 export function videoDatasetCloudContinueUrl(datasetId) {
   return `/api/video-dataset/${datasetId}/train/cloud/continue`
 }
+
+export function videoDatasetCloudRunUrl(datasetId, runId) {
+  return `/api/video-dataset/${datasetId}/train/cloud/run/${runId}`
+}

@@ -17,10 +17,23 @@ import VideoTrainingBlock from './VideoTrainingBlock'
  * train, and which one am I not allowed to publish from where I live" is exactly
  * the question you have then.
  */
+// Same lazy localStorage read as the image sections above this panel — the
+// fold must survive a reload for the same reason theirs does.
+const FOLD_KEY = 'ldsVideoSetsCollapsed'
+
 export default function VideoDatasetsPanel() {
   const toast = useToast()
   const [datasets, setDatasets] = useState(null)
   const [openId, setOpenId] = useState(null)
+  // 📁 Collapsible like TRAINED / NOT TRAINED YET above it — it was the ONE
+  // section of the library that could not be put away (reported next to two
+  // sections that fold, which is what made it read as broken).
+  const [folded, setFolded] = useState(() => {
+    try { return localStorage.getItem(FOLD_KEY) === '1' } catch { return false }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(FOLD_KEY, folded ? '1' : '0') } catch { /* private mode */ }
+  }, [folded])
 
   const refresh = useCallback(async () => {
     try {
@@ -53,13 +66,24 @@ export default function VideoDatasetsPanel() {
   return (
     <section className="flex flex-col gap-2">
       <h2 className="flex items-center gap-2">
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-content-subtle">
+        <button type="button" onClick={() => setFolded((v) => !v)}
+          aria-expanded={!folded}
+          title={folded ? 'Expand the Video training sets section'
+            : 'Collapse the Video training sets section'}
+          className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-content-subtle transition-colors hover:text-content">
+          <span aria-hidden="true"
+            className={`text-[0.625rem] transition-transform ${folded ? '' : 'rotate-90'}`}>
+            ▶
+          </span>
           <Clapperboard aria-hidden="true" className="h-4 w-4" /> Video training sets
-          <span className="font-normal normal-case tracking-normal"> ({datasets.length})</span>
-        </span>
+          <span className="font-normal normal-case tracking-normal">({datasets.length})</span>
+        </button>
         <HelpBadge topic="video-datasets" />
+        {/* Stays reachable folded: it is the section's only entry point for a
+            user with zero video datasets, and folding must not hide it. */}
         <StillsFromDatasetButton onCreated={refresh} />
       </h2>
+      {folded ? null : (
       <ul className="grid gap-2 grid-cols-1 sm:grid-cols-2">
         {datasets.map((d) => (
           <li key={d.id}
@@ -113,6 +137,7 @@ export default function VideoDatasetsPanel() {
           </li>
         ))}
       </ul>
+      )}
     </section>
   )
 }
