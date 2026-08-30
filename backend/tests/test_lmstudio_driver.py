@@ -48,11 +48,19 @@ OPENAI_BODY = {'object': 'list', 'data': [{'id': 'qwen/qwen3-vl-4b', 'object': '
 
 
 def _router(mapping, missing_status=404):
-    """A GET double that answers only the surfaces `mapping` names."""
+    """A GET double that answers only the surfaces `mapping` names.
+
+    Matches the PATH, not a suffix. `endswith` made a double mounted on
+    `/v1/models` answer `/api/v1/models` too, because the first ends the second —
+    so a test that meant to expose only the OpenAI surface silently exposed the
+    native one, and the preference order it claimed to prove was never exercised.
+    """
+    from urllib.parse import urlsplit
+
     def _get(url, *a, **kw):
-        for path, body in mapping.items():
-            if url.endswith(path):
-                return _Resp(200, body)
+        path = urlsplit(url).path
+        if path in mapping:
+            return _Resp(200, mapping[path])
         return _Resp(missing_status, None, 'not found')
     return _get
 
@@ -79,7 +87,10 @@ def test_the_url_lm_studio_displays_is_accepted_as_typed(typed, expected):
 # --- discovery across three surfaces -----------------------------------------
 
 def test_v1_is_preferred_and_reports_residency_from_loaded_instances(app, monkeypatch):
-    monkeypatch.setattr(lms.requests, 'get', _router({'/api/v1/models': V1_BODY}))
+    """Mounts BOTH native surfaces on purpose: with only v1 mounted, "v1 is
+    preferred" is not a claim the test can make — v0 was never there to lose."""
+    monkeypatch.setattr(lms.requests, 'get',
+                        _router({'/api/v1/models': V1_BODY, '/api/v0/models': V0_BODY}))
     with app.app_context():
         out = lms.list_models()
     assert out['surface'] == 'v1'
