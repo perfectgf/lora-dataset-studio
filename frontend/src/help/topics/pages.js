@@ -204,6 +204,21 @@ export const PAGE_TOPICS = [
      'keyboard', 'shortcut', 'shortcuts', 'hotkey', 'keep reject',
      'bank', 'triage'],
     '/bank', 'using-the-app', 'compare-the-copies-of-a-duplicate-group'),
+  // The words people actually type for this are complaints about the app being
+  // WRONG ("these are not duplicates", "it keeps grouping my burst"), so they
+  // lead — the feature name is the last thing they would search for.
+  action('bank-not-duplicates', 'Say “these are not duplicates”',
+    ['not duplicates', 'not a duplicate', 'these are different', 'different shots',
+     'false positive', 'wrongly grouped', 'wrong group', 'bad grouping',
+     'grouped by mistake', 'not the same shot', 'not the same photo',
+     'keep both', 'keep all', 'keep every copy', 'dismiss group', 'ignore group',
+     'stop asking', 'keeps coming back', 'comes back every time', 'again and again',
+     'burst', 'burst of frames', 'tripod', 'series', 'sequence', 'similar poses',
+     'skip does nothing', 'skip is not enough', 'reject one i want',
+     'undo not duplicates', 'put them back', 'restore group', 'too many pairs',
+     'group too big', 'refused', 'duplicate', 'duplicates', 'same shot',
+     'bank', 'triage'],
+    '/bank', 'using-the-app', 'say-these-are-not-duplicates'),
   action('bank-promote-to-new-bank', 'Promote a shortlist into a new bank',
     ['promote', 'promote to bank', 'new bank', 'second bank', 'split bank', 'split',
      'shortlist', 'candidates', 'subset', 'selection', 'isolate', 'extract',

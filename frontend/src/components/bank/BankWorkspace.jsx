@@ -2304,10 +2304,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
 
           {filter.flag === 'dups' ? (
             <DupGroupsPanel bankId={bankId} live={live} kind="exact"
+              notDuplicates={payload?.dup?.not_duplicates ?? 0}
               onChanged={async () => { await refreshPayload(); await refreshImages() }} />
           ) : filter.flag === 'semantic_dups' ? (
             <DupGroupsPanel bankId={bankId} live={live} kind="semantic"
               semanticLabel={semanticState.label}
+              notDuplicates={payload?.semantic_dup?.not_duplicates ?? 0}
               onChanged={async () => { await refreshPayload(); await refreshImages() }} />
           ) : (
             <>

@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-not-duplicates',
+    date: '2026-08-31',
+    title: 'Tell the bank a group is NOT duplicates — once, and for good',
+    blurb:
+      'A burst, a tripod series, two crops a threshold called one picture: the '
+      + 'duplicate panel could only be answered by rejecting a photo you wanted '
+      + 'to keep, and Skip wrote nothing so the group came back on every run. '
+      + '≠ Not duplicates (N in ⤢ Compare) keeps every copy, rejects nothing, '
+      + 'and stops proposing the group. It is remembered as the pairs you ruled '
+      + 'on, so it survives the renumbering each pass does — and a group that '
+      + 'later gains a new copy asks you again, because that copy is a new '
+      + 'question. One line above the list puts them all back.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-30-every-watermark-zone-survives',
     date: '2026-08-30',
     title: 'Multi-logo watermarks: every zone survives the scan',
