@@ -20,6 +20,7 @@ const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
 const workspace = read('./BankWorkspace.jsx');
 const rail = read('./BankFilterRail.jsx');
 const lightbox = read('./BankReviewLightbox.jsx');
+const dupCompare = read('./DupCompareLightbox.jsx');
 const passes = read('./BankPassesPanel.jsx');
 const layout = read('./bankLayout.js');
 const page = read('../../pages/BankPage.jsx');
@@ -59,6 +60,10 @@ test('the rail is a layer when it is a drawer, and a panel always', () => {
 
 test('the review lightbox is a layer', () => {
   assert.match(lightbox, /data-probe-chrome="review" data-probe-layer/);
+});
+
+test('the duplicate comparison is a layer too', () => {
+  assert.match(dupCompare, /data-probe-chrome="dup-compare" data-probe-layer/);
 });
 
 test('the bank list names its opener, so the probe can prime the workspace', () => {

@@ -1482,6 +1482,47 @@ after the other:
 The ▶ button on a tile starts the same review **at that image**. A plain click
 on a tile still selects it for the bulk ✓/✕/⬆ bar, so both ways of working stay.
 
+## Compare the copies of a duplicate group
+
+The **≈ Duplicates** and **✂ Same shot** filters replace the grid with one card
+per unresolved group, and those cards used to offer three ways to settle a
+group: *Resolve ALL — keep best*, *keep first*, or clicking one of the
+thumbnails. The first two are verdicts you take on trust; the third asks you to
+tell two copies of the same shot apart in a 96-pixel stamp. **⤢ Compare** — on
+the group's card, or *⤢ Compare & pick* at the top for the whole list — opens
+those same copies at a size where the choice can actually be made.
+
+- **Side by side** puts every copy of the group on screen at once, each as big
+  as the screen allows. This is the view that settles *framing* — which one is
+  cropped, which one has the shoulder in it.
+- **⛶ Full screen** (**F**) shows one copy filling the frame, and **← →** flips
+  between them *in the same frame*. That is the view that settles *detail*: the
+  difference lands on the same pixels instead of asking your eye to carry it
+  across a gap.
+- **Under each copy, the numbers that separate them** — resolution, sharpness,
+  aesthetic score, file weight — with the group's best value **lit**. The copy
+  with nothing lit is the one that loses on everything. When two copies have the
+  same dimensions *and* the same weight they are marked **≡ same file as 2**:
+  they are the identical file, so keeping either keeps the same pixels.
+- The cursor **opens on the copy the app elected** (the BEST badge), so **K**
+  is "yes, that one" and moving off it is a deliberate disagreement. The badge's
+  tooltip says what it wins on — or admits that nothing measured separates the
+  copies and the tie-break was import order.
+
+The keyboard is the same grammar as ▶ Review, at the level this screen decides
+at: **K** keeps the copy under the cursor and rejects the rest of its group,
+**R** rejects only that copy and moves to the next (which is how a group of five
+is worked down one obvious loser at a time), **S** skips the group without
+deciding, **Esc** leaves. What is this screen's own: **← →** move between the
+copies of a group, **1**-**9** jump straight to one, **⇧← ⇧→** move between
+groups, **B** puts the cursor back on the app's pick, **F** switches the layout.
+
+A skipped group stays unresolved and is not shown again *in that run* — it is
+"not now", not "no". When the walk runs out, the run refills itself from what is
+still unresolved, so a bank with 300 duplicate groups is worked through without
+going back to the list. Every verdict is saved on the spot, and the losers are
+**rejected**, never deleted: the ✕ Rejected filter brings any of them back.
+
 ## Promote a shortlist into a new bank
 
 **⬆ Promote…** has two destinations, and picking the right one saves you a mess.
