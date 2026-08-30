@@ -1104,6 +1104,45 @@ def bank_dups_resolve(bank_id):
     return jsonify({'ok': True, **out})
 
 
+@bp.post('/bank/<int:bank_id>/dups/distinct')
+def bank_dups_distinct(bank_id):
+    """≠ — "this group is not duplicates". Keeps every copy and stops proposing
+    the group; ``restore: true`` takes it back (for one group, or for the whole
+    bank when no group is named)."""
+    data = request.get_json(silent=True) or {}
+    return _distinct_action(bank_id, data, banks.mark_group_distinct,
+                            banks.restore_distinct, BankImage.dup_group)
+
+
+@bp.post('/bank/<int:bank_id>/semantic-dups/distinct')
+def bank_semantic_dups_distinct(bank_id):
+    """bank_dups_distinct for stage 2 (semantic near-duplicates)."""
+    data = request.get_json(silent=True) or {}
+    return _distinct_action(bank_id, data, banks.mark_semantic_group_distinct,
+                            banks.restore_distinct, BankImage.semantic_dup_group)
+
+
+def _distinct_action(bank_id, data, mark, restore, col):
+    """The ≠ pair of verbs, shared by both stages — they differ only in the column
+    the group id is read from, exactly like the resolve pair above."""
+    restoring = bool(data.get('restore'))
+    group = data.get('group')
+    if not restoring and group is None:
+        # There is no "mark every group distinct": ≠ is a judgement about ONE
+        # group's copies, and a bulk form of it would silently answer questions
+        # the user has not looked at.
+        return jsonify({'error': 'group is required'}), 400
+    try:
+        if restoring:
+            out = restore(LOCAL_USER, bank_id,
+                          group=None if group is None else int(group), col=col)
+        else:
+            out = mark(LOCAL_USER, bank_id, int(group))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **out})
+
+
 @bp.get('/bank/<int:bank_id>/semantic-dup-groups')
 def bank_semantic_dup_groups(bank_id):
     try:

@@ -347,7 +347,11 @@ def test_duplicate_groups_and_keep_best(client, tmp_path):
     })
     client.post(f'/api/bank/{bank_id}/scan', json={})
     payload = client.get(f'/api/bank/{bank_id}').get_json()
-    assert payload['dup'] == {'groups': 1, 'images': 2, 'unresolved': 1}
+    # 'not_duplicates' is the ≠ counter — how many groups the user answered with
+    # "these are not duplicates". Zero on a bank nobody has ruled on, and it is
+    # asserted here rather than omitted so the panel's two numbers stay a pair.
+    assert payload['dup'] == {'groups': 1, 'images': 2, 'unresolved': 1,
+                              'not_duplicates': 0}
     groups = client.get(f'/api/bank/{bank_id}/dup-groups').get_json()['groups']
     assert len(groups) == 1
     names = {i['name'] for i in groups[0]['images']}

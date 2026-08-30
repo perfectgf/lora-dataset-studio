@@ -5,7 +5,7 @@ import {
   compareFacts, compareProgress, createCompare, currentGroup, currentMember,
   dupCompareKeyAction, isExhausted, liveCount, memberKeyIndex, moveMember,
   nextGroup, pickBest, pickMember, prevGroup, rejectMember, resolveGroup,
-  skipGroup, startingLayout, twinPositions,
+  skipGroup, startingLayout, twinPositions, vetoGroup,
 } from './dupCompare.js';
 
 const img = (id, extra = {}) => ({
@@ -36,8 +36,9 @@ test('the bare arrows walk the copies, shifted arrows walk the groups', () => {
   assert.equal(dupCompareKeyAction(key('ArrowRight', { shiftKey: true })), 'next-group');
 });
 
-test('B accepts the app’s pick and F switches the layout', () => {
+test('B accepts the app’s pick, N vetoes the group, F switches the layout', () => {
   assert.equal(dupCompareKeyAction(key('b')), 'best');
+  assert.equal(dupCompareKeyAction(key('n')), 'distinct');
   assert.equal(dupCompareKeyAction(key('F')), 'layout');
 });
 
@@ -157,6 +158,27 @@ test('rejecting down to one copy settles the group and moves on', () => {
   const after = rejectMember(s, 1);
   assert.equal(currentGroup(after).group, 2, 'nothing left to choose between');
   assert.deepEqual(after.resolved, [1]);
+});
+
+test('≠ settles a group without rejecting anything, and counts apart', () => {
+  const s = createCompare([group(1, [1, 2]), group(2, [3, 4])]);
+  const after = vetoGroup(s);
+  assert.equal(currentGroup(after).group, 2, 'the run moves on');
+  assert.deepEqual(after.vetoed, [1]);
+  assert.deepEqual(after.resolved, [], 'a veto is not a resolve');
+  assert.deepEqual(after.rejected, [], 'and it rejects nothing');
+  const p = compareProgress(after);
+  assert.equal(p.vetoed, 1);
+  assert.equal(p.resolved, 0);
+});
+
+test('a vetoed group never comes back in a refill', () => {
+  // The server stops listing it, but a refill that arrived in flight must not
+  // queue it either — same promise as a skip, for a stronger reason: the user
+  // did not say "not now", they said "never".
+  const s = vetoGroup(createCompare([group(1, [1, 2]), group(2, [3, 4])]));
+  const refilled = appendGroups(s, [group(1, [1, 2]), group(9, [7, 8])]);
+  assert.deepEqual(refilled.groups.map((g) => g.group), [1, 2, 9]);
 });
 
 test('a skipped group is remembered so a refill cannot hand it back', () => {

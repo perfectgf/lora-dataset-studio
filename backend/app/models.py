@@ -605,6 +605,55 @@ class BankImage(db.Model):
         return f'<BankImage {self.id} bank={self.bank_id} {self.status}>'
 
 
+class BankDupDistinct(db.Model):
+    """"These two are NOT the same shot" — the user's veto over a duplicate group.
+
+    Both grouping passes answer a question about pixels, and both are sometimes
+    wrong in the one direction the user cannot correct: a burst of near-identical
+    frames, a series shot on a tripod, two crops that a threshold calls one
+    picture. Before this table the only answers were *keep one and reject the
+    rest* or *skip* — and skip writes nothing, so the group came back on the next
+    run, forever. That is the loop this row ends.
+
+    WHY A PAIR AND NOT A GROUP ID. `dup_group` / `semantic_dup_group` are ONE
+    NUMBERING OF THE WHOLE BANK, recomputed from scratch on every run of the pass
+    (the guide says so, and it is why those passes refuse a partial scope). So a
+    veto keyed on "group #7" would, after the next scan, apply to a different set
+    of images — silently, and in the direction that HIDES groups the user never
+    ruled on. A pair of image ids means the same thing before and after any
+    renumbering, and it composes the way the user expects:
+
+      * a re-group that SPLITS {A,B,C} into {A,B} → still every pair vetoed, so
+        it stays out of the way;
+      * a re-group that GROWS it to {A,B,C,D} → the pairs with D were never ruled
+        on, so the group is asked again, with D on screen. A new member is a new
+        question.
+
+    Stored with image_a < image_b so a pair has exactly one row, and the unique
+    constraint makes re-vetoing the same group idempotent rather than an error.
+
+    NO relationship() to ImageBank or BankImage, deliberately — same reason as
+    BankFolderPerson (the delete-500 lesson): the services drop these rows
+    explicitly, children first. A row left pointing at a deleted image is inert
+    rather than wrong: it can no longer match any live group."""
+    __tablename__ = 'bank_dup_distinct'
+    __table_args__ = (db.UniqueConstraint('bank_id', 'image_a', 'image_b',
+                                          name='uq_bank_dup_distinct'),)
+    id = db.Column(Integer, primary_key=True)
+    bank_id = db.Column(
+        Integer, db.ForeignKey('image_bank.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    # Bank image ids, always stored low-then-high: the claim is symmetric and a
+    # second row for (b, a) would be the same sentence said twice.
+    image_a = db.Column(Integer, nullable=False, index=True)
+    image_b = db.Column(Integer, nullable=False, index=True)
+    created_at = db.Column(DateTime, default=db.func.current_timestamp())
+
+    def __repr__(self):
+        return (f'<BankDupDistinct bank={self.bank_id} '
+                f'{self.image_a}≠{self.image_b}>')
+
+
 class BankFolderPerson(db.Model):
     """"This subfolder is one person" — the user's assertion about a bank folder.
 

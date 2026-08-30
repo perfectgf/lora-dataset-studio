@@ -34,7 +34,7 @@ import {
   createCompare, currentGroup, currentImages, currentMember, dupCompareKeyAction,
   isExhausted, isRejected, liveCount, memberKeyIndex, moveMember, nextGroup,
   pickBest, pickMember, prevGroup, rejectMember, resolveGroup, skipGroup,
-  startingLayout, twinPositions,
+  startingLayout, twinPositions, vetoGroup,
 } from './dupCompare.js'
 
 // One refill asks for everything the route will give (its own cap is 200). The
@@ -83,8 +83,8 @@ function Facts({ images, img }) {
 }
 
 export default function DupCompareLightbox({
-  bankId, groupsPath, resolvePath, title, seedGroups = [], startGroup = null,
-  live = false, onClose,
+  bankId, groupsPath, resolvePath, distinctPath, title, seedGroups = [],
+  startGroup = null, live = false, onClose,
 }) {
   const [session, setSession] = useState(() => createCompare(seedGroups, { startGroup }))
   /* 'side' = every copy at once, 'single' = one copy filling the frame. Both
@@ -173,6 +173,28 @@ export default function DupCompareLightbox({
     }
   }, [bankId, busy, live])
 
+  /** ≠ — "these are not duplicates". Keeps every copy, rejects nothing, and the
+   * group stops being proposed: the one answer this screen's three neighbours
+   * could not give, because they all end in a rejection and Skip writes nothing
+   * so the group came back forever. */
+  const markDistinct = useCallback(async () => {
+    const g = currentGroup(session)
+    if (busy || live || !g) return
+    setBusy(true)
+    setError(null)
+    try {
+      await postJson(`/api/bank/${bankId}/${distinctPath}`, { group: g.group })
+      setSession((s) => vetoGroup(s))
+    } catch (e) {
+      // The server refuses a group too big for a per-pair verdict, and names the
+      // dial to turn instead — that sentence is the useful part, so it is shown
+      // whole rather than replaced by a generic failure.
+      setError(e?.message || 'Could not mark that group — nothing was changed.')
+    } finally {
+      setBusy(false)
+    }
+  }, [bankId, busy, distinctPath, live, session])
+
   const skip = useCallback(() => { setError(null); setSession((s) => skipGroup(s)) }, [])
   const goNext = useCallback(() => { setError(null); setSession((s) => nextGroup(s)) }, [])
   const goPrev = useCallback(() => { setError(null); setSession((s) => prevGroup(s)) }, [])
@@ -193,6 +215,7 @@ export default function DupCompareLightbox({
       if (action === 'keep') keepImage(currentMember(session))
       else if (action === 'reject') rejectImage(currentMember(session))
       else if (action === 'skip') skip()
+      else if (action === 'distinct') markDistinct()
       else if (action === 'best') setSession((s) => pickBest(s))
       else if (action === 'layout') toggleLayout()
       else if (action === 'prev-member') setSession((s) => moveMember(s, -1))
@@ -202,8 +225,8 @@ export default function DupCompareLightbox({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [session, busy, refilling, onClose, keepImage, rejectImage, skip, goPrev,
-    goNext, toggleLayout])
+  }, [session, busy, refilling, onClose, keepImage, rejectImage, markDistinct,
+    skip, goPrev, goNext, toggleLayout])
 
   const fileUrl = (im) => `/api/bank/${bankId}/file/${im.id}${imageVersionQuery(im)}`
   const shortcut = (label) => <ShortcutKey>{label}</ShortcutKey>
@@ -251,8 +274,12 @@ export default function DupCompareLightbox({
             settled in this run
           </span>
         )}
+        {/* Both outcomes count as settled: a group answered with ≠ is DONE, and
+            a readout that only counted collapses said "0 settled" to someone who
+            had just settled three. */}
         <span className="tabular-nums text-white/50">
-          group {p.position} / {p.loaded} · {p.resolved} settled
+          group {p.position} / {p.loaded} · {p.resolved + p.vetoed} settled
+          {p.vetoed ? ` (${p.vetoed} ≠)` : ''}
           {p.skipped ? ` · ${p.skipped} skipped` : ''}
         </span>
         <button type="button" onClick={toggleLayout} aria-pressed={layout === 'single'}
@@ -271,15 +298,23 @@ export default function DupCompareLightbox({
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
           <p className="text-2xl font-bold text-white">
             <PartyPopper aria-hidden="true" className="mr-2 inline h-6 w-6 align-[-3px]" />
-            {p.resolved
-              ? `${p.resolved} group${p.resolved === 1 ? '' : 's'} settled`
+            {p.resolved || p.vetoed
+              ? `${p.resolved + p.vetoed} group${p.resolved + p.vetoed === 1 ? '' : 's'} settled`
               : 'Nothing left to compare'}
           </p>
           <p className="max-w-xl text-sm text-white/70">
+            {/* The two outcomes are counted apart because they are opposites: one
+                rejected copies, the other kept every one of them. A single
+                "settled" number would hide which of the two the run did. */}
+            {p.resolved
+              ? `${p.resolved} collapsed to one copy — the losers were rejected, never deleted, and the ✕ Rejected filter brings any of them back. `
+              : ''}
+            {p.vetoed
+              ? `${p.vetoed} marked ≠ not duplicates — every copy kept, and those groups will not be proposed again. `
+              : ''}
             {p.skipped
-              ? `${p.skipped} group${p.skipped === 1 ? '' : 's'} skipped — still unresolved, and waiting for you next time. `
-              : 'Every group this run walked has one copy left. '}
-            The losers were rejected, never deleted — the ✕ Rejected filter brings any of them back.
+              ? `${p.skipped} skipped — still unresolved, and waiting for you next time.`
+              : ''}
           </p>
           <button type="button" onClick={onClose}
             className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
@@ -398,8 +433,15 @@ export default function DupCompareLightbox({
               className="min-h-10 lg:min-h-0 rounded-lg border border-rose-400/60 bg-rose-500/20 px-4 py-2 text-sm font-semibold text-rose-100 disabled:opacity-50 hover:bg-rose-500/30">
               ✕ Reject this one{shortcut('R')}
             </button>
+            {/* ≠ sits with the decisions but reads differently on purpose: it is
+                the only one that ends a group WITHOUT rejecting anything. */}
+            <button type="button" onClick={markDistinct} disabled={busy || live || !group}
+              title="Not duplicates (N) — keep every copy and never propose this group again. It rejects nothing; the restore line above the list takes it back."
+              className="min-h-10 lg:min-h-0 rounded-lg border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/30">
+              ≠ Not duplicates{shortcut('N')}
+            </button>
             <button type="button" onClick={skip}
-              title="Decide later (S) — the group stays unresolved and is not shown again in this run"
+              title="Decide later (S) — the group stays unresolved and is shown again next time, but not again in this run"
               className="min-h-10 lg:min-h-0 rounded-lg border border-white/25 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">
               ⏭ Skip group{shortcut('S')}
             </button>

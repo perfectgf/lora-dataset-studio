@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import itertools
 import logging
 import math
 import os
@@ -55,7 +56,8 @@ from sqlalchemy import and_, case, func, or_, text
 
 from .. import config as cfg
 from ..extensions import db
-from ..models import BankImage, FaceDataset, FaceDatasetImage, ImageBank
+from ..models import (BankDupDistinct, BankImage, FaceDataset, FaceDatasetImage,
+                      ImageBank)
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
                dataset_activity, image_encoding, path_guard, trash)
 # The scope vocabulary is a leaf (pass_scopes.py) so face_dataset_service never
@@ -97,6 +99,12 @@ THUMB_MAX_SIDE = 320
 _COMMIT_EVERY = 25          # scan DB flush cadence
 _PROMOTE_CHUNK = 20         # files per import_images call (bounded memory)
 _SQL_IN_CHUNK = 500         # SQLite bound-variable ceiling is 999
+# Biggest group ≠ ("not duplicates") will take. It records a decision about every
+# PAIR, so the cost is n²/2 rows: 3 160 at this limit and still nothing, but four
+# and a half million at 3 000 — one long video's worth of near-identical frames.
+# A group that size means the threshold is wrong, not that all 3 000 are
+# different pictures, so the refusal names the dial instead of the limit.
+_DISTINCT_MAX_MEMBERS = 80
 # --- duplicate regrouping budgets (see rebuild_dup_groups) -------------------
 # Rows written between two commits. The whole regrouping used to be ONE
 # transaction: a global clear plus one UPDATE per group, ~5 000 of them on a
@@ -1175,6 +1183,7 @@ def forget_missing(user_id, bank_id, *, _bank_lease=None) -> dict:
         raise ValueError('bank not found')
     gone, present = _rows_missing_on_disk(bank)
     ids = [rid for rid, _rel in gone]
+    drop_distinct_for_images(bank_id, ids)   # their ≠ verdicts go with them
     for i0 in range(0, len(ids), _SQL_IN_CHUNK):
         BankImage.query.filter(
             BankImage.id.in_(ids[i0:i0 + _SQL_IN_CHUNK])
@@ -1252,6 +1261,7 @@ def delete_bank(user_id, bank_id, *, _allow_busy=False,
     from . import folder_person
     folder_person.drop_for_bank(bank_id)   # children first — no relationship()
     folder_person.drop_probes_for_bank(bank_id)
+    BankDupDistinct.query.filter_by(bank_id=bank_id).delete(synchronize_session=False)
     BankImage.query.filter_by(bank_id=bank_id).delete(synchronize_session=False)
     db.session.delete(bank)
     db.session.commit()
@@ -1746,13 +1756,82 @@ def _subfolder_of(relpath: str) -> str:
 
 def _unresolved_dup_groups_q(bank_id, col=BankImage.dup_group):
     """Groups still holding ≥2 NON-rejected members — i.e. still to resolve. ``col``
-    selects the stage: dup_group (exact/resized) or semantic_dup_group (crops)."""
+    selects the stage: dup_group (exact/resized) or semantic_dup_group (crops).
+
+    RAW: this is the pixel answer, and it does not know about the user's ≠ veto.
+    Everything that shows a group to a user, or counts what is left to do, must
+    go through :func:`unresolved_dup_group_ids` instead."""
     return (db.session.query(col)
             .filter(BankImage.bank_id == bank_id,
                     col.isnot(None),
                     BankImage.status != 'reject')
             .group_by(col)
             .having(func.count(BankImage.id) >= 2))
+
+
+def _distinct_pairs(bank_id) -> set:
+    """Every (low, high) pair this bank's user has declared NOT the same shot."""
+    return {(a, b) for a, b in
+            db.session.query(BankDupDistinct.image_a, BankDupDistinct.image_b)
+            .filter(BankDupDistinct.bank_id == bank_id).all()}
+
+
+def _group_live_members(bank_id, col, gids) -> dict:
+    """{group id: [live member ids]} for the given groups, in one query per chunk."""
+    out: dict = {}
+    gids = [int(g) for g in gids]
+    for i0 in range(0, len(gids), _SQL_IN_CHUNK):
+        rows = (db.session.query(col, BankImage.id)
+                .filter(BankImage.bank_id == bank_id,
+                        BankImage.status != 'reject',
+                        col.in_(gids[i0:i0 + _SQL_IN_CHUNK]))
+                .order_by(BankImage.id.asc()).all())
+        for gid, image_id in rows:
+            out.setdefault(gid, []).append(image_id)
+    return out
+
+
+def _vetoed_group_ids(bank_id, col) -> set:
+    """Groups the user has ruled on with ≠ — every live pair declared distinct.
+
+    Cost is proportional to how many pairs the user has vetoed, NEVER to the size
+    of the bank: with no veto the function returns on its first line, and with a
+    few it only ever looks at the groups those images are in. That matters
+    because this sits behind a COUNTER on the overview payload, which every page
+    load asks for.
+
+    A group is vetoed only when EVERY pair among its live members is vetoed.
+    Anything less means there is still a question to answer — a new member joined,
+    or the user vetoed a different group that happens to share an image — and the
+    group comes back with the unruled copy on screen, which is the whole point."""
+    pairs = _distinct_pairs(bank_id)
+    if not pairs:
+        return set()
+    marked = sorted({i for pair in pairs for i in pair})
+    # The groups those images are in — the only ones that can possibly be vetoed.
+    candidates = set()
+    for i0 in range(0, len(marked), _SQL_IN_CHUNK):
+        candidates |= {g for (g,) in db.session.query(col)
+                       .filter(BankImage.bank_id == bank_id,
+                               col.isnot(None),
+                               BankImage.status != 'reject',
+                               BankImage.id.in_(marked[i0:i0 + _SQL_IN_CHUNK]))
+                       .distinct().all()}
+    vetoed = set()
+    for gid, members in _group_live_members(bank_id, col, candidates).items():
+        if len(members) < 2:
+            continue
+        if all((a, b) in pairs for a, b in itertools.combinations(sorted(members), 2)):
+            vetoed.add(gid)
+    return vetoed
+
+
+def unresolved_dup_group_ids(bank_id, col=BankImage.dup_group) -> list:
+    """The groups a user still has to rule on: unresolved by the pixels, minus
+    the ones they have already answered with ≠. Sorted, so a page of them is
+    stable between two calls."""
+    return sorted(set(g for (g,) in _unresolved_dup_groups_q(bank_id, col).all())
+                  - _vetoed_group_ids(bank_id, col))
 
 
 def _res_bucket_case():
@@ -2145,9 +2224,13 @@ def _bp_similarity_summaries(bank_id, base):
                 .filter(BankImage.bank_id == bank_id,
                         BankImage.dup_group.isnot(None))
                 .group_by(BankImage.dup_group).all())
+    # 'unresolved' is what the ≈ chip counts and what the user reads as "still to
+    # do", so it is the VETO-AWARE number: a group answered with ≠ is done, and
+    # counting it as outstanding would send them back to a decision they made.
     dup = {'groups': len(dup_rows),
            'images': sum(n for _g, n in dup_rows),
-           'unresolved': _unresolved_dup_groups_q(bank_id).count()}
+           'unresolved': len(unresolved_dup_group_ids(bank_id)),
+           'not_duplicates': len(_vetoed_group_ids(bank_id, BankImage.dup_group))}
     # Stage-2 semantic near-duplicate groups (crops/variants), same summary shape.
     sem_rows = (db.session.query(BankImage.semantic_dup_group, func.count(BankImage.id))
                 .filter(BankImage.bank_id == bank_id,
@@ -2156,8 +2239,10 @@ def _bp_similarity_summaries(bank_id, base):
     semantic_dup = {
         'groups': len(sem_rows),
         'images': sum(n for _g, n in sem_rows),
-        'unresolved': _unresolved_dup_groups_q(
-            bank_id, BankImage.semantic_dup_group).count()}
+        'unresolved': len(unresolved_dup_group_ids(
+            bank_id, BankImage.semantic_dup_group)),
+        'not_duplicates': len(_vetoed_group_ids(
+            bank_id, BankImage.semantic_dup_group))}
     # Person clusters, biggest first; cover = the member with the surest face.
     cl_rows = (db.session.query(BankImage.face_cluster, func.count(BankImage.id))
                .filter(BankImage.bank_id == bank_id,
@@ -4575,8 +4660,7 @@ def dup_groups_payload(user_id, bank_id, offset=0, limit=50,
     if not bank:
         return None
     th = thresholds()
-    gids = [g for (g,) in _unresolved_dup_groups_q(bank_id, col)
-            .order_by(col.asc()).all()]
+    gids = unresolved_dup_group_ids(bank_id, col)
     total = len(gids)
     page = gids[max(0, int(offset)):max(0, int(offset)) + max(1, min(200, int(limit)))]
     groups = []
@@ -4653,7 +4737,12 @@ def resolve_dups(user_id, bank_id, strategy='best', group=None, keep_ids=None,
     elif group is not None:
         gids = [int(group)]
     else:
-        gids = [g for (g,) in _unresolved_dup_groups_q(bank_id, col).all()]
+        # "Resolve ALL" means all the groups the user still has to rule on — a
+        # group they answered with ≠ has been ruled on, and collapsing it here
+        # would reject copies they explicitly asked to keep. An explicit
+        # ``group=`` still resolves whatever it names: naming a group IS ruling
+        # on it again, and the user is allowed to change their mind.
+        gids = unresolved_dup_group_ids(bank_id, col)
     resolved = rejected = 0
     for gid in gids:
         rows = (BankImage.query.filter(BankImage.bank_id == bank_id, col == gid)
@@ -4693,6 +4782,117 @@ def resolve_semantic_dups(user_id, bank_id, strategy='best', group=None,
                         attr='semantic_dup_group', reason='semantic_dup',
                         respect_existing_keep=respect_existing_keep,
                         snapshot=snapshot, _bank_lease=_bank_lease)
+
+
+@_serialized_bank_mutation('dup_distinct')
+def mark_group_distinct(user_id, bank_id, group, col=BankImage.dup_group, *,
+                        _bank_lease=None) -> dict:
+    """≠ — "these are not the same shot". Records every pair among the group's
+    live members, so the group stops being proposed and NOTHING is rejected.
+
+    This is the answer the panel never had. Its three neighbours all end with a
+    rejection ("keep best", "keep first", a manual pick) and ``skip`` writes
+    nothing at all, so a group the user had genuinely settled — a burst, a
+    tripod series, two crops a threshold called one picture — came back on every
+    single run. The only ways out were to reject a picture they wanted or to
+    keep saying "not now" forever.
+
+    Deliberately NOT a status on the images: they keep whatever they had, kept or
+    undecided, and stay in every other filter. The claim is about the RELATION
+    between two images and nothing else.
+
+    Idempotent — re-vetoing a group inserts only the pairs it does not already
+    have, so pressing ≠ twice is not an error and re-vetoing a group that grew
+    adds only the new member's pairs."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    members = _group_live_members(bank_id, col, [int(group)]).get(int(group), [])
+    if len(members) < 2:
+        # Nothing to declare distinct FROM. Answered as a no-op rather than an
+        # error: a group can collapse to one live copy between the click and the
+        # request, and that is already the outcome the user wanted.
+        return {'group': int(group), 'pairs': 0, 'members': len(members)}
+    if len(members) > _DISTINCT_MAX_MEMBERS:
+        # Said out loud rather than absorbed. ≠ records a decision about every
+        # PAIR, which is n²/2 rows: at 80 members that is 3 160 and still cheap,
+        # at 3 000 — one long video's worth of near-identical frames — it is four
+        # and a half million, and the honest reading of a group that size is that
+        # the threshold is wrong, not that all 3 000 are different pictures. The
+        # remedy names the dial rather than the limit.
+        raise ValueError(
+            f'this group holds {len(members)} copies — too many for ≠, which '
+            f'records a decision about every pair. A group that size usually '
+            f'means the duplicate distance is too loose: lower it in 🎚 filter '
+            f'thresholds and re-group, then rule on what is left.')
+    known = _distinct_pairs(bank_id)
+    fresh = [(a, b) for a, b in itertools.combinations(sorted(members), 2)
+             if (a, b) not in known]
+    for a, b in fresh:
+        db.session.add(BankDupDistinct(bank_id=bank_id, image_a=a, image_b=b))
+    db.session.commit()
+    return {'group': int(group), 'pairs': len(fresh), 'members': len(members)}
+
+
+def mark_semantic_group_distinct(user_id, bank_id, group, *, _bank_lease=None) -> dict:
+    """mark_group_distinct for stage 2 (semantic_dup_group)."""
+    return mark_group_distinct(user_id, bank_id, group,
+                               col=BankImage.semantic_dup_group,
+                               _bank_lease=_bank_lease)
+
+
+@_serialized_bank_mutation('dup_distinct_restore')
+def restore_distinct(user_id, bank_id, group=None, col=BankImage.dup_group, *,
+                     _bank_lease=None) -> dict:
+    """Take the ≠ back — for one group, or for the whole bank.
+
+    A veto is a decision, so it owes a way out that is as easy to find as it was
+    to make. ``group`` restores just that one (the pairs among ITS live members,
+    leaving any other group's verdict alone); no group at all restores every veto
+    in the bank, which is what the panel's "restore" line offers.
+
+    Restoring cannot lose anything else: the images were never rejected, so the
+    only effect is that the group is proposed again."""
+    bank = get_bank(user_id, bank_id)
+    if not bank:
+        raise ValueError('bank not found')
+    q = BankDupDistinct.query.filter(BankDupDistinct.bank_id == bank_id)
+    if group is not None:
+        members = _group_live_members(bank_id, col, [int(group)]).get(int(group), [])
+        if len(members) < 2:
+            return {'restored': 0}
+        # A row whose BOTH endpoints sit in this group IS a pair of this group —
+        # no row-value IN needed, which SQLite handles poorly anyway. Bounded by
+        # _DISTINCT_MAX_MEMBERS on the write side, so one chunk always holds it.
+        n = (q.filter(BankDupDistinct.image_a.in_(members),
+                      BankDupDistinct.image_b.in_(members))
+             .delete(synchronize_session=False))
+        db.session.commit()
+        return {'restored': n}
+    n = q.delete(synchronize_session=False)
+    db.session.commit()
+    return {'restored': n}
+
+
+def drop_distinct_for_images(bank_id, image_ids) -> int:
+    """Forget the vetoes that name images being removed from the bank.
+
+    A leftover row is INERT rather than wrong — it can no longer match a live
+    group — so this is hygiene, not correctness. It runs where images actually
+    leave (✕ Delete rejected, Forget missing) so a bank that is re-scanned from
+    the same folder does not accumulate vetoes about ids nobody can see."""
+    ids = [int(i) for i in (image_ids or [])]
+    if not ids:
+        return 0
+    n = 0
+    for i0 in range(0, len(ids), _SQL_IN_CHUNK):
+        chunk = ids[i0:i0 + _SQL_IN_CHUNK]
+        n += (BankDupDistinct.query
+              .filter(BankDupDistinct.bank_id == bank_id,
+                      or_(BankDupDistinct.image_a.in_(chunk),
+                          BankDupDistinct.image_b.in_(chunk)))
+              .delete(synchronize_session=False))
+    return n
 
 
 # --- statuses & flag application --------------------------------------------
@@ -6099,6 +6299,7 @@ def delete_rejected(user_id, bank_id, job=None, *, _bank_lease=None) -> dict:
         """Commit one chunk of row removals. Done as we go, not at the end: a
         Stop (or a crash) must not leave files gone from disk with their rows
         still claiming they are there."""
+        drop_distinct_for_images(bank_id, ids)   # their ≠ verdicts go with them
         for i0 in range(0, len(ids), _SQL_IN_CHUNK):
             BankImage.query.filter(
                 BankImage.id.in_(ids[i0:i0 + _SQL_IN_CHUNK])

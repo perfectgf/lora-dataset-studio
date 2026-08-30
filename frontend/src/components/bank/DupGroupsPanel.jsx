@@ -12,6 +12,7 @@ const KINDS = {
   exact: {
     groupsPath: 'dup-groups',
     resolvePath: 'dups/resolve',
+    distinctPath: 'dups/distinct',
     header: (n) => `≈ ${n} unresolved group${n > 1 ? 's' : ''}`,
     lead: 'Losers are rejected, never deleted — undo any of it from the ✕ Rejected filter.',
     cardHint: 'exact or resized copy — ⤢ to compare them full screen, or click the one to KEEP',
@@ -22,6 +23,7 @@ const KINDS = {
   semantic: {
     groupsPath: 'semantic-dup-groups',
     resolvePath: 'semantic-dups/resolve',
+    distinctPath: 'semantic-dups/distinct',
     header: (n) => `✂ ${n} “same shot” group${n > 1 ? 's' : ''}`,
     lead: 'Same shot, different crop/compression — the dHash never linked these. Losers are rejected (reversible), never deleted.',
     cardHint: 'same shot, different crop — ⤢ to compare them full screen, or click the one to KEEP',
@@ -42,7 +44,7 @@ const KINDS = {
  * either bulk ones you take on trust or a click on a 96-pixel thumbnail, and a
  * stamp is not a size at which two copies of one shot can be told apart. */
 export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact',
-  semanticLabel = 'CLIP' }) {
+  semanticLabel = 'CLIP', notDuplicates = 0 }) {
   const k = KINDS[kind] || KINDS.exact
   const toast = useToast()
   const [data, setData] = useState(null)
@@ -80,11 +82,50 @@ export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact'
     }
   }
 
+  /* ≠ and its undo. Deliberately NOT routed through `resolve`: that helper's
+     success message counts rejections, and the whole point here is that there
+     are none. */
+  const distinct = async (body, okMsg) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await postJson(`/api/bank/${bankId}/${k.distinctPath}`, body)
+      toast.success(okMsg)
+      await refresh(0)
+      await onChanged?.()
+    } catch (e) {
+      toast.error(e?.message || 'Could not record that.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /* The way back from ≠, and it has to be reachable from the EMPTY state too:
+     marking the last group not-duplicates empties this panel, and an undo that
+     disappears with the thing it undoes is not an undo. */
+  const restoreLine = notDuplicates > 0 && (
+    <p className="text-xs text-content-subtle">
+      ≠ {notDuplicates} group{notDuplicates === 1 ? '' : 's'} marked <em>not duplicates</em> —
+      kept whole, never proposed again.{' '}
+      <button type="button" disabled={busy || live}
+        onClick={() => distinct({ restore: true },
+          `${notDuplicates} group(s) put back — they are proposed again.`)}
+        className="underline decoration-dotted underline-offset-2 hover:text-content disabled:opacity-50">
+        Put them back
+      </button>
+    </p>
+  )
+
   if (data == null) return <p className="text-sm text-content-muted">Loading duplicate groups…</p>
   if (data.total === 0) {
-    return <p className="text-sm text-content-muted">
-      {typeof k.empty === 'function' ? k.empty(semanticLabel) : k.empty}
-    </p>
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-content-muted">
+          {typeof k.empty === 'function' ? k.empty(semanticLabel) : k.empty}
+        </p>
+        {restoreLine}
+      </div>
+    )
   }
 
   return (
@@ -114,6 +155,7 @@ export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact'
           className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1 text-xs font-semibold text-content disabled:opacity-50 hover:bg-surface">
           Resolve ALL — keep first
         </button>
+        {restoreLine && <div className="w-full">{restoreLine}</div>}
       </div>
 
       <ul className="space-y-3">
@@ -137,6 +179,14 @@ export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact'
                 onClick={() => resolve({ strategy: 'first', group: g.group })}
                 className="min-h-10 lg:min-h-0 rounded-md border border-border px-2 py-0.5 text-content hover:bg-surface-raised disabled:opacity-50">
                 Keep first
+              </button>
+              {/* The only verb on this card that rejects NOTHING. */}
+              <button type="button" disabled={busy || live}
+                onClick={() => distinct({ group: g.group },
+                  `Group #${g.group} kept whole — it will not be proposed again.`)}
+                title="These are not duplicates: keep every copy and stop proposing this group. Nothing is rejected, and the line above puts it back."
+                className="min-h-10 lg:min-h-0 rounded-md border border-sky-400/60 bg-sky-500/10 px-2 py-0.5 font-semibold text-content hover:bg-sky-500/20 disabled:opacity-50">
+                ≠ Not duplicates
               </button>
             </div>
             {/* The tiles are a little bigger than they were: still stamps, but
@@ -187,7 +237,8 @@ export default function DupGroupsPanel({ bankId, live, onChanged, kind = 'exact'
           full-screen overlay nobody can see, at one request per keystroke. */}
       {comparing !== null && (
         <DupCompareLightbox bankId={bankId} groupsPath={k.groupsPath}
-          resolvePath={k.resolvePath} title={k.compareTitle}
+          resolvePath={k.resolvePath} distinctPath={k.distinctPath}
+          title={k.compareTitle}
           seedGroups={data.groups} startGroup={comparing} live={live}
           onClose={async () => {
             setComparing(null)

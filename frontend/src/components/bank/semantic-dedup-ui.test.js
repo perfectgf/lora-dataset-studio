@@ -86,7 +86,15 @@ test('duplicate resolution waits for every refresh before releasing its busy sta
   for (const kind of ['exact', 'semantic']) {
     const callsiteStart = ws.indexOf(`kind="${kind}"`);
     assert.ok(callsiteStart >= 0, `the ${kind} duplicate panel is rendered`);
-    const callsite = ws.slice(callsiteStart, callsiteStart + 200);
+    // To the END OF THIS ELEMENT, not a fixed number of characters. The window
+    // used to be 200 and it broke the day the callsite legitimately gained a
+    // prop: the assertion was still true, the slice just no longer reached it.
+    // A window that has to be re-tuned every time the thing it measures grows
+    // is a false red waiting to happen — and, widened by hand, a window that
+    // could start matching the NEXT callsite and pass for the wrong reason.
+    const end = ws.indexOf('/>', callsiteStart);
+    assert.ok(end > callsiteStart, `the ${kind} callsite is a self-closing element`);
+    const callsite = ws.slice(callsiteStart, end);
     assert.match(callsite,
       /onChanged=\{async \(\) => \{ await refreshPayload\(\); await refreshImages\(\) \}\}/,
       `the ${kind} callback returns and awaits both parent refreshes`);

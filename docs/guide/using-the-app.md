@@ -1523,6 +1523,45 @@ still unresolved, so a bank with 300 duplicate groups is worked through without
 going back to the list. Every verdict is saved on the spot, and the losers are
 **rejected**, never deleted: the ✕ Rejected filter brings any of them back.
 
+## Say "these are not duplicates"
+
+Both grouping passes answer a question about pixels, and both are sometimes
+wrong in the one direction you could not correct: a burst of frames, a series
+shot on a tripod, two crops that a threshold called one picture. Every verdict
+on offer ended in a rejection — *keep best*, *keep first*, a manual pick — and
+**⏭ Skip** writes nothing at all, so the group came back on the next run, and the
+one after that. The only ways out were to reject a photo you wanted, or to keep
+saying "not now" forever.
+
+**≠ Not duplicates** (on the group's card, or **N** in ⤢ Compare) is the missing
+answer. It keeps **every** copy, rejects nothing, and the group stops being
+proposed.
+
+- **It decides nothing about the images.** They keep whatever status they had,
+  kept or undecided, and they stay in every other filter. The claim is about the
+  *relation* between two pictures, not about either one of them.
+- **It survives a re-group**, which is the whole reason it works. Both passes
+  renumber the entire bank from scratch on every run, so a verdict remembered as
+  "group #7" would quietly apply to a different set of images next time. What is
+  stored is the **pairs**: *this photo and that photo are not the same shot*.
+  That sentence means the same thing before and after any renumbering.
+- So a re-group that **splits** the group leaves it answered, and one that
+  **adds a copy** asks you again — with the new copy on screen. A new member is
+  a new question, and you were never asked about it.
+- One answer covers **both stages**: ≠ on a ≈ Duplicates group also settles the
+  ✂ Same shot group holding the same images. It is a fact about the pictures,
+  not about which algorithm found them.
+- **The way back is a line above the list** — *≠ N groups marked not duplicates
+  — Put them back* — and it stays visible when marking the last group has
+  emptied the panel, because an undo that vanishes with the thing it undoes is
+  not an undo. Re-running *Keep best* on a group by name also overrides it: naming
+  a group is ruling on it again, and you are allowed to change your mind.
+
+**One limit, stated plainly:** ≠ records a decision about every *pair* in the
+group, so a group of 80 copies costs 3 160 of them. Above 80 it is refused, with
+the reason — a group that size means the duplicate distance is too loose, and the
+fix is the 🎚 threshold, not 3 000 stored verdicts.
+
 ## Promote a shortlist into a new bank
 
 **⬆ Promote…** has two destinations, and picking the right one saves you a mess.

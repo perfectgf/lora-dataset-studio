@@ -57,6 +57,7 @@ export function startingLayout(width) {
 export const COMPARE_SHORTCUTS = [
   { keys: 'K', what: 'Keep the copy under the cursor — the rest of the group is rejected' },
   { keys: 'R', what: 'Reject this copy only, and move to the next one' },
+  { keys: 'N', what: 'Not duplicates — keep every copy and never propose this group again' },
   { keys: 'B', what: 'Put the cursor back on the app’s pick (BEST)' },
   { keys: '←  →', what: 'Move between the copies of this group' },
   { keys: '1 … 9', what: 'Jump straight to a copy' },
@@ -66,9 +67,9 @@ export const COMPARE_SHORTCUTS = [
   { keys: 'Esc', what: 'Leave' },
 ];
 
-export const COMPARE_HINT = 'K keep this copy · R reject it · B back to the app’s pick'
-  + ' · ← → between copies · 1-9 jump straight to one · S skip the group'
-  + ' · ⇧← ⇧→ move between groups · F full screen · Esc leave';
+export const COMPARE_HINT = 'K keep this copy · R reject it · N not duplicates'
+  + ' · B back to the app’s pick · ← → between copies · 1-9 jump straight to one'
+  + ' · S skip the group · ⇧← ⇧→ move between groups · F full screen · Esc leave';
 
 /**
  * What this keystroke means: 'keep' | 'reject' | 'best' | 'skip' | 'layout'
@@ -101,6 +102,7 @@ export function dupCompareKeyAction(event) {
   const shared = reviewKeyAction(event);
   if (shared === 'keep' || shared === 'reject' || shared === 'skip') return shared;
   const letter = key.toLowerCase();
+  if (letter === 'n') return 'distinct';
   if (letter === 'b') return 'best';
   if (letter === 'f') return 'layout';
   return null;
@@ -158,6 +160,10 @@ export function createCompare(groups, opts = {}) {
     mi: cursorFor(list[gi], []),
     seen: list.map(groupId),
     resolved: [],
+    // Groups answered with ≠ ("not duplicates"). Kept apart from `resolved`
+    // because they are the opposite outcome — nothing was rejected — and the
+    // end-of-run screen has to be able to say which of the two it is doing.
+    vetoed: [],
     skipped: [],
     rejected: [],
   };
@@ -252,6 +258,18 @@ export function resolveGroup(s, gid = null) {
   return nextGroup({ ...s, resolved });
 }
 
+/** ≠ — the server accepted "these are not duplicates". The group is answered
+ * WITHOUT anything being rejected, and it will not be proposed again (the
+ * refill drops it, like a skip, and the server stops listing it at all).
+ *
+ * Same rule as `resolveGroup`: never call this on a failed POST. */
+export function vetoGroup(s, gid = null) {
+  const id = gid == null ? groupId(currentGroup(s)) : gid;
+  if (id == null) return s;
+  const vetoed = s.vetoed.includes(id) ? s.vetoed : [...s.vetoed, id];
+  return nextGroup({ ...s, vetoed });
+}
+
 /** One copy rejected on its own (R, or the ✕ under a tile). The group stays open
  * while two copies are still standing; when only one is left there is no choice
  * to make any more, so the run treats it as resolved and moves on. */
@@ -277,7 +295,7 @@ export function appendGroups(s, groups) {
   const fresh = (Array.isArray(groups) ? groups : []).filter((g) => {
     const gid = groupId(g);
     return gid != null && !s.seen.includes(gid) && !s.skipped.includes(gid)
-      && !s.resolved.includes(gid);
+      && !s.resolved.includes(gid) && !s.vetoed.includes(gid);
   });
   if (!fresh.length) return s;
   const next = {
@@ -298,6 +316,7 @@ export function compareProgress(s) {
     position: Math.min(s.gi + 1, s.groups.length),
     loaded: s.groups.length,
     resolved: s.resolved.length,
+    vetoed: s.vetoed.length,
     skipped: s.skipped.length,
     rejected: s.rejected.length,
   };
