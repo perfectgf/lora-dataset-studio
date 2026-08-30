@@ -111,7 +111,13 @@ def warm_seconds(override=None) -> int:
     form stores whatever the user typed, so a blank, a word or a negative must
     degrade to something usable. Result is always an int in 0..MAX_WARM_SECONDS.
     """
-    raw = override if override is not None else cfg.get('ollama.vision_keep_warm_seconds')
+    # Same reasoning as vision_pool.vision_concurrency: read the ACTIVE
+    # provider's dial, or an LM Studio user gets a control that changes nothing.
+    if override is not None:
+        raw = override
+    else:
+        from . import vision_llm
+        raw = cfg.get(f'{vision_llm.provider()}.vision_keep_warm_seconds')
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return DEFAULT_WARM_SECONDS
     try:
@@ -197,7 +203,10 @@ def revoke(reason: str = '') -> bool:
     if not lease_is_live():
         return False
     try:
-        from .vision_ollama import unload_vision_model
+        # Through the router: Ollama is asked to stop keeping the model warm,
+        # LM Studio is actually told to unload it. Importing the Ollama driver by
+        # name would end an LM Studio lease by talking to a daemon holding nothing.
+        from .vision_llm import unload_vision_model
         ok = unload_vision_model()
     except Exception as exc:
         logger.warning('vision_keepalive: revoke failed (%s)', exc)

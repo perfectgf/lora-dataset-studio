@@ -430,6 +430,84 @@ def probe_ollama_connection() -> dict:
     return probe_ollama_model(reachable=True)
 
 
+def probe_lmstudio() -> dict:
+    """Is LM Studio's server answering? Reachability only — see the pair below.
+
+    Deliberately NOT `_http_ok(f'{url}/api/tags')`-shaped: LM Studio has three
+    API surfaces and which one answers decides what the app may conclude, so the
+    driver owns that question and this defers to it rather than guessing from a
+    status code.
+    """
+    from .services import vision_lmstudio
+    url = vision_lmstudio.base_url()
+    listed = vision_lmstudio.list_models()
+    if not listed['reachable']:
+        return {'ok': False, 'detail': f'unreachable: {url}'}
+    return {'ok': True, 'detail': f'{url} ({listed["surface"]} API)'}
+
+
+def probe_lmstudio_model(reachable=None, model=None) -> dict:
+    """Is a model actually LOADED and usable for captioning?
+
+    LM Studio ships with JIT loading OFF, so "reachable" and "can caption" are
+    much further apart than they are for Ollama: a freshly installed server
+    answers every list call and refuses every generation. Reporting reachability
+    as readiness would put a green tick on an install that cannot caption a
+    single image — the exact defect issue #7 fixed on the Ollama side.
+    """
+    from .services import vision_lmstudio
+    listed = vision_lmstudio.list_models()
+    if reachable is None:
+        reachable = listed['reachable']
+    if not reachable:
+        return {'ok': False, 'detail': f'LM Studio unreachable: {vision_lmstudio.base_url()}'}
+    wanted = (model if model is not None else vision_lmstudio.get_vision_model()).strip()
+    loaded = [m['id'] for m in listed['models'] if m.get('loaded')]
+    if wanted:
+        ok = wanted in loaded
+        return {'ok': ok,
+                'detail': f'{wanted} loaded' if ok else f'{wanted} is not loaded in LM Studio'}
+    if loaded:
+        return {'ok': True, 'detail': f'{loaded[0]} loaded'}
+    if listed['surface'] == 'openai':
+        return {'ok': False,
+                'detail': 'this server answers only the OpenAI-compatible API, which '
+                          'cannot report what is loaded — name a model in Settings'}
+    return {'ok': False,
+            'detail': 'no model is loaded — load one in LM Studio (Developer tab)'}
+
+
+def probe_lmstudio_connection() -> dict:
+    """The Settings 'Test' button for the LM Studio card, end to end.
+
+    Same unification as Ollama's: reachable AND able to caption, resolved through
+    the one probe the Setup step and the diagnostic also use, so the three can
+    never disagree on the same machine.
+    """
+    reach = probe_lmstudio()
+    if not reach['ok']:
+        return reach
+    return probe_lmstudio_model(reachable=True)
+
+
+def lmstudio_diagnostic() -> dict:
+    """Paste-safe LM Studio snapshot for /api/diagnostic.
+
+    `surface` is in here because it is the first thing to ask of a confusing
+    report: only the two native APIs carry model type and residency, so a server
+    answering just the OpenAI one explains a whole class of "it says nothing is
+    loaded" without anything being broken.
+    """
+    from .services import vision_lmstudio
+    listed = vision_lmstudio.list_models()
+    return {
+        'vision_model': vision_lmstudio.get_vision_model(),
+        'surface': listed['surface'] or '',
+        'loaded': [m['id'][:80] for m in listed['models'] if m.get('loaded')][:10],
+        'models_seen': [m['id'][:80] for m in listed['models'][:20]],
+    }
+
+
 def ollama_diagnostic() -> dict:
     """Paste-safe Ollama snapshot for /api/diagnostic: the configured vision-model
     string alongside the model tags the probe actually sees at /api/tags. This is the
@@ -2018,6 +2096,23 @@ def probe(force=False) -> dict:
     comfy = probe_comfyui()
     ollama = probe_ollama()
     ollama_installed = probe_ollama_installed()
+    from .services import vision_llm as _vision_llm
+    _llm_provider = _vision_llm.provider()
+    _lmstudio_url = ''
+    lmstudio = {'ok': False, 'detail': 'not the active provider'}
+    lmstudio_model = {'ok': False, 'detail': 'not the active provider'}
+    try:
+        from .services import vision_lmstudio as _lms
+        _lmstudio_url = _lms.base_url()
+        if _llm_provider == 'lmstudio':
+            lmstudio = probe_lmstudio()
+            lmstudio_model = probe_lmstudio_model(reachable=lmstudio['ok'])
+    except Exception as _exc:              # noqa: BLE001 - a probe never breaks probe()
+        # This module has no logger on purpose: a probe reports through its own
+        # `detail`, which the Settings card and the pasted diagnostic both show.
+        # Swallowing the reason into a log nobody opens is how a broken provider
+        # reads as "just not configured".
+        lmstudio_model = {'ok': False, 'detail': f'LM Studio probe failed: {_exc}'}
     aitoolkit = probe_aitoolkit()
     gemini = probe_gemini()
     openai_ = probe_openai()
@@ -2108,6 +2203,22 @@ def probe(force=False) -> dict:
             # Conscious "continue without Ollama" (Setup wizard), derived above.
             # Presentation only — nothing downstream gates on it.
             'skipped': ollama_skipped,
+        },
+        # Which local LLM is in charge, and what the other one's card should say.
+        # Only the ACTIVE provider is probed here: probe() is the cached snapshot
+        # every screen reads, and paying three HTTP round-trips for a provider
+        # nobody selected would slow every refresh to report something no code
+        # branches on. The inactive card is honest about that — `probed: False`,
+        # and its Settings Test button does the live check on demand.
+        'local_llm': {'provider': _llm_provider},
+        'lmstudio': {
+            'active': _llm_provider == 'lmstudio',
+            'probed': _llm_provider == 'lmstudio',
+            'reachable': lmstudio['ok'],
+            'url': _lmstudio_url,
+            'vision_model': cfg.get('lmstudio.vision_model') or '',
+            'model_ready': lmstudio_model['ok'],
+            'detail': lmstudio_model['detail'],
         },
         'aitoolkit': {
             'configured': bool(cfg.get('aitoolkit.dir')),

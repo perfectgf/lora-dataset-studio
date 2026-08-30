@@ -27,6 +27,14 @@ _lock = threading.RLock()
 # ComfyUI probes before every new prompt: a manual Ollama load between cells
 # must block rather than overlap with ComfyUI.
 _owned_models: dict[str, set[str]] = {}
+# Which driver speaks to each endpoint. `_owned_models` is keyed by ENDPOINT and
+# ensure_released_for_comfy() walks every key, so after a provider switch this map
+# holds both the old Ollama endpoint (with residue from before the switch) and the
+# new LM Studio one. Choosing the driver from the GLOBAL setting would then send
+# one of them an unload in the other's wire format — a release that answers 200
+# and frees nothing, which the fence would read as success. So the driver is
+# resolved per endpoint, recorded at admission.
+_endpoint_driver: dict[str, str] = {}
 # Endpoint seen with a pre-existing / otherwise unowned model. It may be a
 # user's own Ollama session, so it is never automatically unloaded.
 _foreign_local_endpoints: set[str] = set()
@@ -308,8 +316,8 @@ def _adopt_persisted(endpoint, loaded, expiry) -> set[str]:
     return adopted
 
 
-def mark_before_generate(url, model, keep_alive=None) -> str:
-    """Return ``local``, ``remote`` or ``blocked`` before an Ollama request.
+def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
+    """Return ``local``, ``remote`` or ``blocked`` before a local LLM request.
 
     A shared Ollama daemon exposes no client owner id. LDS probes before its
     local admission: if another model is already resident, LDS must not
@@ -325,6 +333,12 @@ def mark_before_generate(url, model, keep_alive=None) -> str:
         return 'blocked'
 
     model = model.strip()
+
+    # Pin the driver to the endpoint at admission. Doing it here rather than at
+    # release time is what makes a mid-session provider switch safe: the endpoint
+    # that already holds an LDS model keeps the wire format it was admitted with,
+    # even after the global setting points somewhere else.
+    _remember_driver(endpoint, provider or _driver_for(endpoint))
 
     state, loaded, expiry = _probe(endpoint)
     if state == 'down':
@@ -363,7 +377,63 @@ def mark_before_generate(url, model, keep_alive=None) -> str:
     return 'blocked'
 
 
+def _driver_for(endpoint: str) -> str:
+    """'ollama' | 'lmstudio' for this endpoint, without guessing on the wire.
+
+    Recorded at admission wins. Otherwise the endpoint is matched against the
+    ACTIVE provider's configured URL, and anything still unmatched is Ollama —
+    every endpoint this map ever held before there was a second provider was one.
+    """
+    with _lock:
+        known = _endpoint_driver.get(endpoint)
+    if known:
+        return known
+    try:
+        from . import vision_llm
+        if vision_llm.provider() == vision_llm.LMSTUDIO:
+            from . import vision_lmstudio
+            if endpoint.rstrip('/') == vision_lmstudio.base_url().rstrip('/'):
+                return 'lmstudio'
+    except Exception:                      # noqa: BLE001 - fall back to the old world
+        pass
+    return 'ollama'
+
+
+def _remember_driver(endpoint: str, name: str) -> None:
+    with _lock:
+        _endpoint_driver[endpoint] = name
+
+
 def _probe(endpoint):
+    """Dispatch to the driver that speaks this endpoint's API."""
+    if _driver_for(endpoint) == 'lmstudio':
+        return _probe_lmstudio(endpoint)
+    return _probe_ollama(endpoint)
+
+
+def _probe_lmstudio(endpoint):
+    """LM Studio residency, mapped onto the fence's own four states.
+
+    `unknown` is carried through faithfully rather than flattened into `empty`:
+    a server answering only the OpenAI-compatible surface reports no residency at
+    all, and reading "cannot tell" as "nothing is loaded" is how a fail-closed
+    guard hands ComfyUI a card somebody else is holding.
+
+    LM Studio has no per-model expiry (no TTL by default), so the expiry map is
+    empty — which the claim logic already tolerates: a missing value leaves a
+    claim to be judged on its own freshness.
+    """
+    try:
+        from . import vision_lmstudio
+        state, names, _meta = vision_lmstudio.probe_resident(endpoint)
+    except Exception:                      # noqa: BLE001 - same contract as below
+        return 'unknown', set(), {}
+    with _lock:
+        _probe_families.pop(endpoint, None)
+    return state, set(names), {}
+
+
+def _probe_ollama(endpoint):
     """Return (``empty`` | ``down`` | ``models`` | ``unknown``, names, expires_at map).
 
     ``down`` is "nothing is listening on this port" (the connection was refused),
@@ -416,6 +486,15 @@ def _probe(endpoint):
 
 
 def _post_unload(endpoint, model) -> bool:
+    if _driver_for(endpoint) == 'lmstudio':
+        try:
+            from . import vision_lmstudio
+            # Measured: this genuinely frees the VRAM, where Ollama can only be
+            # asked to stop keeping the model warm.
+            return vision_lmstudio.release(endpoint, model)
+        except Exception as exc:           # noqa: BLE001 - reported like the peer below
+            logger.warning('LM Studio fence: unload request failed for %s (%s)', model, exc)
+            return False
     try:
         response = requests.post(f'{endpoint}/api/generate',
                                  json={'model': model, 'keep_alive': 0},
@@ -538,8 +617,12 @@ def release_owned_models(*, ollama_url=None, model=None) -> bool | None:
 def _configured_local_endpoint() -> tuple[str, str | None]:
     """Resolve the current local runner without importing Vision request code."""
     try:
-        from .. import config as cfg
-        url = cfg.get('ollama.url') or 'http://127.0.0.1:11434'
+        # The ACTIVE provider's endpoint, not Ollama's by definition: this feeds
+        # ensure_released_for_comfy(), fence_status() and unload_foreign_models(),
+        # and reading ollama.url under an LM Studio install would have the fence
+        # guarding a daemon nobody uses while ignoring the one holding the card.
+        from . import vision_llm
+        url = vision_llm.base_url()
     except Exception:
         return 'unknown', None
     return _endpoint_scope(url)

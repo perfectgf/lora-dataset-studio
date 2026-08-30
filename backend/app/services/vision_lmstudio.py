@@ -278,6 +278,25 @@ def failure_sentence(status: int | None, body: str) -> str:
     return f'LM Studio returned HTTP {status}: {(body or "").strip()[:200]}'
 
 
+class LocalLmStudioFenceError(RuntimeError):
+    """A local inference lost its verified GPU ownership."""
+
+
+def _admit(url: str, model: str) -> None:
+    """Ask the GPU fence before loading anything onto a LOCAL card.
+
+    Same gate the Ollama driver goes through, for the same reason: on one GPU a
+    resident vision model and ComfyUI do not both fit, and an unfenced provider
+    would win that race silently by loading first. Passing `provider` pins the
+    wire format to this endpoint, so a later release speaks LM Studio's API even
+    if the global setting has moved on since.
+    """
+    from . import ollama_gpu_fence
+    scope = ollama_gpu_fence.mark_before_generate(url, model, provider='lmstudio')
+    if scope == 'blocked':
+        raise LocalLmStudioFenceError(ollama_gpu_fence.FENCE_BLOCKED_MESSAGE)
+
+
 def _chat(messages, *, model, max_tokens, temperature, timeout, url=None):
     payload = {'model': model, 'messages': messages,
                'max_tokens': max_tokens, 'temperature': temperature, 'stream': False}
@@ -336,8 +355,11 @@ def describe_image(image_bytes: bytes, prompt: str, *,
              'image_url': {'url': _image_field(b64, use_data_uri)}},
         ]}]
         try:
+            _admit(endpoint, target)
             resp = _chat(messages, model=target, max_tokens=num_predict,
                          temperature=0.2, timeout=timeout, url=endpoint)
+        except LocalLmStudioFenceError:
+            raise                          # the fence speaks for itself, 409 upstream
         except Exception as exc:           # noqa: BLE001 - reported below
             last_status, last_body = None, str(exc)
             break
@@ -371,8 +393,11 @@ def generate_text(prompt: str, *,
         logger.warning('vision_lmstudio: text generate skipped: %s', msg)
         return ''
     try:
+        _admit(endpoint, target)
         resp = _chat([{'role': 'user', 'content': prompt}], model=target,
                      max_tokens=num_predict, temperature=0.2, timeout=timeout, url=endpoint)
+    except LocalLmStudioFenceError:
+        raise                              # the fence speaks for itself, 409 upstream
     except Exception as exc:               # noqa: BLE001 - reported below
         msg = failure_sentence(None, str(exc))
         if strict:

@@ -26,6 +26,7 @@ _TEST_TARGETS = {
     # probe_ollama_model so the Test button, the Setup step and the diagnostic are one
     # source of truth.
     'ollama': capabilities.probe_ollama_connection,
+    'lmstudio': capabilities.probe_lmstudio_connection,
     # Folder checks PLUS an `import torch` on the chosen interpreter: a Test that
     # goes green on a Python without torch is the trap of GitHub #19 (strouder).
     'aitoolkit': capabilities.probe_aitoolkit_test,

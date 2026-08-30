@@ -46,7 +46,14 @@ def provider() -> str:
     An unknown value falls back to Ollama rather than failing: a config written by
     a NEWER version of the app must never brick captioning on an older one.
     """
-    raw = (cfg.get('local_llm.provider') or OLLAMA).strip().lower()
+    raw = cfg.get('local_llm.provider')
+    if not isinstance(raw, str):
+        # Total by construction, like `vision_ollama._ollama_url`. cfg.get can hand
+        # back anything a hand-edited config.json contains, and a provider lookup
+        # that raises would take every caption, every head-crop and every prompt
+        # helper down with it — for a setting whose safe answer is obvious.
+        return OLLAMA
+    raw = raw.strip().lower()
     return raw if raw in PROVIDERS else OLLAMA
 
 
@@ -79,9 +86,8 @@ def vision_model(name: str | None = None) -> str:
 def vision_concurrency(name: str | None = None) -> int:
     """How many vision calls a batch keeps in flight, for the ACTIVE provider."""
     key = f'{name or provider()}.vision_concurrency'
-    raw = cfg.get(key)
     try:
-        return int(raw)
+        return int(str(cfg.get(key)).strip())
     except (TypeError, ValueError):
         return 4
 
@@ -89,9 +95,8 @@ def vision_concurrency(name: str | None = None) -> int:
 def keep_warm_seconds(name: str | None = None) -> int:
     """Seconds an isolated call may keep the model resident, for the ACTIVE provider."""
     key = f'{name or provider()}.vision_keep_warm_seconds'
-    raw = cfg.get(key)
     try:
-        return int(raw)
+        return int(str(cfg.get(key)).strip())
     except (TypeError, ValueError):
         return 120
 

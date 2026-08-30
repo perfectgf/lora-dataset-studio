@@ -74,7 +74,13 @@ def vision_concurrency(override=None) -> int:
     usable rather than sink the pass. The result is always an int clamped to
     1..MAX_VISION_CONCURRENCY, and 1 means "run exactly as before".
     """
-    raw = override if override is not None else cfg.get('ollama.vision_concurrency')
+    # The ACTIVE provider's dial, not Ollama's by definition: with a hard-coded
+    # key an LM Studio user would see a Settings control that changes nothing.
+    if override is not None:
+        raw = override
+    else:
+        from . import vision_llm
+        raw = cfg.get(f'{vision_llm.provider()}.vision_concurrency')
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return DEFAULT_VISION_CONCURRENCY
     try:

@@ -24,10 +24,16 @@ def start_ollama():
 
 @bp.get('/models')
 def list_models():
-    """Installed Ollama models for the Captions ⚙️ Options model picker.
-    Always 200 — {ok, reachable, models:[...]}; an unreachable server is a handled
-    outcome (reachable:False, empty list), not a server fault."""
-    return jsonify(ollama_control.list_models()), 200
+    """Installed Ollama models — kept as an ALIAS of /api/local-llm/models.
+
+    The four model pickers (dataset options, bank options, Caption Lab, Enhance)
+    moved to the provider-routed path; this one stays because the URL is public
+    surface and an older cached bundle may still ask for it. Both answer the same
+    shape, so neither caller can be surprised: {ok, reachable, models:[...]},
+    always 200 — an unreachable server is a handled outcome, not a server fault.
+    """
+    from ..services import vision_llm
+    return jsonify(vision_llm.list_models()), 200
 
 
 @bp.post('/pull')
