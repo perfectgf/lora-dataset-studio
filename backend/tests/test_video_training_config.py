@@ -577,7 +577,7 @@ def test_the_emitted_config_states_how_the_loader_samples_frames():
     assert _proc(cfg)['datasets'][0]['shrink_video_to_frames'] is True
 
 
-def test_h3_leads_with_sizes_that_survive_the_trainer_unchanged():
+def test_the_catalogue_states_what_the_model_says_not_what_survives_bucketing():
     """We cut a clip at one size and ai-toolkit trains it at another, because our
     `resolution` scalar is read as a pixel CAP and the clip is re-bucketed under
     it. When the cap equals the clip's own pixel count the scaler is exactly 1.0
@@ -597,15 +597,19 @@ def test_h3_leads_with_sizes_that_survive_the_trainer_unchanged():
     720P sizes of a model this test has no measurements for."""
     profile = vt.get('minimax_h3')
     step, cap = profile['size_multiple'], profile['max_pixels']
-    lead = profile['recommended_sizes'][0]
-    assert lead == (1024, 576)
-    for width, height in profile['recommended_sizes'][:3]:
+
+    def survives(width, height):
         resolution = vtrain._resolution_for(width, height, step, cap)
-        assert resolution * resolution == width * height, (width, height)
-    # And the spec maximum is knowingly not one of them.
-    assert (1344, 768) in profile['recommended_sizes']
-    lossy = vtrain._resolution_for(1344, 768, step, cap)
-    assert lossy * lossy < 1344 * 768
+        return resolution * resolution == width * height
+
+    assert survives(768, 768)            # square, and a size the model states
+    assert not survives(1344, 768)       # the stated maximum, shrunk to 1312x736
+    assert survives(1024, 576)           # the 16:9 size that would hold
+    # `recommended_sizes` stays what the model STATES about itself - the note in
+    # video_training_local reads it as exactly that and quotes it to the user, so
+    # a size we derived does not belong in it however well it behaves.
+    assert (1024, 576) not in profile['recommended_sizes']
+    assert min(min(w, h) for w, h in profile['recommended_sizes']) == 768
 
 
 def test_h3_leaves_the_modulation_projection_out_of_the_lora():

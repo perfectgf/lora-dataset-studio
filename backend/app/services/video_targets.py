@@ -226,17 +226,20 @@ _TARGETS = {
         # A step alone is not enough here: the packing code caps the canvas area.
         # 1920x1088 satisfies the multiple of 32 and is still out of spec.
         'max_pixels': 768 * 1344,
-        # ORDERED BY WHAT SURVIVES THE TRAINER, not by size. ai-toolkit reads our
-        # `resolution` scalar as a pixel CAP and re-buckets the clip under it, so
-        # a size whose geometric mean is not itself a multiple of 32 gets shrunk
-        # after we cut it — silently, and after the encode. Measured against
-        # toolkit/buckets.py: 1024x576 and 768x768 come back unchanged, while the
-        # spec's own maximum canvas (1344x768) loses 6.4% of its pixels to
-        # 1312x736. 1024x576 is the ONLY 16:9 size on the 32-grid under the cap
-        # that round-trips exactly, which is why it leads. The lossy pair stays:
-        # it is the model's stated maximum and some users will want it knowingly.
-        'recommended_sizes': ((1024, 576), (576, 1024), (768, 768),
-                              (1344, 768), (768, 1344)),
+        # What the MODEL STATES, and only that — `resolution_note` reads this list
+        # as "the sizes this target claims for itself" and says so to the user, so
+        # a size we worked out ourselves does not belong in it however good it is.
+        # (Learned by putting one here: 1024x576 dropped the note's stated shortest
+        # edge from 768 to 576, and two tests caught it.)
+        #
+        # Worth knowing when choosing among them, though: ai-toolkit reads our
+        # `resolution` scalar as a pixel CAP and re-buckets the clip under it, so a
+        # size whose geometric mean is not itself a multiple of 32 is shrunk after
+        # we cut it. Of the three below only 768x768 survives unchanged; the
+        # maximum canvas comes back as 1312x736, 6.4% smaller. The size that would
+        # round-trip at 16:9 is 1024x576 — offering it is a product decision, not a
+        # catalogue fact, and it is filed as one.
+        'recommended_sizes': ((1344, 768), (768, 1344), (768, 768)),
         # 32 kHz stereo, from the audio VAE's own constants. "Keep the audio" is
         # not enough: a 44.1 kHz mono source would ride through untouched.
         'audio': {'muxed': True, 'sample_rate': 32000, 'channels': 2},
