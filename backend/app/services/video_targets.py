@@ -123,6 +123,12 @@ _TARGETS = {
         'max_pixels': None,
         'recommended_sizes': (),
         'audio': None,
+        # WAN's own prompt spec: its official rewriter caps T2V prompts at
+        # 60-200 words (Wan2.2 system_prompt.py), and the umT5 encoder behind
+        # it truncates past 512 tokens IN SILENCE. Only profiles whose vendor
+        # PUBLISHED a number carry this key — an invented budget would be a
+        # figure somebody plans around.
+        'caption_word_budget': 200,
         'caption_style': 'freeform',
         'dataset_layout': 'flat',
         'training_verified': True,
@@ -139,6 +145,8 @@ _TARGETS = {
         'max_pixels': None,
         'recommended_sizes': (),
         'audio': None,
+        # WAN's I2V rewriter caps at 100 words (same source as the T2V 200).
+        'caption_word_budget': 100,
         'caption_style': 'freeform',
         'dataset_layout': 'flat',
         'training_verified': True,

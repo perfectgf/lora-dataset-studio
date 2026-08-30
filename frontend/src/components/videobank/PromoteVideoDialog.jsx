@@ -7,7 +7,7 @@ import {
   insetProblem, insetHint, insetOutcome,
   capProblem, capHint, capBalanceNote,
 } from './videoTargetChoice'
-import { uncaptionedWarning } from './videoClipSearch'
+import { uncaptionedWarning, overBudgetWarning } from './videoClipSearch'
 import { passBlockedBy } from './videoCapability'
 import VideoTargetPicker from './VideoTargetPicker'
 
@@ -113,6 +113,9 @@ export default function PromoteVideoDialog({
       // The one limit here that silently degrades the dataset itself.
       const captions = uncaptionedWarning(d.composition)
       if (captions) toast.warning(captions)
+      // Its mirror image: a caption the encoder will CUT without saying so.
+      const budget = overBudgetWarning(d.composition)
+      if (budget) toast.warning(budget)
       onDone?.(d)
       onClose?.()
     } catch (err) {
