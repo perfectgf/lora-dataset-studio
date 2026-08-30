@@ -160,6 +160,29 @@ test('rejecting down to one copy settles the group and moves on', () => {
   assert.deepEqual(after.resolved, [1]);
 });
 
+test('a Keep records the losers, so walking back cannot empty the group', () => {
+  /* The server rejects every other copy in the same call. Without recording it,
+     ⇧← into a settled group showed live-looking tiles, and a second K there sent
+     keep_ids for a copy whose rivals were already rejected — resolve_dups then
+     rejected the lone survivor too and the whole group was gone. */
+  const s = createCompare([group(1, [1, 2, 3], 1), group(2, [4, 5])]);
+  const after = resolveGroup(s, 1, 2);          // the server elected copy 2
+  assert.deepEqual(after.resolved, [1]);
+  assert.deepEqual(after.rejected, [1, 3], 'the losers are known to be gone');
+  const back = prevGroup(after);
+  assert.equal(liveCount(back), 1, 'only the elected copy still stands');
+  assert.equal(currentMember(back).id, 2, 'and the cursor sits on it, not on a corpse');
+});
+
+test('a resolve BY ELIMINATION leaves the survivor standing', () => {
+  // rejectMember resolves a group by knocking copies out; the last one must not
+  // be swept up with them, which is why keptId is optional.
+  const s = createCompare([group(1, [1, 2], 1), group(2, [3, 4])]);
+  const after = rejectMember(s, 1);
+  assert.deepEqual(after.resolved, [1]);
+  assert.deepEqual(after.rejected, [1], 'only the copy actually rejected');
+});
+
 test('≠ settles a group without rejecting anything, and counts apart', () => {
   const s = createCompare([group(1, [1, 2]), group(2, [3, 4])]);
   const after = vetoGroup(s);

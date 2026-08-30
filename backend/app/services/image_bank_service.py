@@ -4844,32 +4844,44 @@ def mark_semantic_group_distinct(user_id, bank_id, group, *, _bank_lease=None) -
 @_serialized_bank_mutation('dup_distinct_restore')
 def restore_distinct(user_id, bank_id, group=None, col=BankImage.dup_group, *,
                      _bank_lease=None) -> dict:
-    """Take the ≠ back — for one group, or for the whole bank.
+    """Take the ≠ back — for one group, or for every group of ONE STAGE.
 
     A veto is a decision, so it owes a way out that is as easy to find as it was
     to make. ``group`` restores just that one (the pairs among ITS live members,
-    leaving any other group's verdict alone); no group at all restores every veto
-    in the bank, which is what the panel's "restore" line offers.
+    leaving any other group's verdict alone); no group at all restores the vetoed
+    groups of ``col``, which is what the panel's "restore" line offers.
+
+    SCOPED TO ``col`` ON PURPOSE, and it used to be a plain "delete every row of
+    this bank". That was wrong in the one way a user cannot see coming: the
+    ≈ Duplicates panel offers the line with ITS OWN count ("≠ 3 groups marked
+    not duplicates"), and pressing it also threw away every verdict made on the
+    ✂ Same shot panel — decisions the sentence never mentioned. A veto stays a
+    fact about the images (marking a group on one stage answers the other), but
+    UNDOING it must not reach past what the button counted.
 
     Restoring cannot lose anything else: the images were never rejected, so the
     only effect is that the group is proposed again."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
-    q = BankDupDistinct.query.filter(BankDupDistinct.bank_id == bank_id)
-    if group is not None:
-        members = _group_live_members(bank_id, col, [int(group)]).get(int(group), [])
-        if len(members) < 2:
-            return {'restored': 0}
+    gids = ([int(group)] if group is not None
+            else sorted(_vetoed_group_ids(bank_id, col)))
+    n = 0
+    for gid in gids:
+        members = _group_live_members(bank_id, col, [gid]).get(gid, [])
+        # A group too big to have been vetoed holds no pair to restore, and
+        # skipping it is also what keeps the IN list below SQLite's parameter
+        # ceiling: 2 × _DISTINCT_MAX_MEMBERS, never 2 × "however many copies
+        # a loose threshold piled into one group".
+        if len(members) < 2 or len(members) > _DISTINCT_MAX_MEMBERS:
+            continue
         # A row whose BOTH endpoints sit in this group IS a pair of this group —
-        # no row-value IN needed, which SQLite handles poorly anyway. Bounded by
-        # _DISTINCT_MAX_MEMBERS on the write side, so one chunk always holds it.
-        n = (q.filter(BankDupDistinct.image_a.in_(members),
+        # no row-value IN needed, which SQLite handles poorly anyway.
+        n += (BankDupDistinct.query
+              .filter(BankDupDistinct.bank_id == bank_id,
+                      BankDupDistinct.image_a.in_(members),
                       BankDupDistinct.image_b.in_(members))
-             .delete(synchronize_session=False))
-        db.session.commit()
-        return {'restored': n}
-    n = q.delete(synchronize_session=False)
+              .delete(synchronize_session=False))
     db.session.commit()
     return {'restored': n}
 
@@ -4877,10 +4889,20 @@ def restore_distinct(user_id, bank_id, group=None, col=BankImage.dup_group, *,
 def drop_distinct_for_images(bank_id, image_ids) -> int:
     """Forget the vetoes that name images being removed from the bank.
 
-    A leftover row is INERT rather than wrong — it can no longer match a live
-    group — so this is hygiene, not correctness. It runs where images actually
-    leave (✕ Delete rejected, Forget missing) so a bank that is re-scanned from
-    the same folder does not accumulate vetoes about ids nobody can see."""
+    CORRECTNESS, not hygiene — the comment here used to claim a leftover row was
+    "inert because it can no longer match a live group", and that is false.
+    SQLite allocates ``max(rowid) + 1``, so deleting the newest images FREES
+    their ids and the next import takes them back. A surviving pair then matches
+    two images nobody ever ruled on, and vetoes their group: the failure hides a
+    question instead of asking a spurious one, which is the direction nobody
+    notices.
+
+    So every path that removes BankImage rows owes this call. There are exactly
+    three, and they all make it: ``forget_missing``, ``delete_rejected._drop``
+    and ``delete_bank`` (which drops the whole bank's rows outright).
+
+    Does NOT commit — each caller commits the image deletion it belongs to, in
+    the same transaction, so the two can never come apart."""
     ids = [int(i) for i in (image_ids or [])]
     if not ids:
         return 0
