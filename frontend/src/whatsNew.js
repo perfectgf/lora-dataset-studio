@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-watermark-scan-honesty',
+    date: '2026-08-30',
+    title: 'Watermark scans stop hiding their misses',
+    blurb:
+      'Three fixes from one real test session. A vision scan whose model never '
+      + 'answered used to show a green "0 found (of 0)" — it now says plainly '
+      + 'that nothing was scanned and names the server to check. Marks tiled '
+      + 'across the WHOLE image no longer shrink to one corner box: the image '
+      + 'is flagged for 🔍 Review instead, where you can judge it honestly. And '
+      + 'when nothing crosses the detector threshold, the toast tells you the '
+      + 'highest score it saw — so "lower the threshold" stops being a guess.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-watermark-engine-choice',
     date: '2026-08-30',
     title: 'Choose which engine finds your watermarks',

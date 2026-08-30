@@ -825,9 +825,24 @@ export function useDataset() {
         Object.keys(body).length ? body : undefined);
       if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
       const engine = d.backend === 'detector' ? 'watermark detector' : 'vision model';
+      // A scan whose every call came back empty is a FAILURE, not "0 found":
+      // it used to show this exact green tick over "of 0" while the vision
+      // model was simply down — which is how the maintainer caught it.
+      if (!d.checked && d.unanswered) {
+        toast.error(d.unanswered_note
+          || 'The vision model answered nothing — nothing was scanned.');
+        return;
+      }
       const head = d.stopped ? 'Stopped —' : '';
       toast.success(`${head} ${d.detected || 0} watermark(s) found · ${d.none || 0} clean `
         + `(of ${d.checked || 0}, ${engine})`.trim());
+      if (d.unanswered) toast.info(d.unanswered_note || `${d.unanswered} image(s) got no answer.`);
+      // 0 found is two very different stories: nothing there, or everything
+      // UNDER the bar. The near-miss number is what separates them.
+      if (d.backend === 'detector' && !d.detected && Number.isFinite(d.top_clean_score)) {
+        toast.info(`Highest score ${d.top_clean_score} — nothing crossed the threshold. `
+          + 'Lower the Detector threshold in this window to flag fainter marks.');
+      }
       // A silent fallback is the failure mode this setting exists to remove: say
       // what ran and where to install what was asked for. Its own toast, because
       // it is a different fact from the count and must not be skimmed past.

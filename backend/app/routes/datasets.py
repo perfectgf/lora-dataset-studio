@@ -1274,6 +1274,9 @@ def dataset_watermarks_detect(dataset_id):
                     'stopped': bool(report.get('stopped')),
                     'located': report.get('located', counts['detected']),
                     'unlocated': report.get('unlocated', 0),
+                    'unanswered': report.get('unanswered', 0),
+                    'unanswered_note': report.get('unanswered_note'),
+                    'top_clean_score': report.get('top_clean_score'),
                     'errors': report.get('errors', 0)})
 
 

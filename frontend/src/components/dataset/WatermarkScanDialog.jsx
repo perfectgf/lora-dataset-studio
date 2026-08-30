@@ -83,7 +83,7 @@ export default function WatermarkScanDialog({
     <div className="fixed inset-0 z-[9991] flex items-center justify-center bg-black/80 p-3 sm:p-4"
       onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Find watermarks"
-        className="w-full max-w-lg space-y-3 overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-xl"
+        className="w-full max-w-3xl space-y-3 overflow-y-auto rounded-xl border border-border bg-surface p-4 shadow-xl"
         style={{ maxHeight: 'min(38rem, calc(100vh - 2rem))' }}>
         <h2 className="m-0 text-base font-bold text-content">🚩 Find watermarks</h2>
         <p className="m-0 text-[11px] leading-snug text-content-subtle">

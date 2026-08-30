@@ -7685,6 +7685,7 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None, limit=None
         if not rows:
             return
         detected = clean = errors = vanished = stale = 0
+        top_clean_score = None
         threshold = watermark_detector.threshold()
 
         # Paths are resolved HERE, on the owning thread, exactly like the vision
@@ -7822,6 +7823,13 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None, limit=None
                             row.watermark_state = 'none'
                         row.watermark_bbox = None
                         clean += 1
+                        # Parity with the dataset route: the best CLEAN score is
+                        # the one number separating "nothing there" from
+                        # "everything under the bar" when 0 end up flagged.
+                        if score is not None:
+                            _s = round(float(score), 4)
+                            if top_clean_score is None or _s > top_clean_score:
+                                top_clean_score = _s
                     bank_jobs.bump(job)
                     # Per image, for the same reason the vision route commits per
                     # image: never hold the single SQLite write lock across an
@@ -7854,6 +7862,11 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None, limit=None
         ran_on = {'cuda': ' on GPU', 'cpu': ' on CPU'}.get(run_info.get('device'), '')
         detail = (f'done — {detected} with a watermark, {clean} clean '
                   f'(detector{ran_on}, score ≥ {threshold:g})')
+        if not detected and top_clean_score is not None:
+            # Parity with the dataset toast: 0 flagged is two different stories,
+            # and the near-miss number is what separates them.
+            detail += (f' · highest score {top_clean_score} — nothing crossed the '
+                       f'threshold ({threshold}); lower it to flag fainter marks')
         if detected and located < detected:
             detail += (f', {detected - located} flagged without a position '
                        '(they cannot be cropped or repainted until you draw a zone '

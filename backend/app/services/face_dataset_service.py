@@ -9262,6 +9262,7 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
     except ImportError:
         raise RuntimeError('vision (Ollama) service not configured/available yet')
     counts = {'detected': 0, 'none': 0, 'checked': 0}
+    unanswered = 0
     # Deliberately NOT a key in `counts`: that dict is this route's response
     # shape and four tests pin it exactly. A counter that is zero on every
     # ordinary run does not justify changing an API contract — and surfacing it
@@ -9299,6 +9300,11 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
                 # Vision unreachable/empty != "no watermark" (same reasoning as
                 # classify_images): leave the state UNTOUCHED (retry possible) instead
                 # of falsely marking every image clean when Ollama is just down.
+                # COUNTED — the bank's twin loop has counted this for a while and
+                # this one never got the port, so a scan whose every call came
+                # back empty reported "0 found · 0 clean (of 0)" under a green
+                # tick. That exact toast is how the maintainer found it.
+                unanswered += 1
                 continue
             # 🔤 zones live in watermark_regions and must SURVIVE a watermark
             # scan: resetting them here (the pre-text behaviour) would erase a
@@ -9336,6 +9342,13 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
     finally:
         unload_vision_model()  # rend la VRAM a ComfyUI en fin de batch
         dataset_activity.end(token)
+    if report is not None and unanswered:
+        from .vision_llm import label as _llm_label
+        report['unanswered'] = unanswered
+        report['unanswered_note'] = (
+            f'{unanswered} image(s) got no answer from the vision model '
+            f'({_llm_label()}) — check it is running (Settings ▸ Local tools), '
+            'then run the scan again.')
     if vanished:
         logger.info('watermark detect: %s image(s) were deleted while the pass ran, '
                     'skipped', vanished)
@@ -9377,6 +9390,12 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
             continue
         planned.append((image_id, path))
     located = unlocated = errors = vanished = 0
+    # The best score among images ruled CLEAN this run. When nothing is flagged,
+    # this is the one number that tells the user whether the threshold is the
+    # reason: a blatant watermark scoring 0.88 under a 0.94 bar is a dial away,
+    # not a detector failure. Measured need: two tiled stock photos read clean
+    # at 0.99 and flagged at 0.50 — with nothing on screen saying why.
+    top_clean_score = None
     stopped = False
     if not planned:
         if report is not None:
@@ -9452,6 +9471,10 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
                     img.watermark_state = 'none'
                 img.watermark_bbox = None
                 counts['none'] += 1
+                if score is not None:
+                    s = round(float(score), 4)
+                    if top_clean_score is None or s > top_clean_score:
+                        top_clean_score = s
             counts['checked'] += 1
             db.session.commit()
         stopped = bool(should_cancel and should_cancel())
@@ -9476,7 +9499,8 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
                     'skipped', vanished)
     if report is not None:
         report.update({'stopped': stopped, 'located': located,
-                       'unlocated': unlocated, 'errors': errors})
+                       'unlocated': unlocated, 'errors': errors,
+                       'top_clean_score': top_clean_score})
     return counts
 
 

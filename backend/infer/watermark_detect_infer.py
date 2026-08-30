@@ -209,7 +209,48 @@ class _Locator:
         except Exception as e:      # noqa: BLE001 — one image, not the pass
             _log(f'[wmdet] locate failed on one image: {type(e).__name__}: {e}')
             return []
-        return _merge_boxes(_normalise_boxes(boxes, image.size))
+        return effective_regions(boxes, image.size)
+
+
+# Above this fraction of the frame (raw DINO boxes, before the per-box area
+# cap), the marks are WALL-TO-WALL — a tiled stock watermark repeated across
+# the whole picture. Reporting the one corner tile that survives the cap would
+# be a lie by omission: the clean would repaint that tile and leave the rest,
+# and the user would file the image as handled. Measured case: a stock photo
+# tiled with "Watermark stock photo" was flagged with a single small box.
+# The honest verdict is "detected, no usable position" — the same unlocated
+# lane the parent already routes to 🔍 Review with its own explanation.
+WALL_TO_WALL_COVERAGE = 0.40
+
+
+def _raw_coverage(boxes, size):
+    """Fraction of the frame the raw boxes claim, cap-free. Clamped per box and
+    summed (tiles barely overlap); bounded to 1.0 so a pathological pile of
+    frame-sized boxes cannot report 700% of an image."""
+    width, height = size
+    if not width or not height:
+        return 0.0
+    total = 0.0
+    for box in boxes:
+        try:
+            x1, y1, x2, y2 = (float(v) for v in box[:4])
+        except (TypeError, ValueError):
+            continue
+        x1, x2 = sorted((max(0.0, x1 / width), min(1.0, x2 / width)))
+        y1, y2 = sorted((max(0.0, y1 / height), min(1.0, y2 / height)))
+        total += max(0.0, (x2 - x1) * (y2 - y1))
+    return min(1.0, total)
+
+
+def effective_regions(boxes, size):
+    """The zones a scan should REPORT for these raw pixel boxes — the one
+    decision point, pure so the parent's tests can hold it.
+
+    Wall-to-wall coverage returns [] (unlocated → Review, the parent says why);
+    anything else returns the capped, merged zones as before."""
+    if _raw_coverage(boxes, size) > WALL_TO_WALL_COVERAGE:
+        return []
+    return _merge_boxes(_normalise_boxes(boxes, size))
 
 
 def _normalise_boxes(boxes, size):
