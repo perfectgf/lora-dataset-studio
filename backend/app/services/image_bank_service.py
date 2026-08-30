@@ -7459,7 +7459,7 @@ def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None,
     def run(job):
         import json as _json
         from .face_dataset_service import WATERMARK_BBOX_PROMPT, _parse_watermark_bbox
-        from .vision_ollama import describe_image_ollama, unload_vision_model
+        from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
         from .vision_pool import map_vision
         from ..gpu_window import gpu_exclusive_vision_window
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
@@ -9473,8 +9473,8 @@ _FENCE_STREAK_WARN = 5
 def _framing_job(bank_id, rescan, statuses=None, ids=None):
     def run(job):
         from .face_dataset_service import CLASSIFY_PROMPT, _parse_classify
-        from .vision_ollama import (LocalOllamaFenceError, describe_image_ollama,
-                                    unload_vision_model)
+        from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
+        from .vision_ollama import LocalOllamaFenceError
         from .vision_pool import map_vision
         from ..gpu_window import gpu_exclusive_vision_window
         bank = _detach_bank(db.session.get(ImageBank, bank_id))

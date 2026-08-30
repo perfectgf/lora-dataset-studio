@@ -278,8 +278,21 @@ def failure_sentence(status: int | None, body: str) -> str:
     return f'LM Studio returned HTTP {status}: {(body or "").strip()[:200]}'
 
 
-class LocalLmStudioFenceError(RuntimeError):
-    """A local inference lost its verified GPU ownership."""
+def _fence_error_base():
+    from .vision_ollama import LocalOllamaFenceError
+    return LocalOllamaFenceError
+
+
+class LocalLmStudioFenceError(_fence_error_base()):
+    """A local inference lost its verified GPU ownership.
+
+    Subclasses the Ollama one on purpose. That name is legacy — it means "the
+    local-LLM fence refused" — and every handler in the app keys on it: the 409
+    with `code: ollama_fence_blocked` in routes/_common.py is what makes the UI
+    show its banner, offer "Run anyway", and replay the action once the card is
+    free. A sibling class would have been caught by none of them, so an LM Studio
+    user would have got a bare 500 exactly where the app has the best answer.
+    """
 
 
 def _admit(url: str, model: str) -> None:

@@ -5808,7 +5808,7 @@ def detect_head_bbox(image_bytes):
     detection" as a normal case and falls back to a centered crop, so uploads
     keep working (degraded but functional)."""
     try:
-        from .vision_ollama import describe_image_ollama
+        from .vision_llm import describe_image as describe_image_ollama
     except ImportError:
         return None
     # fmt='json' forces Ollama's grammar mode: the model must emit a JSON object from
@@ -5885,7 +5885,7 @@ def detect_watermark_bbox(image_bytes, *, keep_alive=0):
     expanded (see _parse_watermark_bbox). `keep_alive` mirrors describe_image_ollama:
     0 unloads after this call; a batch passes a duration and unloads at the end."""
     try:
-        from .vision_ollama import describe_image_ollama
+        from .vision_llm import describe_image as describe_image_ollama
     except ImportError:
         return None
     raw = describe_image_ollama(image_bytes, WATERMARK_BBOX_PROMPT, num_predict=400,
@@ -7213,7 +7213,7 @@ def classify_images(user_id, dataset_id, force=False, report=None):
     """
     _guard_not_bank_export(dataset_id)
     try:
-        from .vision_ollama import describe_image_ollama, unload_vision_model
+        from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
     except ImportError:
         raise RuntimeError('vision (Ollama) service not configured/available yet')
     ds = get_dataset(user_id, dataset_id)
@@ -7792,7 +7792,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
     #     enforced. One model load -> unload once at the end.
     if refine_targets or remaining:
         try:
-            from .vision_ollama import describe_image_ollama, unload_vision_model
+            from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
         except ImportError:
             raise RuntimeError('vision (Ollama) service not configured/available yet')
         # Bind the per-dataset model once for EVERY Concept inference pass. Without
@@ -8065,7 +8065,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
         # ou pour TOUT le lot si le backend force 'ollama'.
         if remaining:
             try:
-                from .vision_ollama import describe_image_ollama, unload_vision_model
+                from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
             except ImportError:
                 raise RuntimeError('vision (Ollama) service not configured/available yet')
             try:
@@ -8229,7 +8229,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
     # the backend forces 'ollama'.
     if remaining:
         try:
-            from .vision_ollama import describe_image_ollama, unload_vision_model
+            from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
         except ImportError:
             raise RuntimeError('vision (Ollama) service not configured/available yet')
         from .vision_pool import map_vision
@@ -8506,7 +8506,7 @@ def derive_short_captions(user_id, dataset_id, image_ids=None, force=False, mode
     if not rows:
         return 0
     if generate is None:
-        from .vision_ollama import generate_text_ollama, unload_vision_model
+        from .vision_llm import generate_text as generate_text_ollama, unload_vision_model
         # Same model override as the long-caption pass so the short is derived by (and the
         # VRAM freed for) the model the dataset actually captions with.
         omodel = caption_options(ds).get('ollama_model') or None
@@ -9253,7 +9253,7 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
                               should_cancel, report):
     """The original Qwen3-VL pass, unchanged except for the cancel poll."""
     try:
-        from .vision_ollama import describe_image_ollama, unload_vision_model
+        from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
     except ImportError:
         raise RuntimeError('vision (Ollama) service not configured/available yet')
     counts = {'detected': 0, 'none': 0, 'checked': 0}

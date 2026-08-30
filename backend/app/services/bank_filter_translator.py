@@ -252,7 +252,7 @@ def translate(bank_id, sentence: str, *, generate=None) -> dict:
         raise ValueError('keep the request to a sentence or two')
 
     if generate is None:
-        from .vision_ollama import generate_text_ollama as generate
+        from .vision_llm import generate_text as generate
 
     stats = axis_stats(bank_id)
     coverage = coverage_note(bank_id)

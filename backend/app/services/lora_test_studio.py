@@ -1082,7 +1082,7 @@ def describe_test_prompt(image_bytes: bytes) -> str:
         raise ValueError('unreadable image — expected a webp, png or jpg file') from e
     # The /describe-image route owns the one GPU-exclusive Vision window. Keep
     # this service callable without recursively claiming it a second time.
-    from .vision_ollama import describe_image_ollama
+    from .vision_llm import describe_image as describe_image_ollama
     from .vision_keepalive import keep_alive_for_isolated_call
     text = describe_image_ollama(
         webp, STUDIO_DESCRIBE_PROMPT, num_predict=500, auto_start_local=True,
@@ -1138,7 +1138,7 @@ def enhance_test_prompt(prompt: str, model: str | None = None) -> str:
         raise ValueError(f'prompt too long to enhance (max {STUDIO_ENHANCE_MAX_CHARS} characters)')
     from .ollama_control import ensure_captioning_ready
     from .vision_keepalive import keep_alive_for_isolated_call
-    from .vision_ollama import generate_text_ollama
+    from .vision_llm import generate_text as generate_text_ollama
     ready = ensure_captioning_ready(model)
     if not ready.get('ok'):
         raise RuntimeError(
