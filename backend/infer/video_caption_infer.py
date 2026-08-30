@@ -39,7 +39,7 @@ Protocol — a WARM WORKER, because loading 8.3 GB costs far more than captionin
 one shot, and the parent commits per clip so a stopped pass loses nothing:
 
   stdin,  once      : {"models_root": path|null, "device": "auto"|"cpu",
-                       "max_new_tokens": 96}
+                       "max_new_tokens": 400}
   stdout, once ready: {"ok": true, "ready": true, "device": "cuda"}
   stdin,  per clip  : {"frames": ["abs.jpg", ...], "prompt": "..."}\n
   stdout, per clip  : {"ok": true, "caption": "..."}\n
@@ -88,7 +88,7 @@ def main() -> int:
         return 1
     models_root = req.get('models_root') or None
     want = str(req.get('device') or 'auto').lower()
-    max_new_tokens = int(req.get('max_new_tokens') or 96)
+    max_new_tokens = int(req.get('max_new_tokens') or 400)
     # Explicit dtype, for the one case the default gets wrong: a CPU fallback in
     # float32 needs ~16 GB for a 4B model, which is more than most machines have
     # free — and "captioning is impossible here" is a worse answer than "slower

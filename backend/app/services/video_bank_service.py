@@ -2604,7 +2604,8 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
             # EMPTY sidecar is not neutral either, it trains as an empty prompt
             # in silence, which is what the pre-flight count exists to surface.
             video_clip_export.write_sidecar(
-                str(dst), _with_trigger(trigger_word, clip.caption))
+                str(dst), compose_sidecar_text(trigger_word, clip.caption,
+                                               clip.metrics_json))
             index = candidate
             encoded += 1
             db.session.add(VideoDatasetClip(
@@ -2654,6 +2655,32 @@ def _with_trigger(trigger, caption) -> str:
     if caption.lower().startswith(trigger.lower()):
         return caption
     return f'{trigger}, {caption}' if caption else trigger
+
+
+def compose_sidecar_text(trigger, caption, metrics_json) -> str:
+    """The full training prompt for one exported clip: trigger, caption, and
+    the MEASURED camera line.
+
+    The camera comes from our homography classifier, never from the VLM — that
+    was tried and refuted twice (the caption prompt now explicitly forbids it),
+    so this is the one place the camera can enter the prompt, in words the
+    classifier can prove. The `Camera:` label is the H3 idiom (the model's own
+    prompts carry labeled blocks — `Audio:` — so a labeled camera line is what
+    its encoder expects to read). No phrase when the classifier had nothing
+    honest to say (unmeasured, or subject motion drowning the signal): a
+    caption silent about the camera teaches nothing false.
+    """
+    from . import video_camera_motion
+    base = _with_trigger(trigger, caption)
+    try:
+        scores = json.loads(metrics_json) if metrics_json else {}
+    except (TypeError, ValueError):
+        scores = {}
+    phrase = video_camera_motion.camera_phrase(scores)
+    if not phrase:
+        return base
+    line = f'Camera: {phrase}.'
+    return f'{base} {line}' if base else line
 
 
 def _dataset_row(ds: VideoDataset) -> dict:

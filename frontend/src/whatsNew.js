@@ -95,6 +95,23 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-08-30-sota-video-captions',
+    date: '2026-08-30',
+    title: 'Video captions grow up: a full paragraph, built like the measurements say',
+    blurb:
+      'Describe shots now writes 150-200 words per shot instead of a sentence '
+      + 'or two — the length the published ablations converge on, where the '
+      + 'whole gain lands on MOTION, exactly what a video LoRA learns. It '
+      + 'watches 16 frames instead of 8 so that motion is actually visible, '
+      + 'and the token budget follows. The camera line is no longer asked of '
+      + 'the caption model (none describes it reliably — that is measured): '
+      + 'the 🎥 Camera pass’s own classifier writes it into the exported '
+      + 'prompt, in words it can prove, labeled the way MiniMax H3’s own '
+      + 'prompts label their blocks. Expect the pass to take longer per shot '
+      + '— it is reading twice the frames and writing four times the words.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-30-pass-info-dots',
     date: '2026-08-30',
     title: 'Every video pass button now explains itself',
