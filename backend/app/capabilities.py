@@ -462,7 +462,12 @@ def probe_lmstudio_model(reachable=None, model=None) -> dict:
     if not reachable:
         return {'ok': False, 'detail': f'LM Studio unreachable: {vision_lmstudio.base_url()}'}
     wanted = (model if model is not None else vision_lmstudio.get_vision_model()).strip()
-    loaded = [m['id'] for m in listed['models'] if m.get('loaded')]
+    # An embeddings model cannot caption, and keeping one resident is routine in
+    # LM Studio. Counted as "a model is loaded" it puts a green tick on an install
+    # that fails on its first image — the same disagreement between the tick and
+    # the driver that issue #7 fixed on the Ollama side.
+    loaded = [m['id'] for m in listed['models']
+              if m.get('loaded') and m.get('type') != 'embeddings']
     if wanted:
         ok = wanted in loaded
         return {'ok': ok,

@@ -15,6 +15,19 @@
 export function enhanceBlocker(ollama, { capsLoading = false, customModel = '' } = {}) {
   if (capsLoading) return 'Checking local tools…';
   const o = ollama || {};
+  // LM Studio answers a different ladder: it cannot be started from here, and
+  // "ready" means a model is LOADED, not pulled. Told to install Ollama, a user
+  // who deliberately chose the other provider is being sent to the wrong product
+  // — and the button stayed disabled while the backend answered 200.
+  if (o.provider === 'lmstudio') {
+    if (!o.reachable) {
+      return 'LM Studio is not answering — open it, go to Developer and press Start Server.';
+    }
+    if (!customModel && !o.vision_model_ready) {
+      return 'LM Studio has no usable model loaded — load a vision model in its Developer tab.';
+    }
+    return null;
+  }
   if (!o.installed && !o.reachable) {
     return 'Enhance needs Ollama — install it from Settings › Local tools.';
   }

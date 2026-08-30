@@ -526,8 +526,8 @@ LM Studio is a local model server with its own desktop app. Two differences from
 - **LM Studio URL** → `lmstudio.url`. The server root. Default **`http://127.0.0.1:1234`**. LM Studio's own Developer tab advertises it as `http://localhost:1234/v1`; **either form is accepted** — the `/v1` is stripped before use, because left in place it would both build wrong request paths and make the GPU arbitration refuse every call.
 - **LM Studio model** → `lmstudio.vision_model`. Leave it **empty** and LDS uses whichever model LM Studio has loaded, which is usually what you want. Name one and LDS insists on that exact model being loaded.
 - **Images analysed at once** → `lmstudio.vision_concurrency`. Same meaning as the Ollama dial, kept separate because the two servers do not take the same load: LM Studio serves as many parallel requests as its own **Parallel** setting allows, and going wider here than that gains nothing.
-- **Keep the vision model warm** → `lmstudio.vision_keep_warm_seconds`. Honoured differently, and worth knowing: Ollama takes a per-request keep-alive, LM Studio has no TTL at all and holds a loaded model until something unloads it. So under LM Studio this value is how long LDS waits before actively unloading — and unlike Ollama, that unload genuinely frees the VRAM.
-- **API key** → `lmstudio.api_key`. Only needed if you configured LM Studio to require a bearer token. Empty by default.
+- **Keep the vision model warm** → `lmstudio.vision_keep_warm_seconds` (a `config.json` key; the card does not expose a dial for it yet). Honoured differently, and worth knowing: Ollama takes a per-request keep-alive, LM Studio has no TTL at all and holds a loaded model until something unloads it. So under LM Studio this value is how long LDS waits before actively unloading — and unlike Ollama, that unload genuinely frees the VRAM.
+- **API key** → the `LMSTUDIO_API_KEY` secret, only needed if you configured LM Studio to require a bearer token. It is a **secret**, not a config field: like every other credential here it lives in the app's secret store rather than in `config.json`, so it never comes back out of `GET /api/settings` and never appears in a pasted diagnostic. Empty by default, and most local setups never need it.
 
 **Test** checks end to end: reachable *and* a usable model is loaded.
 
@@ -1485,7 +1485,6 @@ A flat cheat-sheet of the main `config.json` keys, for quick lookup or hand-edit
 | `lmstudio.vision_model` | Model id LDS insists on. Empty (default) = use whichever model LM Studio has loaded. |
 | `lmstudio.vision_concurrency` | How many images a bank pass sends to LM Studio at once (default `4`, clamped 1-16). |
 | `lmstudio.vision_keep_warm_seconds` | How long a one-off job may leave the model resident before LDS unloads it (default `120`). LM Studio has no TTL of its own, so this is what ends the residency. |
-| `lmstudio.api_key` | Bearer token, only if LM Studio is configured to require one. Empty by default. |
 | `aitoolkit.dir` | ai-toolkit install directory. |
 | `aitoolkit.datasets_dir` | Override for ai-toolkit's datasets folder (defaults to `<aitoolkit.dir>/datasets`). |
 | `aitoolkit.output_dir` | Override for ai-toolkit's output folder (defaults to `<aitoolkit.dir>/output`). |

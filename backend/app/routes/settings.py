@@ -972,6 +972,7 @@ def diagnostic():
     are reduced to *_set booleans — the output is meant to be pasted into a
     public issue or Discord thread as-is. (Log lines may still cite file names;
     the UI tells the user to skim before posting.)"""
+    from ..services import vision_llm as _vision_llm
     import platform
     import sys
     import time
@@ -1058,6 +1059,12 @@ def diagnostic():
         # slightly different identifier (namespace/registry/field variance, issue #7).
         # Model names are not secrets; paths are still absent from this block.
         'ollama': capabilities.ollama_diagnostic(),
+        # Both, always, plus which one is in charge. A report that names only
+        # Ollama on an LM Studio install says `ollama_reachable: false` about a
+        # daemon nobody is using and nothing at all about the one that is —
+        # which is the report we would be asked to diagnose from.
+        'local_llm': {'provider': _vision_llm.provider()},
+        'lmstudio': capabilities.lmstudio_diagnostic(),
         # Last failed-generation reason per engine + the last Studio failure — the
         # real cause behind "it fails every time". Redacted + capped (see helper).
         'generation_errors': _recent_generation_errors(),

@@ -110,6 +110,9 @@ def describe_image(image_bytes: bytes, prompt: str, **kw) -> str:
             url=kw.get('url') or kw.get('ollama_url'),
             model=kw.get('model'),
             num_predict=kw.get('num_predict', 800),
+            # Ollama's fmt/prefer_json has an OpenAI equivalent, so it travels
+            # rather than being dropped: eight call sites parse the answer.
+            as_json=(kw.get('fmt') == 'json') or bool(kw.get('prefer_json')),
             strict=bool(kw.get('strict') or kw.get('auto_start_local')),
             timeout=kw.get('timeout', (10, 180)))
     from . import vision_ollama
@@ -156,11 +159,21 @@ def probe_model(reachable=None, model: str | None = None) -> dict:
     answered "the vision model is not available" and the whole Bank stopped
     working, while captioning through the router worked fine two lines later.
     """
+    # Only forward what was actually asked for. The six gates call this with no
+    # arguments, and passing `reachable=None, model=None` down changed the CALL
+    # SHAPE the existing suite stubs — two tests double `probe_ollama_model` with a
+    # zero-argument lambda, which is exactly how the old call site looked. Routing
+    # must be invisible to them.
+    kw = {}
+    if reachable is not None:
+        kw['reachable'] = reachable
+    if model is not None:
+        kw['model'] = model
     if provider() == LMSTUDIO:
         from ..capabilities import probe_lmstudio_model
-        return probe_lmstudio_model(reachable=reachable, model=model)
+        return probe_lmstudio_model(**kw)
     from ..capabilities import probe_ollama_model
-    return probe_ollama_model(reachable=reachable, model=model)
+    return probe_ollama_model(**kw)
 
 
 def ensure_ready(model: str | None = None) -> dict:

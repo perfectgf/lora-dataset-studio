@@ -141,13 +141,79 @@ def test_a_server_that_cannot_report_residency_is_unknown_not_empty(app, monkeyp
     assert 'residency' in meta['reason']
 
 
-def test_nothing_listening_is_down(app, monkeypatch):
-    def _boom(*a, **kw):
-        raise lms.requests.exceptions.ConnectionError('refused')
-    monkeypatch.setattr(lms.requests, 'get', _boom)
+def test_only_a_refused_connection_is_down(app, monkeypatch):
+    """`down` means "the GPU is free" to the fence — it drops ownership and admits
+    ComfyUI on it. Only an actively REFUSED connection proves that, which is the
+    shape a machine with nothing listening actually produces (and the shape the
+    suite's own guard fakes)."""
+    import errno
+
+    def _refused(*a, **kw):
+        raise lms.requests.exceptions.ConnectionError(
+            ConnectionRefusedError(errno.ECONNREFUSED, 'nothing listening'))
+
+    monkeypatch.setattr(lms.requests, 'get', _refused)
     with app.app_context():
         state, _, _ = lms.probe_resident()
     assert state == 'down'
+
+
+@pytest.mark.parametrize('failure', ['timeout', 'unauthorized', 'server-error', 'garbage'])
+def test_anything_short_of_a_refusal_keeps_the_fence_shut(app, monkeypatch, failure):
+    """The inversion this guards against: a 401 from a mistyped token, a read
+    timeout, a 500 or a proxy's HTML page all leave LM Studio possibly holding
+    gigabytes of VRAM. Filed as `down` they would read as a free card and ComfyUI
+    would be admitted onto it — so every one of them must stay `unknown`."""
+    def _fail(*a, **kw):
+        if failure == 'timeout':
+            raise lms.requests.exceptions.ReadTimeout('too slow')
+        if failure == 'garbage':
+            return _Resp(200, None, '<html>proxy</html>')
+        return _Resp(401 if failure == 'unauthorized' else 500, None, 'nope')
+
+    monkeypatch.setattr(lms.requests, 'get', _fail)
+    with app.app_context():
+        state, names, _ = lms.probe_resident()
+    assert state == 'unknown', 'a fail-closed guard must not read "cannot tell" as "free"'
+    assert names == []
+
+
+def test_list_models_never_raises_even_when_nothing_listens(app, monkeypatch):
+    """Its docstring promised this and the request was the one part left unguarded,
+    so the single most likely failure — LM Studio not started, which this app
+    cannot start for the user — escaped as a raw ConnectionError past every
+    failure sentence, out to a 500 on the Test button and on the model route."""
+    def _boom(*a, **kw):
+        raise lms.requests.exceptions.ConnectionError('nothing there')
+
+    monkeypatch.setattr(lms.requests, 'get', _boom)
+    monkeypatch.setattr(lms.requests, 'post', _boom)
+    with app.app_context():
+        listed = lms.list_models()
+        assert listed['reachable'] is False and listed['models'] == []
+        assert lms.describe_image(_jpeg(), 'describe') == ''      # best-effort
+        with pytest.raises(RuntimeError, match='Start Server'):   # strict says the gesture
+            lms.describe_image(_jpeg(), 'describe', strict=True)
+        assert lms.generate_text('hi') == ''
+
+
+def test_an_embeddings_model_is_never_elected_as_the_captioner(app, monkeypatch):
+    """Keeping an embedding model resident is routine in LM Studio, and
+    `vision_model` is empty by default — so "the loaded model" is the default
+    path, and picking the embedding one turns every caption into an opaque
+    server error with nothing connecting it to the cause."""
+    body = {'models': [
+        {'key': 'nomic-embed', 'type': 'embedding', 'loaded_instances': [{'id': 'nomic-embed'}]},
+        {'key': 'qwen/qwen3-vl-4b', 'type': 'vlm', 'loaded_instances': [{'id': 'qwen/qwen3-vl-4b'}]},
+    ]}
+    monkeypatch.setattr(lms.requests, 'get', _router({'/api/v1/models': body}))
+    with app.app_context():
+        assert lms.resolve_model() == 'qwen/qwen3-vl-4b'
+    # and with ONLY the embedding model resident, nothing usable is elected
+    only_embed = {'models': [body['models'][0]]}
+    monkeypatch.setattr(lms.requests, 'get', _router({'/api/v1/models': only_embed}))
+    with app.app_context():
+        assert lms.resolve_model() == ''
 
 
 # --- images: the measured direction, and one retry for the builds that differ --

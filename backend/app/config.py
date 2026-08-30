@@ -30,7 +30,13 @@ load_dotenv(ENV_PATH)
 # and set_secrets() stamps os.environ on save, so changes apply without restart.
 SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'HF_TOKEN',
                'HF_CLOUD_TOKEN', 'VAST_API_KEY', 'REDDIT_CLIENT_ID',
-               'CIVITAI_API_KEY', 'PEXELS_API_KEY')
+               'CIVITAI_API_KEY', 'PEXELS_API_KEY',
+               # LM Studio's optional bearer token. It began life as an ordinary
+               # `lmstudio.api_key` config field, which meant config.json held it in
+               # clear and GET /api/settings handed it back verbatim — while every
+               # other credential in this app is reported as presence only. A token
+               # is a secret whatever it unlocks.
+               'LMSTUDIO_API_KEY')
 
 # A Krea install saved by a previous release can carry its old *defaults* in
 # config.json, so a changed DEFAULTS value alone would never reach it. This
@@ -122,8 +128,6 @@ DEFAULTS = {
     # /api/v1 `loaded_instances` or /api/v0 `state`, and /api/v1/models/unload
     # genuinely frees the card. An empty vision_model means "whatever is loaded".
     'lmstudio': {'url': 'http://127.0.0.1:1234',
-                 # Optional bearer token; LM Studio can be configured to require one.
-                 'api_key': '',
                  'vision_model': '',
                  # Same meaning and defaults as the ollama.* pair above, read per
                  # provider by vision_llm so the Settings dials are never inert.

@@ -101,3 +101,28 @@ test('the install menu does not offer an Ollama pull under LM Studio', () => {
   assert.match(src, /download models in the LM Studio app/i,
     'the row is turned off without saying why — the dead end this menu exists to close')
 })
+
+test('the feature gates read the ACTIVE provider, not Ollama by name', () => {
+  // Measured defect: on a machine running LM Studio and no Ollama, both caps.ollama
+  // flags are false, so ✨ Enhance and 📐 Classify framing rendered DISABLED with
+  // "install Ollama" — while the ⚙️ beside them listed LM Studio models and the
+  // backend answered 200. The button could not be clicked at all.
+  for (const [label, file] of [
+    ['Test Studio ✨ Enhance', 'components/dataset/studio/EnhancePromptButton.jsx'],
+    ['Dataset 📐 Classify framing', 'components/dataset/DatasetWorkspace.jsx'],
+  ]) {
+    const src = read(file)
+    assert.match(src, /activeLocalLlm\(caps\)/,
+      `${label} still hands its gate caps.ollama, so it is dead under LM Studio`)
+  }
+  // ...and the gates themselves say the right gesture rather than a translated one.
+  const enhance = read('components/dataset/studio/enhanceGate.js')
+  assert.match(enhance, /provider === 'lmstudio'/)
+  assert.match(enhance, /press Start Server/)
+  assert.doesNotMatch(enhance.slice(enhance.indexOf("'lmstudio'"), enhance.indexOf('install it from')),
+    /install Ollama/i)
+
+  const framing = read('components/dataset/classifyFramingGate.js')
+  assert.match(framing, /provider === 'lmstudio'/)
+  assert.match(framing, /Developer tab/)
+})

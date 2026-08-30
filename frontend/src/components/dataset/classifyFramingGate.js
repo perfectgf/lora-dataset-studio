@@ -29,9 +29,21 @@ const OLLAMA_NO_MODEL = 'Ollama is running but its vision model is not pulled ye
 
 /** Why the pass cannot run right now, or null. `loading` = capabilities not fetched
  * yet: unknown is NOT "missing", so we say nothing and simply keep the button idle. */
+const LMS_ABSENT = 'LM Studio is not answering. Open it, go to Developer and press '
+  + 'Start Server, then try again.';
+const LMS_NO_MODEL = 'LM Studio is running but has no usable model loaded. Load a vision '
+  + 'model in its Developer tab, then try again.';
+
 export function classifyBlockedReason(ollama, loading = false) {
   if (loading) return null;
   const o = ollama || {};
+  // Same reason as enhanceGate: naming Ollama to someone who runs LM Studio sends
+  // them to install a product they deliberately did not choose.
+  if (o.provider === 'lmstudio') {
+    if (!o.reachable) return LMS_ABSENT;
+    if (!o.vision_model_ready) return LMS_NO_MODEL;
+    return null;
+  }
   if (!o.installed && !o.reachable) return OLLAMA_ABSENT;
   if (!o.reachable) return OLLAMA_STOPPED;
   if (!o.vision_model_ready) return OLLAMA_NO_MODEL;

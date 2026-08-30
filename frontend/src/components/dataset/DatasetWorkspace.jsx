@@ -86,6 +86,7 @@ import { requestHelpTip } from '../../help/helpTips';
 import { useDatasetCameraAngles } from '../../hooks/useDatasetCameraAngles';
 import { datasetCameraRefusal } from '../../utils/cameraAngles';
 import { openCollapsedAncestors } from '../../help/revealTarget';
+import { activeLocalLlm } from '../../utils/localLlm';
 import {
   PANEL_STATUS,
   getWorkspacePanel,
@@ -1448,7 +1449,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       stored shot type for the same reason — those pixels changed. The
                       vision pass that fills them in lives right here, under the bar
                       that shows the gap. */}
-                  <ClassifyFramingButton images={images} ollama={caps.ollama} capsLoading={capsLoading}
+                  <ClassifyFramingButton images={images} ollama={activeLocalLlm(caps)} capsLoading={capsLoading}
                     busy={ds.busy} activity={act} onClassify={(n) => ds.classify(n)} />
                   <div id="ds-add-generate" tabIndex={-1} className="scroll-mt-20">
                     <Suspense fallback={null}>

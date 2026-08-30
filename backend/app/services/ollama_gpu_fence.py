@@ -35,6 +35,14 @@ _owned_models: dict[str, set[str]] = {}
 # and frees nothing, which the fence would read as success. So the driver is
 # resolved per endpoint, recorded at admission.
 _endpoint_driver: dict[str, str] = {}
+# Models LDS is allowed to USE but never to UNLOAD. The two rights were one set,
+# and conflating them handed LDS the right to unload a model the user had loaded
+# by hand — the one rule this module's own docstring says never moves ("Over-
+# adopting is the dangerous direction"). Under LM Studio the user loads the model
+# themselves, deliberately, so using it is right and unloading it is not ours to
+# decide. A model only ever enters `_owned_models` when LDS saw the endpoint EMPTY
+# first, which is the proof that it put it there.
+_borrowed_models: dict[str, set[str]] = {}
 # Endpoint seen with a pre-existing / otherwise unowned model. It may be a
 # user's own Ollama session, so it is never automatically unloaded.
 _foreign_local_endpoints: set[str] = set()
@@ -367,9 +375,9 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         # The fence's other half is untouched — ensure_released_for_comfy() still
         # has to prove the card is free before a ComfyUI hand-off, and now it can
         # actually free it, because LM Studio's unload really releases the VRAM.
-        if _driver_for(endpoint) == 'lmstudio' and model in loaded:
-            owned.add(model)
-            _owned_models.setdefault(endpoint, set()).add(model)
+        borrowed = _driver_for(endpoint) == 'lmstudio' and model in loaded
+        if borrowed:
+            _borrowed_models.setdefault(endpoint, set()).add(model)
         if state != 'empty' and not loaded.issubset(owned):
             # Before calling a resident model a stranger's, ask the claims LDS
             # wrote down: after a restart this is its own keep-warm lease.
@@ -380,11 +388,25 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
             _owned_models.setdefault(endpoint, set()).add(model)
             _foreign_local_endpoints.discard(endpoint)
             claim = True
+        elif borrowed:
+            # Borrowing costs the card nothing: LDS loads no second model, it uses
+            # one that is already there. So a CO-TENANT is not a reason to refuse —
+            # and LM Studio routinely holds one (an embedding model for its own
+            # document chat, a chat model beside the VLM). Reading that the Ollama
+            # way blocked every Describe and Enhance AND froze the ComfyUI queue,
+            # telling the user to unload a model they legitimately need.
+            # The endpoint is deliberately NOT marked foreign here: that flag is
+            # about the RELEASE path, which stays strict below.
+            claim = True
         else:
             _foreign_local_endpoints.add(endpoint)
             claim = False
     if claim:
-        _record_claim(endpoint, model, keep_alive)
+        # A borrowed model gets no claim: a claim is what lets a restarted LDS
+        # re-adopt — and eventually unload — a model as its own. Writing one for
+        # somebody else's residency is exactly the over-adoption above.
+        if not borrowed:
+            _record_claim(endpoint, model, keep_alive)
         return 'local'
     logger.info('ollama GPU fence: preserving a pre-existing local model; LDS inference is blocked')
     return 'blocked'
@@ -567,6 +589,16 @@ def _release_endpoint(endpoint, expected_models) -> bool:
         return _refused(endpoint, 'foreign', loaded,
                         'preserving a pre-existing local model; ComfyUI stays blocked')
 
+    with _lock:
+        borrowed = set(_borrowed_models.get(endpoint, set()))
+    still_borrowed = loaded & borrowed
+    if still_borrowed:
+        # LDS may use these, never unload them: the user loaded them. Refusing the
+        # hand-off is the honest answer, and the queue dock already offers the two
+        # consent-gated doors for it (unload it for me / share the GPU anyway).
+        return _refused(endpoint, 'foreign', still_borrowed,
+                        'a model loaded outside LDS is holding the card; ComfyUI stays blocked')
+
     unknown = loaded - expected_models
     if unknown:
         with _lock:
@@ -583,6 +615,7 @@ def _release_endpoint(endpoint, expected_models) -> bool:
                         'runner still holds a model after the unload; ComfyUI stays blocked')
     with _lock:
         _owned_models.pop(endpoint, None)
+        _borrowed_models.pop(endpoint, None)
         _foreign_local_endpoints.discard(endpoint)
     _drop_claims(endpoint)
     return True

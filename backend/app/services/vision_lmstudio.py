@@ -82,7 +82,10 @@ def base_url() -> str:
 
 
 def _headers() -> dict:
-    key = (cfg.get('lmstudio.api_key') or '').strip()
+    # Through the secret store, never config.json: `cfg.secret` keeps it out of the
+    # settings payload, out of the pasted diagnostic and out of a config a user
+    # might attach to a bug report.
+    key = (cfg.secret('LMSTUDIO_API_KEY') or '').strip()
     return {'Authorization': f'Bearer {key}'} if key else {}
 
 
@@ -96,9 +99,39 @@ def get_vision_model() -> str:
     return (cfg.get('lmstudio.vision_model') or '').strip()
 
 
-def _get(path: str, *, url: str | None = None,
+# What the last batch of requests learned about the server, beyond its body.
+# `probe_resident` needs it: "nothing is listening" and "answered but I could not
+# read it" are the same empty result and OPPOSITE verdicts for a fail-closed fence.
+class _Reach:
+    __slots__ = ('answered', 'refused')
+
+    def __init__(self):
+        self.answered = False      # an HTTP response came back, whatever its status
+        self.refused = False       # the connection was actively refused
+
+
+def _get(path: str, *, url: str | None = None, reach: '_Reach | None' = None,
          timeout: tuple[float, float] | float = (5, 20)):
-    return requests.get(f'{url or base_url()}{path}', headers=_headers(), timeout=timeout)
+    """One GET, total. Returns the response, or None if the request itself failed.
+
+    Total on purpose: `list_models` documents "never raises", four callers were
+    written on that promise, and the request was the one part of it left
+    unguarded — so the single most likely failure (LM Studio not started, which
+    this app cannot start for the user) escaped as a raw ConnectionError, past
+    every failure sentence, out to a 500.
+    """
+    try:
+        resp = requests.get(f'{url or base_url()}{path}', headers=_headers(),
+                            timeout=timeout)
+        if reach is not None:
+            reach.answered = True
+        return resp
+    except Exception as exc:               # noqa: BLE001 - reported as a state
+        if reach is not None:
+            from .ollama_gpu_fence import _connection_refused
+            reach.refused = reach.refused or _connection_refused(exc)
+        logger.debug('vision_lmstudio: GET %s failed: %s', path, exc)
+        return None
 
 
 def _json_or_none(resp):
@@ -119,10 +152,12 @@ def list_models(*, url: str | None = None,
     names which API answered, because what the caller can TRUST depends on it:
     only v1 and v0 carry type and residency.
     """
-    out = {'ok': False, 'reachable': False, 'surface': None, 'models': []}
+    out = {'ok': False, 'reachable': False, 'surface': None, 'models': [],
+           'answered': False, 'refused': False}
+    reach = _Reach()
 
     # --- native v1 (LM Studio >= 0.4.0): richest, and the only one with configs
-    data = _json_or_none(_get('/api/v1/models', url=url, timeout=timeout))
+    data = _json_or_none(_get('/api/v1/models', url=url, reach=reach, timeout=timeout))
     if isinstance(data, dict) and isinstance(data.get('models'), list):
         out.update(ok=True, reachable=True, surface='v1', models=[
             {
@@ -137,10 +172,11 @@ def list_models(*, url: str | None = None,
             }
             for m in data['models'] if isinstance(m, dict)
         ])
+        out['answered'], out['refused'] = reach.answered, reach.refused
         return out
 
     # --- native v0: has `state` and `type`, no instance list
-    data = _json_or_none(_get('/api/v0/models', url=url, timeout=timeout))
+    data = _json_or_none(_get('/api/v0/models', url=url, reach=reach, timeout=timeout))
     if isinstance(data, dict) and isinstance(data.get('data'), list):
         out.update(ok=True, reachable=True, surface='v0', models=[
             {
@@ -152,16 +188,18 @@ def list_models(*, url: str | None = None,
             }
             for m in data['data'] if isinstance(m, dict)
         ])
+        out['answered'], out['refused'] = reach.answered, reach.refused
         return out
 
     # --- OpenAI-compatible: ids only. No type, no residency — say so.
-    data = _json_or_none(_get('/v1/models', url=url, timeout=timeout))
+    data = _json_or_none(_get('/v1/models', url=url, reach=reach, timeout=timeout))
     if isinstance(data, dict) and isinstance(data.get('data'), list):
         out.update(ok=True, reachable=True, surface='openai', models=[
             {'id': m.get('id') or '', 'type': '', 'loaded': None,
              'instances': [], 'display_name': ''}
             for m in data['data'] if isinstance(m, dict)
         ])
+    out['answered'], out['refused'] = reach.answered, reach.refused
     return out
 
 
@@ -169,6 +207,20 @@ def _norm_type(raw) -> str:
     """`embedding` (v1) and `embeddings` (v0) are the same thing. Say it once."""
     t = str(raw or '').strip().lower()
     return 'embeddings' if t.startswith('embedding') else t
+
+
+def _no_model_sentence(url: str | None = None) -> str:
+    """Why there is no model to send to — reachability FIRST.
+
+    Blaming the model on a server that never answered is the wrong sentence at the
+    worst moment: it sends someone to load a model into an app they have not
+    started. Both states end with "no model resolved", so the difference has to be
+    asked for explicitly.
+    """
+    listed = list_models(url=url)
+    if not listed['reachable']:
+        return failure_sentence(None, 'unreachable')
+    return failure_sentence(400, 'no models loaded')
 
 
 def resolve_model(preferred: str | None = None, *, url: str | None = None) -> str:
@@ -181,10 +233,21 @@ def resolve_model(preferred: str | None = None, *, url: str | None = None) -> st
     if explicit:
         return explicit
     listed = list_models(url=url)
-    loaded = [m['id'] for m in listed['models'] if m.get('loaded')]
-    if loaded:
-        return loaded[0]
-    vlms = [m['id'] for m in listed['models'] if m.get('type') in ('vlm', 'llm')]
+    # An embedding model cannot chat, and keeping one resident is routine in LM
+    # Studio (its own document chat loads one). Picked as "the loaded model" it
+    # turns every caption into an opaque server error with nothing connecting it
+    # to the cause. The pickers already filter this out — resolve_model was the
+    # one place that forgot, on the DEFAULT path (vision_model is empty by design).
+    usable = [m for m in listed['models'] if m.get('id')
+              and m.get('type') != 'embeddings']
+    for wanted in (('vlm',), ('llm', '')):
+        loaded = [m['id'] for m in usable if m.get('loaded') and m.get('type') in wanted]
+        if loaded:
+            return loaded[0]
+    loaded_any = [m['id'] for m in usable if m.get('loaded')]
+    if loaded_any:
+        return loaded_any[0]
+    vlms = [m['id'] for m in usable if m.get('type') in ('vlm', 'llm')]
     return vlms[0] if vlms else ''
 
 
@@ -210,9 +273,19 @@ def probe_resident(endpoint: str | None = None) -> tuple[str, list, dict]:
     try:
         listed = list_models(url=url)
     except Exception as exc:               # noqa: BLE001 - reported as a state
-        return 'down', [], {'reason': str(exc)}
+        return 'unknown', [], {'reason': str(exc)}
     if not listed['reachable']:
-        return 'down', [], {'reason': 'no answer'}
+        # `down` is NOT a neutral state here: the fence reads it as proof the card
+        # is free and admits ComfyUI. Only an actively refused connection proves
+        # that. A timeout, a 401 from a token the user got wrong, a 500, a proxy —
+        # all of those are a server that may well be holding 3 GB of VRAM, and
+        # calling them `down` is how a fail-closed guard opens. The Ollama probe
+        # already draws the line here; this now agrees with it.
+        if listed.get('answered') or not listed.get('refused'):
+            return 'unknown', [], {
+                'reason': 'the server answered in a shape this app does not recognise'
+                          if listed.get('answered') else 'no usable answer'}
+        return 'down', [], {'reason': 'connection refused'}
     if listed['surface'] == 'openai':
         return 'unknown', [], {
             'reason': 'this server only answers the OpenAI-compatible API, '
@@ -252,8 +325,22 @@ def release(endpoint: str | None = None, model: str | None = None) -> bool:
 
 
 def unload_vision_model(*, url: str | None = None, model: str | None = None) -> bool:
-    """Name-compatible with the Ollama driver's entry point."""
-    return release(url, model)
+    """Release what LDS is entitled to release — through the fence, like Ollama's.
+
+    NOT `release(url, model)`. With `model=None` that unloads every instance the
+    server reports, and the bare form is the common one: seven caption batches end
+    with `unload_vision_model()` and the keep-warm lease revokes with it. Under LM
+    Studio each of those would have wiped the server clean — including an embedding
+    model, or a chat model another application was serving from, that LDS never
+    loaded. The fence is what knows the difference between what LDS put there and
+    what it merely borrowed; `release()` stays the low-level primitive it reaches
+    for once it has decided.
+    """
+    from . import ollama_gpu_fence
+    released = ollama_gpu_fence.release_owned_models(ollama_url=url, model=model)
+    # None = the fence considers this endpoint out of its scope (remote). LM Studio
+    # on another machine holds no GPU here, so there is nothing to free.
+    return True if released is None else released
 
 
 def failure_sentence(status: int | None, body: str) -> str:
@@ -310,9 +397,15 @@ def _admit(url: str, model: str) -> None:
         raise LocalLmStudioFenceError(ollama_gpu_fence.blocked_message())
 
 
-def _chat(messages, *, model, max_tokens, temperature, timeout, url=None):
+def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_json=False):
     payload = {'model': model, 'messages': messages,
                'max_tokens': max_tokens, 'temperature': temperature, 'stream': False}
+    if as_json:
+        # Ollama's `format='json'` has an OpenAI-compatible equivalent, and it is not
+        # optional: the head-crop and watermark-bbox callers PARSE the answer. Dropped
+        # silently, those passes get prose where they expect an object and fail as if
+        # the model were bad — see vision_llm.describe_image, which passes it through.
+        payload['response_format'] = {'type': 'json_object'}
     headers = {'Content-Type': 'application/json', **_headers()}
     return requests.post(f'{url or base_url()}/v1/chat/completions', json=payload,
                          headers=headers, timeout=timeout)
@@ -331,6 +424,7 @@ def describe_image(image_bytes: bytes, prompt: str, *,
                    url: str | None = None,
                    model: str | None = None,
                    num_predict: int = 800,
+                   as_json: bool = False,
                    strict: bool = False,
                    timeout: tuple[float, float] | float = (10, 180)) -> str:
     """Describe an image through LM Studio. "" best-effort, or raises if strict.
@@ -349,7 +443,7 @@ def describe_image(image_bytes: bytes, prompt: str, *,
     endpoint = _suffix_free(url) if url else base_url()
     target = resolve_model(model, url=endpoint)
     if not target:
-        msg = failure_sentence(400, 'no models loaded')
+        msg = _no_model_sentence(endpoint)
         if strict:
             raise RuntimeError(msg)
         logger.warning('vision_lmstudio: describe skipped: %s', msg)
@@ -370,15 +464,21 @@ def describe_image(image_bytes: bytes, prompt: str, *,
         try:
             _admit(endpoint, target)
             resp = _chat(messages, model=target, max_tokens=num_predict,
-                         temperature=0.2, timeout=timeout, url=endpoint)
+                         temperature=0.2, timeout=timeout, url=endpoint,
+                         as_json=as_json)
         except LocalLmStudioFenceError:
             raise                          # the fence speaks for itself, 409 upstream
         except Exception as exc:           # noqa: BLE001 - reported below
             last_status, last_body = None, str(exc)
             break
         if getattr(resp, 'status_code', 0) < 400:
+            try:
+                answer = _answer(resp)
+            except Exception as exc:       # noqa: BLE001 - a proxy's HTML error page
+                last_status, last_body = resp.status_code, str(exc)
+                break
             _data_uri_ok = use_data_uri
-            return _answer(resp)
+            return answer
         last_status, last_body = resp.status_code, resp.text or ''
         if _INVALID_URL_MARKER not in last_body.lower():
             break                          # a different problem: do not burn a retry
@@ -400,7 +500,7 @@ def generate_text(prompt: str, *,
     endpoint = _suffix_free(url) if url else base_url()
     target = resolve_model(model, url=endpoint)
     if not target:
-        msg = failure_sentence(400, 'no models loaded')
+        msg = _no_model_sentence(endpoint)
         if strict:
             raise RuntimeError(msg)
         logger.warning('vision_lmstudio: text generate skipped: %s', msg)
@@ -423,4 +523,11 @@ def generate_text(prompt: str, *,
             raise RuntimeError(msg)
         logger.warning('vision_lmstudio: text generate skipped: %s', msg)
         return ''
-    return _answer(resp)
+    try:
+        return _answer(resp)
+    except Exception as exc:               # noqa: BLE001 - same contract as above
+        msg = failure_sentence(resp.status_code, str(exc))
+        if strict:
+            raise RuntimeError(msg) from exc
+        logger.warning('vision_lmstudio: text generate skipped: %s', msg)
+        return ''

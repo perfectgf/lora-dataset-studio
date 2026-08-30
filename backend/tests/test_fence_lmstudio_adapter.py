@@ -158,18 +158,54 @@ def test_a_preloaded_lmstudio_model_is_adopted_not_treated_as_a_stranger(app, mo
         _as_lmstudio(app)
         scope = fence.mark_before_generate(LMS_URL, 'qwen/qwen3-vl-4b', provider='lmstudio')
     assert scope == 'local'
-    assert 'qwen/qwen3-vl-4b' in fence._owned_models[LMS_URL]
+    # BORROWED, not owned. The two rights are not the same: LDS may use this model
+    # because the user loaded it on purpose, and may never unload it for the same
+    # reason. Writing it into _owned_models would hand LDS the right to free
+    # somebody else's VRAM — "over-adopting is the dangerous direction".
+    assert 'qwen/qwen3-vl-4b' in fence._borrowed_models[LMS_URL]
+    assert 'qwen/qwen3-vl-4b' not in fence._owned_models.get(LMS_URL, set())
 
 
-def test_adoption_covers_only_the_model_being_asked_for(app, monkeypatch):
-    """A DIFFERENT resident model is still a stranger: loading a second one beside
-    it is exactly the VRAM fight the fence exists to prevent."""
+def test_a_model_that_is_not_even_loaded_is_still_refused(app, monkeypatch):
+    """Borrowing only covers a model that is ALREADY resident. Asking for one that
+    is not means LDS would have to load it beside a stranger's — the VRAM fight
+    this module exists to prevent."""
     monkeypatch.setattr(vision_lmstudio, 'probe_resident',
                         lambda ep: ('models', ['somebody/else-70b'], {}))
     with app.app_context():
         _as_lmstudio(app)
         scope = fence.mark_before_generate(LMS_URL, 'qwen/qwen3-vl-4b', provider='lmstudio')
     assert scope == 'blocked'
+
+
+def test_a_co_tenant_model_does_not_block_captioning(app, monkeypatch):
+    """LM Studio routinely holds a second model — an embedding one for its own
+    document chat, or a chat model beside the VLM. Using a model that is already
+    there costs the card nothing, so a co-tenant is not a reason to refuse. Read
+    the Ollama way it blocked every Describe and Enhance AND froze the ComfyUI
+    queue, telling the user to unload a model they legitimately need."""
+    monkeypatch.setattr(vision_lmstudio, 'probe_resident',
+                        lambda ep: ('models', ['qwen/qwen3-vl-4b', 'nomic-embed'], {}))
+    with app.app_context():
+        _as_lmstudio(app)
+        assert fence.mark_before_generate(
+            LMS_URL, 'qwen/qwen3-vl-4b', provider='lmstudio') == 'local'
+    # ...and the endpoint is NOT poisoned for the release path by that admission.
+    assert LMS_URL not in fence._foreign_local_endpoints
+
+
+def test_a_borrowed_model_is_refused_to_comfyui_rather_than_unloaded(app, monkeypatch):
+    """The release half stays strict, and stays HONEST: LDS does not free VRAM it
+    did not allocate. The queue dock already carries the two consent-gated doors
+    for this refusal (unload it for me / share the GPU anyway)."""
+    monkeypatch.setattr(vision_lmstudio, 'probe_resident',
+                        lambda ep: ('models', ['qwen/qwen3-vl-4b'], {}))
+    monkeypatch.setattr(vision_lmstudio, 'release',
+                        lambda *a, **kw: pytest.fail('a borrowed model was unloaded'))
+    with app.app_context():
+        _as_lmstudio(app)
+        fence.mark_before_generate(LMS_URL, 'qwen/qwen3-vl-4b', provider='lmstudio')
+        assert fence._release_endpoint(LMS_URL, set()) is False
 
 
 def test_the_refusal_names_the_server_the_user_actually_runs(app):

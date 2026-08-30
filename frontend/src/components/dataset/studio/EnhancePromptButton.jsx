@@ -23,6 +23,7 @@ import { useToast } from '../../common/Toast';
 import useOllamaFence from '../../../hooks/useOllamaFence';
 import OllamaFenceNotice from '../../common/OllamaFenceNotice';
 import { enhanceBlocker } from './enhanceGate';
+import { activeLocalLlm } from '../../../utils/localLlm'
 
 /* One preference for the tool, wherever it is mounted — deliberately NOT keyed per
    dataset or per surface: the same enhance on the Canvas must not silently run a
@@ -113,7 +114,7 @@ export default function EnhancePromptButton({ prompt, onResult, className = '' }
   const { fence, runGuarded, unloadAndRetry, stopWaiting } = useOllamaFence({
     onError: (e) => toast.error(e?.message || 'Enhance failed'),
   });
-  const blocked = enhanceBlocker(caps?.ollama, { capsLoading: loading, customModel: model });
+  const blocked = enhanceBlocker(activeLocalLlm(caps), { capsLoading: loading, customModel: model });
   const empty = !((prompt || '').trim());
   const title = blocked
     || (empty ? 'Write a prompt first'
