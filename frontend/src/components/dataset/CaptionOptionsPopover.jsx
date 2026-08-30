@@ -419,9 +419,9 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
               <p className="text-xs text-content-subtle leading-relaxed">
                 <strong className="font-medium text-content-muted">Omit</strong> binds that look
                 to the trigger (do not caption it).{' '}
-                <strong className="font-medium text-content-muted">Describe</strong> keeps it
-                prompt-controllable — including “no makeup” or “clean shaven” when that is
-                what the photo shows. Re-caption after changing this.
+                <strong className="font-medium text-content-muted">Describe</strong> names
+                what is clearly visible so it stays prompt-controllable (lipstick, a beard,
+                glasses). Re-caption after changing this.
               </p>
               {!policyActive && !appearanceDirty && (
                 <p className="text-xs text-content-subtle leading-relaxed">
