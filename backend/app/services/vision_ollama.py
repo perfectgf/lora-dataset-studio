@@ -12,12 +12,11 @@ from __future__ import annotations
 import base64
 import logging
 import os as _os
-import warnings
 
 import requests
 
 from .. import config as cfg
-from . import image_encoding, input_budget  # noqa: F401 - installs the shared budget
+from . import vision_image
 
 logger = logging.getLogger(__name__)
 
@@ -82,54 +81,16 @@ def _ollama_reject_message(exc: Exception) -> str:
 # the Studio "Describe" pass can still produce WebP, so on those builds a WebP request
 # fails with HTTP 400 "Failed to load image or audio file" (the exact llama.cpp reject) —
 # issue #6, theotherbox122 on Ollama 0.32.0. Every decodable image is re-encoded at this
-# single seam: it guarantees a JPEG all Ollama runners can read, bounds payload size, bakes
-# EXIF orientation, and prevents camera EXIF/XMP/GPS from leaving the machine for the
-# configured Ollama endpoint. The dataset master is only read, never rewritten.
-_OLLAMA_MAX_SIDE = 1536
+# The image gate moved to vision_image so a second provider cannot skip or
+# reimplement it: it is what makes captioning a pixel-only disclosure (fresh JPEG,
+# no EXIF/XMP/GPS, bounded side, fail-closed). Both names below are kept because
+# the suite refers to them by name; the behaviour is unchanged.
+_OLLAMA_MAX_SIDE = vision_image.VISION_MAX_SIDE
 
 
 def _ensure_ollama_decodable(image_bytes: bytes) -> bytes | None:
-    """Return image bytes Ollama's server-side decoder can definitely read.
-
-    Every decodable format becomes a fresh, metadata-free JPEG (alpha flattened
-    onto white, EXIF orientation baked, longest side bounded, quality 90). That
-    makes remote captioning an explicit pixel-only disclosure even for source
-    JPEG/PNG files. Fail closed: an undecodable or unsafe source returns ``None``
-    so raw camera bytes can never be sent to the configured (possibly remote)
-    Ollama endpoint."""
-    try:
-        import io
-
-        from PIL import Image, ImageOps
-        with warnings.catch_warnings():
-            warnings.simplefilter('error', Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(image_bytes)) as source:
-                # Same shared budget as Dataset import, resolved live: an image
-                # the user was allowed to import must also be describable.
-                image_encoding.validate_input_header_dimensions(
-                    source, label='vision captioning')
-                source.load()
-                im = ImageOps.exif_transpose(source)
-        if im.mode in ('RGBA', 'LA', 'PA') or (im.mode == 'P' and 'transparency' in im.info):
-            im = im.convert('RGBA')
-            bg = Image.new('RGB', im.size, (255, 255, 255))
-            bg.paste(im, mask=im.split()[-1])
-            im = bg
-        elif im.mode != 'RGB':
-            im = im.convert('RGB')
-        # A fresh image has no inherited `info`; Pillow otherwise may carry
-        # source metadata in surprising format-specific save paths.
-        clean = Image.new('RGB', im.size)
-        clean.paste(im)
-        im = clean
-        if max(im.size) > _OLLAMA_MAX_SIDE:
-            im.thumbnail((_OLLAMA_MAX_SIDE, _OLLAMA_MAX_SIDE), Image.LANCZOS)
-        out = io.BytesIO()
-        im.save(out, 'JPEG', quality=90)
-        return out.getvalue()
-    except Exception as e:  # noqa: BLE001 - never disclose raw bytes after a decode failure
-        logger.warning('vision_ollama: refusing unsafe/unreadable image before Ollama (%s)', e)
-        return None
+    """Return image bytes Ollama's server-side decoder can definitely read."""
+    return vision_image.ensure_vision_safe_jpeg(image_bytes, provider='vision_ollama')
 
 
 def get_vision_model() -> str:

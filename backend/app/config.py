@@ -110,6 +110,25 @@ DEFAULTS = {
                # ollama.skipped in capabilities.probe), so it can never mask a real
                # error of a running Ollama — a stopped one has nothing to error on.
                'setup_skipped': False},
+    # Which local LLM serves captioning, framing, head-crop and the prompt helpers.
+    # Default 'ollama' so every existing install behaves exactly as before — this
+    # setting only ever ADDS a second door. The per-dataset `captioning.backend`
+    # value 'ollama' keeps its stored spelling (it lives in user databases) and now
+    # means "the configured local provider"; see docs/guide/settings-reference.md.
+    'local_llm': {'provider': 'ollama'},          # 'ollama' | 'lmstudio'
+    # LM Studio speaks an OpenAI-compatible API plus two native ones. Measured on
+    # 0.4.23 rather than assumed: images go in as the STANDARD data: URI (bare
+    # base64 is rejected with "Invalid url."), residency reads from
+    # /api/v1 `loaded_instances` or /api/v0 `state`, and /api/v1/models/unload
+    # genuinely frees the card. An empty vision_model means "whatever is loaded".
+    'lmstudio': {'url': 'http://127.0.0.1:1234',
+                 # Optional bearer token; LM Studio can be configured to require one.
+                 'api_key': '',
+                 'vision_model': '',
+                 # Same meaning and defaults as the ollama.* pair above, read per
+                 # provider by vision_llm so the Settings dials are never inert.
+                 'vision_concurrency': 4,
+                 'vision_keep_warm_seconds': 120},
     'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': '',
                   # Explicit interpreter for installs without venv/.venv
                   # (conda, uv, system python). Empty = auto-detect.

@@ -25,10 +25,14 @@ import socket
 import pytest
 
 OLLAMA_PORT = 11434
+LMSTUDIO_PORT = 1234
+# Both local LLM daemons a developer may be running. The guard in conftest
+# refuses the same two, by parsed port, so the two agree.
+LOCAL_LLM_PORTS = (OLLAMA_PORT, LMSTUDIO_PORT)
 
 
 class _Tripwire:
-    """Records every connect() to Ollama's port instead of making it.
+    """Records every connect() to a local LLM daemon's port instead of making it.
 
     Records rather than raises: a raise would be caught by the probe's own
     try/except and reported as 'unreachable', which is what a passing test
@@ -45,9 +49,10 @@ class _Tripwire:
 
         def connect(sock, address):
             if (isinstance(address, tuple) and len(address) >= 2
-                    and address[1] == OLLAMA_PORT):
+                    and address[1] in LOCAL_LLM_PORTS):
                 tripwire.hits.append(address)
-                raise ConnectionRefusedError('tripwire: the suite must not reach Ollama')
+                raise ConnectionRefusedError(
+                    'tripwire: the suite must not reach a local LLM daemon')
             return tripwire._real(sock, address)
 
         socket.socket.connect = connect
