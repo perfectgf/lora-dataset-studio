@@ -52,7 +52,7 @@ from ..extensions import db
 from ..models import (VideoBank, VideoClip, VideoDataset, VideoDatasetClip,
                       VideoSource)
 from . import (bank_jobs, video_metrics, video_camera_motion, ffmpeg_tools,
-               path_guard, video_clip_export, video_targets)
+               path_guard, video_clip_export, video_targets, video_training)
 
 logger = logging.getLogger(__name__)
 
@@ -2369,7 +2369,7 @@ def _resolve_edge_inset(value):
 
 def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
                   frames=None, size=None, max_per_source=None,
-                  edge_inset_s=None):
+                  edge_inset_s=None, trigger_word=None):
     """Encode the KEPT clips into a new video dataset.
 
     Everything that can be refused is refused HERE, synchronously, before a single
@@ -2430,7 +2430,16 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
     # it, so how many clips are about to ship without one is a limit that has to
     # be visible BEFORE the encode rather than discovered in a training run.
     captioned = sum(1 for c in rows if (c.caption or '').strip())
+    # Shot-rate is a FACT about the source file, and 48+ fps footage is very
+    # often slow motion once conformed — which teaches a model dreamy, floaty
+    # movement (fal audited two thirds of their people clips as slo-mo). Stated,
+    # never judged: no detector is pretended here, only the number the probe
+    # already measured, so the user can weigh footage they know better than we do.
+    high_fps_ids = {vs.id for vs in VideoSource.query.filter(
+        VideoSource.id.in_({c.source_id for c in rows}),
+        VideoSource.fps_native >= 48).all()} if rows else set()
     composition = {
+        'high_fps_clips': sum(1 for c in rows if c.source_id in high_fps_ids),
         'sources': len(per_source),
         'captioned': captioned,
         'uncaptioned': len(rows) - captioned,
@@ -2464,9 +2473,10 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
                 f'or deselect those clips.')
     _ffmpeg_or_raise()
 
+    trigger = (trigger_word or '').strip() or None
     dataset = VideoDataset(user_id=user_id, name=name,
                            target_profile=target_profile, fps=profile['fps'],
-                           frames=frames,
+                           frames=frames, trigger_word=trigger,
                            width=size[0] if size else None,
                            height=size[1] if size else None,
                            output_dir='')
@@ -2479,7 +2489,7 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
 
     bank_jobs.start(app, job_key(bank_id), 'promote',
                     _promote_job(bank.id, dataset.id, clip_ids, target_profile,
-                                 frames, size, inset),
+                                 frames, size, inset, trigger),
                     total=len(clip_ids))
     return {'id': dataset.id, 'name': dataset.name,
             'output_dir': dataset.output_dir, 'clips': len(clip_ids),
@@ -2487,7 +2497,7 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
 
 
 def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
-                 edge_inset_s=0.0):
+                 edge_inset_s=0.0, trigger_word=None):
     """One ffmpeg per kept clip, straight into a FLAT folder.
 
     NOT ONE SUBFOLDER, EVER. ai-toolkit's dataset scan is os.walk — recursive —
@@ -2587,7 +2597,8 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
             # future on a missing one, and diffusion-pipe drops the clip. An
             # EMPTY sidecar is not neutral either, it trains as an empty prompt
             # in silence, which is what the pre-flight count exists to surface.
-            video_clip_export.write_sidecar(str(dst), clip.caption)
+            video_clip_export.write_sidecar(
+                str(dst), _with_trigger(trigger_word, clip.caption))
             index = candidate
             encoded += 1
             db.session.add(VideoDatasetClip(
@@ -2621,24 +2632,167 @@ def get_video_dataset(user_id, dataset_id) -> VideoDataset | None:
     return VideoDataset.query.filter_by(id=dataset_id, user_id=user_id).first()
 
 
+def _with_trigger(trigger, caption) -> str:
+    """The sidecar text: trigger first, caption after, exactly once.
+
+    Prepended at WRITE time rather than stored inside the caption, so editing a
+    caption in the UI never shows (or loses) the trigger, and changing nothing
+    else about the flow: no trigger, and the sidecar is the caption verbatim.
+    Idempotent on captions that already start with the trigger - a set promoted
+    from a bank whose captions carry it does not get it twice, which is the
+    duplication fal measured degrading prompt adherence."""
+    trigger = (trigger or '').strip()
+    caption = (caption or '').strip()
+    if not trigger:
+        return caption
+    if caption.lower().startswith(trigger.lower()):
+        return caption
+    return f'{trigger}, {caption}' if caption else trigger
+
+
 def _dataset_row(ds: VideoDataset) -> dict:
     profile = video_targets.get(ds.target_profile) or {}
     seconds = video_targets.clip_seconds(ds.target_profile, ds.frames) \
         if ds.frames else None
+    clip_count = VideoDatasetClip.query.filter_by(dataset_id=ds.id).count()
     return {
         'id': ds.id, 'name': ds.name, 'target_profile': ds.target_profile,
         'target_label': profile.get('label', ds.target_profile),
         'fps': ds.fps, 'frames': ds.frames,
         'clip_seconds': round(seconds, 3) if seconds else None,
         'width': ds.width, 'height': ds.height, 'output_dir': ds.output_dir,
-        'clips': VideoDatasetClip.query.filter_by(dataset_id=ds.id).count(),
+        'clips': clip_count,
+        # Computed here, where the count already is, so the two can never
+        # disagree on screen. The launch routes do not read it — it prefills an
+        # editable field, and what the user sends is what trains.
+        'suggested_steps': video_training.suggested_steps(clip_count),
         'training_verified': profile.get('training_verified', False),
         # Surfaced on the dataset, not only in the picker: a user who built a set
         # for MiniMax H3 needs the territory restriction in front of them when
         # they come back to it, not once at creation.
         'licence_note': profile.get('licence_note'),
+        'trigger_word': ds.trigger_word,
+        'references': len(reference_dirs(ds)),
+        'requires_references': bool(profile.get('requires_references')),
         'created_at': ds.created_at.isoformat() if ds.created_at else None,
     }
+
+
+_REF_DIRNAME = '_controls'          # the ONE directory name ai-toolkit's scan skips
+_REF_IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.webp')
+_MAX_REFERENCES = 4                 # upstream's own ref_1..ref_4 shape
+
+
+def reference_dirs(ds) -> list:
+    """The dataset's reference dirs (ref_1..ref_N), existing ones only, sorted."""
+    root = Path(str(ds.output_dir or '')) / _REF_DIRNAME
+    try:
+        return sorted(d for d in root.iterdir()
+                      if d.is_dir() and d.name.startswith('ref_'))
+    except OSError:
+        return []
+
+
+def set_dataset_references(user_id, dataset_id, images) -> dict:
+    """Attach 1-4 identity reference images to a ref2va dataset.
+
+    `images` is [(filename, bytes)]. The trainer matches a control to a clip by
+    FILE STEM inside each control dir, and a clip whose stem finds nothing is
+    silently trained without its reference - so each reference is written once
+    per clip stem, and the launch-side refusal can then trust that "dirs exist"
+    means "every clip is covered". Replaces any previous set whole: references
+    are one identity, not an album to append to."""
+    ds = get_video_dataset(user_id, dataset_id)
+    if ds is None:
+        return None
+    profile = video_targets.get(ds.target_profile) or {}
+    if not profile.get('requires_references'):
+        raise ValueError(f'{profile.get("label", ds.target_profile)} does not '
+                         'train against reference images')
+    imgs = [(n, b) for (n, b) in (images or [])
+            if os.path.splitext(str(n))[1].lower() in _REF_IMAGE_EXTS and b]
+    if not imgs:
+        raise ValueError('attach 1-4 reference images (png/jpg/webp)')
+    if len(imgs) > _MAX_REFERENCES:
+        raise ValueError(f'at most {_MAX_REFERENCES} references — more of the '
+                         'same identity stops adding information')
+    clips = VideoDatasetClip.query.filter_by(dataset_id=ds.id).all()
+    if not clips:
+        raise ValueError('this dataset has no clips yet — promote first, then '
+                         'attach references')
+    root = Path(str(ds.output_dir)) / _REF_DIRNAME
+    if root.exists():
+        shutil.rmtree(root)
+    stems = {os.path.splitext(c.filename)[0] for c in clips}
+    for k, (name, data) in enumerate(imgs, start=1):
+        ext = os.path.splitext(str(name))[1].lower()
+        ref_dir = root / f'ref_{k}'
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        for stem in stems:
+            (ref_dir / f'{stem}{ext}').write_bytes(data)
+    return {'references': len(imgs), 'clips_covered': len(stems)}
+
+
+def create_stills_dataset_from_face_dataset(user_id, face_dataset_id,
+                                            name=None) -> dict:
+    """A VIDEO dataset of still images, built from an existing image dataset.
+
+    "Image datasets (num_frames 1) train as single frames" is ai-toolkit's own
+    road for H3, and the image side of the app already owns everything it needs
+    - curated images, edited captions, a trigger. So this REUSES the image
+    lane's own exporter (`export_dataset_to_aitoolkit`, masks off), which writes
+    the exact flat image+.txt layout the trainer reads, trigger included; the
+    rows are then registered so the dataset page shows what a promotion shows.
+
+    The face dataset's trigger is copied onto the stills set so a later caption
+    edit re-writes its sidecar with the same trigger, exactly once - the
+    idempotent prepend already guards against doubling it."""
+    from . import face_dataset_service as fds
+    from . import lora_training as lt
+    face = fds.get_dataset(user_id, face_dataset_id)
+    if face is None:
+        raise ValueError('image dataset not found')
+    profile_key = 'minimax_h3'
+    dataset = VideoDataset(
+        user_id=user_id,
+        name=(name or '').strip() or f'{face.name} — stills',
+        target_profile=profile_key, fps=video_targets.get(profile_key)['fps'],
+        frames=1, width=768, height=768,
+        trigger_word=(getattr(face, 'trigger_word', None) or '').strip() or None,
+        output_dir='')
+    db.session.add(dataset)
+    db.session.flush()
+    out_dir = dataset_dir(dataset.id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dataset.output_dir = str(out_dir)
+    try:
+        lt.export_dataset_to_aitoolkit(user_id, face_dataset_id, masked=False,
+                                       dest_dir=str(out_dir))
+    except Exception:
+        db.session.delete(dataset)
+        db.session.commit()
+        raise
+    copied = 0
+    for entry in sorted(os.listdir(out_dir)):
+        stem, ext = os.path.splitext(entry)
+        if ext.lower() not in ('.png', '.jpg', '.jpeg', '.webp'):
+            continue
+        caption = None
+        sidecar = out_dir / f'{stem}.txt'
+        try:
+            caption = sidecar.read_text(encoding='utf-8').strip() or None
+        except OSError:
+            pass
+        db.session.add(VideoDatasetClip(dataset_id=dataset.id, filename=entry,
+                                        caption=caption))
+        copied += 1
+    db.session.commit()
+    if not copied:
+        db.session.delete(dataset)
+        db.session.commit()
+        raise ValueError('that image dataset exported no images — nothing to train on')
+    return {'id': dataset.id, 'name': dataset.name, 'clips': copied,
+            'output_dir': dataset.output_dir}
 
 
 def list_video_datasets(user_id) -> list:
@@ -2680,7 +2834,8 @@ def set_dataset_clip_caption(user_id, dataset_id, clip_id, caption) -> dict | No
     clip_path = os.path.join(ds.output_dir, row.filename)
     written = True
     try:
-        video_clip_export.write_sidecar(clip_path, row.caption)
+        video_clip_export.write_sidecar(
+            clip_path, _with_trigger(ds.trigger_word, row.caption))
     except OSError as e:
         written = False
         logger.warning('video dataset %s: could not write sidecar: %s', ds.id, e)

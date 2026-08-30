@@ -37,7 +37,28 @@ export default function VideoDatasetCloudPanel({ dataset }) {
   const [run, setRun] = useState(null)
   const [groups, setGroups] = useState([])
   const [busy, setBusy] = useState(false)
-  const [steps, setSteps] = useState(1000)
+  // Prefilled with the server's dataset-sized suggestion (steps scale with the
+  // clip count - measured, not vibes; see suggested_steps in video_training.py).
+  // Still just a prefill: what the user types is what trains.
+  const [steps, setSteps] = useState(dataset?.suggested_steps || 1000)
+  // GPU tiers are fetched on demand, never on mount: a library page with a
+  // dozen datasets must not fan out a vast.ai search per card.
+  const [doI2v, setDoI2v] = useState(false)
+  const [tiers, setTiers] = useState(null)
+  const [gpuName, setGpuName] = useState('')
+  const [tiersBusy, setTiersBusy] = useState(false)
+
+  const fetchTiers = async () => {
+    setTiersBusy(true)
+    try {
+      const d = await apiFetch(`${videoDatasetCloudUrl(id)}/offers?steps=${steps}`)
+      setTiers(d.tiers || [])
+    } catch (e) {
+      toast.error(e?.message || 'Could not list GPU offers.')
+    } finally {
+      setTiersBusy(false)
+    }
+  }
 
   const id = dataset?.id
 
@@ -99,8 +120,47 @@ export default function VideoDatasetCloudPanel({ dataset }) {
             onChange={(e) => setSteps(Number(e.target.value) || 1000)}
             className="w-20 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content" />
         </label>
+        {Boolean(dataset?.suggested_steps) && (
+          <span className="text-[0.625rem] text-content-subtle">
+            suggested for {dataset.clips} clips
+          </span>
+        )}
+        {dataset?.target_profile === 'minimax_h3' && (
+          <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
+            <input type="checkbox" checked={doI2v}
+              onChange={(e) => setDoI2v(e.target.checked)} />
+            i2v (first-frame)
+          </label>
+        )}
+        {tiers === null ? (
+          <button type="button" disabled={tiersBusy}
+            onClick={fetchTiers}
+            className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:bg-surface disabled:opacity-40">
+            {tiersBusy ? 'Fetching offers…' : '🔍 Choose a GPU'}
+          </button>
+        ) : (
+          <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
+            GPU
+            <select value={gpuName} onChange={(e) => setGpuName(e.target.value)}
+              className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content">
+              <option value="">Cheapest suitable</option>
+              {tiers.map((t) => (
+                <option key={t.gpu_name} value={t.gpu_name}>
+                  {t.gpu_name} — ${t.dph_total}/h
+                  {t.est_minutes != null ? ` · ~${t.est_minutes} min · ~$${t.est_cost}` : ''}
+                  {t.exceeds_cap ? ' ⚠ over runtime cap' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <button type="button" disabled={busy || Boolean(blocked)}
-          onClick={() => post(videoDatasetCloudUrl(id), { steps },
+          onClick={() => post(videoDatasetCloudUrl(id),
+            {
+              steps,
+              ...(doI2v ? { do_i2v: true } : {}),
+              ...(gpuName ? { gpu_name: gpuName } : {}),
+            },
             'Renting a pod — the panel follows it from here.')}
           className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-40">
           ☁ Train in the cloud

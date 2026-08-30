@@ -198,3 +198,22 @@ def test_a_capped_promotion_reports_the_composition_it_achieved(client, app,
                           'frames': 81, 'max_per_source': 2})
 
     assert r.get_json()['composition']['top_source_share'] == pytest.approx(2 / 5)
+
+
+def test_high_fps_sources_are_counted_never_judged(app, tmp_path, seams):
+    """48+ fps footage is very often slow motion once conformed, and slo-mo
+    teaches floaty movement (fal audited two thirds of their people clips as
+    slo-mo). No detector is pretended: the count states the fps the probe
+    already measured and lets the user weigh footage they know better than we
+    do. The 30 fps fixture sources contribute zero."""
+    bank_id = _bank_with_kept_clips(app, tmp_path, per_source=(2, 2))
+    with app.app_context():
+        slow = (VideoSource.query.filter_by(bank_id=bank_id)
+                .order_by(VideoSource.relpath).first())
+        slow.fps_native = 60.0
+        db.session.commit()
+        out = svc.start_promote(app, LOCAL_USER, bank_id,
+                                name='mix', target_profile='wan22_14b',
+                                frames=17)
+        assert out['composition']['high_fps_clips'] == 2
+

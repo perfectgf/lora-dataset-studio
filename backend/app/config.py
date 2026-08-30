@@ -249,6 +249,11 @@ DEFAULTS = {
         # must not move casually, while the video lane needs an ai-toolkit from
         # 2026-08-03 or later — that is when the `minimax_h3` architecture
         # landed, and a pod on the older tag refuses the job AFTER the rental.
+        # A SECOND date now rides on this pin: from 2026-08-06 the image can also
+        # load H3's training adapter, which is upstream's own default recipe. The
+        # job builder reads the date out of this tag rather than assuming it, so
+        # moving the pin backwards silently drops the recipe instead of arming
+        # something the image cannot run.
         'video_image': 'vastai/ostris-ai-toolkit:da79ebc-2026-08-27-cuda-12.9',
         'max_price_per_hour': 0.80,    # background safety cap on offer price, $/h
         'offer_scan_limit': 100,       # offers fetched when listing GPU speed tiers

@@ -596,3 +596,124 @@ def test_only_the_video_family_carries_a_compute_capability_floor():
     assert floors['video'] >= 800          # Ampere is the first bf16 generation
     assert set(floors) == {'video'}
 
+
+def test_video_gpu_tiers_prices_every_class_and_refuses_to_invent_estimates(
+        app, tmp_path, monkeypatch):
+    """The face lane's launch shows tiers; the video lane picked the cheapest
+    suitable offer silently. Tiers now exist here too, with two honesty rules:
+    the search applies the SAME floors the launch does (VRAM, disk, compute
+    generation — a picker listing cards the launch refuses is a menu of dead
+    ends), and the estimate comes from one measured run scaled by latent rows,
+    so a frame count off the 17n+5 grid gets None, never a made-up number."""
+    from app.services import cloud_video_training as cvt
+    from app.services import cloud_training as ct
+    from app.services import vast_client
+    seen = {}
+
+    def fake_search(**kw):
+        seen.update(kw)
+        return [
+            {'gpu_name': 'A100 SXM4', 'offer_id': 1, 'dph_total': 1.0,
+             'gpu_ram_gb': 80, 'reliability': 0.99, 'machine_id': 1},
+            {'gpu_name': 'A100 SXM4', 'offer_id': 2, 'dph_total': 0.9,
+             'gpu_ram_gb': 80, 'reliability': 0.99, 'machine_id': 2},
+            {'gpu_name': 'H100 PCIE', 'offer_id': 3, 'dph_total': 2.3,
+             'gpu_ram_gb': 80, 'reliability': 0.99, 'machine_id': 3},
+        ]
+
+    monkeypatch.setattr(vast_client, 'search_offers', fake_search)
+    monkeypatch.setattr(ct.cfg, 'secret', lambda k: 'key' if k == 'VAST_API_KEY' else None)
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'surf clips')      # frames=81: off H3 grid
+        data = cvt.video_gpu_tiers('local', vid.id, steps=100)
+    assert seen['min_vram_gb'] == 48
+    assert seen['min_compute_cap'] == 800
+    assert seen['min_disk_gb'] >= 120
+    by_name = {t['gpu_name']: t for t in data['tiers']}
+    assert by_name['A100 SXM4']['dph_total'] == 0.9       # cheapest of the class
+    # 81 frames is legal for Wan and OFF the measured H3 grid: no estimate.
+    assert by_name['A100 SXM4']['est_minutes'] is None
+    assert by_name['A100 SXM4']['estimate_status'] == 'unavailable'
+
+
+def test_the_video_estimate_reproduces_the_measured_run():
+    """21 s/step at 107 frames on an A100 SXM4 is the one number this model was
+    built from; 100 steps of it took ~35 minutes on run #166. The estimate must
+    give that back exactly - it is a citation, not a curve fit."""
+    from app.services import gpu_speed
+    assert round(gpu_speed.video_estimate_minutes('A100 SXM4', 107, 100)) == 35
+    assert gpu_speed.video_estimate_minutes('A100 SXM4', 40, 100) is None
+    assert gpu_speed.video_latent_rows(39) == 12
+
+
+def test_a_replayed_run_keeps_every_stamped_training_flag():
+    """_relaunch_args exists so a retry replays the ORIGINAL training, not
+    today's dataset row. That promise is only as good as the list of flags it
+    copies - do_i2v was missed the day it shipped, and a retried i2v run would
+    have silently trained t2v. Pinned here so the next flag cannot repeat it."""
+    from app.services.cloud_video_training import _relaunch_args
+    args = _relaunch_args({'base_model': '', 'low_vram': True, 'do_i2v': True,
+                           'requested_gpu': 'A100 SXM4'})
+    assert args == {'base_model': None, 'low_vram': True, 'do_i2v': True,
+                    'gpu_name': 'A100 SXM4'}
+
+
+def test_previews_and_the_distillation_override_ride_the_stamp(
+        app, tmp_path, monkeypatch):
+    """Two launch-time levers, both stamped so the pod rebuild minutes later
+    replays the launch and not the present: `sample_prompts` (capped at 4 -
+    each preview is a full video generation on the paid GPU) and
+    `distillation: off`, which exists for MEASUREMENT - it is the only way to
+    run one dataset with and without upstream's de-distillation recipe and
+    compare the previews. 'auto' stamps nothing and keeps the gated default."""
+    from app.services import cloud_video_training as cvt
+    calls = []
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'surf clips')
+        monkeypatch.setattr(cvt, '_start_pod', lambda run: calls.append(run))
+        out = cvt.launch_cloud_video_training(
+            'local', vid.id, steps=100, sample_prompts=['a wave', '  ', 'a dog'],
+            distillation='off', _provision=lambda run: calls.append(run))
+        from app.models import CloudTrainingRun
+        run = db.session.get(CloudTrainingRun, out['run_id'])
+        p = json.loads(run.train_params)
+        assert p['sample_prompts'] == ['a wave', 'a dog']    # blanks dropped
+        assert p['distillation'] == 'off'
+        with pytest.raises(ValueError):
+            cvt.launch_cloud_video_training(
+                'local', vid.id, steps=100,
+                sample_prompts=['1', '2', '3', '4', '5'],
+                _provision=lambda run: None)
+        with pytest.raises(ValueError):
+            cvt.launch_cloud_video_training(
+                'local', vid.id, steps=100, distillation='sideways',
+                _provision=lambda run: None)
+
+
+def test_the_off_stamp_beats_a_capable_image_and_prompts_reach_the_config(
+        app, tmp_path, monkeypatch):
+    """A capable image normally arms the recipe; the experiment stamp must win
+    or the A/B has no control arm. And the stamped prompts come out as the
+    sample block, sized to the dataset's own frames and fps."""
+    from app.services import cloud_training as ct
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'surf clips')
+        run = _run(vid.id, crd.VIDEO)
+        run.train_params = json.dumps({
+            'train_type': 'video', 'steps': 100,
+            'target_profile': vid.target_profile, 'frames': vid.frames,
+            'distillation': 'off', 'sample_prompts': ['a wave at dusk']})
+        db.session.commit()
+        monkeypatch.setattr(ct.cfg, 'get', lambda k=None: {
+            'video_image': 'vastai/ostris-ai-toolkit:x-2026-08-27-cuda-12.9'}
+            if k == 'cloud' else {})
+        cfg = ct._build_pod_job_config(run, str(tmp_path / 'stage'),
+                                       {'DATASETS_FOLDER': '/workspace/datasets',
+                                        'TRAINING_FOLDER': '/workspace/output'})
+        proc = cfg['config']['process'][0]
+        assert 'assistant_lora_path' not in proc['model']       # off won
+        assert 'do_guidance_loss' not in proc['train']
+        assert proc['sample']['prompts'] == ['a wave at dusk']
+        assert proc['sample']['num_frames'] == vid.frames
+        assert proc['sample']['fps'] == vid.fps
+

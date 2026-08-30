@@ -14,6 +14,7 @@ all in the EU, the UK, South Korea or the USA, and the restriction reaches the
 OUTPUTS — a user must not discover that in a forum thread after building a set).
 """
 import logging
+import mimetypes
 from ..extensions import db
 
 from flask import Blueprint, jsonify, request, send_file
@@ -75,6 +76,22 @@ def video_datasets_list():
     return jsonify({'datasets': svc.list_video_datasets(LOCAL_USER)})
 
 
+@bp.post('/video-datasets/from-dataset')
+def video_dataset_from_face_dataset():
+    """Build an H3 STILLS set from an existing image dataset — body
+    {dataset_id, name?}. Reuses the image lane's own exporter (curated images,
+    edited captions, trigger — all already there), so the two lanes cannot
+    disagree about what a caption or a trigger means."""
+    data = request.get_json(silent=True) or {}
+    try:
+        out = svc.create_stills_dataset_from_face_dataset(
+            LOCAL_USER, int(data.get('dataset_id') or 0), name=data.get('name'))
+    except (TypeError, ValueError) as e:
+        msg = str(e) or 'dataset_id must be a number'
+        return jsonify({'error': msg}), 404 if 'not found' in msg else 400
+    return jsonify({'ok': True, **out}), 201
+
+
 @bp.get('/video-dataset/<int:dataset_id>')
 def video_dataset_get(dataset_id):
     """The dataset and its clips, each carrying the source file and the bounds it
@@ -102,7 +119,9 @@ def video_dataset_clip_media(dataset_id, clip_id):
     path = svc.dataset_clip_media_path(LOCAL_USER, dataset_id, clip_id)
     if path is None:
         return jsonify({'error': 'clip file not available'}), 404
-    return send_file(path, mimetype='video/mp4', conditional=True, max_age=86400)
+    # A stills set serves images through the same route; the extension decides.
+    guessed = mimetypes.guess_type(path)[0] or 'video/mp4'
+    return send_file(path, mimetype=guessed, conditional=True, max_age=86400)
 
 
 @bp.post('/video-dataset/<int:dataset_id>/clip/<int:clip_id>/caption')
@@ -123,6 +142,22 @@ def video_dataset_caption(dataset_id, clip_id):
     if out is None:
         return _missing(dataset_id)
     return jsonify(out)
+
+
+@bp.post('/video-dataset/<int:dataset_id>/references')
+def video_dataset_references(dataset_id):
+    """Attach 1-4 identity reference images (multipart field `files`). Replaces
+    the previous set whole. 400 names every refusal; the target that needs
+    them is the only one that accepts them."""
+    files = request.files.getlist('files')
+    images = [(f.filename, f.read()) for f in files if f and f.filename]
+    try:
+        out = svc.set_dataset_references(LOCAL_USER, dataset_id, images)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if out is None:
+        return _missing(dataset_id)
+    return jsonify({'ok': True, **out})
 
 
 @bp.delete('/video-dataset/<int:dataset_id>')
@@ -159,6 +194,7 @@ def video_dataset_train_local(dataset_id):
             steps=body.get('steps') or 1000,
             base_model=(body.get('base_model') or '').strip() or None,
             low_vram=bool(body.get('low_vram', True)),
+            do_i2v=bool(body.get('do_i2v', False)),
             accept_download=bool(body.get('accept_download', False))))
     except vtl.VideoWeightsMissing as e:
         return jsonify({'error': str(e), 'needs_download': True,
@@ -235,6 +271,9 @@ def video_dataset_train_cloud(dataset_id):
             steps=body.get('steps') or 1000,
             base_model=(body.get('base_model') or '').strip() or None,
             low_vram=bool(body.get('low_vram', False)),
+            do_i2v=bool(body.get('do_i2v', False)),
+            sample_prompts=body.get('sample_prompts'),
+            distillation=body.get('distillation') or 'auto',
             gpu_name=body.get('gpu_name')))
     except video_training.VideoTrainingUnsupported as e:
         return jsonify({'error': str(e)}), 400
@@ -249,6 +288,24 @@ def video_dataset_train_cloud(dataset_id):
         # The launch guard: already running, fleet limit, budget. 409 — the
         # request was well-formed, the state refuses it.
         return jsonify({'error': str(e)}), 409
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/cloud/offers')
+def video_dataset_cloud_offers(dataset_id):
+    """Live GPU tiers for the launch — price/h, VRAM, and a rough time+cost per
+    class. Read-only: rents nothing. Estimates are one-measured-run rough and
+    the payload labels them so."""
+    from ..services import cloud_video_training as cvt
+    try:
+        data = cvt.video_gpu_tiers(LOCAL_USER, dataset_id,
+                                   steps=request.args.get('steps', type=int))
+    except ValueError as e:
+        if 'not found' in str(e):
+            return _missing(dataset_id)
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 409
+    return jsonify({'ok': True, **data})
 
 
 @bp.get('/video-dataset/<int:dataset_id>/train/cloud/progress')

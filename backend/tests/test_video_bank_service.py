@@ -644,3 +644,122 @@ def _ready_for_promotion(app, tmp_path, *, width, height):
         db.session.add(clip)
         db.session.commit()
         return bank_id
+
+
+def test_dataset_rows_carry_a_step_suggestion_derived_from_their_own_count(app):
+    """`suggested_steps` rides the same payload as `clips` and is computed from
+    the same query, so the two can never disagree on screen. The launch routes
+    never read it - it prefills an editable field, and what the user sends is
+    what trains."""
+    from app.extensions import db
+    from app.models import VideoDataset, VideoDatasetClip
+    from app.services import video_bank_service as svc
+    from app.services import video_training
+    with app.app_context():
+        ds = VideoDataset(user_id='local', name='sugg', target_profile='wan22_14b',
+                          fps=16, frames=81, output_dir='/tmp/x')
+        db.session.add(ds)
+        db.session.commit()
+        for i in range(53):
+            db.session.add(VideoDatasetClip(dataset_id=ds.id,
+                                            filename=f'clip_{i:04d}.mp4'))
+        db.session.commit()
+        row = svc.video_dataset_payload('local', ds.id)
+        assert row['clips'] == 53
+        assert row['suggested_steps'] == video_training.suggested_steps(53) == 1500
+
+
+def test_the_trigger_rides_every_sidecar_exactly_once():
+    """One trigger, one place: prepended at sidecar-WRITE time, so the stored
+    caption in DB and on screen stays clean, and re-editing a caption keeps the
+    trigger without ever doubling it. Doubling is not cosmetic - fal measured a
+    duplicated trigger degrading prompt adherence. Idempotent on captions that
+    already start with it; absent, the sidecar is the caption verbatim."""
+    from app.services.video_bank_service import _with_trigger
+    assert _with_trigger('mychar', 'a woman walks') == 'mychar, a woman walks'
+    assert _with_trigger('mychar', 'Mychar, a woman walks') == 'Mychar, a woman walks'
+    assert _with_trigger('mychar', '') == 'mychar'
+    assert _with_trigger('', 'a woman walks') == 'a woman walks'
+    assert _with_trigger(None, None) == ''
+
+
+def test_a_stills_set_reuses_the_image_lane_exporter_and_registers_its_rows(
+        app, tmp_path, monkeypatch):
+    """The image side already owns everything a stills set needs - kept images,
+    edited captions, a trigger - so the creator REUSES its exporter rather than
+    growing a second one, copies the face trigger onto the set (the idempotent
+    sidecar prepend then guards re-edits), and registers rows so the dataset
+    page shows what a promotion shows. An export that yields nothing rolls the
+    whole creation back: an empty dataset row would be a promise of training."""
+    from app.services import video_bank_service as svc
+    from app.services import lora_training as lt
+
+    def fake_export(user_id, dataset_id, masked=True, dest_dir=None, **kw):
+        from pathlib import Path
+        d = Path(dest_dir)
+        (d / 'img_0001.png').write_bytes(b'x')
+        (d / 'img_0001.txt').write_text('trig, a portrait', encoding='utf-8')
+        (d / 'img_0002.png').write_bytes(b'x')
+        return str(d)
+
+    class FakeFace:
+        id = 7
+        name = 'kai'
+        trigger_word = 'trig'
+
+    monkeypatch.setattr(lt, 'export_dataset_to_aitoolkit', fake_export)
+    monkeypatch.setattr(svc.cfg, 'video_datasets_root', lambda: tmp_path / 'vd')
+    import app.services.face_dataset_service as fds
+    monkeypatch.setattr(fds, 'get_dataset', lambda u, i: FakeFace())
+    with app.app_context():
+        out = svc.create_stills_dataset_from_face_dataset('local', 7)
+        assert out['clips'] == 2
+        row = svc.video_dataset_payload('local', out['id'])
+        assert row['frames'] == 1 and row['target_profile'] == 'minimax_h3'
+        assert row['trigger_word'] == 'trig'
+        captions = {i['filename']: i['caption'] for i in row['items']}
+        assert captions['img_0001.png'] == 'trig, a portrait'
+        assert captions['img_0002.png'] is None
+
+
+def test_references_cover_every_clip_or_are_refused(app, tmp_path, monkeypatch):
+    """The trainer matches a control to a clip by FILE STEM inside each dir and
+    a clip whose stem finds nothing trains without its reference, silently. The
+    attach route forecloses that: each reference is written once per clip stem,
+    replacing the previous set whole, and only the target that READS references
+    accepts them at all."""
+    from app.extensions import db
+    from app.models import VideoDataset, VideoDatasetClip
+    from app.services import video_bank_service as svc
+    with app.app_context():
+        out = tmp_path / 'ds'
+        out.mkdir()
+        ds = VideoDataset(user_id='local', name='ref', frames=39, fps=24,
+                          target_profile='minimax_h3_ref2va',
+                          output_dir=str(out))
+        db.session.add(ds)
+        db.session.commit()
+        with pytest.raises(ValueError):        # no clips yet
+            svc.set_dataset_references('local', ds.id, [('a.png', b'x')])
+        for i in (1, 2):
+            db.session.add(VideoDatasetClip(dataset_id=ds.id,
+                                            filename=f'clip_{i:04d}.mp4'))
+        db.session.commit()
+        res = svc.set_dataset_references(
+            'local', ds.id, [('face.png', b'a'), ('side.jpg', b'b')])
+        assert res == {'references': 2, 'clips_covered': 2}
+        ref1 = out / '_controls' / 'ref_1'
+        assert sorted(f.name for f in ref1.iterdir()) == [
+            'clip_0001.png', 'clip_0002.png']
+        assert (out / '_controls' / 'ref_2' / 'clip_0001.jpg').read_bytes() == b'b'
+        # replacing whole: a new single-ref set leaves no ref_2 behind
+        svc.set_dataset_references('local', ds.id, [('new.png', b'c')])
+        assert len(svc.reference_dirs(ds)) == 1
+        # the payload says how many references ride the dataset
+        assert svc.video_dataset_payload('local', ds.id)['references'] == 1
+        # a target that does not read references refuses them
+        ds.target_profile = 'minimax_h3'
+        db.session.commit()
+        with pytest.raises(ValueError):
+            svc.set_dataset_references('local', ds.id, [('x.png', b'x')])
+

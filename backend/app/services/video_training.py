@@ -57,6 +57,7 @@ _VERIFIED_BASES = {
     # one field where naming the "obvious" upstream repo costs a 43 GB download
     # before anything says a word.
     'minimax_h3': 'Comfy-Org/MiniMax-H3',
+    'minimax_h3_ref2va': 'Comfy-Org/MiniMax-H3',
 }
 
 # What one architecture's weights are ALREADY stored as. `qfloat8` is the value
@@ -69,6 +70,7 @@ _VERIFIED_BASES = {
 _DEFAULT_QTYPE_TE = 'qfloat8'
 _QTYPES = {
     'minimax_h3': {'qtype': 'convrot8', 'qtype_te': 'nvfp4'},
+    'minimax_h3_ref2va': {'qtype': 'convrot8', 'qtype_te': 'nvfp4'},
 }
 
 # The noise schedule each architecture was distilled on, from ai-toolkit's own job
@@ -79,6 +81,7 @@ _QTYPES = {
 _DEFAULT_TIMESTEP_TYPE = 'linear'
 _TIMESTEP_TYPES = {
     'minimax_h3': 'shift',
+    'minimax_h3_ref2va': 'shift',
     'ltx2': 'weighted',
     'ltx2.3': 'weighted',
 }
@@ -87,7 +90,7 @@ _TIMESTEP_TYPES = {
 # where the transformer is largest: H3 leaves roughly two gigabytes of a 24 GB
 # card free, and encoding on the fly keeps the video VAE resident beside it for
 # the whole run. Wan's proven run did not cache, so Wan is left as it trained.
-_CACHE_LATENTS_ARCHES = ('minimax_h3', 'ltx2.3')
+_CACHE_LATENTS_ARCHES = ('minimax_h3', 'minimax_h3_ref2va', 'ltx2.3')
 
 # Preview sampler settings, keyed by arch. H3 is GUIDANCE-DISTILLED: its released
 # pipeline applies no CFG at all, so Wan's 3.5 is not a harmless default here —
@@ -95,6 +98,7 @@ _CACHE_LATENTS_ARCHES = ('minimax_h3', 'ltx2.3')
 _DEFAULT_SAMPLE_GUIDANCE = (3.5, 4)
 _SAMPLE_GUIDANCE = {
     'minimax_h3': (1, 28),
+    'minimax_h3_ref2va': (1, 28),
 }
 
 # The multiplier ai-toolkit's presets give the audio branch of a joint model.
@@ -108,6 +112,62 @@ _AUDIO_LOSS_MULTIPLIER = 1.0
 _RECOVERY_ADAPTERS = {
     'wan22_14b': ('uint4|ostris/accuracy_recovery_adapters/'
                   'wan22_14b_t2i_torchao_uint4.safetensors'),
+}
+
+# Arches whose ONE checkpoint trains both t2v and first-frame i2v, switched by
+# the dataset flag `do_i2v` (the first frame becomes the conditioning image).
+# Wan is absent on purpose: its i2v variants are SEPARATE architectures with
+# their own catalogue targets, and asking the t2v arch for i2v is a mistake to
+# refuse with directions, not a flag to forward and hope.
+_I2V_CAPABLE = ('minimax_h3',)
+
+# The de-distillation recipe, per arch, and it is ai-toolkit's OWN default rather
+# than a setting we chose. H3 ships guidance-distilled; a LoRA trained on it raw
+# runs into what ostris named "distillation breakdown", and upstream's answer came
+# in two halves that are meant to travel together: a contrastive guidance loss
+# (2026-08-04) and a frozen "training adapter" LoRA loaded beside the model
+# (2026-08-06, made the default training method the same day). The commit that
+# turned both on at once says it plainly — they yield "better results than one or
+# the other".
+#
+# The adapter is never merged: `minimax_h3.load_training_adapter` keeps it live
+# and frozen because the transformer is pre-quantized and a merge would resample
+# every int8 scale. The sampler switches it off for previews.
+#
+# GATED, and this is the whole reason the caller passes a flag instead of us
+# reading a config: `assistant_lora_path` reaches a per-arch loader that only
+# exists from 2026-08-06. On anything older the generic path
+# (toolkit/assistant_lora.py) is Flux-only and raises "Only Flux models can load
+# assistant adapters currently" — a crash, not a downgrade. The local lane probes
+# the installed toolkit; the cloud lane knows its pinned image.
+_TRAINING_ADAPTERS = {
+    'minimax_h3': {
+        'assistant_lora_path': ('ostris/minimax_h3_training_adapter/'
+                                'minimax_h3_training_adapter_v1.safetensors'),
+        'guidance_loss_target': 3.5,
+    },
+    # Its OWN adapter file — the fl2va one is a different partition's weights.
+    'minimax_h3_ref2va': {
+        'assistant_lora_path': ('ostris/minimax_h3_training_adapter/'
+                                'minimax_h3_ref2va_training_adapter_v1.safetensors'),
+        'guidance_loss_target': 3.5,
+    },
+}
+
+# Module names the LoRA must NOT wrap, per arch. `ignore_if_contains` is a plain
+# substring skip over module names (toolkit/lora_special.py), old and generic, so
+# it costs nothing on an ai-toolkit that predates the reason for it.
+#
+# The reason, for H3, is upstream's own: ostris removed `adaln_proj` from H3's
+# network modules on 2026-08-04 and the shipped preset has carried the exclusion
+# ever since. Size is not the argument but it is what makes it visible - in run
+# #166's checkpoint that single module holds a [96768, 16] B matrix per block,
+# the largest tensor in the file, spent on a modulation projection rather than on
+# anything the LoRA is being asked to learn. That run predates this line and its
+# checkpoint carries the modules; the next one will not.
+_IGNORED_MODULES = {
+    'minimax_h3': ('adaln_proj',),
+    'minimax_h3_ref2va': ('adaln_proj',),
 }
 
 # The two-expert (MoE) arches. Two consequences, and they are unrelated to each
@@ -216,8 +276,19 @@ def _resolution_for(width, height, size_multiple, max_pixels=None):
 def build_job_config(video_ds, dataset_folder: str, steps: int,
                      training_folder=None, base_model=None, low_vram=True,
                      sample_prompts=None, save_every=None,
-                     max_step_saves_to_keep=2, rank=16) -> dict:
+                     max_step_saves_to_keep=2, rank=16,
+                     training_adapter=False, do_i2v=False,
+                     control_dirs=None) -> dict:
     """The ai-toolkit job config for training on a built video dataset.
+
+    `training_adapter` says whether the ai-toolkit that will RUN this config can
+    load a per-arch training adapter — a capability that arrived on 2026-08-06 and
+    that this function cannot check for itself, because the toolkit it is building
+    for is not always the one it is running on. The local lane probes the
+    installed copy; the cloud lane knows the tag its pod boots. Left False the
+    config is exactly what it was before the recipe existed, which is what an
+    older toolkit needs: the alternative is not a slower run, it is a raised
+    "Only Flux models can load assistant adapters currently".
 
     `video_ds` needs the `video_dataset` columns and nothing else: `name`,
     `target_profile`, `frames`, `fps`, `width`, `height`. It is duck-typed rather
@@ -267,6 +338,23 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         raise VideoTrainingUnsupported(
             'this video dataset recorded no clip size, so the training resolution '
             'cannot be derived — rebuild it, or pass the size explicitly')
+
+    if video_targets.get(key).get('requires_references'):
+        if not control_dirs:
+            raise VideoTrainingUnsupported(
+                f'{profile["label"]} trains against reference images and this '
+                'dataset has none attached — attach 1-4 references first. '
+                'Without them the trainer runs UNCONDITIONED in silence, which '
+                'is a paid run that learns nothing of what it was for.')
+    elif control_dirs:
+        raise VideoTrainingUnsupported(
+            f'{profile["label"]} does not read reference images — they would '
+            'be loaded as generic controls with untested effect')
+
+    if do_i2v and arch not in _I2V_CAPABLE:
+        raise VideoTrainingUnsupported(
+            f'{profile["label"]} does not train i2v from this checkpoint — '
+            'pick its dedicated I2V target instead')
 
     name_or_path = base_model or _VERIFIED_BASES.get(arch)
     if not name_or_path:
@@ -336,16 +424,47 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         # length nobody validated back in charge — and it also forbids any batch
         # size above 1.
         'auto_frame_count': False,
+        # ai-toolkit's default, stated rather than inherited, because what makes
+        # it safe is a property of OUR clips and nothing in the config says so.
+        # True means the loader takes `num_frames` frames spread evenly across
+        # the whole file: on a clip cut to exactly that count it is the identity,
+        # and on a clip one frame too long it silently speeds the motion up. The
+        # cutter guarantees the exact count (see video_clip_export.clip_command,
+        # which refuses a span too short and passes `-frames:v`), so this lane
+        # meets the precondition ai-toolkit's own comment asks for: "trim your
+        # videos to the desired length and use shrink_video_to_frames(default)".
+        # Flipping it to False would NOT be the safer read - it switches the
+        # loader to pulling frames at `fps` from a RANDOM start frame.
+        'shrink_video_to_frames': True,
+        # First-frame i2v, on the arches whose one checkpoint trains both ways.
+        # Emitted only when asked AND capable; `do_i2v` has been in ai-toolkit's
+        # dataset config since before this lane existed, so no version gate.
+        **({'do_i2v': True} if do_i2v else {}),
+        # One dir per reference; ai-toolkit matches each dir's file to the clip
+        # by STEM, which is exactly the layout the attach route writes.
+        **({'control_path': [str(d) for d in control_dirs]}
+           if control_dirs else {}),
         'resolution': [_resolution_for(width, height, profile['size_multiple'],
                                        profile['max_pixels'])],
     }
-    if video_targets.wants_audio(key):
+    if video_targets.wants_audio(key) and int(frames) > 1:
+        # Stills carry no soundtrack; upstream guards this too (audio only for
+        # num_frames > 1), so the block is omitted rather than emitted inert.
         # Opt-in per dataset, and defaulting to False: omitted, the audio branch
         # of a joint model trains on nothing while the config still looks whole.
         dataset_block['do_audio'] = True
         train['audio_loss_multiplier'] = _AUDIO_LOSS_MULTIPLIER
     if arch in _CACHE_LATENTS_ARCHES:
         dataset_block['cache_latents_to_disk'] = True
+
+    # Upstream's own de-distillation recipe, when the target has one and the
+    # toolkit on the other end can run it. Both halves or neither: the commit
+    # that made them the default turned them on together.
+    recipe = _TRAINING_ADAPTERS.get(arch) if training_adapter else None
+    if recipe:
+        model['assistant_lora_path'] = recipe['assistant_lora_path']
+        train['do_guidance_loss'] = True
+        train['guidance_loss_target'] = recipe['guidance_loss_target']
 
     proc = {
         'type': 'sd_trainer',
@@ -354,7 +473,7 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         # put a literal null in the config and fail inside the trainer.
         'training_folder': training_folder or 'output',
         'device': 'cuda:0',
-        'network': {'type': 'lora', 'linear': int(rank), 'linear_alpha': int(rank)},
+        'network': _network_block(arch, rank),
         'save': {
             'dtype': 'float16',
             'save_every': int(save_every or max(1, int(steps) // 2)),
@@ -387,6 +506,92 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
             'process': [proc],
         },
     }
+
+
+# The day `load_training_adapter` landed upstream. Not decoration: it is the line
+# between "the recipe is skipped" and "the run raises Only Flux models can load
+# assistant adapters currently".
+_TRAINING_ADAPTER_SINCE = '2026-08-06'
+
+# vastai publishes its ai-toolkit images as `<sha>-YYYY-MM-DD-cuda-x.y`, and that
+# date is the ONLY signal about a pod's toolkit that exists before the rental.
+_IMAGE_DATE_RE = re.compile(r'-(\d{4}-\d{2}-\d{2})-')
+
+
+# ref2va training needs more than the arch (2026-08-13): video references and
+# its own training adapter landed on the 15th-16th, and an image cut between
+# those dates would run a half-recipe nobody measured.
+_REF2VA_SINCE = '2026-08-16'
+
+
+def image_supports_ref2va(image_tag) -> bool:
+    """Is this pinned pod image new enough to train minimax_h3_ref2va?"""
+    found = _IMAGE_DATE_RE.search(str(image_tag or ''))
+    return bool(found) and found.group(1) >= _REF2VA_SINCE
+
+
+def image_supports_training_adapter(image_tag) -> bool:
+    """Is this pinned pod image new enough to load a training adapter?
+
+    A pod cannot be probed before it is rented, so the tag is what there is. Ours
+    is pinned well past the cutoff, but the pin is CONFIGURABLE — someone who
+    moves it back to chase a different trainer must not also, silently, arm a
+    recipe their image cannot run.
+
+    A tag with no readable date answers False. A skipped recipe costs quality on
+    one run; a wrong answer costs the run itself, after the money is spent."""
+    found = _IMAGE_DATE_RE.search(str(image_tag or ''))
+    return bool(found) and found.group(1) >= _TRAINING_ADAPTER_SINCE
+
+
+def suggested_steps(clip_count) -> int:
+    """A step count sized to the DATASET, for the UI to prefill - never a value
+    this module applies on its own.
+
+    The face lane has had this shape for months (steps per image, clamped, with
+    the rationale shown beside the field); the video lane launched with a fixed
+    number instead, and the only public measurements there are say that is the
+    wrong shape: on the same recipe, 1,500 steps won at 53 clips and the SAME
+    recipe needed 5,000 at 176 (fal, blind-judged H3 realism runs). Those two
+    wins sit on one line - 28.3 and 28.4 steps per clip - so the slope here is
+    28, rounded UP to the hundred, which lands exactly on both measured points.
+
+    Clamped, and each bound has a reason rather than a shrug: the floor is 1000,
+    this lane's historic fixed default, so no dataset is ever suggested LESS
+    than what every run before this function got; the cap is 5000, the largest
+    run any measurement supports - suggesting past the evidence would be a
+    guess dressed as a recommendation, and long cloud runs also walk into the
+    max-runtime safety cap.
+
+    Calibrated on H3 and offered lane-wide: the principle (steps scale with the
+    data) is model-agnostic, the constant is not, which is why the UI presents
+    it as a suggestion beside an editable field and never as this target's
+    number."""
+    try:
+        count = max(0, int(clip_count or 0))
+    except (TypeError, ValueError):
+        count = 0
+    return min(5000, max(1000, (28 * count + 99) // 100 * 100))
+
+
+def training_adapter_for(arch):
+    """The de-distillation recipe this arch has, or None. Public so the capability
+    probe can ask "is there anything to gate?" before touching the filesystem."""
+    return _TRAINING_ADAPTERS.get(str(arch or ''))
+
+
+def _network_block(arch, rank) -> dict:
+    """The LoRA network, plus the modules this architecture leaves alone.
+
+    `network_kwargs` is omitted entirely when an arch has nothing to exclude,
+    rather than emitted empty: an empty dict is a claim that the question was
+    considered and answered "none", and only the catalogue above gets to make
+    that claim."""
+    block = {'type': 'lora', 'linear': int(rank), 'linear_alpha': int(rank)}
+    ignored = _IGNORED_MODULES.get(arch)
+    if ignored:
+        block['network_kwargs'] = {'ignore_if_contains': list(ignored)}
+    return block
 
 
 def job_name_for(video_ds) -> str:

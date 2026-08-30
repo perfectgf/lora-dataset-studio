@@ -558,3 +558,244 @@ def test_the_pod_upload_ships_mp4_files():
     folder — after renting the GPU."""
     from app.services import aitoolkit_remote as ar
     assert '.mp4' in ar._DATA_EXTS
+
+
+def test_the_emitted_config_states_how_the_loader_samples_frames():
+    """`shrink_video_to_frames` decides whether the loader reads our clip as-cut
+    or re-samples it, and it defaults to True - so leaving it out does not mean
+    "unset", it means "on, silently".
+
+    On a clip cut to exactly `num_frames` it IS the identity. On a clip one frame
+    too long it takes num_frames spread across the whole file and the motion comes
+    out faster, with nothing raised and nothing logged. The value is therefore not
+    the interesting part; the interesting part is that the config now SAYS it, so
+    the invariant it depends on (this lane cuts exact counts) has somewhere to be
+    written down. Flipping it to False is not the cautious read - that switches
+    the loader to pulling frames at `fps` from a RANDOM start."""
+    cfg = vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100)
+    assert _proc(cfg)['datasets'][0]['shrink_video_to_frames'] is True
+
+
+def test_the_catalogue_states_what_the_model_says_not_what_survives_bucketing():
+    """We cut a clip at one size and ai-toolkit trains it at another, because our
+    `resolution` scalar is read as a pixel CAP and the clip is re-bucketed under
+    it. When the cap equals the clip's own pixel count the scaler is exactly 1.0
+    and nothing moves; that happens only when sqrt(w*h) is itself a multiple of
+    the size step, since the scalar is floored to that step (never rounded up -
+    rounding up would ask for pixels the clip does not have).
+
+    So the catalogue leads with the sizes that hold: 1024x576 is the ONLY 16:9
+    size on the 32-grid under H3's pixel cap that round-trips, and 768x768 is its
+    square counterpart. The model's stated maximum canvas stays on the list one
+    place lower, because it is the spec and some users want it knowingly - it
+    comes back as 1312x736, 6.4% smaller than what was encoded.
+
+    NOT a universal property of the catalogue, and that is why this test names
+    H3 rather than looping: wan22_ti2v5b recommends 1280x704 because 720 is not
+    divisible by 32, and that pair is lossy the same way. Those are the official
+    720P sizes of a model this test has no measurements for."""
+    profile = vt.get('minimax_h3')
+    step, cap = profile['size_multiple'], profile['max_pixels']
+
+    def survives(width, height):
+        resolution = vtrain._resolution_for(width, height, step, cap)
+        return resolution * resolution == width * height
+
+    assert survives(768, 768)            # square, and a size the model states
+    assert not survives(1344, 768)       # the stated maximum, shrunk to 1312x736
+    assert survives(1024, 576)           # the 16:9 size that would hold
+    # `recommended_sizes` stays what the model STATES about itself - the note in
+    # video_training_local reads it as exactly that and quotes it to the user, so
+    # a size we derived does not belong in it however well it behaves.
+    assert (1024, 576) not in profile['recommended_sizes']
+    assert min(min(w, h) for w, h in profile['recommended_sizes']) == 768
+
+
+def test_h3_leaves_the_modulation_projection_out_of_the_lora():
+    """ai-toolkit's H3 preset carries `ignore_if_contains: ['adaln_proj']`, and
+    its history says why: the author removed adaln_proj from H3's network modules
+    on 2026-08-04 and the preset has shipped the exclusion since. Our first real
+    run predates this and its checkpoint proves the gap - 516 LoRA tensors
+    including a [96768, 16] adaln_proj B matrix per block, the largest in the
+    file, spent on a modulation projection.
+
+    `network_kwargs` is generic and old (a substring skip in lora_special.py), so
+    this costs nothing on an older toolkit. And it is emitted ONLY for an arch
+    that asks: an empty exclusion list would claim a decision no catalogue made."""
+    h3 = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
+    assert h3['network']['network_kwargs']['ignore_if_contains'] == ['adaln_proj']
+    wan = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='wan22_14b', frames=81, fps=16), '/pod/ds', 100))
+    assert 'network_kwargs' not in wan['network']
+    # The rest of the network is untouched by the exclusion.
+    assert h3['network']['linear'] == h3['network']['linear_alpha'] == 16
+
+
+def test_the_de_distillation_recipe_travels_as_one_piece_or_not_at_all():
+    """H3 ships guidance-distilled, and a LoRA trained on it raw runs into what
+    upstream named distillation breakdown. The answer shipped in two halves - a
+    contrastive guidance loss and a frozen training adapter loaded beside the
+    model - and the commit that turned them on made them the DEFAULT together,
+    saying the pair yields better results than either alone. So they are emitted
+    together or not at all; half the recipe is a configuration nobody tested."""
+    def proc(adapter):
+        return _proc(vtrain.build_job_config(
+            _VideoDS(target_profile='minimax_h3', frames=39, fps=24),
+            '/pod/ds', 100, training_adapter=adapter))
+
+    on = proc(True)
+    assert on['model']['assistant_lora_path'].endswith(
+        'minimax_h3_training_adapter_v1.safetensors')
+    assert on['train']['do_guidance_loss'] is True
+    assert on['train']['guidance_loss_target'] == 3.5
+
+    # Off, the config is what it was before the recipe existed - which is what an
+    # older toolkit needs. Not a slower run: the alternative is a raised
+    # "Only Flux models can load assistant adapters currently".
+    off = proc(False)
+    assert 'assistant_lora_path' not in off['model']
+    assert 'do_guidance_loss' not in off['train']
+    assert 'guidance_loss_target' not in off['train']
+
+    # An arch with no recipe is unaffected by the flag either way.
+    wan = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='wan22_14b', frames=81, fps=16), '/pod/ds', 100,
+        training_adapter=True))
+    assert 'assistant_lora_path' not in wan['model']
+
+
+def test_a_pod_image_older_than_the_recipe_does_not_get_the_recipe():
+    """A pod cannot be probed before it is rented, so its tag is the only signal
+    there is - and vastai dates those tags. Ours is pinned well past the cutoff,
+    but the pin is a CONFIG value: someone who moves it back to chase a different
+    trainer must not also, silently, arm a recipe their image cannot run.
+
+    Unreadable answers False, deliberately. A skipped recipe costs quality on one
+    run; a wrong answer costs the run, after the money is spent."""
+    supports = vtrain.image_supports_training_adapter
+    assert supports('vastai/ostris-ai-toolkit:abc-2026-08-06-cuda-12.9')
+    assert not supports('vastai/ostris-ai-toolkit:abc-2026-08-05-cuda-12.9')
+    assert not supports('vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9')
+    for unreadable in ('some/image:latest', '', None):
+        assert not supports(unreadable)
+
+
+def test_the_shipped_video_pin_is_new_enough_for_the_recipe_it_enables():
+    """The two live in different files and neither imports the other, so nothing
+    but this test notices if the pin moves below the capability it is read for."""
+    from app.config import DEFAULTS
+    assert vtrain.image_supports_training_adapter(
+        DEFAULTS['cloud']['video_image'])
+    # …and the face lane's pin is NOT: it is older on purpose, and it must never
+    # be the one a video run reads.
+    assert not vtrain.image_supports_training_adapter(DEFAULTS['cloud']['image'])
+
+
+def test_suggested_steps_sits_on_the_measured_line_and_never_past_it():
+    """The only public measurements of H3 steps-vs-dataset-size are two winning
+    runs on one recipe: 1,500 steps at 53 clips and 5,000 at 176 (fal, blind
+    judged). Both sit on a 28 steps-per-clip line, and the suggestion reproduces
+    them EXACTLY - not approximately, or the numbers stop being the citation.
+    Floor 1000 = the lane's historic fixed default (no dataset is suggested less
+    than every run before this function got); cap 5000 = the largest measured
+    run, because suggesting past the evidence is a guess in a lab coat."""
+    f = vtrain.suggested_steps
+    assert f(53) == 1500 and f(176) == 5000       # the two measured wins, exact
+    assert f(12) == 1000 and f(0) == 1000         # floor: the historic default
+    assert f(300) == 5000                          # cap: the largest evidence
+    assert f(None) == 1000 and f('nope') == 1000   # junk answers the floor
+
+
+def test_first_frame_i2v_is_a_flag_on_h3_and_a_refusal_with_directions_on_wan():
+    """H3's one checkpoint trains t2v AND first-frame i2v, switched by the
+    dataset flag `do_i2v` - a field ai-toolkit has carried since before this
+    lane existed, so no version gate. Wan is different on purpose: its i2v
+    variants are SEPARATE architectures with their own catalogue targets, so
+    asking the t2v arch for i2v is refused with directions rather than
+    forwarded and hoped about. Off, the config is byte-identical to before."""
+    h3 = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24),
+        '/pod/ds', 100, do_i2v=True))
+    assert h3['datasets'][0]['do_i2v'] is True
+    off = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
+    assert 'do_i2v' not in off['datasets'][0]
+    with pytest.raises(vtrain.VideoTrainingUnsupported) as e:
+        vtrain.build_job_config(
+            _VideoDS(target_profile='wan22_14b', frames=81, fps=16),
+            '/pod/ds', 100, do_i2v=True)
+    assert 'I2V target' in str(e.value)
+
+
+def test_a_stills_set_is_legal_for_h3_and_trains_without_a_soundtrack():
+    """"Image datasets (num_frames 1) train as single frames" is ai-toolkit's
+    own road for H3, and the frame RULE must not eat it: 1 is not on the 17n+5
+    grid, it is a different mode, so it is a per-profile flag and never a
+    loosening of the rule. Wan gets no such flag - nothing states stills for it.
+    A stills config asks for no audio: images have no soundtrack, and an inert
+    do_audio would still be a claim about the data that is false."""
+    assert vt.is_legal_frames('minimax_h3', 1)
+    # Wan needs no flag: 1 satisfies its own 4n+1 arithmetic already. The flag
+    # exists precisely because H3's 17n+5 EXCLUDES 1.
+    assert vt.is_legal_frames('wan22_14b', 1)
+    assert not vt.is_legal_frames('minimax_h3', 2)
+    cfg = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=1, fps=24), '/pod/ds', 100))
+    assert cfg['datasets'][0]['num_frames'] == 1
+    assert 'do_audio' not in cfg['datasets'][0]
+    assert 'audio_loss_multiplier' not in cfg['train']
+    on = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
+    assert on['datasets'][0]['do_audio'] is True
+
+
+def test_ref2va_refuses_to_train_without_references_and_emits_them_when_given():
+    """Upstream's ref2va trainer reads identity references from the dataset's
+    control images and, finding NONE, returns no conditioning and trains
+    UNCONDITIONED in silence - a paid run that never learns what it was for.
+    So the builder refuses a reference-less ref2va job outright, and the other
+    direction holds too: control dirs on a target that does not read them would
+    load as generic controls with untested effect, and are refused as well.
+    With refs, `control_path` is a LIST of dirs - ai-toolkit matches each dir's
+    file to the clip by stem, the exact layout the attach route writes."""
+    ref_ds = _VideoDS(target_profile='minimax_h3_ref2va', frames=39, fps=24)
+    with pytest.raises(vtrain.VideoTrainingUnsupported) as e:
+        vtrain.build_job_config(ref_ds, '/pod/ds', 100)
+    assert 'reference' in str(e.value).lower()
+    cfg = _proc(vtrain.build_job_config(
+        ref_ds, '/pod/ds', 100, control_dirs=['/pod/ds_ref1', '/pod/ds_ref2']))
+    assert cfg['datasets'][0]['control_path'] == ['/pod/ds_ref1', '/pod/ds_ref2']
+    assert cfg['model']['arch'] == 'minimax_h3_ref2va'
+    with pytest.raises(vtrain.VideoTrainingUnsupported):
+        vtrain.build_job_config(
+            _VideoDS(target_profile='minimax_h3', frames=39, fps=24),
+            '/pod/ds', 100, control_dirs=['/pod/ds_ref1'])
+
+
+def test_ref2va_carries_its_own_recipe_and_the_shared_exclusion():
+    """The ref2va partition has its OWN training adapter file (the fl2va one is
+    a different partition's weights) with the same guidance target, and the
+    adaln_proj exclusion applies to it the same way."""
+    cfg = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3_ref2va', frames=39, fps=24),
+        '/pod/ds', 100, training_adapter=True, control_dirs=['/pod/ds_ref1']))
+    assert cfg['model']['assistant_lora_path'].endswith(
+        'minimax_h3_ref2va_training_adapter_v1.safetensors')
+    assert cfg['train']['guidance_loss_target'] == 3.5
+    assert cfg['network']['network_kwargs']['ignore_if_contains'] == ['adaln_proj']
+
+
+def test_the_ref2va_image_gate_uses_the_full_recipe_date():
+    """The arch landed on 2026-08-13, but VIDEO references and its training
+    adapter landed on the 15th-16th - an image cut between the two would run a
+    half-recipe nobody measured, so the gate reads the later date."""
+    assert vtrain.image_supports_ref2va(
+        'vastai/ostris-ai-toolkit:x-2026-08-16-cuda-12.9')
+    assert not vtrain.image_supports_ref2va(
+        'vastai/ostris-ai-toolkit:x-2026-08-15-cuda-12.9')
+    assert vtrain.image_supports_ref2va(
+        'vastai/ostris-ai-toolkit:da79ebc-2026-08-27-cuda-12.9')
+    assert not vtrain.image_supports_ref2va('nope')
+

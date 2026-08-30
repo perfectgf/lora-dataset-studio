@@ -216,6 +216,7 @@ event.listen(Engine, 'connect', _configure_sqlite_connection)
 # column already exists) and is additive only — never a drop. Names/types are
 # hardcoded constants (no user input) → safe to interpolate into the ALTER.
 _SCHEMA_ADDITIONS = (
+    ('video_dataset', 'trigger_word', 'VARCHAR(100)'),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),

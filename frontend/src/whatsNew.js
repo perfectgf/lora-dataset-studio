@@ -124,6 +124,105 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-08-30-h3-ref2va-training',
+    date: '2026-08-30',
+    title: 'Train MiniMax H3 Ref2V LoRAs — identity from reference images',
+    blurb:
+      'The Ref2V flavour of H3 generates from reference images of a subject, '
+      + 'and now you can train for it: pick the MiniMax H3 Ref2V target when '
+      + 'promoting clips, attach 1–4 reference images on the dataset card, and '
+      + 'train locally or in the cloud with the same recipe H3 uses. The app '
+      + 'refuses to launch without references on purpose — without them the '
+      + 'trainer silently learns nothing of the identity, which is a paid run '
+      + 'wasted. Local training needs an ai-toolkit from 2026-08-13 or newer; '
+      + 'the app checks yours and says so instead of failing mid-run.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-30-video-cloud-gpu-picker',
+    date: '2026-08-30',
+    title: 'Pick the GPU for a cloud video run — with prices in front of you',
+    blurb:
+      'Cloud video training used to rent the cheapest suitable card without '
+      + 'showing you a number. The panel now lists one offer per GPU class — '
+      + 'price per hour, VRAM, and a rough time and cost for your dataset — '
+      + 'and lets you pick, or leave it on “cheapest suitable” as before. '
+      + 'Estimates are honest about being rough: they come from one measured '
+      + 'run, and a clip length nothing was measured at shows no estimate '
+      + 'rather than an invented one.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-30-video-trigger-word',
+    date: '2026-08-30',
+    title: 'Video datasets get a trigger word',
+    blurb:
+      'Set it once when promoting clips, and it is prepended to every clip’s '
+      + 'caption file at export — exactly once, in one place. Your captions '
+      + 'stay clean on screen, editing one never loses the trigger, and a '
+      + 'caption that already starts with it is left alone: a doubled trigger '
+      + 'measurably hurts prompt adherence, so the app makes doubling '
+      + 'impossible. Optional — a style set legitimately has none.',
+    to: '/video-bank',
+  },
+  {
+    id: '2026-08-30-h3-i2v-training',
+    date: '2026-08-30',
+    title: 'Train MiniMax H3 LoRAs for image-to-video',
+    blurb:
+      'If you animate still images, train the way you generate: one checkbox '
+      + 'on the video training panels switches an H3 run to first-frame '
+      + 'conditioning, so the LoRA learns under the same setup your i2v '
+      + 'generations use. Works locally and in the cloud, on any ai-toolkit '
+      + 'that trains H3 at all.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-30-h3-stills-training',
+    date: '2026-08-30',
+    title: 'Train an H3 video LoRA from your image datasets — no clips needed',
+    blurb:
+      'MiniMax H3 trains on still images too, and your image datasets already '
+      + 'have everything that needs: curated pictures, edited captions, a '
+      + 'trigger. One button in the Video training sets section turns an image '
+      + 'dataset into a ready-to-train stills set — people have trained H3 '
+      + 'character LoRAs this way on 12 GB cards. The promotion window also '
+      + 'now counts clips coming from 48+ fps sources, which are often '
+      + 'slow-motion footage that teaches floaty movement.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-30-video-steps-sized-to-the-dataset',
+    date: '2026-08-30',
+    title: 'Video training steps now start from your dataset, not a constant',
+    blurb:
+      'A 12-clip set and a 176-clip set used to get the same step count. The '
+      + 'Steps field on a video dataset now starts from a suggestion sized to '
+      + 'the clips it actually holds — about 28 steps per clip, taken from '
+      + 'measured runs, never below the old default and never past what the '
+      + 'measurements support. The local ▶ Train button gains the same editable '
+      + 'Steps field the cloud panel already had, so no run starts on a number '
+      + 'you never saw. Type over it freely: what you enter is what trains.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-30-h3-trains-the-way-h3-is-trained',
+    date: '2026-08-30',
+    title: 'MiniMax H3 video LoRAs now train the way the model expects',
+    blurb:
+      'H3 ships guidance-distilled, and training a LoRA on it without accounting '
+      + 'for that quietly degrades the result. ai-toolkit answered with a '
+      + 'contrastive guidance loss and a small training adapter, and made the '
+      + 'pair its default for H3 — video training here now uses both, wherever '
+      + 'the ai-toolkit it is driving can actually run them: your installed copy '
+      + 'is read for the capability, and a rented pod is judged on the image it '
+      + 'boots, so an older setup quietly skips the recipe instead of failing. '
+      + 'Alongside it, a clip now defaults to 39 frames instead of 107 — the '
+      + 'length the trainer itself trains at, and about a third of the work per '
+      + 'step — with every other length still on the menu, 22 included.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-29-video-lora-in-the-cloud',
     date: '2026-08-29',
     title: 'Train a video LoRA on a rented GPU — MiniMax H3 included',

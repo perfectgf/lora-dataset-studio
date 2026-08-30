@@ -55,3 +55,35 @@ def estimate_minutes(gpu_name: str, family: str, steps: int) -> float:
     caller adds that only to the cost, so the shown duration is training)."""
     train_sec = max(0, int(steps or 0)) * sec_per_step(family) / speed_factor(gpu_name)
     return train_sec / 60.0
+
+
+# Video (H3-calibrated): ONE measured run — 21.0 s/step at 107 frames, which is
+# 32 latent rows (17n+5 pixel frames -> 5n+2 latent frames), on an A100 SXM4
+# (factor 2.1 above). That gives a per-latent-row RTX 3090 baseline. Rough by
+# construction — one point, one architecture, one resolution — and every place
+# that shows it says so; but "rough and shown" beats the launch's old shape,
+# which was no number at all in front of a rented-by-the-minute decision.
+_VIDEO_SEC_PER_ROW_3090 = 21.0 * 2.1 / 32
+
+
+def video_latent_rows(frames):
+    """17n+5 pixel frames -> 5n+2 latent rows; None off the grid (no estimate
+    beats a fabricated one)."""
+    try:
+        f = int(frames)
+    except (TypeError, ValueError):
+        return None
+    if f < 5 or f % 17 != 5:
+        return None
+    return (f - 5) // 17 * 5 + 2
+
+
+def video_estimate_minutes(gpu_name, frames, steps):
+    """Rough training minutes for a video run, or None when the frame count is
+    off the measured grid."""
+    rows = video_latent_rows(frames)
+    if rows is None:
+        return None
+    sec = max(0, int(steps or 0)) * _VIDEO_SEC_PER_ROW_3090 * rows         / speed_factor(gpu_name)
+    return sec / 60.0
+

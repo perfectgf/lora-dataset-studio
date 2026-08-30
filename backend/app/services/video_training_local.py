@@ -60,6 +60,9 @@ logger = logging.getLogger(__name__)
 # The only extension the promoter writes, and the only one ai-toolkit's video
 # loader reads. Shared verbatim with the cloud lane's clip count.
 _CLIP_EXT = '.mp4'
+# A stills set (frames == 1) holds images instead — same flat layout,
+# same trainer, counted by the same launch guard.
+_MEDIA_EXTS = ('.mp4', '.png', '.jpg', '.jpeg', '.webp')
 
 # Weight sets this build can PROVE are present or absent, keyed by ai-toolkit
 # arch. The paths are relative to ai-toolkit's models folder and are the exact
@@ -113,6 +116,52 @@ def _models_dir() -> Path:
     disagree."""
     env = (os.environ.get('MODELS_PATH') or '').strip()
     return Path(env) if env else Path(str(lt._aitoolkit_dir())) / 'models'
+
+
+def installed_arch_available(arch) -> bool:
+    """Does the INSTALLED ai-toolkit register this architecture at all?
+
+    Same philosophy as the adapter probe below: no version to read, so the
+    architecture's own source file is the ledger. `minimax_h3_ref2va` lives in
+    minimax_h3.py (one module, two arches) and arrived 2026-08-13 - an install
+    from before simply does not contain the string, and submitting the job
+    would burn the GPU reservation on an "unknown arch" error."""
+    name = str(arch or '')
+    if not name:
+        return False
+    base = name.split('_ref2va')[0] if name.endswith('_ref2va') else name
+    try:
+        source = (Path(str(lt._aitoolkit_dir())) / 'extensions_built_in'
+                  / 'diffusion_models' / base / f'{base}.py')
+        return f'"{name}"' in source.read_text(encoding='utf-8', errors='ignore')
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def supports_training_adapter(arch) -> bool:
+    """Can the INSTALLED ai-toolkit load a training adapter for this arch?
+
+    Read off the architecture's own source file, not a version string, because
+    ai-toolkit has no version to read: it is a git checkout whose capabilities
+    move commit by commit, and the thing we need arrived on 2026-08-06 without a
+    release to point at. `load_training_adapter` is the method that consumes
+    `model.assistant_lora_path` for this architecture; without it the generic
+    loader takes over, and that one refuses everything that is not Flux.
+
+    Answers False for anything it cannot read - a toolkit path that is not set, a
+    folder that is not there, a file it cannot open, an arch with no adapter to
+    begin with. The asymmetry is deliberate: a false negative costs the run a
+    recipe it would have liked, a false positive costs the run.
+    """
+    if not video_training.training_adapter_for(arch):
+        return False
+    try:
+        source = (Path(str(lt._aitoolkit_dir())) / 'extensions_built_in'
+                  / 'diffusion_models' / str(arch) / f'{arch}.py')
+        return 'def load_training_adapter' in source.read_text(
+            encoding='utf-8', errors='ignore')
+    except (OSError, TypeError, ValueError):
+        return False
 
 
 def weights_report(arch) -> dict | None:
@@ -248,7 +297,7 @@ def _assert_run_folder_matches(video_ds, arch):
 def _count_clips(folder) -> int:
     try:
         return sum(1 for n in os.listdir(folder)
-                   if n.lower().endswith(_CLIP_EXT))
+                   if n.lower().endswith(_MEDIA_EXTS))
     except OSError:
         return 0
 
@@ -264,7 +313,7 @@ def _default_spawn(argv, cwd, env, stdout):
 @lt._serial_local_launch
 def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
                          low_vram=True, rank=16, sample_prompts=None,
-                         accept_download=False, _spawn=None) -> dict:
+                         accept_download=False, do_i2v=False, _spawn=None) -> dict:
     """Train a LoRA on a promoted video dataset, locally, through ai-toolkit.
 
     Everything that can refuse does so BEFORE the GPU fence is taken, in
@@ -296,7 +345,7 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
     clips = _count_clips(folder)
     if not clips:
         raise ValueError(
-            f'this video dataset has no {_CLIP_EXT} clips on disk — there would '
+            'this video dataset has no clips or stills on disk — there would '
             'be nothing to train on. Promote it again from the bank.')
 
     n_steps = max(100, int(steps or 1000))
@@ -304,10 +353,25 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
     # Built BEFORE anything is reserved: an uncatalogued target, an illegal frame
     # count or a missing base repo must surface here and not from a child process
     # that has already taken the card.
+    # The recipe is offered to the toolkit that will actually run this, which
+    # here is the one installed on this machine — and its capabilities are read
+    # from its own source, not assumed. `video_targets` owns the arch name.
+    profile = video_targets.get(getattr(ds, 'target_profile', None)) or {}
+    target_arch = profile.get('aitk_arch')
+    if profile.get('requires_references') and not installed_arch_available(target_arch):
+        raise video_training.VideoTrainingUnsupported(
+            f'{profile.get("label", target_arch)} needs an ai-toolkit from '
+            '2026-08-13 or later — update the installed one (git pull in its '
+            'folder), then relaunch')
+    from . import video_bank_service as _vbs
+    control_dirs = ([str(d) for d in _vbs.reference_dirs(ds)]
+                    if profile.get('requires_references') else None)
     job_config = video_training.build_job_config(
         ds, folder, n_steps, training_folder=training_folder,
         base_model=base_model, low_vram=bool(low_vram), rank=rank,
-        sample_prompts=sample_prompts)
+        sample_prompts=sample_prompts,
+        training_adapter=supports_training_adapter(target_arch),
+        do_i2v=bool(do_i2v), control_dirs=control_dirs)
     proc_cfg = job_config['config']['process'][0]
     arch = proc_cfg['model']['arch']
     run_name = local_run_name(ds)

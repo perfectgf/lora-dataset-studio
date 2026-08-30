@@ -159,7 +159,7 @@ export function promoteProblem({ name, target, frames }) {
  * as a resize and anything else as "keep the source's size", so sending a lone
  * width would silently be ignored. */
 export function promotePayload({ name, targetKey, frames, size, ids, edgeInsetS,
-                                 maxPerSource }) {
+                                 maxPerSource, triggerWord }) {
   const body = {
     name: (name || '').trim(),
     target_profile: targetKey,
@@ -180,6 +180,10 @@ export function promotePayload({ name, targetKey, frames, size, ids, edgeInsetS,
   // which the server would refuse anyway, and which reads as "cap of zero".
   const cap = Number(maxPerSource)
   if (Number.isFinite(cap) && cap >= 1) body.max_per_source = Math.trunc(cap)
+  // Omitted when blank: no trigger is a legitimate choice (a style set), and
+  // the server treats absence and empty the same on purpose.
+  const trig = (triggerWord || '').trim()
+  if (trig) body.trigger_word = trig
   return body
 }
 
