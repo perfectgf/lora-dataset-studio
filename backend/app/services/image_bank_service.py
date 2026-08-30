@@ -7788,27 +7788,32 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None, limit=None
                         errors += 1
                     elif state == 'detected':
                         row.watermark_state = 'detected'
-                        # Only ONE box is persisted: the child's FIRST, which it
-                        # orders most-peripheral-first precisely because this
-                        # line only takes one (see _merge_boxes — "biggest" put
-                        # a crop on the subject). watermark_bbox holds
-                        # one rectangle (it is what both cleaning levels route
-                        # on), and the multi-zone column next to it means
-                        # something else entirely — it is the HAND-DRAWN (or 🔤
-                        # text-pass) override, and writing machine output there
-                        # would make every flagged image look hand-corrected and
-                        # silently exclude it from ✂ Auto-crop. Losing the
-                        # smaller boxes is the honest cost; the mask editor
-                        # still lets the user add them back.
+                        # watermark_bbox stays the child's FIRST box, most-
+                        # peripheral-first (see _merge_boxes — "biggest" put a
+                        # crop on the subject): the crop/inpaint ROUTING reads
+                        # one rectangle and that contract does not move. The
+                        # rest of this comment used to defend losing every
+                        # other box as "the honest cost" — it did not survive
+                        # contact with a real image (eight logos, one boxed,
+                        # Clean repainting an eighth of the problem;
+                        # maintainer's call, 2026-08-30). Multi-zone rows now
+                        # keep EVERY zone in watermark_regions — which the
+                        # clean, the editor and the previews already honour —
+                        # while single-zone rows write no regions, byte-for-
+                        # byte the old behaviour, so ✂ Auto-crop keeps its
+                        # whole pool: a lone border mark stays croppable, and a
+                        # multi-mark image never was one crop anyway.
                         if regions:
-                            row.watermark_bbox = _json.dumps(
-                                [round(float(v), 4) for v in regions[0][:4]])
+                            rounded = [[round(float(v), 4) for v in r[:4]]
+                                       for r in regions]
+                            row.watermark_bbox = _json.dumps(rounded[0])
+                            if len(rounded) >= 2 and not text_zones:
+                                row.watermark_regions = _json.dumps(rounded)
                             if text_zones:
                                 from .text_regions import text_mask_regions
                                 existing, _m, _p = _clean_regions(row)
                                 merged, _ = text_mask_regions(
-                                    [], [list(b) for b in existing]
-                                    + [[round(float(v), 4) for v in regions[0][:4]]])
+                                    [], [list(b) for b in existing] + rounded)
                                 row.watermark_regions = _json.dumps(merged)
                             located += 1
                         else:

@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-every-watermark-zone-survives',
+    date: '2026-08-30',
+    title: 'Multi-logo watermarks: every zone survives the scan',
+    blurb:
+      'An image stamped with several logos used to come out of Find watermarks '
+      + 'with a single box — Clean repainted one logo and left the rest. The '
+      + 'detector now keeps every zone it finds (Review shows them all, Clean '
+      + 'repaints them all), on datasets and banks alike. Single-mark images '
+      + 'behave exactly as before, so border marks stay croppable.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-watermark-scan-honesty',
     date: '2026-08-30',
     title: 'Watermark scans stop hiding their misses',
