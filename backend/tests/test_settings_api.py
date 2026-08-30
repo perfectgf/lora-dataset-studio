@@ -602,6 +602,46 @@ def test_test_connection_ollama_checks_model_not_just_reachability(client, monke
     assert client.post('/api/settings/test/ollama').get_json()['ok'] is True
 
 
+def test_test_connection_lmstudio_checks_a_usable_model_not_just_reachability(
+        client, monkeypatch):
+    """The LM Studio Test button owes exactly what Ollama's owes.
+
+    A server that answers on 1234 with nothing loaded is the COMMONEST state after
+    an LM Studio install -- JIT loading is off by default -- so a Test that went
+    green on reachability alone would be green on the one machine state where
+    captioning cannot run at all.
+    """
+    from app import capabilities
+    monkeypatch.setattr(capabilities, 'probe_lmstudio',
+                        lambda: {'ok': True, 'detail': 'http://lm'})
+    monkeypatch.setattr(capabilities, 'probe_lmstudio_model',
+                        lambda **k: {'ok': False, 'detail': 'no model loaded'})
+    r = client.post('/api/settings/test/lmstudio').get_json()
+    assert r['ok'] is False and 'no model loaded' in r['detail']
+
+    monkeypatch.setattr(capabilities, 'probe_lmstudio_model',
+                        lambda **k: {'ok': True, 'detail': 'qwen loaded'})
+    assert client.post('/api/settings/test/lmstudio').get_json()['ok'] is True
+
+
+def test_an_unreachable_lmstudio_never_reaches_the_model_probe(client, monkeypatch):
+    """...and it says the server is down rather than "no model loaded".
+
+    Two different remedies -- press Start Server, or load a model -- so collapsing
+    them would send the user to the wrong one.
+    """
+    from app import capabilities
+    monkeypatch.setattr(capabilities, 'probe_lmstudio',
+                        lambda: {'ok': False, 'detail': 'not answering on 1234'})
+
+    def never(**k):
+        raise AssertionError('the model probe ran against a server that is not there')
+
+    monkeypatch.setattr(capabilities, 'probe_lmstudio_model', never)
+    r = client.post('/api/settings/test/lmstudio').get_json()
+    assert r['ok'] is False and 'not answering' in r['detail']
+
+
 # --- CSRF cookie freshness (long-lived SPA session) ---------------------------
 # Flask-WTF time-limits the CSRF token (WTF_CSRF_TIME_LIMIT). The cookie used to
 # be planted ONLY on GET /, so a tab left open past that limit kept echoing a

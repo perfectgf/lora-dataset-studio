@@ -13,7 +13,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-const { activeLocalLlm, localLlmLabel } = await import('../src/utils/localLlm.js')
+const { activeLocalLlm, localLlmLabel, modelPickerCopy } =
+  await import('../src/utils/localLlm.js')
 const { enhanceBlocker } = await import('../src/components/dataset/studio/enhanceGate.js')
 const { classifyBlockedReason } = await import('../src/components/dataset/classifyFramingGate.js')
 const { sectionStatus } = await import('../src/components/settings/registry.js')
@@ -52,6 +53,55 @@ test('an install predating the setting reads as Ollama, never as nothing', () =>
   assert.equal(activeLocalLlm(undefined).provider, 'ollama')
   assert.equal(localLlmLabel({}), 'Ollama')
   assert.equal(localLlmLabel(LMS()), 'LM Studio')
+})
+
+// --- modelPickerCopy: the words the four pickers share ----------------------
+
+test('a picker names the provider whose list it is showing', () => {
+  const oll = modelPickerCopy('ollama')
+  const lms = modelPickerCopy('lmstudio')
+  assert.equal(oll.label, 'Ollama')
+  assert.equal(lms.label, 'LM Studio')
+  assert.equal(oll.modelLabel, 'Ollama vision model')
+  assert.equal(lms.modelLabel, 'LM Studio vision model')
+  // A response that predates the field, or a failed fetch, means Ollama — the only
+  // thing that existed before.
+  assert.equal(modelPickerCopy(undefined).label, 'Ollama')
+  assert.equal(modelPickerCopy('').label, 'Ollama')
+})
+
+test('only Ollama is offered a pull, because only Ollama has one', () => {
+  // The defect this refuses: the ✨ Enhance popover told an LM Studio user to
+  // "start it from Settings › Local tools to list your pulled models" — naming a
+  // Start button this app does not have for LM Studio, and a gesture LM Studio
+  // does not have at all. Models are LOADED there, inside its own window.
+  assert.equal(modelPickerCopy('ollama').canPull, true)
+  assert.equal(modelPickerCopy('lmstudio').canPull, false)
+  assert.match(modelPickerCopy('ollama').down, /^Ollama/)
+  assert.match(modelPickerCopy('lmstudio').down, /^LM Studio/)
+  assert.match(modelPickerCopy('lmstudio').down, /Developer/)
+  assert.doesNotMatch(modelPickerCopy('lmstudio').down, /Ollama|pull/i)
+})
+
+test('the three run-window tooltips name one provider each, and never the other', () => {
+  // These moved out of the JSX because the Bank's frozen surface inventory cannot
+  // see a computed label. This test is what replaced that frozen literal, and it
+  // checks BOTH providers rather than one spelling.
+  for (const [provider, mine, theirs] of
+       [['ollama', 'Ollama', 'LM Studio'], ['lmstudio', 'LM Studio', 'Ollama']]) {
+    const c = modelPickerCopy(provider)
+    for (const [name, text] of Object.entries(
+      { registerHint: c.registerHint, perRunHint: c.perRunHint, inertHint: c.inertHint })) {
+      assert.ok(text.includes(mine), `${name} stopped naming ${mine}`)
+      assert.ok(!text.includes(theirs), `${name} names ${theirs} under ${provider}`)
+    }
+  }
+  // The register hint keeps the substance the frozen entry carried.
+  assert.match(modelPickerCopy('ollama').registerHint, /uncensored \(abliterated\)/)
+  assert.match(modelPickerCopy('ollama').registerHint, /make the search find more/)
+  // A model is PULLED on one and LOADED on the other; the sentence says which.
+  assert.match(modelPickerCopy('ollama').perRunHint, /pulled/)
+  assert.match(modelPickerCopy('lmstudio').perRunHint, /loaded/)
 })
 
 // --- the two feature gates: MUTATION = delete their LM Studio ladder ---------
@@ -170,6 +220,49 @@ test('the skip settles the step under EITHER provider', () => {
     .find((s) => s.id === 'ollama')
   assert.equal(oll.skipped, true)
   assert.equal(ollamaGateReason(oll), null)
+})
+
+test('LM Studio is never "installed but stopped" — no binary, and no ▶ Start', () => {
+  // The defect: `installed` read caps.ollama.installed whatever the provider was.
+  // On a machine holding an idle Ollama install — and someone running LM Studio
+  // with its server not started — the welcome scan said "installed — not running"
+  // and pointed at a ▶ Start button that would have started the OTHER product.
+  const alsoHasOllamaOnDisk = {
+    ...LMS({ reachable: false, model_ready: false }),
+    ollama: { installed: true, binary_path: '/opt/ollama', reachable: false },
+  }
+  const s = step(alsoHasOllamaOnDisk)
+  assert.equal(s.installed, false, 'the stopped-but-installed rung fired for the wrong product')
+  assert.equal(s.binaryPath, '', 'a path to the other provider’s binary reached the screen')
+
+  // ...and a reachable LM Studio still reads as installed, so nothing downstream
+  // renders it as absent.
+  assert.equal(step(LMS()).installed, true)
+
+  // The Ollama half is untouched — that rung is the whole point there.
+  const oll = deriveSetupSteps({
+    ollama: { installed: true, binary_path: '/usr/bin/ollama', reachable: false },
+  }).find((x) => x.id === 'ollama')
+  assert.equal(oll.installed, true)
+  assert.equal(oll.binaryPath, '/usr/bin/ollama')
+})
+
+test('both Describe surfaces offer the same way out of a fence', async () => {
+  // The Bank's Describe bar took an `onFenceBlocked` prop that NOTHING passed, so a
+  // fenced run there printed a raw error and no remedy, while the dataset's Describe
+  // modal offered "unload and retry" for the identical refusal. A dead prop reads as
+  // covered ground, which is why this asserts the wiring rather than the prop.
+  const { readFileSync } = await import('node:fs')
+  const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8')
+  for (const [name, src] of [
+    ['bank', read('../src/components/bank/DescribeFilterBar.jsx')],
+    ['dataset', read('../src/components/dataset/studio/DescribeImageModal.jsx')],
+  ]) {
+    assert.match(src, /useOllamaFence/, `the ${name} Describe lost its fence guard`)
+    assert.match(src, /runGuarded\(/, `the ${name} Describe no longer replays a fenced call`)
+    assert.match(src, /<OllamaFenceNotice fence=\{fence\} onUnload=\{unloadAndRetry\} onStop=\{stopWaiting\} \/>/,
+      `the ${name} Describe renders no way out of a fence`)
+  }
 })
 
 test('the skip panel names the provider it is actually about', async () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
 import { appearancePolicyChanged } from '../../utils/captionAppearancePolicy.js';
+import { modelPickerCopy } from '../../utils/localLlm.js';
 
 /* ⚙️ Caption method options (per-dataset). Lets the user override, for THIS dataset:
    - the caption engine (or leave it on the global default);
@@ -93,7 +94,8 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
   // still talking to /api/ollama/pull — a button that answers about a daemon the
   // user is not running.
   const [modelsProvider, setModelsProvider] = useState('ollama');
-  const canPull = modelsProvider !== 'lmstudio';
+  const picker = modelPickerCopy(modelsProvider);
+  const canPull = picker.canPull;
   const [pullName, setPullName] = useState('');
   const [pull, setPull] = useState(null); // {state, model, progress, log, error}
   const pollRef = useRef(null);
@@ -297,18 +299,14 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
 
             {/* Ollama model + pull */}
             <div className={`flex flex-col gap-1 ${OLLAMA_RELEVANT.has(backend) ? '' : 'opacity-50'}`}>
-              <label htmlFor="cap-opt-model" className="text-sm font-medium text-content">Ollama vision model</label>
+              <label htmlFor="cap-opt-model" className="text-sm font-medium text-content">{picker.modelLabel}</label>
               <select id="cap-opt-model" value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}
                 className={inputCls}>
                 <option value="">Use default (Settings ▸ Captioning)</option>
                 {modelChoices.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
               {!modelsReachable && (
-                <p className="text-xs text-amber-400/90">
-                  {canPull
-                    ? 'Ollama isn’t reachable — start it from Settings to list or pull models.'
-                    : 'LM Studio isn’t reachable — open it, go to Developer and press Start Server.'}
-                </p>
+                <p className="text-xs text-amber-400/90">{picker.down}</p>
               )}
               {trainType === 'krea' && (
                 <section aria-labelledby="krea-caption-model-title"

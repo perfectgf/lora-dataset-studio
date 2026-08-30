@@ -1142,6 +1142,7 @@ export default function SetupPage() {
       if (step.disabled) {
         return (
           <div className="space-y-4">
+            {lmStudioNote}
             <div role="status" className="rounded-md border border-border bg-surface-raised px-3 py-3">
               <p className="text-sm font-medium text-content">Ollama is optional and disabled.</p>
               <p className="mt-1 text-xs leading-relaxed text-content-muted">
@@ -1156,6 +1157,7 @@ export default function SetupPage() {
       if (step.managedInitializing) {
         return (
           <div className="space-y-4">
+            {lmStudioNote}
             {deploymentCards}
             <div role="status" aria-live="polite"
               className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-3 text-content">
@@ -1173,6 +1175,21 @@ export default function SetupPage() {
                 relaunch <span className="font-mono">{dockerLauncher}</span>.
               </p>
             </div>
+            {fields}
+          </div>
+        )
+      }
+      if (step.isLmStudio) {
+        // Docker only -- the native path returned far above. Every branch below
+        // describes OLLAMA, yet they all key on `reachable`, which under this
+        // provider means "LM Studio answers". That put "✓ Ollama is running at
+        // http://ollama:11434" and a "▶ Start Ollama" button on installs where
+        // Ollama had never run once. The deployment cards stay on the page: the
+        // BAT launcher waits on that choice, so removing them strands a Docker user.
+        return (
+          <div className="space-y-4">
+            {lmStudioNote}
+            {deploymentCards}
             {fields}
           </div>
         )
@@ -1606,6 +1623,12 @@ export default function SetupPage() {
     // button fixes it), and genuinely absent (✗). The old triState collapsed the stopped
     // case into "✗ not found", which read as "you don't have Ollama".
     const oll = stepById.ollama
+    // Under LM Studio the ladder has one rung fewer -- no binary to detect, no ▶
+    // Start to offer -- so `oll.installed` tracks reachability there and the
+    // installed-but-stopped rung never fires. Before that, a machine holding an
+    // idle Ollama install told an LM Studio user their server was "installed --
+    // not running" and pointed them at a button for the other product.
+    const llmLabel = oll.isLmStudio ? 'LM Studio' : 'Ollama'
     const ollamaScan = oll.disabled
       ? { state: 'skipped', partial: 'disabled by this deployment' }
       : (oll.skipped && !oll.installed)
@@ -1613,7 +1636,9 @@ export default function SetupPage() {
       : oll.managedInitializing
         ? { state: 'initializing', partial: 'companion container is starting' }
         : oll.reachable
-          ? { state: oll.visionModelReady ? 'ready' : 'partial', partial: 'running — pull the vision model' }
+          ? { state: oll.visionModelReady ? 'ready' : 'partial',
+              partial: oll.isLmStudio ? 'running — load a vision model in it'
+                : 'running — pull the vision model' }
           : oll.installed
             ? { state: 'partial', partial: 'installed — not running' }
             : { state: 'missing', partial: '' }
@@ -1633,7 +1658,7 @@ export default function SetupPage() {
       // the user has said they don't want it — not merely when a Docker deployment
       // turned it off. What Ollama alone unlocks stays counted in the capability
       // summary either way; this flag only stops the row reading like a failure.
-      { label: 'Captioning — Ollama + vision model', stepId: 'ollama',
+      { label: `Captioning — ${llmLabel} + vision model`, stepId: 'ollama',
         optional: oll.disabled || oll.skipped || oll.joycaptionReady,
         state: ollamaScan.state, partial: ollamaScan.partial },
       { label: 'LoRA training — ai-toolkit', stepId: 'training',

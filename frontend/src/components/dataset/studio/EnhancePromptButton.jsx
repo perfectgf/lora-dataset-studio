@@ -21,6 +21,7 @@ import { apiFetch, postJson } from '../../../api/fetchClient';
 import { useCapabilities } from '../../../context/CapabilitiesContext';
 import { useToast } from '../../common/Toast';
 import useOllamaFence from '../../../hooks/useOllamaFence';
+import { modelPickerCopy } from '../../../utils/localLlm.js';
 import OllamaFenceNotice from '../../common/OllamaFenceNotice';
 import { enhanceBlocker } from './enhanceGate';
 import { activeLocalLlm } from '../../../utils/localLlm'
@@ -40,6 +41,8 @@ const readStoredModel = () => {
 function EnhanceModelPopover({ model, onPick, onClose }) {
   const [models, setModels] = useState([]);
   const [reachable, setReachable] = useState(true);
+  const [provider, setProvider] = useState('ollama');
+  const picker = modelPickerCopy(provider);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
@@ -49,6 +52,7 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
         if (!alive) return;
         setModels(d?.models || []);
         setReachable(d?.reachable !== false);
+        setProvider(d?.provider || 'ollama');
         setLoading(false);
       });
     return () => { alive = false; };
@@ -70,7 +74,7 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
         </div>
         <div className="flex flex-col gap-1">
           <label htmlFor="enhance-model" className="text-sm font-medium text-content">
-            Ollama model
+            {picker.label} model
           </label>
           <select id="enhance-model" value={model} disabled={loading}
             onChange={(e) => onPick(e.target.value)}
@@ -79,17 +83,16 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
             {choices.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           {!reachable && (
-            <p className="text-xs text-amber-400/90">
-              Ollama isn’t reachable — start it from Settings › Local tools to list
-              your pulled models.
-            </p>
+            <p className="text-xs text-amber-400/90">{picker.down}</p>
           )}
           <p className="text-xs text-content-subtle">
             Applies immediately, and is remembered on this browser for both the Test
-            Studio and the Canvas. Enhance is a text call, so any pulled model works —
+            Studio and the Canvas. Enhance is a text call, so any model you have works —
             but a vanilla model can refuse NSFW prompts; the abliterated captioning
-            default is the safe choice there. Pull a new model from Settings › Local
-            tools, or a dataset’s Captions ⚙️ options.
+            default is the safe choice there.{' '}
+            {picker.canPull
+              ? 'Pull a new model from Settings › Local tools, or a dataset’s Captions ⚙️ options.'
+              : 'Load another model inside LM Studio itself — it shows progress and lets you cancel, which this app cannot do for it.'}
           </p>
         </div>
         <div className="flex justify-end">

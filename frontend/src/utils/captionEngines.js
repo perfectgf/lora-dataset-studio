@@ -35,15 +35,21 @@
    calling it either one alone would be false. */
 export const CAPTION_WRITERS = [
   { key: 'joycaption', short: 'JoyCaption', solo: 'Written by JoyCaption.' },
-  { key: 'joycaption_refined', short: 'JoyCaption + Ollama',
-    solo: 'Drafted by JoyCaption, rewritten by the Ollama vision model.' },
-  { key: 'ollama', short: 'Ollama', solo: 'Written by the Ollama vision model.' },
+  // The KEYS are the backend contract and never move. The WORDS follow what the
+  // stored value means now: 'ollama' has meant "the configured local provider"
+  // since LM Studio joined, so naming Ollama here would mislabel every caption an
+  // LM Studio install wrote. Neutral rather than provider-aware, because this
+  // module is pure by design (no imports) and the caption-origin chip on the other
+  // surface already reads "Local LLM" -- identical behaviour, recognisable wording.
+  { key: 'joycaption_refined', short: 'JoyCaption + local LLM',
+    solo: 'Drafted by JoyCaption, rewritten by the local LLM vision model.' },
+  { key: 'ollama', short: 'Local LLM', solo: 'Written by the local LLM vision model.' },
 ];
 
 // Why this line is worth a glance, for the control's title/tooltip. States the
 // mechanism, then the lever — never "contact support".
 export const CAPTION_ENGINE_WHY =
-  'The Auto backend uses JoyCaption first and falls back to the Ollama vision model, '
+  'The Auto backend uses JoyCaption first and falls back to the local LLM vision model, '
   + 'and the two write in different styles. Pick one engine in ⚙️ Options to keep a '
   + 'single voice across a dataset.';
 

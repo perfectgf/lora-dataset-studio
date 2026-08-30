@@ -2260,7 +2260,6 @@ def probe(force=False) -> dict:
             # behaviour is deliberately NOT changed under the user's feet.
             'docker_runtime': setup_is_docker_runtime(),
             'docker_host_url': 'http://host.docker.internal:1234',
-            'active': _llm_provider == 'lmstudio',
             'probed': _llm_provider == 'lmstudio',
             'reachable': lmstudio['ok'],
             'url': _lmstudio_url,
@@ -2297,7 +2296,6 @@ def probe(force=False) -> dict:
             # and other code reads it.
             'local_llm': (lmstudio_model['ok'] if _llm_provider == 'lmstudio'
                           else ollama['ok']),
-            'local_llm_provider': _llm_provider,
             # Whether the active provider can do the passes only IT can do —
             # framing, head-crop, the vision watermark route.
             'local_llm_vision': (lmstudio_model['ok'] if _llm_provider == 'lmstudio'

@@ -521,7 +521,13 @@ function ollamaStep(caps, runtimeReadiness) {
     url: deploymentUrl || o.url || '', visionModel: o.vision_model || '',
     // Execution-independent install signal (binary on disk) vs `reachable` (server
     // answering): installed && !reachable -> "installed but stopped", offer a Start.
-    installed: !!o.installed, binaryPath: o.binary_path || '',
+    // Under LM Studio there is no such signal -- no binary this app can detect, and
+    // no Start it could offer -- so it tracks `reachable` and that branch never
+    // fires. Reading Ollama's flag here put "installed -- not running" and a
+    // "▶ Start Ollama" button on the welcome scan of someone whose LM STUDIO was
+    // simply not started: the wrong product, and a button that would not have helped.
+    installed: isLmStudio ? reachable : !!o.installed,
+    binaryPath: isLmStudio ? '' : (o.binary_path || ''),
   }
 }
 

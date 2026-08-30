@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { MessagesSquare } from 'lucide-react';
 import { postJson } from '../../api/fetchClient'
 import { toFilterPatch, describeSummary, headline } from './bankDescribe.js'
+import useOllamaFence from '../../hooks/useOllamaFence'
+import OllamaFenceNotice from '../common/OllamaFenceNotice'
 
 /* Say what you want; the app sets ITS OWN filters and you read the result.
  *
@@ -12,27 +14,38 @@ import { toFilterPatch, describeSummary, headline } from './bankDescribe.js'
  *
  * The counts stay where they already are — on the chips below, measured by the
  * server. This surface deliberately prints no number of its own. */
-export default function DescribeFilterBar({ bankId, onApply, onFenceBlocked }) {
+export default function DescribeFilterBar({ bankId, onApply }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState(null)
   const [error, setError] = useState(null)
+  /* The local-LLM fence, wired the way the dataset's Describe modal wires it.
+     This used to take an `onFenceBlocked` prop instead -- which nothing ever
+     passed, so a fenced Bank Describe showed a raw error and no way out, while the
+     identical feature one screen over offered "unload and retry". A refusal the
+     user can act on, on one surface only, is the divergence the Bank/Dataset
+     parity rule exists to catch. */
+  const { fence, runGuarded, unloadAndRetry, stopWaiting } = useOllamaFence({
+    onError: (e) => setError(e?.message || String(e)),
+  })
 
   const run = async () => {
     const request = text.trim()
     if (!request || busy) return
     setBusy(true); setError(null)
     try {
-      const out = await postJson(`/api/bank/${bankId}/describe-filter`, { request })
-      setRes(out)
-      // Applied even when the reading is partial: the chips are the honest place
-      // to see how far it got, and refusing to move them would hide a correct
-      // half-reading behind a blank grid.
-      if (out && !out.refused) onApply?.(toFilterPatch(out))
-    } catch (e) {
-      // The one refusal that carries its own remedy travels by CODE, not by
+      // runGuarded keeps this closure and REPLAYS it once the model is freed. The
+      // one refusal that carries its own remedy travels by CODE, not by
       // string-matching a sentence: a model held outside the app can be unloaded.
-      if (e?.code === 'ollama_fence_blocked' && onFenceBlocked) onFenceBlocked(e)
+      await runGuarded(async () => {
+        const out = await postJson(`/api/bank/${bankId}/describe-filter`, { request })
+        setRes(out)
+        // Applied even when the reading is partial: the chips are the honest place
+        // to see how far it got, and refusing to move them would hide a correct
+        // half-reading behind a blank grid.
+        if (out && !out.refused) onApply?.(toFilterPatch(out))
+      })
+    } catch (e) {
       setError(e?.message || String(e))
     } finally { setBusy(false) }
   }
@@ -63,6 +76,8 @@ export default function DescribeFilterBar({ bankId, onApply, onFenceBlocked }) {
           {busy ? 'Reading…' : 'Set the filters'}
         </button>
       </div>
+
+      <OllamaFenceNotice fence={fence} onUnload={unloadAndRetry} onStop={stopWaiting} />
 
       {error && <p className="mt-1 text-xs text-rose-300">{error}</p>}
 

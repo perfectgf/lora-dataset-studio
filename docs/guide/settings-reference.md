@@ -484,7 +484,9 @@ This now includes the **training** bases, which were the last exception: an SDXL
 
 Both cards below stay editable whichever provider is selected, so you can configure the other one and press **Test** before switching. Only the selected provider is checked when the app refreshes its status, so an install pays nothing for a server it does not run.
 
-**A note on the per-dataset engine picker.** The Captions ⚙️ option still reads **Ollama vision only** and still stores the value `ollama`: that string lives in datasets people already have, and renaming it would silently change what their saved options mean. Under LM Studio it means *the configured local provider*. The same goes for the caption-origin badge on an image.
+**A note on the stored value `ollama`.** It is unchanged, everywhere it is written: in `captioning.backend`, in a dataset's saved Captions ⚙️ options, and in the caption-origin column of every image already captioned. Those strings live in databases people already have, and renaming one would silently alter what their saved options mean. What it MEANS has widened: `ollama` now reads as *the configured local provider*.
+
+The labels follow that, so nothing on screen names a server you are not running. Settings ▸ Captioning offers **LM Studio vision** when LM Studio is selected; the per-dataset picker reads **Local LLM only (Ollama / LM Studio)**; the caption-origin badge reads **Local LLM**; and the model pickers, the ✨ Enhance popover and the run window's tooltips all name the provider whose list they are actually showing. Only the stored strings stayed still.
 
 ### Ollama
 

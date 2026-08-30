@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
+import { modelPickerCopy } from '../../utils/localLlm.js';
 import {
   CAPTION_LENGTH_OPTIONS, ENGINE_OPTIONS, OLLAMA_RELEVANT, VOCABULARY_OPTIONS,
 } from './CaptionOptionsPopover';
@@ -50,6 +51,8 @@ export default function CaptionLab({ surface, currentCaption, onKeep }) {
   const toast = useToast();
   const [models, setModels] = useState([]);
   const [modelsReachable, setModelsReachable] = useState(true);
+  const [modelsProvider, setModelsProvider] = useState('ollama');
+  const picker = modelPickerCopy(modelsProvider);
   const [candidates, setCandidates] = useState(() => [newCandidate()]);
   const [running, setRunning] = useState(false);
   const abortRef = useRef(false);
@@ -61,6 +64,7 @@ export default function CaptionLab({ surface, currentCaption, onKeep }) {
         if (!alive) return;
         setModels(mdl.models || []);
         setModelsReachable(mdl.reachable !== false);
+        setModelsProvider(mdl.provider || 'ollama');
       });
     return () => { alive = false; };
   }, []);
@@ -155,7 +159,7 @@ export default function CaptionLab({ surface, currentCaption, onKeep }) {
 
       {!modelsReachable && (
         <p className="m-0 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-[0.6875rem] text-amber-200">
-          The local LLM isn’t reachable — start it from Settings to list vision models. Candidates can still run on JoyCaption.
+          {picker.down} Candidates can still run on JoyCaption.
         </p>
       )}
 
@@ -194,7 +198,7 @@ export default function CaptionLab({ surface, currentCaption, onKeep }) {
                 onChange={(e) => patch(c.id, { length: e.target.value })} className={selectCls}>
                 {CAPTION_LENGTH_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
-              <select aria-label="Ollama vision model" value={c.ollamaModel} disabled={running || !OLLAMA_RELEVANT.has(c.backend)}
+              <select aria-label={picker.modelLabel} value={c.ollamaModel} disabled={running || !OLLAMA_RELEVANT.has(c.backend)}
                 onChange={(e) => patch(c.id, { ollamaModel: e.target.value })}
                 className={`${selectCls} ${OLLAMA_RELEVANT.has(c.backend) ? '' : 'opacity-40'}`}>
                 <option value="">Default vision model</option>

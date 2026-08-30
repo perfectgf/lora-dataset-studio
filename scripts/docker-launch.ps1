@@ -750,11 +750,15 @@ try {
         throw 'config.json contains an invalid Ollama deployment mode. No secret was displayed.'
     }
     $ollamaMode = $modeResult['MODE']
+    # An older helper answers without this line; treat its silence as Ollama, the
+    # only thing that existed before the setting.
+    $llmProvider = $modeResult['PROVIDER']
+    if (-not $llmProvider) { $llmProvider = 'ollama' }
 
     $DockerExe = Get-DockerExecutable
     Wait-ForDocker
 
-    if ($NonInteractive -and $ollamaMode -in @('none', 'host')) {
+    if ($NonInteractive -and ($llmProvider -eq 'lmstudio' -or $ollamaMode -in @('none', 'host'))) {
         Stop-OwnedSidecar
     }
 
@@ -854,7 +858,18 @@ try {
     Open-Studio -Uri $appUrl
     Diagnose-ExternalComfy
 
-    if ($ollamaMode -eq 'unset') {
+    if ($llmProvider -eq 'lmstudio') {
+        # The sidecar exists to provide Ollama. The user has said they run LM
+        # Studio, so there is nothing for it to provide -- and `deployment_mode`
+        # may still read 'docker' from an earlier session, which would otherwise
+        # start a container that nothing in the app ever calls.
+        Write-Host ''
+        Stop-OwnedSidecar
+        Write-Host 'Local LLM provider is LM Studio, so no Ollama sidecar was started.'
+        Write-Host 'Studio reaches LM Studio on this machine at http://host.docker.internal:1234 --'
+        Write-Host 'start its server from LM Studio > Developer > Start Server.'
+    }
+    elseif ($ollamaMode -eq 'unset') {
         Write-Host ''
         Write-Host 'Choose the Ollama deployment mode in the Studio Setup page.'
         if ($env:LDS_TEST_MODE) {

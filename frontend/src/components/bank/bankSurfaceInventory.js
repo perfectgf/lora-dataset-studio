@@ -434,10 +434,11 @@ export const BANK_SURFACES = [
     "Hides every image whose caption or file name contains one of these words (comma-separated). Matches anywhere in the text, so 'car' also hides 'scarf'. Images with no caption are never hidden.",
     1
   ],
-  [
-    "How captions name nude or sexual content. Explicit needs an uncensored (abliterated) Ollama vision model. Richer, more explicit captions also make the search find more.",
-    1
-  ],
+  // REMOVED, not lost: the register tooltip became a computed string when LM Studio
+  // joined Ollama as a provider -- it has to name the one actually configured. This
+  // file's own rule covers that case ("a label that is entirely computed still yields
+  // nothing, and that is correct"); the sentence is now pinned by a unit test on
+  // modelPickerCopy, which checks BOTH providers rather than one frozen spelling.
   [
     "How much the captioner writes. Concise aims for one short sentence, Detailed for several - a target the model follows loosely, not a hard cap. Standard leaves the prompt untouched. Longer captions give the search more to match on.",
     1

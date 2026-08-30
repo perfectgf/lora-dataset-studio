@@ -23,7 +23,7 @@ import SettingsLink from '../common/SettingsLink'
 import { captionButtonLabel, captionScopeNote } from './bankCaptionScope.js'
 import { holdsTheGpu } from './bankScoreDevice.js'
 import { openerLabel } from './scoringPython.js'
-import { activeLocalLlm } from '../../utils/localLlm'
+import { activeLocalLlm, localLlmLabel } from '../../utils/localLlm'
 
 /* Below lg the panel folds everything that is not a pass button. Measured by
    the responsive probe at 360 px: the panel was ~1 500 px tall — engine card,
@@ -206,7 +206,7 @@ export default function BankPassesPanel({
                on screen instead, and only mentions Settings for the case the picker
                cannot solve: no uncensored model pulled on this machine at all. */
             <p className="text-xs text-amber-400/90">
-              ⚠️ Explicit captions need an uncensored (abliterated) Ollama vision model
+              ⚠️ Explicit captions need an uncensored (abliterated) {localLlmLabel(caps)} vision model
               {visionModel ? ` — “${visionModel}” may refuse or soften explicit terms` : ''}.
               Pick another one in <b>Caption vision model</b> above, or pull one from{' '}
               <SettingsLink section="local-tools" focus={visionModelFocus} tone="warning">

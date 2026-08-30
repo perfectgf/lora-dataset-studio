@@ -250,17 +250,16 @@ def _make_fake_docker(tmp_path: Path):
     return fake_ps1, fake_python
 
 
-def _write_mode(checkout: Path, stack: str, mode: str):
+def _write_mode(checkout: Path, stack: str, mode, provider=None):
     data_name = "data-docker-gpu" if stack == "gpu" else "data-docker"
     config = checkout / data_name / "config.json"
     config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(
-        json.dumps({
-            "ollama": {"deployment_mode": mode},
-            "secret_token": "never-print-this",
-        }),
-        encoding="utf-8",
-    )
+    payload = {"secret_token": "never-print-this"}
+    if mode is not None:
+        payload["ollama"] = {"deployment_mode": mode}
+    if provider is not None:
+        payload["local_llm"] = {"provider": provider}
+    config.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _run_launcher(
@@ -272,13 +271,14 @@ def _run_launcher(
     switches=(),
     state_changes=None,
     checkout=None,
+    provider=None,
 ):
     if POWERSHELL is None:
         pytest.skip("Windows PowerShell 5.1 is unavailable")
     if checkout is None:
         checkout = _copy_launcher_checkout(tmp_path)
-    if mode is not None:
-        _write_mode(checkout, stack, mode)
+    if mode is not None or provider is not None:
+        _write_mode(checkout, stack, mode, provider)
 
     fake_ps1, fake_python = _make_fake_docker(tmp_path)
     project = "lora-dataset-studio-gpu" if stack == "gpu" else "lora-dataset-studio"
@@ -501,6 +501,64 @@ def test_none_mode_stops_only_a_verified_lds_sidecar(
     stops = _compose_calls(calls, "stop", "ollama")
     assert bool(stops) is should_stop
     assert state["sidecar_running"] is (not should_stop)
+
+@pytest.mark.parametrize("stale_mode", ["docker", None])
+def test_an_lm_studio_install_never_starts_the_ollama_sidecar(tmp_path, stale_mode):
+    """The sidecar exists to provide Ollama; nothing here would ever call it.
+
+    `deployment_mode` is not cleared when the provider changes -- it can read
+    'docker' from an Ollama session months ago -- so a launcher that reads only
+    that key starts a container, pulls an image and holds a VRAM claim for a
+    server the app never talks to. The `None` half covers the commoner case: a
+    fresh LM Studio install, where the key was never written at all.
+    """
+    _, result, state, calls = _run_launcher(
+        tmp_path, "studio", mode=stale_mode, provider="lmstudio")
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert not _compose_calls(calls, "up", "ollama")
+    assert state["sidecar_running"] is False
+    # ...and it SAYS so, naming the address the container actually reaches --
+    # `host.docker.internal`, not the localhost the user sees in LM Studio.
+    # Whitespace is stripped because PowerShell wraps to the console width.
+    output = re.sub(r"\s+", "", result.stdout)
+    assert "noOllamasidecarwasstarted" in output
+    assert "http://host.docker.internal:1234" in output
+    assert "ChoosetheOllamadeploymentmode" not in output, (
+        "the wizard stopped offering those cards under LM Studio -- asking for a "
+        "choice that can never be made blocks the window on a dead question")
+    assert "never-print-this" not in result.stdout
+
+
+def test_an_lm_studio_install_stops_a_sidecar_an_earlier_session_left_running(tmp_path):
+    """Switching provider must reclaim the VRAM, not merely stop feeding it.
+
+    A user who ran Ollama in Docker and then switched to LM Studio has both
+    servers resident. `ollama-data` is preserved, so switching back costs
+    nothing -- exactly what the 'none' mode already does.
+    """
+    _, result, state, calls = _run_launcher(
+        tmp_path, "studio", mode="docker", provider="lmstudio",
+        state_changes={"sidecar_running": True, "sidecar_role": "ollama"})
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert len(_compose_calls(calls, "stop", "ollama")) == 1
+    assert state["sidecar_running"] is False
+
+
+def test_an_lm_studio_install_leaves_a_sidecar_that_is_not_ours_alone(tmp_path):
+    """The provider switch is not a licence to stop somebody else's container.
+
+    Same rule the 'none' mode already follows: ownership is verified first.
+    """
+    _, result, state, calls = _run_launcher(
+        tmp_path, "studio", mode="docker", provider="lmstudio",
+        state_changes={"sidecar_running": True, "sidecar_role": "foreign"})
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert not _compose_calls(calls, "stop", "ollama")
+    assert state["sidecar_running"] is True
+
 
 def test_update_none_mode_still_stops_an_owned_sidecar(tmp_path):
     _, result, state, calls = _run_launcher(

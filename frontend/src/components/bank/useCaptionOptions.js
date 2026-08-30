@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { OLLAMA_RELEVANT } from '../dataset/CaptionOptionsPopover';
-import { activeLocalLlm } from '../../utils/localLlm'
+import { activeLocalLlm, modelPickerCopy } from '../../utils/localLlm'
 
 export function useCaptionOptions({ caps }) {
   // Caption register for the 🏷️ Caption pass ('' = model's own wording). Explicit is
@@ -27,6 +27,7 @@ export function useCaptionOptions({ caps }) {
   // configured vision model), so it is its own always-200 fetch — an unreachable Ollama
   // is an empty list, never an error.
   const [ollamaModels, setOllamaModels] = useState([])
+  const [modelsProvider, setModelsProvider] = useState('ollama')
   /* The ESCAPE HATCH, and the reason it is a piece of state and not a request key: it has
      to be visible, deliberate and re-read in the confirmation. Never persisted, so it
      resets with the panel — an opt-out of a protection is not a preference. */
@@ -39,7 +40,11 @@ export function useCaptionOptions({ caps }) {
   useEffect(() => {
     let alive = true
     apiFetch('/api/local-llm/models').catch(() => ({ models: [] }))
-      .then((d) => { if (alive) setOllamaModels(d?.models || []) })
+      .then((d) => {
+        if (!alive) return
+        setOllamaModels(d?.models || [])
+        setModelsProvider(d?.provider || 'ollama')
+      })
     return () => { alive = false }
   }, [])
 
@@ -75,6 +80,7 @@ export function useCaptionOptions({ caps }) {
     captionEngine, setCaptionEngine, captionModel, setCaptionModel,
     ollamaModels, captionIncludeAsserted, setCaptionIncludeAsserted,
     visionModel, visionModelLooksUncensored, ollamaPicksApply,
+    llmPicker: modelPickerCopy(modelsProvider),
     captionModelChoices, captionRunOptions,
   };
 }

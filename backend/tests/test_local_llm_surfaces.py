@@ -59,6 +59,27 @@ def test_the_route_stays_200_when_the_lmstudio_server_is_gone(app, client, monke
                             'models': []}
 
 
+@pytest.mark.parametrize('provider', ['ollama', 'lmstudio'])
+def test_the_old_ollama_path_answers_exactly_what_the_new_one_does(app, client, provider):
+    """`GET /api/ollama/models` is an ALIAS now, and its meaning changed with it.
+
+    It used to list Ollama's models under any configuration; it lists the CONFIGURED
+    provider's. That is the sense a stale cached bundle needs -- its picker would
+    otherwise offer models the run will never use, and store one of them into
+    `caption_options.ollama_model` where the router would hand it to LM Studio.
+
+    The URL stays because it is public surface. The two paths are asserted equal
+    rather than each described on its own, so they cannot drift.
+    """
+    with app.app_context():
+        config.save_config({'local_llm': {'provider': provider}})
+    new = client.get('/api/local-llm/models')
+    old = client.get('/api/ollama/models')
+    assert old.status_code == new.status_code == 200
+    assert old.get_json() == new.get_json()
+    assert old.get_json()['provider'] == provider
+
+
 # --- the probes never raise, and say the real reason ------------------------
 
 def test_a_server_that_answers_and_refuses_is_not_reported_as_switched_off(

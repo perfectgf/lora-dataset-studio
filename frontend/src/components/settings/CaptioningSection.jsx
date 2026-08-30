@@ -3,6 +3,7 @@ import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './Setti
 import { CAPTIONING_GROUPS } from './settingsGroups'
 import ResetToDefault from './ResetToDefault'
 import { defaultValueAt } from './settingDefaults.js'
+import { localLlmLabel } from '../../utils/localLlm.js'
 import { importInputLimitLine, IMPORT_INPUT_UNLIMITED_NOTE } from '../dataset/importPolicy.js'
 
 // Decoded RGB costs 3 bytes per pixel, and an edit or analysis pass can hold a
@@ -27,10 +28,13 @@ const INPUT_MAX_SIDE_OPTIONS = [
   { value: 0, label: 'No limit — accept any side' },
 ]
 
-const CAPTIONING_OPTIONS = [
+// The stored id 'ollama' is in users' config files and means "the configured local
+// provider" now, so it never moves -- only the word beside it follows the choice made
+// two panels up, in Local tools.
+const captioningOptions = (llm) => [
   { id: 'auto', label: 'Auto (best available)' },
   { id: 'joycaption', label: 'JoyCaption' },
-  { id: 'ollama', label: 'Ollama vision' },
+  { id: 'ollama', label: `${llm} vision` },
   { id: 'none', label: 'None' },
 ]
 
@@ -46,6 +50,10 @@ const WATERMARK_BACKEND_OPTIONS = [
 ]
 
 export default function CaptioningSection({ config, setField, configDefaults }) {
+  // From `config`, not from caps: this screen shows what is SAVED, and the provider
+  // select sits on it -- reading a capability snapshot would lag a change by a refresh.
+  const llmName = localLlmLabel({ local_llm: config.local_llm })
+  const CAPTIONING_OPTIONS = captioningOptions(llmName)
   // The bank thresholds below were tuned on a real 36 000-image bank and are
   // re-tuned between releases: the numbers shown when a key is missing, like the
   // ones "Reset to default" writes, come from the server (config_defaults).
@@ -203,7 +211,7 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
       <SettingsGroup {...groupProps(captionGroup)}>
       <Card
         title="Captioning"
-        help="Who writes the captions. Auto prefers JoyCaption (via ai-toolkit) and falls back to the Ollama vision model."
+        help={`Who writes the captions. Auto prefers JoyCaption (via ai-toolkit) and falls back to the ${llmName} vision model.`}
       >
         <div>
           <label htmlFor="captioning-backend" className="block text-sm font-medium text-content">Captioning backend</label>

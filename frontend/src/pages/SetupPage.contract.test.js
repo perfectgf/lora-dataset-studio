@@ -78,6 +78,35 @@ test('a conscious skip counts as a settled step', () => {
     "isReady ignores 'skipped' again — the wizard keeps sending the user back to the step they closed")
 })
 
+test('the Docker body never describes Ollama using LM Studio’s readiness', () => {
+  // Under LM Studio the native path returns early, but the DOCKER path fell
+  // through to three branches that all key on `reachable` — which now means "LM
+  // Studio answers". They rendered "✓ Ollama is running at http://ollama:11434"
+  // and a ▶ Start Ollama button on installs where Ollama had never run.
+  // Order is the assertion: the provider branch has to come FIRST.
+  // Anchored on the Ollama step's own body: `if (step.reachable) {` also appears
+  // in the ComfyUI step far above, and an unanchored indexOf measured THAT one —
+  // the assertion passed on a fresh tree and would have passed on a broken one.
+  const body = source.slice(source.indexOf('const lmStudioNote'))
+  const guard = body.indexOf('if (step.isLmStudio) {')
+  const reachable = body.indexOf('if (step.reachable) {')
+  assert.ok(guard > -1, 'the Docker body no longer branches on the provider')
+  assert.ok(reachable > -1 && guard < reachable,
+    'the Ollama status branches run first again — they describe the wrong server')
+  // ...and the cards stay, because the BAT launcher waits on that choice.
+  const branch = body.slice(guard, reachable)
+  assert.match(branch, /\{deploymentCards\}/,
+    'the deployment cards left the page — a Docker user can no longer answer the launcher')
+  assert.match(branch, /\{lmStudioNote\}/, 'the body no longer says which server is in use')
+})
+
+test('the welcome scan row names the provider it scanned', () => {
+  assert.match(source, /label: `Captioning — \$\{llmLabel\} \+ vision model`/,
+    'the scan row is hard-coded to Ollama again')
+  assert.match(source, /const llmLabel = oll\.isLmStudio/,
+    'the label is no longer derived from the active provider')
+})
+
 test('an installed Ollama outranks the skip on the welcome scan row', () => {
   // "installed — not running" is actionable and true; "you chose to skip" would hide
   // the ▶ Start button from someone who skipped first and installed Ollama later.
