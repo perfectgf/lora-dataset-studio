@@ -419,7 +419,9 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         'resolution': [_resolution_for(width, height, profile['size_multiple'],
                                        profile['max_pixels'])],
     }
-    if video_targets.wants_audio(key):
+    if video_targets.wants_audio(key) and int(frames) > 1:
+        # Stills carry no soundtrack; upstream guards this too (audio only for
+        # num_frames > 1), so the block is omitted rather than emitted inert.
         # Opt-in per dataset, and defaulting to False: omitted, the audio branch
         # of a joint model trains on nothing while the config still looks whole.
         dataset_block['do_audio'] = True

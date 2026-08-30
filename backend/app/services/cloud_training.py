@@ -3407,6 +3407,10 @@ def _assert_pod_can_decode(run, remote, pod_settings):
     from . import pod_video_probe
     if not crd.is_video(run):
         return None
+    # A stills set (frames == 1) uploads images: there is no mp4 to decode and
+    # the probe's own program would report an empty folder as a refusal.
+    if int(_run_param(run, 'frames') or 0) == 1:
+        return None
     profile = video_targets.get(_run_param(run, 'target_profile')
                                 or getattr(crd.dataset_row(run),
                                            'target_profile', None)) or {}

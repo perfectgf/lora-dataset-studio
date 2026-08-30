@@ -14,6 +14,7 @@ all in the EU, the UK, South Korea or the USA, and the restriction reaches the
 OUTPUTS — a user must not discover that in a forum thread after building a set).
 """
 import logging
+import mimetypes
 from ..extensions import db
 
 from flask import Blueprint, jsonify, request, send_file
@@ -75,6 +76,22 @@ def video_datasets_list():
     return jsonify({'datasets': svc.list_video_datasets(LOCAL_USER)})
 
 
+@bp.post('/video-datasets/from-dataset')
+def video_dataset_from_face_dataset():
+    """Build an H3 STILLS set from an existing image dataset — body
+    {dataset_id, name?}. Reuses the image lane's own exporter (curated images,
+    edited captions, trigger — all already there), so the two lanes cannot
+    disagree about what a caption or a trigger means."""
+    data = request.get_json(silent=True) or {}
+    try:
+        out = svc.create_stills_dataset_from_face_dataset(
+            LOCAL_USER, int(data.get('dataset_id') or 0), name=data.get('name'))
+    except (TypeError, ValueError) as e:
+        msg = str(e) or 'dataset_id must be a number'
+        return jsonify({'error': msg}), 404 if 'not found' in msg else 400
+    return jsonify({'ok': True, **out}), 201
+
+
 @bp.get('/video-dataset/<int:dataset_id>')
 def video_dataset_get(dataset_id):
     """The dataset and its clips, each carrying the source file and the bounds it
@@ -102,7 +119,9 @@ def video_dataset_clip_media(dataset_id, clip_id):
     path = svc.dataset_clip_media_path(LOCAL_USER, dataset_id, clip_id)
     if path is None:
         return jsonify({'error': 'clip file not available'}), 404
-    return send_file(path, mimetype='video/mp4', conditional=True, max_age=86400)
+    # A stills set serves images through the same route; the extension decides.
+    guessed = mimetypes.guess_type(path)[0] or 'video/mp4'
+    return send_file(path, mimetype=guessed, conditional=True, max_age=86400)
 
 
 @bp.post('/video-dataset/<int:dataset_id>/clip/<int:clip_id>/caption')

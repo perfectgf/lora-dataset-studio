@@ -246,6 +246,13 @@ _TARGETS = {
         'caption_style': 'paragraph_with_audio',
         'dataset_layout': 'flat',
         'training_verified': True,
+        # "Image datasets (num_frames 1) train as single frames" — ai-toolkit's
+        # own preset notes. A stills set is a real road for this model (a
+        # character LoRA from ~32 photos on a 12 GB card is documented practice)
+        # and the frame RULE must not eat it: 1 is not on the 17n+5 grid, it is
+        # a different mode, so it is a flag here and a special case in
+        # `is_legal_frames`, never a loosening of the rule itself.
+        'stills': True,
         # NOT a footnote. The MiniMax H3 Community Licence grants rights SOLELY
         # within its "Applicable Territory" and names the EU, the UK, South Korea
         # and the USA as Excluded Territories. It reaches the OUTPUTS too.
@@ -312,6 +319,8 @@ def is_legal_frames(key, frames):
     profile = _TARGETS.get(key)
     if profile is None:
         return False
+    if frames == 1 and profile.get('stills'):
+        return True
     return _RULES[profile['frame_rule']](frames)
 
 

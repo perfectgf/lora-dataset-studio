@@ -2667,6 +2667,68 @@ def _dataset_row(ds: VideoDataset) -> dict:
     }
 
 
+def create_stills_dataset_from_face_dataset(user_id, face_dataset_id,
+                                            name=None) -> dict:
+    """A VIDEO dataset of still images, built from an existing image dataset.
+
+    "Image datasets (num_frames 1) train as single frames" is ai-toolkit's own
+    road for H3, and the image side of the app already owns everything it needs
+    - curated images, edited captions, a trigger. So this REUSES the image
+    lane's own exporter (`export_dataset_to_aitoolkit`, masks off), which writes
+    the exact flat image+.txt layout the trainer reads, trigger included; the
+    rows are then registered so the dataset page shows what a promotion shows.
+
+    The face dataset's trigger is copied onto the stills set so a later caption
+    edit re-writes its sidecar with the same trigger, exactly once - the
+    idempotent prepend already guards against doubling it."""
+    from . import face_dataset_service as fds
+    from . import lora_training as lt
+    face = fds.get_dataset(user_id, face_dataset_id)
+    if face is None:
+        raise ValueError('image dataset not found')
+    profile_key = 'minimax_h3'
+    dataset = VideoDataset(
+        user_id=user_id,
+        name=(name or '').strip() or f'{face.name} — stills',
+        target_profile=profile_key, fps=video_targets.get(profile_key)['fps'],
+        frames=1, width=768, height=768,
+        trigger_word=(getattr(face, 'trigger_word', None) or '').strip() or None,
+        output_dir='')
+    db.session.add(dataset)
+    db.session.flush()
+    out_dir = dataset_dir(dataset.id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dataset.output_dir = str(out_dir)
+    try:
+        lt.export_dataset_to_aitoolkit(user_id, face_dataset_id, masked=False,
+                                       dest_dir=str(out_dir))
+    except Exception:
+        db.session.delete(dataset)
+        db.session.commit()
+        raise
+    copied = 0
+    for entry in sorted(os.listdir(out_dir)):
+        stem, ext = os.path.splitext(entry)
+        if ext.lower() not in ('.png', '.jpg', '.jpeg', '.webp'):
+            continue
+        caption = None
+        sidecar = out_dir / f'{stem}.txt'
+        try:
+            caption = sidecar.read_text(encoding='utf-8').strip() or None
+        except OSError:
+            pass
+        db.session.add(VideoDatasetClip(dataset_id=dataset.id, filename=entry,
+                                        caption=caption))
+        copied += 1
+    db.session.commit()
+    if not copied:
+        db.session.delete(dataset)
+        db.session.commit()
+        raise ValueError('that image dataset exported no images — nothing to train on')
+    return {'id': dataset.id, 'name': dataset.name, 'clips': copied,
+            'output_dir': dataset.output_dir}
+
+
 def list_video_datasets(user_id) -> list:
     rows = (VideoDataset.query.filter_by(user_id=user_id)
             .order_by(VideoDataset.id.desc()).all())

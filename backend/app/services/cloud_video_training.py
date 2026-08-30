@@ -42,12 +42,15 @@ logger = logging.getLogger(__name__)
 # only extension the exporter writes and the only video extension the upload
 # ships; a folder without one uploads captions alone and trains on nothing.
 _CLIP_EXT = '.mp4'
+# A stills set (frames == 1) holds images instead — same flat layout,
+# same trainer, counted by the same launch guard.
+_MEDIA_EXTS = ('.mp4', '.png', '.jpg', '.jpeg', '.webp')
 
 
 def _count_clips(folder) -> int:
     try:
         return sum(1 for f in os.listdir(folder)
-                   if f.lower().endswith(_CLIP_EXT))
+                   if f.lower().endswith(_MEDIA_EXTS))
     except OSError:
         return 0
 
@@ -166,7 +169,7 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     clips = _count_clips(ds.output_dir or '')
     if not clips:
         raise ValueError(
-            f'this video dataset has no {_CLIP_EXT} clips on disk — there would '
+            'this video dataset has no clips or stills on disk — there would '
             'be nothing to train on; rebuild it before launching')
 
     n_steps = max(100, int(steps or 1000))

@@ -728,3 +728,25 @@ def test_first_frame_i2v_is_a_flag_on_h3_and_a_refusal_with_directions_on_wan():
             '/pod/ds', 100, do_i2v=True)
     assert 'I2V target' in str(e.value)
 
+
+def test_a_stills_set_is_legal_for_h3_and_trains_without_a_soundtrack():
+    """"Image datasets (num_frames 1) train as single frames" is ai-toolkit's
+    own road for H3, and the frame RULE must not eat it: 1 is not on the 17n+5
+    grid, it is a different mode, so it is a per-profile flag and never a
+    loosening of the rule. Wan gets no such flag - nothing states stills for it.
+    A stills config asks for no audio: images have no soundtrack, and an inert
+    do_audio would still be a claim about the data that is false."""
+    assert vt.is_legal_frames('minimax_h3', 1)
+    # Wan needs no flag: 1 satisfies its own 4n+1 arithmetic already. The flag
+    # exists precisely because H3's 17n+5 EXCLUDES 1.
+    assert vt.is_legal_frames('wan22_14b', 1)
+    assert not vt.is_legal_frames('minimax_h3', 2)
+    cfg = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=1, fps=24), '/pod/ds', 100))
+    assert cfg['datasets'][0]['num_frames'] == 1
+    assert 'do_audio' not in cfg['datasets'][0]
+    assert 'audio_loss_multiplier' not in cfg['train']
+    on = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
+    assert on['datasets'][0]['do_audio'] is True
+

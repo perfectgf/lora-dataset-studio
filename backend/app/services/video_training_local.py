@@ -60,6 +60,9 @@ logger = logging.getLogger(__name__)
 # The only extension the promoter writes, and the only one ai-toolkit's video
 # loader reads. Shared verbatim with the cloud lane's clip count.
 _CLIP_EXT = '.mp4'
+# A stills set (frames == 1) holds images instead — same flat layout,
+# same trainer, counted by the same launch guard.
+_MEDIA_EXTS = ('.mp4', '.png', '.jpg', '.jpeg', '.webp')
 
 # Weight sets this build can PROVE are present or absent, keyed by ai-toolkit
 # arch. The paths are relative to ai-toolkit's models folder and are the exact
@@ -274,7 +277,7 @@ def _assert_run_folder_matches(video_ds, arch):
 def _count_clips(folder) -> int:
     try:
         return sum(1 for n in os.listdir(folder)
-                   if n.lower().endswith(_CLIP_EXT))
+                   if n.lower().endswith(_MEDIA_EXTS))
     except OSError:
         return 0
 
@@ -322,7 +325,7 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
     clips = _count_clips(folder)
     if not clips:
         raise ValueError(
-            f'this video dataset has no {_CLIP_EXT} clips on disk — there would '
+            'this video dataset has no clips or stills on disk — there would '
             'be nothing to train on. Promote it again from the bank.')
 
     n_steps = max(100, int(steps or 1000))

@@ -45,7 +45,11 @@ export default function VideoDatasetsPanel() {
     }
   }
 
-  if (!datasets?.length) return null
+  // Loading stays silent; EMPTY no longer does. The old rule (hide the section
+  // until a bank is promoted) predates the stills road: the section now carries
+  // an entry point of its own, and hiding it would hide the only place a user
+  // with zero video datasets can start one from their image datasets.
+  if (datasets === null) return null
 
   return (
     <section className="flex flex-col gap-2">
@@ -55,6 +59,7 @@ export default function VideoDatasetsPanel() {
           <span className="font-normal normal-case tracking-normal"> ({datasets.length})</span>
         </span>
         <HelpBadge topic="video-datasets" />
+        <StillsFromDatasetButton onCreated={refresh} />
       </h2>
       <ul className="grid gap-2 grid-cols-1 sm:grid-cols-2">
         {datasets.map((d) => (
@@ -113,6 +118,74 @@ export default function VideoDatasetsPanel() {
  * "it works" are different claims and only the user can decide whether to spend
  * a night on the second. */
 const PROVEN_ON = { wan22_14b: 'local', minimax_h3: 'cloud' }
+
+/** 🖼 Build an H3 stills set from an image dataset the user already curated.
+ *
+ * The image side owns everything a stills set needs — kept images, edited
+ * captions, a trigger — so this is a picker and a POST, not a pipeline. Lazy on
+ * purpose: the dataset list is fetched when the form opens, never on mount. */
+function StillsFromDatasetButton({ onCreated }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [choices, setChoices] = useState(null)
+  const [picked, setPicked] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const openForm = async () => {
+    setOpen(true)
+    try {
+      const d = await apiFetch('/api/dataset/list')
+      setChoices((d.datasets || []).filter((x) => x.images_total > 0))
+    } catch (e) {
+      toast.error(e?.message || 'Could not list image datasets.')
+      setOpen(false)
+    }
+  }
+
+  const create = async () => {
+    if (!picked) return
+    setBusy(true)
+    try {
+      const r = await postJson('/api/video-datasets/from-dataset',
+        { dataset_id: Number(picked) })
+      toast.success(`“${r.name}” created — ${r.clips} still(s), ready to train.`)
+      setOpen(false)
+      setPicked('')
+      onCreated?.()
+    } catch (e) {
+      toast.error(e?.message || 'Could not build the stills set.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={openForm}
+        className="rounded border border-border bg-surface-raised px-2 py-0.5 text-[0.6875rem] text-content-muted hover:bg-surface">
+        🖼 Stills set from an image dataset
+      </button>
+    )
+  }
+  return (
+    <span className="flex items-center gap-1.5">
+      <select value={picked} onChange={(e) => setPicked(e.target.value)}
+        className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content">
+        <option value="">{choices === null ? 'Loading…' : 'Pick an image dataset'}</option>
+        {(choices || []).map((c) => (
+          <option key={c.id} value={c.id}>{c.name} ({c.images_total})</option>
+        ))}
+      </select>
+      <button type="button" disabled={busy || !picked} onClick={create}
+        className="rounded border border-border bg-surface-raised px-2 py-0.5 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-40">
+        {busy ? 'Building…' : 'Create'}
+      </button>
+      <button type="button" onClick={() => setOpen(false)}
+        className="text-[0.6875rem] text-content-subtle hover:underline">cancel</button>
+    </span>
+  )
+}
+
 
 /** ▶ Train this dataset — the local run, its progress, and its refusals.
  *

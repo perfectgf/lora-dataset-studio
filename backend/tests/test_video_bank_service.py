@@ -682,3 +682,42 @@ def test_the_trigger_rides_every_sidecar_exactly_once():
     assert _with_trigger('', 'a woman walks') == 'a woman walks'
     assert _with_trigger(None, None) == ''
 
+
+def test_a_stills_set_reuses_the_image_lane_exporter_and_registers_its_rows(
+        app, tmp_path, monkeypatch):
+    """The image side already owns everything a stills set needs - kept images,
+    edited captions, a trigger - so the creator REUSES its exporter rather than
+    growing a second one, copies the face trigger onto the set (the idempotent
+    sidecar prepend then guards re-edits), and registers rows so the dataset
+    page shows what a promotion shows. An export that yields nothing rolls the
+    whole creation back: an empty dataset row would be a promise of training."""
+    from app.services import video_bank_service as svc
+    from app.services import lora_training as lt
+
+    def fake_export(user_id, dataset_id, masked=True, dest_dir=None, **kw):
+        from pathlib import Path
+        d = Path(dest_dir)
+        (d / 'img_0001.png').write_bytes(b'x')
+        (d / 'img_0001.txt').write_text('trig, a portrait', encoding='utf-8')
+        (d / 'img_0002.png').write_bytes(b'x')
+        return str(d)
+
+    class FakeFace:
+        id = 7
+        name = 'kai'
+        trigger_word = 'trig'
+
+    monkeypatch.setattr(lt, 'export_dataset_to_aitoolkit', fake_export)
+    monkeypatch.setattr(svc.cfg, 'video_datasets_root', lambda: tmp_path / 'vd')
+    import app.services.face_dataset_service as fds
+    monkeypatch.setattr(fds, 'get_dataset', lambda u, i: FakeFace())
+    with app.app_context():
+        out = svc.create_stills_dataset_from_face_dataset('local', 7)
+        assert out['clips'] == 2
+        row = svc.video_dataset_payload('local', out['id'])
+        assert row['frames'] == 1 and row['target_profile'] == 'minimax_h3'
+        assert row['trigger_word'] == 'trig'
+        captions = {i['filename']: i['caption'] for i in row['items']}
+        assert captions['img_0001.png'] == 'trig, a portrait'
+        assert captions['img_0002.png'] is None
+
