@@ -8066,6 +8066,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
         if remaining:
             try:
                 from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
+                from .vision_llm import label as _llm_label
             except ImportError:
                 raise RuntimeError('vision (Ollama) service not configured/available yet')
             try:
@@ -8077,7 +8078,11 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                         break
                     dataset_activity.progress(
                         token,
-                        detail=f'Captioning with Ollama — image {index}/{len(remaining)}…')
+                        # Reddit report, within a day of the provider shipping:
+                        # "It says 'Captioning with Ollama' even though it's
+                        # configured to use LM Studio." The one running-progress
+                        # sentence this sweep missed.
+                        detail=f'Captioning with {_llm_label()} — image {index}/{len(remaining)}…')
                     with open(p, 'rb') as fh:
                         cap = describe_image_ollama(
                             fh.read(), cap_prompt, num_predict=2000, model=ollama_model,
