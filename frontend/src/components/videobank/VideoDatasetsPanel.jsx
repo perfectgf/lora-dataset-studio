@@ -120,7 +120,7 @@ export default function VideoDatasetsPanel() {
  * trained end to end anywhere. The card says which, because "it started" and
  * "it works" are different claims and only the user can decide whether to spend
  * a night on the second. */
-const PROVEN_ON = { wan22_14b: 'local', minimax_h3: 'cloud' }
+const PROVEN_ON = { wan22_14b: 'local', minimax_h3: 'cloud', minimax_h3_ref2va: 'cloud' }
 
 /** 🖼 Build an H3 stills set from an image dataset the user already curated.
  *
