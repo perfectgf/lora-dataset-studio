@@ -957,3 +957,31 @@ test('the KEPT column never ticks a captioner this machine does not have', () =>
   assert.equal(without.length, OLLAMA_SKIP_KEPT.length - 1);
   assert.match(without.join(' | '), /LoRA training/);
 });
+
+test('a Docker deployment is never read as a native skip, whatever the stored flag says', () => {
+  // The `!dockerManaged` half of `skipped` is what keeps a stored flag from swallowing
+  // a Docker diagnosis — 'host' unreachable names a precise remedy (open 11434 to
+  // Docker) that a neutral "you chose to skip" would hide. Every other test here calls
+  // deriveSetupSteps with ONE argument, which leaves deploymentMode at 'local' and
+  // makes that half constant, so this is the only place it is actually exercised.
+  const s = deriveSetupSteps(
+    { ollama: { reachable: false, skipped: true } },
+    { ollama: { mode: 'host', state: 'unreachable', ready: false } },
+  ).find((x) => x.id === 'ollama');
+  assert.equal(s.dockerManaged, true);
+  assert.equal(s.skipped, false);
+  assert.match(ollamaGateReason(s), /Host Ollama is selected/);
+});
+
+test('an unchosen Docker deployment is still a question, even with JoyCaption ready', () => {
+  // The JoyCaption lift answers "can this install caption?". It must not answer
+  // "which Ollama deployment do you want?" — nothing starts until a card is picked,
+  // and "No Ollama" is one of the cards.
+  const s = deriveSetupSteps(
+    { ollama: { reachable: false }, captioners: { joycaption: true } },
+    { ollama: { mode: 'unconfigured', ready: false } },
+  ).find((x) => x.id === 'ollama');
+  assert.equal(s.joycaptionReady, true);
+  assert.equal(s.unconfigured, true);
+  assert.match(ollamaGateReason(s), /Choose No Ollama/);
+});

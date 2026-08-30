@@ -312,10 +312,14 @@ export function ollamaSkipKept(joycaptionReady) {
 // branch of it, which is what the page's own closures can never offer.
 export function ollamaGateReason(s) {
   if (!s || s.status === 'ready' || s.disabled) return null
-  if (s.skipped || s.joycaptionReady) return null
+  // Asked BEFORE the lifts below: an unconfigured Docker install is not a capability
+  // question but an unanswered one — nothing starts until a card is picked, and the
+  // 'No Ollama' card is itself one of the answers. Having a captioner elsewhere must
+  // not wave that choice through, or the companion container is never brought up.
   if (s.unconfigured) {
     return 'Choose No Ollama, Existing host Ollama or Docker Ollama on this page before continuing.'
   }
+  if (s.skipped || s.joycaptionReady) return null
   if (s.managedInitializing) {
     return 'The companion Ollama container is still starting. This page will continue automatically when it is ready.'
   }

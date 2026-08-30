@@ -201,8 +201,9 @@ export default function SetupPage() {
   }, [config, runAutodetect])
 
   // Navigating between wizard screens dismisses a half-open "continue without ComfyUI"
-  // panel, so it never re-appears stale when the user comes back to this step.
-  useEffect(() => { setSkipConfirm(false) }, [screen])
+  // or "continue without Ollama" panel, so neither re-appears stale when the user
+  // comes back to that step — by then the tool may well be running.
+  useEffect(() => { setSkipConfirm(false); setOllamaSkipConfirm(false) }, [screen])
 
   // Docker-owned services can need longer than the app container to boot. Poll a
   // dedicated one-second endpoint instead of re-running the expensive capability
@@ -992,8 +993,8 @@ export default function SetupPage() {
       // install ends up with no captioner at all, and the user deserves to be told
       // that in the same breath rather than discovering it later.
       const ollamaSkipPanel = (
-        <div className="space-y-4">
-          <div className="space-y-3 rounded-md border border-border-strong bg-surface-raised px-4 py-3 text-sm">
+        <div role="status" aria-live="polite"
+          className="space-y-3 rounded-md border border-border-strong bg-surface-raised px-4 py-3 text-sm">
             <p className="font-medium text-content">Continue without Ollama?</p>
             <p className="text-xs text-content-muted">
               Ollama powers auto-framing, head-crop and the prompt helpers. You can come back
@@ -1043,25 +1044,22 @@ export default function SetupPage() {
                 Never mind — I’ll set it up
               </button>
             </div>
-          </div>
-          {fields}
         </div>
       )
-      if (ollamaSkipConfirm) return ollamaSkipPanel
-      // Already skipped by choice: neutral confirmation (not a warning) + the fields,
-      // so starting Ollama silently un-skips and re-enables everything.
-      if (step.skipped) {
-        return (
-          <div className="space-y-4">
-            <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-content-muted">
-              ⊘ You chose to continue without Ollama. Auto-framing, head-crop, Describe/Enhance
-              and the bank’s natural-language filter stay off — start Ollama anytime to turn them
-              back on.
-            </div>
-            {fields}
-          </div>
-        )
-      }
+      // Already skipped by choice: neutral confirmation, never a warning.
+      const ollamaSkipNotice = (
+        <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-content-muted">
+          ⊘ You chose to continue without Ollama. Auto-framing, head-crop, Describe/Enhance
+          and the bank’s natural-language filter stay off — start Ollama anytime to turn them
+          back on.
+        </div>
+      )
+      // Both notices are INSERTS above the step's own body, never a replacement for it.
+      // Returning the panel instead of the body is how the first cut of this went wrong:
+      // the gate says "click ▶ Start Ollama below" or "Pull the vision model below", and
+      // the panel had just taken that button off the screen. The exit and the remedy are
+      // not alternatives — the user is choosing between them, so both have to be visible.
+      const ollamaBody = (() => {
       if (step.unconfigured) {
         return (
           <div className="space-y-4">
@@ -1206,6 +1204,14 @@ export default function SetupPage() {
           link={{ href: 'https://ollama.com/download', label: 'Download Ollama →' }}>
           {fields}
         </GuidedSteps>
+      )
+      })()
+      return (
+        <div className="space-y-4">
+          {ollamaSkipConfirm && ollamaSkipPanel}
+          {step.skipped && !ollamaSkipConfirm && ollamaSkipNotice}
+          {ollamaBody}
+        </div>
       )
     }
     if (id === 'quality') {
@@ -1360,7 +1366,11 @@ export default function SetupPage() {
   const kind = SCREENS[screen]
   const DONE = SCREENS.length - 1
   const INSTALL = SCREENS.indexOf('install')   // the install/reinstall step, after config
-  const isReady = (id) => stepById[id].status === 'ready' || stepById[id].disabled
+  // 'skipped' counts as settled. A Docker "No Ollama" already did, through `disabled`;
+  // leaving the native skip out meant the welcome screen kept saying "Start setup" and
+  // kept landing the user back on the step they had just deliberately closed.
+  const isReady = (id) => ['ready', 'skipped'].includes(stepById[id].status)
+    || stepById[id].disabled
   const toolIdx = (id) => SETUP_STEP_IDS.indexOf(id)
   // welcome=0, tools=1..N — and, for the two screens that are not tool steps
   // ('install', 'done'), their index in SCREENS. Without that second lookup a
@@ -1449,8 +1459,12 @@ export default function SetupPage() {
         // Next there is a choice the user can make on this page — say why and stay.
         // A NATIVE install had no such card and no per-step exit: its Next was a wall.
         // Show what continuing without Ollama costs, and let the user commit to it.
+        // The panel is an insert, so the remedy the reason names stays on screen next
+        // to it. The toast is kept either way: swapping it for a panel that appears
+        // far above the button under focus left a screen reader with nothing said.
+        if (reason) { toast.warning(reason) }
         if (reason && s && !s.dockerManaged) { setOllamaSkipConfirm(true); return }
-        if (reason) { toast.warning(reason); return }
+        if (reason) { return }
       }
       goNext()
     } finally { setAdvancing(false) }
@@ -1529,7 +1543,7 @@ export default function SetupPage() {
     const oll = stepById.ollama
     const ollamaScan = oll.disabled
       ? { state: 'skipped', partial: 'disabled by this deployment' }
-      : oll.skipped
+      : (oll.skipped && !oll.installed)
       ? { state: 'skipped', partial: 'you chose to continue without it' }
       : oll.managedInitializing
         ? { state: 'initializing', partial: 'companion container is starting' }
