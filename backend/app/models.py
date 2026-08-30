@@ -1610,3 +1610,52 @@ class VideoDatasetClip(db.Model):
 
     def __repr__(self):
         return f'<VideoDatasetClip {self.id} ds={self.dataset_id} {self.filename}>'
+
+
+class VideoTestClip(db.Model):
+    """One clip produced by the Video Test Studio, and the settings that made it.
+
+    A row per generation, not per grid cell: a video takes minutes, so the studio
+    queues one clip at a time and this table is what turns that queue into a
+    history you can compare against. Everything the graph was built from is
+    stored — base, LoRA and strength, turbo, sparse level, seed, length — because
+    "this one is better" is only useful next to what was different about it, and
+    a ComfyUI graph is not something a user can read back.
+
+    Deliberately NOT tied to a video dataset by foreign key. A LoRA imported from
+    disk belongs to no dataset of ours, and the run it came from can be deleted
+    while its clips stay worth looking at — the same reasoning as
+    `video_dataset_clip.source_clip_id`.
+    """
+    __tablename__ = 'video_test_clip'
+    id = db.Column(Integer, primary_key=True)
+    # Which trained run this LoRA came from, when it came from one at all
+    # (null for an imported file). Plain integer, see the docstring.
+    run_id = db.Column(Integer, nullable=True, index=True)
+    dataset_id = db.Column(Integer, nullable=True, index=True)
+    job_id = db.Column(String(36), nullable=True, index=True)
+    filename = db.Column(String(255), nullable=True)   # null until the job completes
+    status = db.Column(String(10), nullable=False, default='pending')  # pending|done|failed|cancelled
+    error = db.Column(Text, nullable=True)
+
+    prompt = db.Column(Text, nullable=True)
+    mode = db.Column(String(8), nullable=False, default='i2v')  # i2v|t2v
+    source_image = db.Column(String(255), nullable=True)  # the file handed to LoadImage
+    seed = db.Column(db.BigInteger, nullable=True)
+    steps = db.Column(Integer, nullable=True)
+    frames = db.Column(Integer, nullable=True)
+    megapixels = db.Column(Float, nullable=True)
+    fps = db.Column(Float, nullable=True)
+
+    base_model = db.Column(String(255), nullable=True)   # the UNET that actually ran
+    lora = db.Column(String(255), nullable=True)         # LoraLoader form, or null for base-only
+    lora_strength = db.Column(Float, nullable=True)
+    turbo = db.Column(db.Boolean, nullable=False, default=False)
+    sparse = db.Column(String(16), nullable=True)        # '' / default / conservative / max
+    latent_upscale = db.Column(db.Boolean, nullable=False, default=False)
+
+    rating = db.Column(Integer, nullable=False, default=0)  # 1 | -1 | 0, same scale as the image studio
+    created_at = db.Column(DateTime, default=db.func.current_timestamp())
+
+    def __repr__(self):
+        return f'<VideoTestClip {self.id} {self.status} lora={self.lora}>'

@@ -83,6 +83,23 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-video-test-studio',
+    date: '2026-08-31',
+    title: 'Play your video LoRA back, without leaving the app',
+    blurb:
+      'Training a video LoRA gave you a file and a loss curve, and judging it '
+      + 'meant wiring a graph in ComfyUI by hand. The Test Studio now has a '
+      + 'Video tab: pick a LoRA you trained (it is copied into ComfyUI for you '
+      + 'the first time), give it a start frame — uploaded, from a bank, or the '
+      + 'first frame of a clip in a training set — or none at all for '
+      + 'text-to-video, describe the motion, and get a clip. ⚡ Turbo renders in '
+      + 'minutes instead of tens of minutes, sparse attention and the latent '
+      + 'upscale trade a little fidelity for speed, and every clip keeps the '
+      + 'settings that made it so Reuse can rerun the same seed with one dial '
+      + 'moved.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-08-31-not-duplicates',
     date: '2026-08-31',
     title: 'Tell the bank a group is NOT duplicates — once, and for good',

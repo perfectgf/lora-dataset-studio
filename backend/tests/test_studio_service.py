@@ -1662,6 +1662,21 @@ def test_embedded_workflow_model_refs_are_all_layout_independent():
             ('Flux2 klein\\flux-2-klein-9b-kv-fp8.safetensors', 'RESOLVED'),
         ('improve skin.json', '139', 'lora_name'):
             ('klein\\realistic.safetensors', 'BYPASSED'),
+        # The Video Test Studio's MiniMax H3 graph. All four refs are PREFLIGHT:
+        # they are the family's own weights, they are large and licence-gated,
+        # and the studio's asset scan refuses the run and names them rather than
+        # letting ComfyUI answer "Value not in list" a minute into a job. The
+        # UNET is additionally OVERRIDDEN when the 10Eros option is armed AND
+        # that weight is on disk - an opt-in swap that fails open back to this
+        # exact value, which is why the value stays here.
+        ('minimax_h3_i2v.json', '6', 'unet_name'):
+            ('minimax_h3_fl2va_pruned_int8_convrot.safetensors', 'PREFLIGHT'),
+        ('minimax_h3_i2v.json', '13', 'clip_name'):
+            ('qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors', 'PREFLIGHT'),
+        ('minimax_h3_i2v.json', '11', 'vae_name'):
+            ('minimax_h3_video_vae_fp16.safetensors', 'PREFLIGHT'),
+        ('minimax_h3_i2v.json', '24', 'vae_name'):
+            ('minimax_h3_audio_vae_fp32.safetensors', 'PREFLIGHT'),
         # 📷 Camera angles (services/qwen_camera_helper). Every one of the five
         # is rewritten before enqueue by a resolver that reads the disk, and
         # `camera_missing_assets` blocks the run when a REQUIRED one is absent —
