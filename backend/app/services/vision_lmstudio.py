@@ -307,7 +307,7 @@ def _admit(url: str, model: str) -> None:
     from . import ollama_gpu_fence
     scope = ollama_gpu_fence.mark_before_generate(url, model, provider='lmstudio')
     if scope == 'blocked':
-        raise LocalLmStudioFenceError(ollama_gpu_fence.FENCE_BLOCKED_MESSAGE)
+        raise LocalLmStudioFenceError(ollama_gpu_fence.blocked_message())
 
 
 def _chat(messages, *, model, max_tokens, temperature, timeout, url=None):

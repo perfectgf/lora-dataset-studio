@@ -104,6 +104,16 @@ function LmStudioStatus({ caps, active }) {
       </div>
     )
   }
+  if (!l.probed) {
+    // Selected here but not yet saved, so the status snapshot still describes the
+    // OTHER provider. Announcing "not answering" for a server nobody has asked yet
+    // is a scary sentence about nothing — say what is actually true instead.
+    return (
+      <p className="text-xs text-content-muted">
+        <span aria-hidden="true">○</span> Selected — save to check it, or press Test now.
+      </p>
+    )
+  }
   return (
     <p className="text-xs text-content-muted">
       <span aria-hidden="true">✗</span> Not answering at {l.url || 'the configured URL'} — open

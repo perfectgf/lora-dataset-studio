@@ -357,6 +357,19 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         owned = set(_owned_models.get(endpoint, set()))
         if state == 'unknown':
             return 'blocked'
+        # LM Studio inverts what a resident model MEANS, and reading it the Ollama
+        # way makes the provider unusable. Ollama loads on demand, so a model LDS
+        # did not load is evidence of another app competing for the card. LM Studio
+        # has no JIT loading by default: the user loads the model in its app, on
+        # purpose, precisely so something can use it — and that something is this.
+        # Refusing it as a stranger blocked EVERY call, which is how this was found:
+        # the first real Enhance against a live LM Studio came back 409.
+        # The fence's other half is untouched — ensure_released_for_comfy() still
+        # has to prove the card is free before a ComfyUI hand-off, and now it can
+        # actually free it, because LM Studio's unload really releases the VRAM.
+        if _driver_for(endpoint) == 'lmstudio' and model in loaded:
+            owned.add(model)
+            _owned_models.setdefault(endpoint, set()).add(model)
         if state != 'empty' and not loaded.issubset(owned):
             # Before calling a resident model a stranger's, ask the claims LDS
             # wrote down: after a restart this is its own keep-warm lease.
@@ -786,6 +799,25 @@ def ensure_released_for_comfy() -> bool:
 FENCE_BLOCKED_MESSAGE = (
     'A local Ollama model is already in use outside LDS. LDS will not change it; '
     'unload it first or configure a dedicated Ollama endpoint for LDS.')
+
+
+def blocked_message(name: str | None = None) -> str:
+    """The same refusal, naming the server the user actually runs.
+
+    Kept alongside the constant rather than replacing it: FENCE_BLOCKED_MESSAGE is
+    matched by name in the suite, and the Ollama wording is still exactly right for
+    an Ollama install. What was wrong was showing it to someone running LM Studio —
+    an accurate refusal about the wrong product is a support ticket, not a fix.
+    """
+    try:
+        from . import vision_llm
+        if (name or vision_llm.provider()) == vision_llm.LMSTUDIO:
+            return ('A model is already loaded in LM Studio outside LDS. LDS will not '
+                    'unload it on its own; unload it in LM Studio, or share the GPU '
+                    'from the queue panel to run anyway.')
+    except Exception:                      # noqa: BLE001 - the default wording is safe
+        pass
+    return FENCE_BLOCKED_MESSAGE
 
 
 def fence_status() -> dict:

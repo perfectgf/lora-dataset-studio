@@ -141,6 +141,28 @@ def unload_vision_model(**kw) -> bool:
     return vision_ollama.unload_vision_model(**kw)
 
 
+def ensure_ready(model: str | None = None) -> dict:
+    """`{ok, error}` — can this provider caption right now, after doing what it can.
+
+    The two providers differ in what "doing what it can" means, and pretending
+    otherwise is how a button ends up lying:
+
+    * Ollama can be STARTED from here, so a stopped daemon is a recoverable state
+      and `ollama_control.ensure_captioning_ready` recovers it.
+    * LM Studio cannot. There is no reliable command-line launch, and JIT loading
+      is off by default, so the honest answer is a probe plus a sentence naming
+      the gesture — open the app, Developer tab, load a model. Silently trying to
+      start Ollama instead (which is what the shared code path used to do) would
+      have produced an error about a daemon the user is not even using.
+    """
+    if provider() == LMSTUDIO:
+        from ..capabilities import probe_lmstudio_model
+        verdict = probe_lmstudio_model(model=model)
+        return {'ok': verdict['ok'], 'error': None if verdict['ok'] else verdict['detail']}
+    from . import ollama_control
+    return ollama_control.ensure_captioning_ready(model)
+
+
 def list_models() -> dict:
     """``{ok, reachable, models: [str]}`` — the shape the model pickers already read.
 

@@ -140,3 +140,42 @@ def test_releasing_an_lmstudio_endpoint_speaks_lm_studios_api(app, monkeypatch):
         fence._remember_driver(LMS_URL, 'lmstudio')
         assert fence._post_unload(LMS_URL, 'qwen/qwen3-vl-4b') is True
     assert called['args'] == (LMS_URL, 'qwen/qwen3-vl-4b')
+
+
+def test_a_preloaded_lmstudio_model_is_adopted_not_treated_as_a_stranger(app, monkeypatch):
+    """Found by running it, not by reading it: the first real Enhance against a live
+    LM Studio came back 409.
+
+    LM Studio inverts what a resident model MEANS. Ollama loads on demand, so a
+    model LDS did not load is evidence of another app competing for the card. LM
+    Studio has no JIT loading by default — the user loads the model in its app, on
+    purpose, so that something can use it, and that something is this. Reading it
+    the Ollama way refused EVERY call and made the provider unusable.
+    """
+    monkeypatch.setattr(vision_lmstudio, 'probe_resident',
+                        lambda ep: ('models', ['qwen/qwen3-vl-4b'], {}))
+    with app.app_context():
+        _as_lmstudio(app)
+        scope = fence.mark_before_generate(LMS_URL, 'qwen/qwen3-vl-4b', provider='lmstudio')
+    assert scope == 'local'
+    assert 'qwen/qwen3-vl-4b' in fence._owned_models[LMS_URL]
+
+
+def test_adoption_covers_only_the_model_being_asked_for(app, monkeypatch):
+    """A DIFFERENT resident model is still a stranger: loading a second one beside
+    it is exactly the VRAM fight the fence exists to prevent."""
+    monkeypatch.setattr(vision_lmstudio, 'probe_resident',
+                        lambda ep: ('models', ['somebody/else-70b'], {}))
+    with app.app_context():
+        _as_lmstudio(app)
+        scope = fence.mark_before_generate(LMS_URL, 'qwen/qwen3-vl-4b', provider='lmstudio')
+    assert scope == 'blocked'
+
+
+def test_the_refusal_names_the_server_the_user_actually_runs(app):
+    """An accurate refusal about the wrong product is a support ticket, not a fix."""
+    with app.app_context():
+        _as_lmstudio(app)
+        assert 'LM Studio' in fence.blocked_message()
+        config.save_config({'local_llm': {'provider': 'ollama'}})
+        assert fence.blocked_message() == fence.FENCE_BLOCKED_MESSAGE

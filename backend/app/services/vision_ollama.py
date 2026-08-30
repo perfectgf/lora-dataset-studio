@@ -123,7 +123,7 @@ def _admit_local_ollama(url, model, keep_alive=None) -> None:
     from . import ollama_gpu_fence
     scope = ollama_gpu_fence.mark_before_generate(url, model, keep_alive=keep_alive)
     if scope == 'blocked':
-        raise LocalOllamaFenceError(ollama_gpu_fence.FENCE_BLOCKED_MESSAGE)
+        raise LocalOllamaFenceError(ollama_gpu_fence.blocked_message())
     if scope != 'local':
         return
     from ..gpu_window import renew_gpu_exclusive_vision_window, vision_window_is_owned

@@ -1136,24 +1136,24 @@ def enhance_test_prompt(prompt: str, model: str | None = None) -> str:
         raise ValueError('write a prompt first — there is nothing to enhance')
     if len(p) > STUDIO_ENHANCE_MAX_CHARS:
         raise ValueError(f'prompt too long to enhance (max {STUDIO_ENHANCE_MAX_CHARS} characters)')
-    from .ollama_control import ensure_captioning_ready
     from .vision_keepalive import keep_alive_for_isolated_call
-    from .vision_llm import generate_text as generate_text_ollama
-    ready = ensure_captioning_ready(model)
+    from .vision_llm import ensure_ready, generate_text as generate_text_ollama, label
+    ready = ensure_ready(model)
     if not ready.get('ok'):
         raise RuntimeError(
-            (ready.get('error') or 'Ollama is unavailable')
-            + (' — pick another model from the ✨ Enhance ⚙️ options, or pull this one first.'
+            (ready.get('error') or f'{label()} is unavailable')
+            + (' — pick another model from the ✨ Enhance ⚙️ options, or load this one first.'
                if model else
-               ' — Enhance needs the local Ollama model configured in Settings › Local tools.'))
+               f' — Enhance needs the local {label()} model configured in '
+               'Settings › Local tools.'))
     text = generate_text_ollama(STUDIO_ENHANCE_PROMPT.format(prompt=p), model=model,
                                 num_predict=500,
                                 keep_alive=keep_alive_for_isolated_call(), strict=True)
     text = (text or '').strip().strip('"').strip()
     if not text:
         raise RuntimeError(
-            'The model returned an empty prompt — check the configured Ollama model in '
-            'Settings and the application log.')
+            f'The model returned an empty prompt — check the configured {label()} model '
+            'in Settings and the application log.')
     return text
 
 
