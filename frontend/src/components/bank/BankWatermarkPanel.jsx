@@ -38,6 +38,7 @@ import {
 } from './bankWatermark.js'
 import { openerLabel } from './scoringPython.js'
 import { localEngineUnavailableReason } from '../../utils/localEngineReason'
+import { activeLocalLlm } from '../../utils/localLlm'
 
 // How many cleaned images the before/after strip offers. A sample is enough to
 // judge a pass; the grid holds the full set.
@@ -142,7 +143,7 @@ export default function BankWatermarkPanel({
   const kleinReason = localEngineUnavailableReason('klein', caps)
   const find = findLevelState(levels, {
     live,
-    visionReady: !!caps.ollama?.vision_model_ready,
+    visionReady: !!activeLocalLlm(caps).vision_model_ready,
     detectorReady: !!caps.watermark_detect,
   })
   const findText = textLevelState(levels, { live, ocrReady: !!caps.video_text })

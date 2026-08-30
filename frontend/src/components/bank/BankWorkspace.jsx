@@ -112,7 +112,7 @@ import {
   flagCandidateLabel, flagPrereq, pickedCandidates, unscannedNotice,
 } from './autoRejectReadiness.js'
 import { chipCounts, facetDataKey, isFacetFiltered } from './bankFacetCounts.js'
-import { localLlmLabel } from '../../utils/localLlm'
+import { activeLocalLlm, localLlmLabel } from '../../utils/localLlm'
 
 
 const PAGE_SIZE = 120
@@ -1155,7 +1155,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const angleCounts = chipPrint.angles
   const shownAngles = shownBuckets(ANGLE_BUCKETS, chipWide.angles, filter.angle)
   const angleState = angleReadiness(payload)
-  const visionReady = !!caps.ollama?.vision_model_ready
+  const visionReady = !!activeLocalLlm(caps).vision_model_ready
   // The explicit lane only spells acts out with an uncensored (abliterated) vision
   // model. We can't prove abliteration, but the common builds name themselves — a soft
   // heuristic drives an honest "may soften" hint (never a hard block: a differently

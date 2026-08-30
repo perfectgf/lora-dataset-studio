@@ -489,8 +489,13 @@ export default function LocalToolsSection(props) {
               label="LM Studio URL"
               value={(config.lmstudio || {}).url || ''}
               onChange={(v) => setField('lmstudio', 'url', v)}
-              placeholder="http://127.0.0.1:1234"
-              help="The server root. LM Studio's Developer tab shows it with /v1 on the end — either form is accepted."
+              placeholder={(caps?.lmstudio?.docker_runtime)
+                ? 'http://host.docker.internal:1234' : 'http://127.0.0.1:1234'}
+              help={(caps?.lmstudio?.docker_runtime)
+                ? 'This app is running in a container, so 127.0.0.1 means the container itself. '
+                  + 'LM Studio runs on your machine — use http://host.docker.internal:1234 and make '
+                  + 'sure its server is reachable from Docker.'
+                : "The server root. LM Studio's Developer tab shows it with /v1 on the end — either form is accepted."}
             />
             <TextField
               id="lmstudio-vision-model"

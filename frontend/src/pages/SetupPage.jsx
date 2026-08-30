@@ -1065,7 +1065,14 @@ export default function SetupPage() {
       // its app owns all three. Sending someone to install Ollama because they
       // picked the other provider is a wrong-product instruction, so this returns
       // before any of it.
-      if (step.isLmStudio) {
+      // NOT in Docker. There, the deployment cards below are the ONLY control in the
+      // whole app that writes `ollama.deployment_mode`, and scripts/docker-launch.ps1
+      // waits on that value — it prints "Choose the Ollama deployment mode in the
+      // Studio Setup page" and stalls fifteen minutes on EVERY start. Returning
+      // before them took that control off the page, so a Docker user who switched
+      // provider first could never make the choice the launcher is waiting for.
+      // The LM Studio status is shown as an insert instead, above the cards.
+      if (step.isLmStudio && !step.dockerManaged) {
         return (
           <div className="space-y-4">
             <div className={`rounded-md border px-3 py-3 ${step.visionModelReady
@@ -1099,9 +1106,24 @@ export default function SetupPage() {
         )
       }
 
+      const lmStudioNote = step.isLmStudio ? (
+        <div className="rounded-md border border-border bg-surface-raised px-3 py-3 text-sm">
+          <p className="font-medium text-content">
+            This install is set to use LM Studio{step.visionModelReady ? ' — and it is ready.' : '.'}
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-content-muted">
+            {step.visionModelReady
+              ? step.lmDetail
+              : 'Load a vision model in LM Studio (Developer tab) and make sure this container '
+                + 'can reach it — inside Docker that means http://host.docker.internal:1234, not '
+                + 'localhost. The Ollama choice below still applies to the Ollama features.'}
+          </p>
+        </div>
+      ) : null
       if (step.unconfigured) {
         return (
           <div className="space-y-4">
+            {lmStudioNote}
             <div className="rounded-md border border-border bg-surface-raised px-3 py-3">
               <p className="text-sm font-medium text-content">Ollama is optional.</p>
               <p className="mt-1 text-xs leading-relaxed text-content-muted">

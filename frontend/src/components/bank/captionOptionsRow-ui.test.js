@@ -105,14 +105,20 @@ test('the model list comes from its own always-200 endpoint, not from capabiliti
 test('the explicit warning judges the model that will RUN, and points at a real place', () => {
   // Warning about the configured model while the run uses an override is worse than
   // not warning at all.
-  assert.match(ws, /const visionModel = captionModel \|\| caps\.ollama\?\.vision_model \|\| ''/);
+  assert.match(ws, /const visionModel = captionModel \|\| activeLocalLlm\(caps\)\.vision_model \|\| ''/,
+    'the warning must judge the ACTIVE provider model — under LM Studio it judged '
+    + 'a model that was not going to run, which is worse than not warning');
   // The old sentence sent people to Settings ▸ Captioning & quality, which holds the
   // ENGINE selector; the vision model field lives in Local tools.
   const warn = ws.slice(ws.indexOf("captionVocab === 'explicit'"),
     ws.indexOf("captionVocab === 'explicit'") + 1200);
   assert.ok(!/Captioning &amp; quality/.test(warn),
     'the explicit warning still points at the wrong Settings section');
-  assert.match(warn, /section="local-tools" focus="ollama-vision-model"/);
+  assert.match(warn, /section="local-tools"/);
+  assert.match(warn, /focus=\{visionModelFocus\}/);
+  // The field it opens follows the provider — the Ollama field is a dead end for
+  // someone running LM Studio.
+  assert.match(ws, /lmstudio-vision-model' : 'ollama-vision-model'/);
 });
 
 test('no surface in the bank sends people to the wrong tab for the vision model', () => {

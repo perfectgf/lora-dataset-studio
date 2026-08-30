@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { OLLAMA_RELEVANT } from '../dataset/CaptionOptionsPopover';
+import { activeLocalLlm } from '../../utils/localLlm'
 
 export function useCaptionOptions({ caps }) {
   // Caption register for the 🏷️ Caption pass ('' = model's own wording). Explicit is
@@ -60,7 +61,7 @@ export function useCaptionOptions({ caps }) {
   // It reads the EFFECTIVE model — this run's override if one was picked, else the
   // configured one. Warning about the global model while the run uses another is worse
   // than not warning at all.
-  const visionModel = captionModel || caps.ollama?.vision_model || ''
+  const visionModel = captionModel || activeLocalLlm(caps).vision_model || ''
   const visionModelLooksUncensored = /abliterat|uncensor|huihui|nsfw/i.test(visionModel)
   // The Ollama model choice only bites when the resolved engine can reach Ollama.
   const ollamaPicksApply = OLLAMA_RELEVANT.has(captionEngine)

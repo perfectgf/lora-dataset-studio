@@ -2246,6 +2246,13 @@ def probe(force=False) -> dict:
         # and its Settings Test button does the live check on demand.
         'local_llm': {'provider': _llm_provider},
         'lmstudio': {
+            # In a container, 127.0.0.1 is the CONTAINER, and LM Studio runs on the
+            # host — so the default URL is wrong by construction there. The Ollama
+            # lane has a whole deployment-mode mechanism for exactly this; LM Studio
+            # has none, so at minimum the card has to say the right address. The
+            # behaviour is deliberately NOT changed under the user's feet.
+            'docker_runtime': setup_is_docker_runtime(),
+            'docker_host_url': 'http://host.docker.internal:1234',
             'active': _llm_provider == 'lmstudio',
             'probed': _llm_provider == 'lmstudio',
             'reachable': lmstudio['ok'],

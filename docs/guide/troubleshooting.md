@@ -120,6 +120,8 @@ Three more things worth knowing when the two disagree:
 | The card says the server answers but cannot tell what is loaded | Only the OpenAI-compatible API is answering; it reports neither model type nor residency | Name a model explicitly in **Settings ▸ Local tools ▸ LM Studio model**, or update LM Studio so its native API answers |
 | Captioning works but framing/head-crop do not | The loaded model is a text model, not a vision one | Load a VLM (a model LM Studio lists with vision support) |
 
+**In Docker, `127.0.0.1` is the container, not your machine.** LM Studio runs on the host, so a containerised LDS must be pointed at **`http://host.docker.internal:1234`** — the Settings card shows that address as the placeholder when it detects a container. LM Studio's server also has to be reachable from Docker (it listens on localhost only by default; enable serving on the local network in its Developer tab).
+
 There is deliberately **no ▶ Start button** for LM Studio: it has no reliable command-line launch, and a button that quietly did nothing would be worse than being told where the switch is.
 
 ## Training log looks frozen for several minutes

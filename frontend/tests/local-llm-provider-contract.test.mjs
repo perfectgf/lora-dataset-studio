@@ -86,8 +86,12 @@ test('the Setup step describes the provider this install actually uses', () => {
     'the gate does not explain LM Studio\'s own readiness question (loaded, not pulled)')
 
   const page = read('pages/SetupPage.jsx')
-  assert.match(page, /if \(step\.isLmStudio\)/,
-    'the step body still renders the Ollama install guide for an LM Studio install')
+  assert.match(page, /if \(step\.isLmStudio && !step\.dockerManaged\)/,
+    'the step body must take the LM Studio route on a NATIVE install — and must NOT '
+    + 'take it in Docker, where the deployment cards below are the only control that '
+    + 'writes ollama.deployment_mode and the launcher stalls without it')
+  assert.match(page, /lmStudioNote/,
+    'a Docker install set to LM Studio is told nothing about it')
   // And it returns BEFORE the branches that offer Start/Pull, which do not apply.
   const body = page.slice(page.indexOf('const ollamaBody'))
   assert.ok(body.indexOf('if (step.isLmStudio)') < body.indexOf('if (step.installed)'),
