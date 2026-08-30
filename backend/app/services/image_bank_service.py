@@ -10108,7 +10108,12 @@ def export_scene_captions(user_id, bank_id, statuses=None):
 # it did not do. Keys are the stored values (services/caption_origin.py) — frozen.
 _CAPTION_WRITER_NAMES = {
     caption_origin.JOYCAPTION: 'JoyCaption',
-    caption_origin.OLLAMA: 'the Ollama vision model',
+    # Neutral, and deliberately the SAME words the dataset's own writer summary
+    # uses (frontend utils/captionEngines.js). The stored key is still 'ollama' --
+    # it is in every user's database -- but it has meant "the configured local
+    # provider" since LM Studio joined, and a run through LM Studio told the user
+    # Ollama had written its captions. Identical behaviour, recognisable wording.
+    caption_origin.OLLAMA: 'the local LLM vision model',
 }
 
 

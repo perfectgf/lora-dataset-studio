@@ -339,9 +339,10 @@ def dataset_set_ref(dataset_id):
         # (Manual mode: the centered crop is the intended behavior, no warning.)
         from ..services import vision_llm
         model_ready = vision_llm.probe_model()['ok']
+        _llm = 'LM Studio' if vision_llm.provider() == 'lmstudio' else 'Ollama'
         resp['warning'] = (
-            "Auto head-crop needs the Ollama vision model, which isn't ready yet — "
-            'used a centered crop. Finish the Ollama step in Setup, then click Crop to re-center on the face.'
+            f"Auto head-crop needs the {_llm} vision model, which isn't ready yet — "
+            f'used a centered crop. Finish the {_llm} step in Setup, then click Crop to re-center on the face.'
             if not model_ready else
             "Couldn't detect a face — used a centered crop. Use the Crop button to adjust it manually."
         )
@@ -414,9 +415,10 @@ def dataset_ref_recrop_auto(dataset_id):
     if not head_detected:
         from ..services import vision_llm
         model_ready = vision_llm.probe_model()['ok']
+        _llm = 'LM Studio' if vision_llm.provider() == 'lmstudio' else 'Ollama'
         resp['warning'] = (
-            "Auto head-crop needs the Ollama vision model, which isn't ready yet — "
-            'used a centered crop. Finish the Ollama step in Setup, then adjust with Crop.'
+            f"Auto head-crop needs the {_llm} vision model, which isn't ready yet — "
+            f'used a centered crop. Finish the {_llm} step in Setup, then adjust with Crop.'
             if not model_ready else
             "Couldn't detect a face — used a centered crop. Use Crop to adjust it manually."
         )

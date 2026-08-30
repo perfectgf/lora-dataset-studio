@@ -310,18 +310,23 @@ def ollama_fence_unload():
     is never reached by a retry, a poll or a fallback.
     """
     data = request.get_json(silent=True) or {}
+    # Four sentences here name the server. Under LM Studio they all named Ollama --
+    # a product the user may not even have installed -- on the one screen whose job
+    # is to explain which model is holding the card.
+    from ..services import vision_llm
+    llm = 'LM Studio' if vision_llm.provider() == 'lmstudio' else 'Ollama'
     if data.get('confirmed_unload_external') is not True:
-        return jsonify({'error': 'Confirm the unload of the external Ollama model '
+        return jsonify({'error': f'Confirm the unload of the external {llm} model '
                                  'before LDS touches it.'}), 400
     from ..services import ollama_gpu_fence
     result = ollama_gpu_fence.unload_foreign_models()
     if result['ok']:
         return jsonify({'ok': True, **result})
     reasons = {
-        'not-local': 'LDS is configured with a remote Ollama endpoint, so there is '
+        'not-local': f'LDS is configured with a remote {llm} endpoint, so there is '
                      'no local model for it to unload.',
-        'unreachable': 'Ollama did not answer. Check that it is running, then try again.',
-        'still-loaded': 'Ollama still reports a model in memory — a request may still '
+        'unreachable': f'{llm} did not answer. Check that it is running, then try again.',
+        'still-loaded': f'{llm} still reports a model in memory — a request may still '
                         'be running there. Wait a moment and try again.',
     }
     return jsonify({'ok': False, 'error': reasons.get(result['reason'],

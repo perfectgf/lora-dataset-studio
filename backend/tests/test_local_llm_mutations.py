@@ -60,9 +60,53 @@ def test_a_json_request_really_leaves_as_a_json_request(app, monkeypatch):
         config.save_config({'local_llm': {'provider': 'lmstudio'},
                             'lmstudio': {'url': 'http://127.0.0.1:1299'}})
         vision_llm.describe_image(_jpeg(), 'bbox please', fmt='json')
-    assert sent.get('response_format') == {'type': 'json_object'}, (
-        'the caller asked for JSON and the request went out as free text — the '
-        'head-crop and watermark parsers read this answer')
+    rf = sent.get('response_format') or {}
+    assert rf, ('the caller asked for JSON and the request went out as free text — '
+               'the head-crop and watermark parsers read this answer')
+    # The PROPERTY, not one spelling. This assertion used to pin
+    # {'type': 'json_object'} — correct in intent, and the exact value LM Studio
+    # 0.4.23 rejects with HTTP 400 "'response_format.type' must be 'json_schema'
+    # or 'text'". It was green while framing classify was down on every call,
+    # because a unit test cannot know which spelling a server accepts. What the
+    # driver owes is a JSON mode that a supported build honours.
+    assert rf.get('type') in ('json_schema', 'json_object')
+    if rf['type'] == 'json_schema':
+        # Permissive on purpose: the callers ask for an object, never a named
+        # schema, and LM Studio enforces the grammar from it.
+        assert (rf.get('json_schema') or {}).get('schema') == {'type': 'object'}
+
+
+def test_a_rejected_json_spelling_is_retried_with_the_other_one(app, monkeypatch):
+    """Which spelling works is a per-BUILD fact, so neither may be hard-coded.
+
+    Measured on 0.4.23: the historical OpenAI `json_object` is refused outright.
+    Older builds accept it. A driver that picked one and stopped would be broken
+    on half the versions, silently, only on the passes that parse JSON.
+    """
+    seen = []
+
+    class _Refused:
+        status_code = 400
+        text = """{"error": "'response_format.type' must be 'json_schema' or 'text'"}"""
+
+    def _post(url, *a, **kw):
+        body = kw.get('json') or {}
+        kind = (body.get('response_format') or {}).get('type')
+        seen.append(kind)
+        return _ok_chat() if kind == 'json_object' else _Refused()
+
+    monkeypatch.setattr(lms.requests, 'get', _one_vlm())
+    monkeypatch.setattr(lms.requests, 'post', _post)
+    monkeypatch.setattr(lms, '_data_uri_ok', None)
+    monkeypatch.setattr(lms, '_json_format', None)
+    with app.app_context():
+        config.save_config({'local_llm': {'provider': 'lmstudio'},
+                            'lmstudio': {'url': 'http://127.0.0.1:1299'}})
+        assert vision_llm.describe_image(_jpeg(), 'bbox please', fmt='json')
+    assert seen == ['json_schema', 'json_object'], (
+        'the refused spelling was not retried with the other one')
+    # ...and the working one is remembered, so the next call pays one request.
+    assert lms._json_format == 'json_object'
 
 
 def test_a_plain_request_does_not_ask_for_json(app, monkeypatch):

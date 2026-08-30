@@ -55,6 +55,13 @@ _NO_MODELS_MARKER = 'no models loaded'
 # None = not yet known, True = data URI (every build measured so far), False = bare.
 _data_uri_ok: bool | None = None
 
+# What LM Studio says when the JSON-mode spelling is not the one it wants.
+_JSON_FORMAT_MARKER = "'response_format.type'"
+# Which spelling this server accepts, learned once per process. Preference only --
+# the other is always still tried, so pointing the app at a different build mid-
+# session cannot strand it on a memo.
+_json_format: str | None = None
+
 
 def _suffix_free(url: str) -> str:
     """Strip an API suffix a user may have pasted from LM Studio's own UI.
@@ -422,18 +429,52 @@ def _admit(url: str, model: str) -> None:
         raise LocalLmStudioFenceError(ollama_gpu_fence.blocked_message())
 
 
+def _json_response_format(kind: str) -> dict:
+    if kind == 'json_object':
+        return {'type': 'json_object'}
+    # Permissive on purpose. The callers ask for "an object", never a named schema,
+    # and LM Studio ENFORCES the grammar from this one -- measured stronger than
+    # {'type': 'text'}, which only asks the prompt nicely and is free to drift.
+    return {'type': 'json_schema',
+            'json_schema': {'name': 'lds_object', 'schema': {'type': 'object'}}}
+
+
 def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_json=False):
+    """POST one chat completion. Retries ONCE on a rejected JSON-mode spelling.
+
+    Ollama's `format='json'` has an OpenAI-compatible equivalent, and it is not
+    optional: framing classify, head-crop and the watermark-bbox caller all PARSE
+    the answer. Dropped silently, those passes get prose where they expect an
+    object and fail as if the model were bad.
+
+    Which spelling works is a per-BUILD fact, not a per-API one. Measured on
+    0.4.23: `{'type': 'json_object'}` -- the historical OpenAI spelling, and what
+    this driver shipped -- is refused with HTTP 400 "'response_format.type' must
+    be 'json_schema' or 'text'", which took framing classify down on every call
+    while captioning (no JSON mode) worked perfectly. Other builds accept the
+    older spelling, so neither is hard-coded: the working one is preferred and
+    the other stays one retry away.
+    """
+    global _json_format
     payload = {'model': model, 'messages': messages,
                'max_tokens': max_tokens, 'temperature': temperature, 'stream': False}
-    if as_json:
-        # Ollama's `format='json'` has an OpenAI-compatible equivalent, and it is not
-        # optional: the head-crop and watermark-bbox callers PARSE the answer. Dropped
-        # silently, those passes get prose where they expect an object and fail as if
-        # the model were bad — see vision_llm.describe_image, which passes it through.
-        payload['response_format'] = {'type': 'json_object'}
     headers = {'Content-Type': 'application/json', **_headers()}
-    return requests.post(f'{url or base_url()}/v1/chat/completions', json=payload,
-                         headers=headers, timeout=timeout)
+    target = f'{url or base_url()}/v1/chat/completions'
+    if not as_json:
+        return requests.post(target, json=payload, headers=headers, timeout=timeout)
+
+    order = (['json_object', 'json_schema'] if _json_format == 'json_object'
+             else ['json_schema', 'json_object'])
+    resp = None
+    for kind in order:
+        resp = requests.post(target, json=dict(payload, response_format=_json_response_format(kind)),
+                             headers=headers, timeout=timeout)
+        if resp.status_code < 400:
+            _json_format = kind
+            return resp
+        if _JSON_FORMAT_MARKER not in (resp.text or '').lower():
+            return resp                    # a different problem: do not burn a retry
+    return resp
 
 
 def _answer(resp) -> str:

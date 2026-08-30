@@ -134,7 +134,11 @@ def test_the_pass_result_names_the_writers_and_counts_what_it_stamped(
     # really carry — not "3 by the configured backend".
     # Parenthesised, so the comma-separated skip counts that follow can never read
     # as more writers.
-    assert '(2 by JoyCaption, 1 by the Ollama vision model)' in detail
+    # The local engine is named NEUTRALLY: the stored origin is still 'ollama',
+    # but it means 'the configured local provider' now, and a run served by LM
+    # Studio used to be reported on this very line as Ollama's work.
+    assert '(2 by JoyCaption, 1 by the local LLM vision model)' in detail
+    assert 'Ollama' not in detail, 'the pass named one provider on a line both write'
 
     from app.models import BankImage
     with app.app_context():
