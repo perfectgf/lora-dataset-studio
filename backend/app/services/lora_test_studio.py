@@ -1140,12 +1140,19 @@ def enhance_test_prompt(prompt: str, model: str | None = None) -> str:
     from .vision_llm import ensure_ready, generate_text as generate_text_ollama, label
     ready = ensure_ready(model)
     if not ready.get('ok'):
-        raise RuntimeError(
-            (ready.get('error') or f'{label()} is unavailable')
-            + (' — pick another model from the ✨ Enhance ⚙️ options, or load this one first.'
-               if model else
-               f' — Enhance needs the local {label()} model configured in '
-               'Settings › Local tools.'))
+        # The remedy is not the same word for the two providers: an Ollama model is
+        # PULLED, an LM Studio one is LOADED in its app. Saying "load" to an Ollama
+        # user was a regression this wave introduced; saying "pull" to an LM Studio
+        # user names an action their server does not have.
+        if model:
+            fix = (' — pick another model from the ✨ Enhance ⚙️ options, or load this '
+                   'one in LM Studio first.' if label() == 'LM Studio'
+                   else ' — pick another model from the ✨ Enhance ⚙️ options, or pull '
+                        'this one first.')
+        else:
+            fix = (f' — Enhance needs the local {label()} model configured in '
+                   'Settings › Local tools.')
+        raise RuntimeError((ready.get('error') or f'{label()} is unavailable') + fix)
     text = generate_text_ollama(STUDIO_ENHANCE_PROMPT.format(prompt=p), model=model,
                                 num_predict=500,
                                 keep_alive=keep_alive_for_isolated_call(), strict=True)

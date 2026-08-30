@@ -442,6 +442,14 @@ def probe_lmstudio() -> dict:
     url = vision_lmstudio.base_url()
     listed = vision_lmstudio.list_models()
     if not listed['reachable']:
+        # A server that ANSWERS and refuses is not a server that is off. Reported
+        # as "unreachable — press Start Server" it sends someone to restart a
+        # process that is already running, while the real cause (a mistyped token,
+        # a proxy, a 500) is thrown away. failure_sentence already words each case.
+        if listed.get('last_status') is not None:
+            return {'ok': False,
+                    'detail': vision_lmstudio.failure_sentence(
+                        listed['last_status'], listed.get('last_body') or '')}
         return {'ok': False, 'detail': f'unreachable: {url}'}
     return {'ok': True, 'detail': f'{url} ({listed["surface"]} API)'}
 
@@ -456,6 +464,11 @@ def probe_lmstudio_model(reachable=None, model=None) -> dict:
     single image — the exact defect issue #7 fixed on the Ollama side.
     """
     from .services import vision_lmstudio
+    # Told it is unreachable, believe it: the parameter exists precisely to spare
+    # the second round-trip, and paying it anyway is what the Ollama peer's
+    # docstring says not to do (a configured-but-down server would block twice).
+    if reachable is False:
+        return {'ok': False, 'detail': f'LM Studio unreachable: {vision_lmstudio.base_url()}'}
     listed = vision_lmstudio.list_models()
     if reachable is None:
         reachable = listed['reachable']
@@ -469,12 +482,28 @@ def probe_lmstudio_model(reachable=None, model=None) -> dict:
     loaded = [m['id'] for m in listed['models']
               if m.get('loaded') and m.get('type') != 'embeddings']
     if wanted:
+        # The OpenAI surface reports no residency at all, so `loaded` is empty there
+        # whatever is running. Judged against it, the very remedy the docs give for
+        # that surface — "name a model in Settings" — could never succeed, which
+        # leaves the user with no move. Asked BEFORE the residency test for that
+        # reason.
+        if listed['surface'] == 'openai':
+            if wanted in {m['id'] for m in listed['models']}:
+                return {'ok': True,
+                        'detail': f'{wanted} — this server cannot confirm what is '
+                                  'loaded, so this is taken on trust'}
+            return {'ok': False, 'detail': f'{wanted} is not offered by this server'}
         ok = wanted in loaded
         return {'ok': ok,
                 'detail': f'{wanted} loaded' if ok else f'{wanted} is not loaded in LM Studio'}
     if loaded:
         return {'ok': True, 'detail': f'{loaded[0]} loaded'}
     if listed['surface'] == 'openai':
+        # The documented remedy for this surface is "name a model in Settings", and
+        # it has to WORK: naming one and still being told it is not loaded leaves
+        # the user with no move at all. The OpenAI surface cannot report residency,
+        # so a named model that the server LISTS is accepted, with a detail that
+        # says the residency is unverified rather than pretending it was checked.
         return {'ok': False,
                 'detail': 'this server answers only the OpenAI-compatible API, which '
                           'cannot report what is loaded — name a model in Settings'}
@@ -2246,6 +2275,19 @@ def probe(force=False) -> dict:
             'joycaption': joycaption['ok'],
             'joycaption_detail': joycaption['detail'],
             'ollama': ollama['ok'],
+            # The ACTIVE provider's readiness, which is the question every screen
+            # was really asking. Keyed on `ollama` alone, a working LM Studio
+            # install counted as two MISSING capabilities on the Setup summary and
+            # lit the Captioning LED off — while it captioned perfectly well.
+            # `ollama` stays beside it: it is still the honest answer about Ollama,
+            # and other code reads it.
+            'local_llm': (lmstudio_model['ok'] if _llm_provider == 'lmstudio'
+                          else ollama['ok']),
+            'local_llm_provider': _llm_provider,
+            # Whether the active provider can do the passes only IT can do —
+            # framing, head-crop, the vision watermark route.
+            'local_llm_vision': (lmstudio_model['ok'] if _llm_provider == 'lmstudio'
+                                 else probe_ollama_model(reachable=ollama['ok'])['ok']),
         },
         'face_scoring': face_scoring['ok'],
         'masks': masks['ok'],

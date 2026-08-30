@@ -112,6 +112,7 @@ import {
   flagCandidateLabel, flagPrereq, pickedCandidates, unscannedNotice,
 } from './autoRejectReadiness.js'
 import { chipCounts, facetDataKey, isFacetFiltered } from './bankFacetCounts.js'
+import { localLlmLabel } from '../../utils/localLlm'
 
 
 const PAGE_SIZE = 120
@@ -1326,6 +1327,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     scopeId: captionScope,
     piles: passScopeOption(captionScope).piles,
     engineId: captionEngine,
+    providerLabel: localLlmLabel(caps),
   })
   /* WHICH images the bench offers. A dataset hands its whole KEPT pile to the picker;
      a bank cannot — it pages over SQL and can hold six figures of rows, so a picker

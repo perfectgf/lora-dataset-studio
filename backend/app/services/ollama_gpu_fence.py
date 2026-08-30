@@ -427,7 +427,12 @@ def _driver_for(endpoint: str) -> str:
         from . import vision_llm
         if vision_llm.provider() == vision_llm.LMSTUDIO:
             from . import vision_lmstudio
-            if endpoint.rstrip('/') == vision_lmstudio.base_url().rstrip('/'):
+            # Compare what _endpoint_scope produced against the SAME normalisation.
+            # It lower-cases the host, so an oddly-cased URL (Localhost:1234) failed
+            # to match its own configured value and the fence spoke Ollama's API to
+            # LM Studio — an unload that answers 200 and frees nothing.
+            _, mine = _endpoint_scope(vision_lmstudio.base_url())
+            if mine and endpoint.rstrip('/') == str(mine).rstrip('/'):
                 return 'lmstudio'
     except Exception:                      # noqa: BLE001 - fall back to the old world
         pass
@@ -801,6 +806,14 @@ def ensure_released_for_comfy() -> bool:
         for foreign_endpoint in _foreign_local_endpoints:
             candidates.setdefault(foreign_endpoint, set())
 
+    # Deliberately the ACTIVE provider's endpoint only, not both. Guarding the
+    # other one's DEFAULT url would probe a second port on every ComfyUI job of
+    # every install that never runs it — a behaviour change for everyone, to cover
+    # a case that is already covered: an endpoint LDS has used is in _owned_models
+    # (so it is a candidate above, even after a provider switch), and a model LDS
+    # never admitted is one the fence refuses to touch by doctrine anyway. What is
+    # NOT covered is a second daemon holding the card that LDS has never spoken to
+    # — and the honest answer there is that the app cannot know about it.
     scope, endpoint = _configured_local_endpoint()
     if scope == 'local':
         candidates.setdefault(endpoint, set())
@@ -933,6 +946,11 @@ def reset_for_tests() -> None:
     global _share_until, _share_endpoint
     with _lock:
         _owned_models.clear()
+        _borrowed_models.clear()
+        # Process state like the rest: a driver pinned by one test leaked into the
+        # next, and it OUTRANKS the setting by design, so a stale entry made the
+        # fence speak the wrong API for the whole run.
+        _endpoint_driver.clear()
         _foreign_local_endpoints.clear()
         _probe_families.clear()
         _last_block = None

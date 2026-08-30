@@ -18,9 +18,14 @@ import { appearancePolicyChanged } from '../../utils/captionAppearancePolicy.js'
 // never drift between "set the dataset default" and "try a candidate".
 export const ENGINE_OPTIONS = [
   { id: '', label: 'Use default (Settings ▸ Captioning)' },
-  { id: 'auto', label: 'Auto — JoyCaption, then Ollama' },
+  // The stored VALUES never change — 'ollama' lives in datasets people already
+  // have, and renaming it would silently alter what their saved options mean. Only
+  // the labels follow the fact that the local engine may now be either server; the
+  // value 'ollama' reads as "the configured local provider" (settings-reference
+  // says so). This is the alias path CLAUDE.md asks for, applied to the label side.
+  { id: 'auto', label: 'Auto — JoyCaption, then the local LLM' },
   { id: 'joycaption', label: 'JoyCaption only' },
-  { id: 'ollama', label: 'Ollama vision only' },
+  { id: 'ollama', label: 'Local LLM only (Ollama / LM Studio)' },
   { id: 'none', label: 'None — captioning disabled' },
 ];
 
@@ -82,6 +87,13 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
   const initialAppearanceRef = useRef(null);
   const [models, setModels] = useState([]);
   const [modelsReachable, setModelsReachable] = useState(true);
+  // Pulling is an Ollama-only capability: LM Studio downloads models in its own
+  // app. The routed endpoint has always returned `provider`; nothing read it, so
+  // the ⇩ Pull button stayed enabled by the ACTIVE provider's reachability while
+  // still talking to /api/ollama/pull — a button that answers about a daemon the
+  // user is not running.
+  const [modelsProvider, setModelsProvider] = useState('ollama');
+  const canPull = modelsProvider !== 'lmstudio';
   const [pullName, setPullName] = useState('');
   const [pull, setPull] = useState(null); // {state, model, progress, log, error}
   const pollRef = useRef(null);
@@ -111,6 +123,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
         setAppearanceDirty(false);
         setModels(mdl.models || []);
         setModelsReachable(mdl.reachable !== false);
+        setModelsProvider(mdl.provider || 'ollama');
       } catch {
         if (alive) toast.error('Could not load caption options');
       } finally {
@@ -132,6 +145,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
     if (mdl && isCurrent()) {
       setModels(mdl.models || []);
       setModelsReachable(mdl.reachable !== false);
+      setModelsProvider(mdl.provider || 'ollama');
     }
     return mdl;
   };
@@ -291,7 +305,9 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
               </select>
               {!modelsReachable && (
                 <p className="text-xs text-amber-400/90">
-                  Ollama isn’t reachable — start it from Settings to list or pull models.
+                  {canPull
+                    ? 'Ollama isn’t reachable — start it from Settings to list or pull models.'
+                    : 'LM Studio isn’t reachable — open it, go to Developer and press Start Server.'}
                 </p>
               )}
               {trainType === 'krea' && (
@@ -326,6 +342,13 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
                   </p>
                 </section>
               )}
+              {!canPull && (
+                <p className="text-xs text-content-subtle">
+                  Downloading models is done in the LM Studio app, which shows progress and
+                  lets you cancel — this app cannot do that for it.
+                </p>
+              )}
+              {canPull && (<>
               <p className="text-xs text-content-subtle">
                 Only used when the engine is Auto or Ollama. Pull a new vision model by name:
               </p>
@@ -349,6 +372,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
                     : `Pull failed: ${pull.error || 'unknown error'}`}
                 </p>
               )}
+              </>)}
             </div>
 
             {/* Vocabulary preset (NSFW register) */}

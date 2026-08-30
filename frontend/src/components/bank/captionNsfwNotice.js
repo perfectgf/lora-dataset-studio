@@ -90,7 +90,8 @@ function ollamaHalf(engineId) {
  *  around it — the second one is a confirmation, not an alarm, and it exists
  *  because a protection nobody can see is a protection nobody trusts.
  */
-export function captionNsfwNotice({ payload, scopeId, piles, engineId } = {}) {
+export function captionNsfwNotice({ payload, scopeId, piles, engineId,
+                                   providerLabel = 'Ollama' } = {}) {
   const counts = captionNsfwCounts(payload, scopeId, piles);
   if (!counts) return null;
   if (counts.measured < CAPTION_NSFW_MEASURED_MIN) return null;
@@ -117,7 +118,7 @@ export function captionNsfwNotice({ payload, scopeId, piles, engineId } = {}) {
       heading: 'Mostly NSFW — and you already picked JoyCaption',
       paragraphs: [
         scale,
-        'JoyCaption writes this whole run: the Ollama vision model, the half that '
+        `JoyCaption writes this whole run: the ${providerLabel} vision model, the half that `
         + 'was measured going wrong on explicit images here, is not called at all.',
         measured,
         limits,
@@ -127,7 +128,7 @@ export function captionNsfwNotice({ payload, scopeId, piles, engineId } = {}) {
   if (half === 'only') {
     return {
       tone: 'warn',
-      heading: 'Mostly NSFW — and this run is entirely the Ollama vision model',
+      heading: `Mostly NSFW — and this run is entirely the ${providerLabel} vision model`,
       paragraphs: [
         scale,
         'You picked Ollama, so every caption in this run comes from the Ollama '

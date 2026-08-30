@@ -155,7 +155,7 @@ export default function CaptionLab({ surface, currentCaption, onKeep }) {
 
       {!modelsReachable && (
         <p className="m-0 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-[0.6875rem] text-amber-200">
-          Ollama isn’t reachable — start it from Settings to list vision models. Candidates can still run on JoyCaption.
+          The local LLM isn’t reachable — start it from Settings to list vision models. Candidates can still run on JoyCaption.
         </p>
       )}
 

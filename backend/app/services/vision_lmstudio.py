@@ -68,9 +68,21 @@ def _suffix_free(url: str) -> str:
     if not isinstance(url, str) or not url.strip():
         return ''
     parts = urlsplit(url.strip().rstrip('/'))
+    # The same refusals capabilities._validated_setup_http_base applies to every
+    # other user-typed endpoint. Without them a password typed into the URL was
+    # echoed back by /api/capabilities, and a scheme-less string produced a
+    # nonsense request instead of an honest "unreachable".
+    try:
+        if (parts.scheme not in ('http', 'https') or not parts.hostname
+                or parts.username is not None or parts.password is not None):
+            return ''
+        _ = parts.port                     # a malformed port is not a URL
+    except (TypeError, ValueError):
+        return ''
     path = parts.path or ''
     for suffix in ('/api/v1', '/api/v0', '/v1', '/v0'):
-        if path.endswith(suffix):
+        # Case-insensitive: LM Studio's own docs write /v1, people paste /V1.
+        if path.lower().endswith(suffix):
             path = path[: -len(suffix)]
             break
     return urlunsplit((parts.scheme, parts.netloc, path.rstrip('/'), '', ''))
@@ -103,11 +115,16 @@ def get_vision_model() -> str:
 # `probe_resident` needs it: "nothing is listening" and "answered but I could not
 # read it" are the same empty result and OPPOSITE verdicts for a fail-closed fence.
 class _Reach:
-    __slots__ = ('answered', 'refused')
+    __slots__ = ('answered', 'refused', 'status', 'body')
 
     def __init__(self):
         self.answered = False      # an HTTP response came back, whatever its status
         self.refused = False       # the connection was actively refused
+        # The last refusal seen, so a 401 from a mistyped token can say so instead
+        # of being reported as "not answering — press Start Server", which sends
+        # the user to restart a server that is already running.
+        self.status = None
+        self.body = ''
 
 
 def _get(path: str, *, url: str | None = None, reach: '_Reach | None' = None,
@@ -125,6 +142,9 @@ def _get(path: str, *, url: str | None = None, reach: '_Reach | None' = None,
                             timeout=timeout)
         if reach is not None:
             reach.answered = True
+            status = getattr(resp, 'status_code', None)
+            if isinstance(status, int) and status >= 400:
+                reach.status, reach.body = status, (getattr(resp, 'text', '') or '')[:300]
         return resp
     except Exception as exc:               # noqa: BLE001 - reported as a state
         if reach is not None:
@@ -153,7 +173,7 @@ def list_models(*, url: str | None = None,
     only v1 and v0 carry type and residency.
     """
     out = {'ok': False, 'reachable': False, 'surface': None, 'models': [],
-           'answered': False, 'refused': False}
+           'answered': False, 'refused': False, 'last_status': None, 'last_body': ''}
     reach = _Reach()
 
     # --- native v1 (LM Studio >= 0.4.0): richest, and the only one with configs
@@ -173,6 +193,7 @@ def list_models(*, url: str | None = None,
             for m in data['models'] if isinstance(m, dict)
         ])
         out['answered'], out['refused'] = reach.answered, reach.refused
+        out['last_status'], out['last_body'] = reach.status, reach.body
         return out
 
     # --- native v0: has `state` and `type`, no instance list
@@ -189,6 +210,7 @@ def list_models(*, url: str | None = None,
             for m in data['data'] if isinstance(m, dict)
         ])
         out['answered'], out['refused'] = reach.answered, reach.refused
+        out['last_status'], out['last_body'] = reach.status, reach.body
         return out
 
     # --- OpenAI-compatible: ids only. No type, no residency — say so.
@@ -200,6 +222,7 @@ def list_models(*, url: str | None = None,
             for m in data['data'] if isinstance(m, dict)
         ])
     out['answered'], out['refused'] = reach.answered, reach.refused
+    out['last_status'], out['last_body'] = reach.status, reach.body
     return out
 
 
@@ -307,7 +330,11 @@ def release(endpoint: str | None = None, model: str | None = None) -> bool:
     state, names, _ = probe_resident(url)
     targets = [model] if model else names
     if state != 'models' or not targets:
-        return state == 'empty'
+        # `down` counts as released: a server that is not there holds no VRAM, and
+        # calling that a FAILED release left the keep-warm lease outstanding and
+        # ComfyUI blocked on a card nothing was using. `unknown` must stay False —
+        # something answered and we could not read it, so we have proved nothing.
+        return state in ('empty', 'down')
     ok = True
     for inst in targets:
         try:

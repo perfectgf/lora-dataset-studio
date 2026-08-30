@@ -529,6 +529,33 @@ export default function LocalToolsSection(props) {
           <ResetToDefault label="Images analysed at once" section="lmstudio" field="vision_concurrency"
             config={config} configDefaults={configDefaults} setField={setField} />
         </div>
+        <div>
+          <label htmlFor="lmstudio-vision-keep-warm" className="block text-sm font-medium text-content">
+            Keep the vision model warm
+          </label>
+          <select
+            id="lmstudio-vision-keep-warm"
+            value={String((config.lmstudio || {}).vision_keep_warm_seconds
+              ?? lmstudioDefault('vision_keep_warm_seconds'))}
+            onChange={(e) => setField('lmstudio', 'vision_keep_warm_seconds', Number(e.target.value))}
+            className={INPUT_CLASS}
+          >
+            <option value="0">Off — unload after every single image</option>
+            <option value="60">1 minute</option>
+            <option value="120">2 minutes — recommended</option>
+            <option value="300">5 minutes</option>
+            <option value="600">10 minutes</option>
+          </select>
+          <p className="mt-1 text-xs text-content-muted">
+            Honoured differently from Ollama&rsquo;s, and worth knowing: Ollama takes a
+            per-request keep-alive, while LM Studio has no expiry of its own and holds a
+            loaded model until something unloads it. So this is how long the app waits
+            before actively unloading &mdash; and unlike Ollama, that unload really does hand
+            the memory back. A model you loaded yourself is never unloaded by this.
+          </p>
+          <ResetToDefault label="Keep the vision model warm" section="lmstudio" field="vision_keep_warm_seconds"
+            config={config} configDefaults={configDefaults} setField={setField} />
+        </div>
       </Card>
       </SettingsGroup>
 

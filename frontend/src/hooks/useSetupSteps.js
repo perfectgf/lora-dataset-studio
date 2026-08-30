@@ -630,8 +630,17 @@ export function deriveCapabilitySummary(caps) {
       topic: 'setup-camera-install', waitingTopic: WAITING,
       ...(!cu.camera_ready && !(Array.isArray(cu.camera_missing) && cu.camera_missing.length)
         && comfyOff ? { pending: true, note: NOTE } : {}) },
-    { label: 'Captioning', ok: !!(cap.joycaption || cap.ollama), topic: 'setup-ollama' },
-    { label: 'Auto-framing & head-crop', ok: !!(o.reachable && o.vision_model_ready),
+    // The ACTIVE provider, with the old expression as the fallback for a caps
+    // payload that predates it. Keyed on Ollama alone, a working LM Studio install
+    // was counted as two MISSING capabilities here — on the screen whose entire
+    // job is to tell the user whether they are ready.
+    { label: 'Captioning',
+      ok: !!(cap.joycaption || (cap.local_llm !== undefined ? cap.local_llm : cap.ollama)),
+      topic: 'setup-ollama' },
+    { label: 'Auto-framing & head-crop',
+      ok: !!(cap.local_llm_vision !== undefined
+        ? cap.local_llm_vision
+        : (o.reachable && o.vision_model_ready)),
       topic: 'setup-ollama' },
     { label: 'Face-similarity scoring', ok: !!c.face_scoring, topic: 'setup-quality' },
     { label: 'Person masks', ok: !!c.masks, topic: 'setup-quality' },
