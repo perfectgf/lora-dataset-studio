@@ -173,6 +173,52 @@ def test_describe_heals_the_empty_server_instead_of_lecturing(app, monkeypatch):
     assert [c for c in calls if c[0] == '/api/v1/models/load'], 'nothing loaded the model'
 
 
+def test_ensure_ready_loads_instead_of_refusing(app, monkeypatch):
+    """The gate ✨ Enhance calls, healed — found by a user within the hour.
+
+    ensure_ready was a bare probe under LM Studio, written before the Start
+    button and the auto-load existed. So Enhance refused "qwen/... is not
+    loaded" BEFORE generate_text — where the auto-load lives — got the call,
+    minutes after the app itself had unloaded that model for a ComfyUI
+    hand-off. The user's reply was the correct review of the design:
+    "I thought LDS loads it itself?" It does now, from the gate too.
+    """
+    calls = []
+    get, post = _server(loaded=False, calls=calls)
+    monkeypatch.setattr(lms.requests, 'get', get)
+    monkeypatch.setattr(lms.requests, 'post', post)
+    _as_lmstudio(app)
+    with app.app_context():
+        out = vision_llm.ensure_ready('qwen/qwen3-vl-4b')
+    assert out == {'ok': True, 'error': None}
+    assert [c for c in calls if c[0] == '/api/v1/models/load'], (
+        'ensure_ready answered without loading — the Enhance refusal is back')
+
+
+def test_ensure_ready_starts_a_stopped_server_first(app, monkeypatch):
+    """The other rung: server down entirely. Same symmetry as Ollama's side,
+    which starts a stopped daemon from this very gate."""
+    import requests as _rq
+
+    def _refused(*a, **kw):
+        raise _rq.exceptions.ConnectionError('nothing there')
+
+    started = {'n': 0}
+
+    def _fake_start():
+        started['n'] += 1
+        return {'ok': False, 'reachable': False, 'error': 'could not start it'}
+
+    from app.services import lmstudio_control
+    monkeypatch.setattr(lms.requests, 'get', _refused)
+    monkeypatch.setattr(lmstudio_control, 'start_server', _fake_start)
+    _as_lmstudio(app)
+    with app.app_context():
+        out = vision_llm.ensure_ready('qwen/qwen3-vl-4b')
+    assert started['n'] == 1, 'a stopped server was not offered its start'
+    assert out['ok'] is False and 'could not start it' in out['error']
+
+
 def test_the_routed_load_reports_when_nothing_is_downloaded(app, client, monkeypatch):
     """The button's empty case: reachable server, empty disk. Always 200 — the
     remedy rides in the body, never in a 5xx that stacks a generic toast."""

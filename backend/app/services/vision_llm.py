@@ -224,14 +224,34 @@ def ensure_ready(model: str | None = None) -> dict:
 
     * Ollama can be STARTED from here, so a stopped daemon is a recoverable state
       and `ollama_control.ensure_captioning_ready` recovers it.
-    * LM Studio cannot. There is no reliable command-line launch, and JIT loading
-      is off by default, so the honest answer is a probe plus a sentence naming
-      the gesture — open the app, Developer tab, load a model. Silently trying to
-      start Ollama instead (which is what the shared code path used to do) would
-      have produced an error about a daemon the user is not even using.
+    * LM Studio has the same two recoveries now — its server can be started
+      (lmstudio_control) and its model can be loaded (ensure_model_loaded). This
+      branch used to be a bare probe, written when neither existed, and ✨ Enhance
+      showed exactly what that costs: the gate refused "qwen/... is not loaded"
+      BEFORE generate_text — where the auto-load lives — ever got the call. The
+      user's answer was the right review: "I thought LDS loads it itself?"
+
+    Only ever reached from an explicit user action (Enhance, Describe). Passive
+    probes stay passive; this function's whole contract is that it may act.
     """
     if provider() == LMSTUDIO:
         from ..capabilities import probe_lmstudio_model
+        from . import vision_lmstudio
+        if not vision_lmstudio.list_models().get('reachable'):
+            from . import lmstudio_control
+            started = lmstudio_control.start_server()
+            if not started.get('reachable'):
+                return {'ok': False,
+                        'error': started.get('error')
+                        or f'LM Studio unreachable: {vision_lmstudio.base_url()}'}
+        target = (model or '').strip() or vision_lmstudio.resolve_model()
+        if not target:
+            return {'ok': False,
+                    'error': 'No vision model is downloaded in LM Studio yet — '
+                             'download one there, then come back.'}
+        loaded, detail = vision_lmstudio.ensure_model_loaded(target)
+        if not loaded:
+            return {'ok': False, 'error': detail}
         verdict = probe_lmstudio_model(model=model)
         return {'ok': verdict['ok'], 'error': None if verdict['ok'] else verdict['detail']}
     from . import ollama_control

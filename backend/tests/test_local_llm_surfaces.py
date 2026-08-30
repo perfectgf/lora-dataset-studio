@@ -138,10 +138,17 @@ def test_the_diagnostic_names_the_provider_and_describes_both(app, client):
 
 # --- ensure_ready acts for one provider and reports for the other -----------
 
-def test_ensure_ready_starts_ollama_but_only_reports_for_lm_studio(app, monkeypatch):
-    """The asymmetry is the point: Ollama can be started from here, LM Studio has
-    no reliable command-line launch. Sharing one code path meant an LM Studio user
-    got an error about a daemon they are not running."""
+def test_ensure_ready_recovers_each_provider_with_its_own_gestures(app, monkeypatch):
+    """Each provider heals its own way, and neither reaches for the other's tools.
+
+    This test used to pin a REFUSAL for LM Studio — "only reports", on the
+    written premise that it had no reliable launch. Both halves of that premise
+    fell (the Start button, then the auto-load), and the pinned refusal is
+    exactly what a user hit on ✨ Enhance. What must still hold is the boundary:
+    an LM Studio install must never start an Ollama daemon, and an empty disk is
+    the one state nothing can heal — the sentence hands back downloading, the
+    single gesture that stays with the user.
+    """
     started = []
     from app.services import ollama_control
     monkeypatch.setattr(ollama_control, 'ensure_captioning_ready',
@@ -157,7 +164,8 @@ def test_ensure_ready_starts_ollama_but_only_reports_for_lm_studio(app, monkeypa
         config.save_config({'local_llm': {'provider': 'lmstudio'}})
         verdict = vision_llm.ensure_ready()
     assert verdict['ok'] is False
-    assert 'Developer tab' in verdict['error']
+    assert 'download' in verdict['error'].lower(), (
+        'nothing is downloaded, and the error must hand back the one gesture left')
     assert started == [None], 'LM Studio must not try to start Ollama'
 
 
