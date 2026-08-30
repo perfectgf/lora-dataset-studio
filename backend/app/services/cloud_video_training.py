@@ -167,9 +167,11 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
         raise ValueError('video dataset not found')
 
     profile = video_training.video_targets.get(ds.target_profile) or {}
+    _ref_dirs = []
     if profile.get('requires_references'):
         from . import video_bank_service as _vbs
-        if not _vbs.reference_dirs(ds):
+        _ref_dirs = _vbs.reference_dirs(ds)
+        if not _ref_dirs:
             raise ValueError(
                 f'{profile.get("label", ds.target_profile)} trains against '
                 'reference images and this dataset has none attached — attach '
@@ -193,7 +195,10 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     # params at pod boot.
     video_training.build_job_config(
         ds, str(ds.output_dir), n_steps, training_folder='__POD__',
-        base_model=base_model, low_vram=low_vram, do_i2v=bool(do_i2v))
+        base_model=base_model, low_vram=low_vram, do_i2v=bool(do_i2v),
+        # The validation build needs the SHAPE, not the pod paths — local dirs
+        # prove the target's precondition; the monitor rebuilds with pod names.
+        control_dirs=[str(d) for d in _ref_dirs] or None)
 
     fam = 'video'
     with ct._launch_reservation_lock:
