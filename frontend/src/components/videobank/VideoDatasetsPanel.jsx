@@ -99,6 +99,17 @@ export default function VideoDatasetsPanel() {
               {d.output_dir}
             </p>
             <VideoTrainingSection ds={d} />
+            {openId !== d.id && (
+              /* The cloud lane and the clip list live in the expanded card so a
+                 library page never fans out their polling per card — but a lane
+                 nobody can SEE is a lane nobody uses (found on a phone: the
+                 local button reads as the only way to train). One button, no
+                 requests: it just opens the card. */
+              <button type="button" onClick={() => setOpenId(d.id)}
+                className="self-start rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:bg-surface">
+                ☁ Cloud training &amp; clips…
+              </button>
+            )}
             {openId === d.id && <VideoDatasetCloudPanel dataset={d} />}
             {openId === d.id && <VideoDatasetClips datasetId={d.id} />}
           </li>
