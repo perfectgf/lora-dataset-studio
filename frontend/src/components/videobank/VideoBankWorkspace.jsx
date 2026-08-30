@@ -39,6 +39,8 @@ import {
 } from './videoCameraMotion'
 import PromoteVideoDialog from './PromoteVideoDialog'
 import DescribeShotsDialog from './DescribeShotsDialog'
+import { GuideInfoDot } from '../common/GuideSectionModal'
+import { VIDEO_PASS_TOPICS } from './videoPassTopics'
 
 const PAGE = 120
 const POLL_MS = 2000
@@ -630,29 +632,38 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
           const partial = pass === 'safezone' && capability
             && !capability.video_text
           return (
-            <button key={pass} type="button"
-              // 🗣 launches through its window: the wording question belongs at
-              // the moment of the click, not in a dropdown three screens down.
-              onClick={() => (pass === 'caption' ? setDescribing(true) : startPass(pass))}
-              disabled={busy || !!blocked}
-              title={blocked ? blocked.why
-                : partial ? `Bands only — ${capability.video_text_detail
-                    || 'the burned-in text extra is not installed'}`
-                : undefined}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
-                primary
-                  ? 'bg-gradient-primary text-gray-950'
-                  : 'border border-border bg-surface-raised text-content hover:bg-surface'}`}>
-              {primary ? '▶ ' : ''}{PASS_LABELS[pass]}
-            </button>
+            // The ⓘ rides OUTSIDE the pass button (nested buttons are invalid
+            // HTML) but inside one non-wrapping group, so a wrap of the row can
+            // never strand an explanation next to the wrong button.
+            <span key={pass} className="inline-flex items-center gap-1">
+              <button type="button"
+                // 🗣 launches through its window: the wording question belongs at
+                // the moment of the click, not in a dropdown three screens down.
+                onClick={() => (pass === 'caption' ? setDescribing(true) : startPass(pass))}
+                disabled={busy || !!blocked}
+                title={blocked ? blocked.why
+                  : partial ? `Bands only — ${capability.video_text_detail
+                      || 'the burned-in text extra is not installed'}`
+                  : undefined}
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
+                  primary
+                    ? 'bg-gradient-primary text-gray-950'
+                    : 'border border-border bg-surface-raised text-content hover:bg-surface'}`}>
+                {primary ? '▶ ' : ''}{PASS_LABELS[pass]}
+              </button>
+              <GuideInfoDot topic={VIDEO_PASS_TOPICS[pass]} label={PASS_LABELS[pass]} />
+            </span>
           )
         })}
-        <button type="button" onClick={() => setPromoting(true)}
-          disabled={busy || !counts.keep}
-          title={!counts.keep ? 'Keep some shots first' : undefined}
-          className="rounded-md border border-indigo-500/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/25 disabled:opacity-40">
-          🎬 {PASS_LABELS.promote}
-        </button>
+        <span className="inline-flex items-center gap-1">
+          <button type="button" onClick={() => setPromoting(true)}
+            disabled={busy || !counts.keep}
+            title={!counts.keep ? 'Keep some shots first' : undefined}
+            className="rounded-md border border-indigo-500/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/25 disabled:opacity-40">
+            🎬 {PASS_LABELS.promote}
+          </button>
+          <GuideInfoDot topic={VIDEO_PASS_TOPICS.promote} label={PASS_LABELS.promote} />
+        </span>
         {busy && (
           <button type="button" onClick={cancel}
             className="rounded-md border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/20">

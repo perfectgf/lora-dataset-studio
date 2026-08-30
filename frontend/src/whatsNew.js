@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-pass-info-dots',
+    date: '2026-08-30',
+    title: 'Every video pass button now explains itself',
+    blurb:
+      'A small ⓘ sits beside each pass of the video bank — Safe zone, Defects, '
+      + 'AI check and the rest. It opens the guide’s own explanation right '
+      + 'there, in a window, without leaving the page or losing your scroll: '
+      + 'what the pass does, what it flags, and what to do with the result. '
+      + 'Same text as the guide, so it can never drift out of date.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-30-describe-shots-window',
     date: '2026-08-30',
     title: 'Describe shots now asks its questions before it runs',
