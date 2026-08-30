@@ -62,15 +62,26 @@ test('the Local tools LED follows the active provider', () => {
     'the section status does not consider LM Studio')
 })
 
-test('LM Studio is never offered a Start button it cannot honour', () => {
-  // Ollama has a real one-click start; LM Studio has no reliable way to be
-  // launched from here. A dead button is worse than a sentence saying where the
-  // switch is, so the status line names the Developer tab instead.
+test('LM Studio gets a Start button, and only where it can honour one', () => {
+  // This test used to assert the OPPOSITE, on the premise that "LM Studio has no
+  // reliable way to be launched from here". Measured, that was wrong: its CLI
+  // sits at a fixed per-user path and `lms server start` returns in well under a
+  // second. What still has to hold is that the button appears only when the CLI
+  // was actually FOUND — an install that has never run LM Studio gets the
+  // sentence naming the Developer tab, not a button that cannot work.
   const src = read('components/settings/LocalToolsSection.jsx')
   const lmStatus = src.slice(src.indexOf('function LmStudioStatus'),
                              src.indexOf('function OllamaStatus'))
   assert.ok(lmStatus.length > 0, 'the LM Studio status component is gone')
-  assert.doesNotMatch(lmStatus, /Start Server<\/button>|onClick=\{start\}/)
+  assert.match(lmStatus, /if \(l\.installed\) \{/,
+    'the button is offered without checking that the CLI was found')
+  assert.match(lmStatus, /▶ Start LM Studio/, 'the Start button is gone')
+  assert.match(lmStatus, /onClick=\{start\}/)
+  // Both providers press ONE routed path, so the two buttons cannot drift into
+  // starting different servers.
+  assert.match(lmStatus, /'\/api\/local-llm\/start'/,
+    'the LM Studio card calls a provider-specific endpoint again')
+  // ...and the fallback for an install with no CLI still says where the switch is.
   assert.match(lmStatus, /Developer/)
 })
 

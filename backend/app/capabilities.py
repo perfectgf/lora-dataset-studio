@@ -2133,11 +2133,17 @@ def probe(force=False) -> dict:
     from .services import vision_llm as _vision_llm
     _llm_provider = _vision_llm.provider()
     _lmstudio_url = ''
+    # A filesystem stat, not a round-trip, so it runs for the INACTIVE provider
+    # too: "LM Studio is installed on this machine" is worth knowing on the card
+    # you have not switched to yet, and it costs nothing to say.
+    _lmstudio_installed = False
     lmstudio = {'ok': False, 'detail': 'not the active provider'}
     lmstudio_model = {'ok': False, 'detail': 'not the active provider'}
     try:
+        from .services import lmstudio_control as _lms_ctl
         from .services import vision_lmstudio as _lms
         _lmstudio_url = _lms.base_url()
+        _lmstudio_installed = _lms_ctl.probe_installed()['ok']
         if _llm_provider == 'lmstudio':
             lmstudio = probe_lmstudio()
             lmstudio_model = probe_lmstudio_model(reachable=lmstudio['ok'])
@@ -2259,6 +2265,12 @@ def probe(force=False) -> dict:
             # has none, so at minimum the card has to say the right address. The
             # behaviour is deliberately NOT changed under the user's feet.
             'docker_runtime': setup_is_docker_runtime(),
+            # Installed = LM Studio's CLI on disk, server up or not. Until it was
+            # found this card had only two states, so a stopped server read as
+            # "not answering" with no way out but another application's menu.
+            # Now (installed, reachable) reads as three, exactly like Ollama's:
+            # absent / installed-but-stopped (→ a Start button) / running.
+            'installed': _lmstudio_installed,
             'docker_host_url': 'http://host.docker.internal:1234',
             'probed': _llm_provider == 'lmstudio',
             'reachable': lmstudio['ok'],

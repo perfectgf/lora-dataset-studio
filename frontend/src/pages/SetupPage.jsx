@@ -341,13 +341,19 @@ export default function SetupPage() {
   // to ready with no app restart. A failure returns 502 -> apiFetch throws (and
   // auto-toasts the generic 5xx notice); the catch adds the specific reason,
   // matching the existing saveSecretThenTest pattern.
-  const startOllama = async () => {
+  const startLocalLlm = async (name) => {
     setStartingOllama(true)
     try {
-      const r = await postJson('/api/ollama/start', {})
-      if (r.reachable) { toast.success('Ollama started.'); await refresh(true) }
-      else { toast.error(r.error || 'Ollama did not become ready.') }
-    } catch (e) { toast.error(e.message || 'Could not start Ollama.') }
+      // ONE routed path for both providers: /api/local-llm/start dispatches on the
+      // configured provider, so this button and the Settings one can never drift
+      // into starting different servers. `already_running` is a success, not a
+      // no-op to hide -- it is the honest answer to a click on a live server.
+      const r = await postJson('/api/local-llm/start', {})
+      if (r.reachable) {
+        toast.success(r.already_running ? `${name} is already running.` : `${name} started.`)
+        await refresh(true)
+      } else { toast.error(r.error || `${name} did not become ready.`) }
+    } catch (e) { toast.error(e.message || `Could not start ${name}.`) }
     finally { setStartingOllama(false) }
   }
 
@@ -1087,6 +1093,8 @@ export default function SetupPage() {
                   ? 'LM Studio is ready.'
                   : step.reachable
                     ? 'LM Studio is running, but no usable model is loaded.'
+                    : step.installed
+                    ? 'LM Studio is installed but not running.'
                     : 'LM Studio is not answering.'}
               </p>
               <p className="mt-1 text-xs leading-relaxed text-content-muted">
@@ -1095,12 +1103,21 @@ export default function SetupPage() {
                   : step.reachable
                     ? 'Open LM Studio, load a vision model in its Developer tab, then Save & re-check. '
                       + 'It has no just-in-time loading by default, so a model has to be loaded before this app can use it.'
-                    : `Open LM Studio, go to Developer and press Start Server (expected at ${step.lmUrl || 'http://127.0.0.1:1234'}), then Save & re-check.`}
+                    : step.installed
+                      ? `LM Studio is installed but its server is not running. Start it below — it will listen at ${step.lmUrl || 'http://127.0.0.1:1234'}.`
+                      : `Open LM Studio, go to Developer and press Start Server (expected at ${step.lmUrl || 'http://127.0.0.1:1234'}), then Save & re-check.`}
               </p>
               <p className="mt-2 text-xs text-content-muted">
                 Models are downloaded inside LM Studio itself — it shows progress and lets you
                 cancel, which this app cannot do for it.
               </p>
+              {!step.reachable && step.installed && (
+                <button type="button" onClick={() => startLocalLlm('LM Studio')}
+                  disabled={startingOllama}
+                  className="mt-2 rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
+                  {startingOllama ? 'Starting…' : '▶ Start LM Studio'}
+                </button>
+              )}
             </div>
             <SettingsLink section="local-tools" focus="local-llm-provider">
               Change provider or URL in Settings ▸ Local tools →
@@ -1270,7 +1287,7 @@ export default function SetupPage() {
               <p className="mb-2 text-xs text-content-muted">
                 Start it (it listens on port 11434) to unlock captioning and auto-framing — no restart needed.
               </p>
-              <button type="button" onClick={startOllama} disabled={startingOllama}
+              <button type="button" onClick={() => startLocalLlm('Ollama')} disabled={startingOllama}
                 className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
                 {startingOllama ? 'Starting…' : '▶ Start Ollama'}
               </button>

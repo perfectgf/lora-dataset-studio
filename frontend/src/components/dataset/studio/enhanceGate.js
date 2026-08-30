@@ -21,7 +21,12 @@ export function enhanceBlocker(ollama, { capsLoading = false, customModel = '' }
   // — and the button stayed disabled while the backend answered 200.
   if (o.provider === 'lmstudio') {
     if (!o.reachable) {
-      return 'LM Studio is not answering — open it, go to Developer and press Start Server.';
+      // Installed = its CLI is on disk, so LDS can start the server itself. Sending
+      // someone to another application's menu when a button here would do it is the
+      // same dead end this file exists to remove.
+      return o.installed
+        ? 'LM Studio is not running — start it from Settings › Local tools.'
+        : 'LM Studio is not answering — open it, go to Developer and press Start Server.';
     }
     if (!customModel && !o.vision_model_ready) {
       return 'LM Studio has no usable model loaded — load a vision model in its Developer tab.';

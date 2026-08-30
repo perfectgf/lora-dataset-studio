@@ -23,11 +23,12 @@ export function activeLocalLlm(caps) {
     const l = c.lmstudio || {}
     return {
       provider,
-      // LM Studio is never "installed but stopped" from here — there is no binary
-      // this app can detect and no way for it to start one. Reachable or not is the
-      // whole ladder, so `installed` tracks it and the "start it for me" branch of
-      // every gate simply never fires.
-      installed: !!l.reachable,
+      // LM Studio DOES have an installed-but-stopped state now: its CLI sits at a
+      // fixed per-user path, so the app can both detect the install and start the
+      // server. Before that this tracked `reachable`, which made every gate skip
+      // the "start it for me" rung -- correct then, wrong the moment a button
+      // existed to offer.
+      installed: !!l.installed,
       reachable: !!l.reachable,
       vision_model_ready: !!l.model_ready,
       vision_model: l.vision_model || '',

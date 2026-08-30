@@ -522,7 +522,7 @@ In Docker, choose the deployment only from **Setup → Ollama**: `none` disables
 
 LM Studio is a local model server with its own desktop app. Two differences from Ollama shape everything here:
 
-- **It cannot be started from LDS.** There is no reliable command-line launch, so there is no ▶ Start button — the card tells you where the switch is instead (LM Studio ▸ **Developer** ▸ **Start Server**). A button that did nothing would be worse than a sentence.
+- **Its server can be started from here — if LM Studio has been opened once.** LM Studio installs a small command-line tool the first time it runs, and LDS uses it: when that tool is found, a stopped server shows **▶ Start LM Studio** in Settings ▸ Local tools and on the Setup step. A model you had loaded **stays loaded** across the start (measured, not assumed), and the server is started on the port Settings names rather than whichever one it last used. When the tool is not found the card says where the switch is instead (LM Studio ▸ **Developer** ▸ **Start Server**) — a button that could not work would be worse than a sentence.
 - **It only serves a model that is already loaded.** JIT loading is off by default, so a freshly installed LM Studio answers every list request and refuses every generation. LDS therefore reports readiness as *a model is loaded*, not *the server answered* — a green tick on an install that cannot caption a single image would be a lie.
 
 - **LM Studio URL** → `lmstudio.url`. The server root. Default **`http://127.0.0.1:1234`**. LM Studio's own Developer tab advertises it as `http://localhost:1234/v1`; **either form is accepted** — the `/v1` is stripped before use, because left in place it would both build wrong request paths and make the GPU arbitration refuse every call.

@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-start-lm-studio',
+    date: '2026-08-30',
+    title: 'Start LM Studio without leaving the app',
+    blurb:
+      'A stopped LM Studio server now has a ▶ Start button, in Settings ▸ Local '
+      + 'tools and on the Setup step — the one Ollama has always had. Whatever '
+      + 'model you had loaded stays loaded, and the server comes up on the port '
+      + 'your settings name, not whichever one it used last. The button only '
+      + 'appears once LM Studio has been opened at least once on this machine.',
+    to: '/settings/local-tools',
+  },
+  {
     id: '2026-08-30-lm-studio-provider',
     date: '2026-08-30',
     title: 'Use LM Studio instead of Ollama, if that is what you run',

@@ -26,7 +26,7 @@ const { deriveSetupSteps, deriveCapabilitySummary, ollamaGateReason } =
 const LMS = (over = {}) => ({
   local_llm: { provider: 'lmstudio' },
   ollama: { installed: false, reachable: false, vision_model_ready: false, vision_model: '' },
-  lmstudio: { reachable: true, model_ready: true, vision_model: '',
+  lmstudio: { installed: true, reachable: true, model_ready: true, vision_model: '',
               detail: 'qwen/qwen3-vl-4b loaded', ...over },
   captioners: { joycaption: false, ollama: false, local_llm: true, local_llm_vision: true },
 })
@@ -38,9 +38,11 @@ test('the active provider is normalised into the shape the gates already read', 
   assert.equal(lms.provider, 'lmstudio')
   assert.equal(lms.reachable, true)
   assert.equal(lms.vision_model_ready, true)
-  // LM Studio is never "installed but stopped" from here — there is no binary this
-  // app can detect and no way for it to start one, so that branch must never fire.
+  // `installed` is LM Studio's OWN signal (its CLI on disk), never Ollama's and
+  // never a stand-in for `reachable` — the two are what make the third rung, and
+  // the third rung is what puts a ▶ Start on the screen.
   assert.equal(lms.installed, true)
+  assert.equal(activeLocalLlm(LMS({ installed: false })).installed, false)
 
   const oll = activeLocalLlm({ ollama: { installed: true, reachable: false } })
   assert.equal(oll.provider, 'ollama')
@@ -114,7 +116,19 @@ test('✨ Enhance is usable on an LM Studio install with a model loaded', () => 
 })
 
 test('✨ Enhance names LM Studio’s own gesture when it is not ready', () => {
-  const down = enhanceBlocker(activeLocalLlm(LMS({ reachable: false, model_ready: false })))
+  // Two rungs, two gestures. Installed (its CLI is on disk) means LDS can start
+  // the server itself, so the sentence points at the button here; not installed
+  // means the only way in is the app's own menu. Sending someone to another
+  // application when a button on this page would do it is the dead end this
+  // module exists to remove.
+  const stopped = enhanceBlocker(activeLocalLlm(LMS({ reachable: false, model_ready: false })))
+  assert.match(stopped, /LM Studio is not running/)
+  assert.match(stopped, /Settings/)
+  assert.doesNotMatch(stopped, /Developer/,
+    'it still sends the user to the app menu although a Start button is right there')
+
+  const down = enhanceBlocker(activeLocalLlm(
+    LMS({ installed: false, reachable: false, model_ready: false })))
   assert.match(down, /LM Studio/)
   assert.match(down, /Start Server/)
   assert.doesNotMatch(down, /install (it|Ollama)/i)
@@ -126,7 +140,11 @@ test('✨ Enhance names LM Studio’s own gesture when it is not ready', () => {
 
 test('📐 Classify framing behaves the same way, on the same states', () => {
   assert.equal(classifyBlockedReason(activeLocalLlm(LMS())), null)
-  const down = classifyBlockedReason(activeLocalLlm(LMS({ reachable: false, model_ready: false })))
+  const stopped = classifyBlockedReason(activeLocalLlm(LMS({ reachable: false, model_ready: false })))
+  assert.match(stopped, /installed but its server is not running/)
+  assert.match(stopped, /▶ Start LM Studio/)
+  const down = classifyBlockedReason(activeLocalLlm(
+    LMS({ installed: false, reachable: false, model_ready: false })))
   assert.match(down, /LM Studio/)
   assert.match(down, /Developer/)
   const noModel = classifyBlockedReason(activeLocalLlm(LMS({ model_ready: false })))
@@ -222,21 +240,27 @@ test('the skip settles the step under EITHER provider', () => {
   assert.equal(ollamaGateReason(oll), null)
 })
 
-test('LM Studio is never "installed but stopped" — no binary, and no ▶ Start', () => {
+test('the installed-but-stopped rung reads LM Studio’s install, never Ollama’s', () => {
   // The defect: `installed` read caps.ollama.installed whatever the provider was.
   // On a machine holding an idle Ollama install — and someone running LM Studio
   // with its server not started — the welcome scan said "installed — not running"
   // and pointed at a ▶ Start button that would have started the OTHER product.
-  const alsoHasOllamaOnDisk = {
-    ...LMS({ reachable: false, model_ready: false }),
+  // The rung is real for LM Studio now, which makes reading the RIGHT flag matter
+  // more, not less: it decides which server a click starts.
+  const ollamaOnDiskOnly = {
+    ...LMS({ installed: false, reachable: false, model_ready: false }),
     ollama: { installed: true, binary_path: '/opt/ollama', reachable: false },
   }
-  const s = step(alsoHasOllamaOnDisk)
+  const s = step(ollamaOnDiskOnly)
   assert.equal(s.installed, false, 'the stopped-but-installed rung fired for the wrong product')
   assert.equal(s.binaryPath, '', 'a path to the other provider’s binary reached the screen')
 
-  // ...and a reachable LM Studio still reads as installed, so nothing downstream
-  // renders it as absent.
+  // LM Studio present but its server down IS the rung — that is what offers Start.
+  const stopped = step(LMS({ reachable: false, model_ready: false }))
+  assert.equal(stopped.installed, true)
+  assert.equal(stopped.reachable, false)
+
+  // ...and a running one still reads as installed.
   assert.equal(step(LMS()).installed, true)
 
   // The Ollama half is untouched — that rung is the whole point there.

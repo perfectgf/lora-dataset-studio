@@ -86,11 +86,31 @@ const HF_CLOUD_SECRET = {
      running         → confirmation, plus whether the vision model is pulled.
    Detecting the install independently of the server running is the whole point:
    an installed-but-stopped Ollama used to read as simply "unreachable". */
-function LmStudioStatus({ caps, active }) {
+function LmStudioStatus({ caps, active, refreshCaps, toast }) {
   const l = (caps && caps.lmstudio) || {}
-  // Deliberately NOT a ▶ Start button: LM Studio has no reliable way to be
-  // launched from here, and offering one that silently does nothing is worse
-  // than saying where the switch actually is.
+  const [starting, setStarting] = useState(false)
+
+  /* This card used to carry a written reason for having NO Start button: "LM
+     Studio has no reliable way to be launched from here". That was wrong -- its
+     CLI sits at a fixed per-user path and `lms server start` is a one-shot
+     command that returns in well under a second, with the loaded model surviving
+     the cycle. The button exists now, and only when the CLI was actually found. */
+  const start = async () => {
+    setStarting(true)
+    try {
+      const r = await postJson('/api/local-llm/start', {})
+      if (r.reachable) {
+        toast?.success(r.already_running ? 'LM Studio is already running.' : 'LM Studio is running.')
+        await refreshCaps?.(true)   // force re-probe → the card flips, no app restart
+      } else {
+        toast?.error(r.error || 'LM Studio did not start — start its server from the app.')
+      }
+    } catch (e) {
+      toast?.error(e.message || 'Could not start LM Studio.')
+    } finally {
+      setStarting(false)
+    }
+  }
   if (!active) {
     return (
       <p className="text-xs text-content-muted">
@@ -122,6 +142,26 @@ function LmStudioStatus({ caps, active }) {
       <p className="text-xs text-content-muted">
         <span aria-hidden="true">○</span> Selected — save to check it, or press Test now.
       </p>
+    )
+  }
+  if (l.installed) {
+    return (
+      <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+        <p className="text-sm text-content">
+          <span aria-hidden="true">●</span> Installed but its server is not running.
+        </p>
+        <p className="text-xs text-content-muted">
+          A model you had loaded stays loaded across this — measured, not assumed.
+        </p>
+        <button
+          type="button"
+          onClick={start}
+          disabled={starting}
+          className="inline-flex items-center gap-1.5 rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50"
+        >
+          {starting ? 'Starting…' : '▶ Start LM Studio'}
+        </button>
+      </div>
     )
   }
   return (
@@ -491,7 +531,8 @@ export default function LocalToolsSection(props) {
         title={provider === 'lmstudio' ? 'LM Studio — in use' : 'LM Studio'}
         help="A local model server with a graphical app. Unlike Ollama it cannot be started from here, and it only serves a model that is already loaded."
       >
-        <LmStudioStatus caps={caps} active={provider === 'lmstudio'} />
+        <LmStudioStatus caps={caps} active={provider === 'lmstudio'}
+          refreshCaps={refreshCaps} toast={toast} />
         <div className="flex items-end gap-3">
           <div className="flex-1 space-y-4">
             <TextField

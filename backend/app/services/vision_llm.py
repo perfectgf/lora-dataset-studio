@@ -176,6 +176,23 @@ def probe_model(reachable=None, model: str | None = None) -> dict:
     return probe_ollama_model(**kw)
 
 
+def start_server() -> dict:
+    """Start the configured provider's local server. `{ok, reachable, ...}`.
+
+    ONE routed path, for the same reason `list_models` is one: the Setup step and
+    the Settings card both press this, and two provider-specific endpoints would
+    let the two buttons drift apart the way the model pickers did. Never raises;
+    an install that cannot be started says why rather than throwing.
+
+    Only ever reached from an explicit click. Nothing passive may call this.
+    """
+    if provider() == LMSTUDIO:
+        from . import lmstudio_control
+        return lmstudio_control.start_server()
+    from . import ollama_control
+    return ollama_control.start_ollama()
+
+
 def ensure_ready(model: str | None = None) -> dict:
     """`{ok, error}` — can this provider caption right now, after doing what it can.
 
