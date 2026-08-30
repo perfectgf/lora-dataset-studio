@@ -75,6 +75,40 @@ def test_the_unload_route_evicts_only_once_the_user_has_said_so(app, client):
     unload.assert_called_once_with()
 
 
+def test_every_unload_sentence_names_the_server_this_install_runs(app, client):
+    """Four sentences on this route name the server, and all four said Ollama.
+
+    This is the screen whose entire job is to explain which model is holding the
+    card and what evicting it costs. Under LM Studio it named a product the user
+    may not have installed -- in the consent prompt itself, the one place the app
+    asks permission to touch something it does not own.
+    """
+    from app import config
+    config.save_config({'local_llm': {'provider': 'lmstudio'}})
+
+    refusal = client.post('/api/system/ollama-fence/unload', json={}).get_json()['error']
+    assert 'LM Studio' in refusal and 'Ollama' not in refusal
+
+    for reason, expected in (('not-local', 'remote'), ('unreachable', 'did not answer'),
+                             ('still-loaded', 'still reports a model')):
+        with patch.object(fence, 'unload_foreign_models',
+                          return_value={'ok': False, 'reason': reason}):
+            res = client.post('/api/system/ollama-fence/unload',
+                              json={'confirmed_unload_external': True})
+        body = res.get_json()
+        assert res.status_code == 409 and expected in body['error']
+        assert 'LM Studio' in body['error'], f'{reason} does not name the provider'
+        assert 'Ollama' not in body['error'], f'{reason} names the wrong product'
+
+
+def test_the_unload_sentences_still_say_ollama_where_ollama_is_what_runs(app, client):
+    """The other half: renaming must not have made the copy provider-blind."""
+    from app import config
+    config.save_config({'local_llm': {'provider': 'ollama'}})
+    refusal = client.post('/api/system/ollama-fence/unload', json={}).get_json()['error']
+    assert 'Ollama' in refusal and 'LM Studio' not in refusal
+
+
 def test_the_share_route_refuses_without_an_explicit_confirmation(app, client):
     """Sharing one card between two loaded models is not free — on Windows it
     pages instead of failing. So it is a decision, taken once, in words."""

@@ -100,6 +100,33 @@ def test_ref_route_warns_when_model_not_ready(client, monkeypatch):
     assert 'Setup' in body['warning'] and 'vision model' in body['warning']
 
 
+def test_ref_route_warning_names_the_provider_this_install_uses(client, monkeypatch):
+    """The same guard-rail, on an install that runs LM Studio.
+
+    This warning names a product AND a remedy ('finish the Ollama step in Setup').
+    Under the other provider both halves were wrong: it sent the user to install a
+    daemon they had deliberately not chosen, on the screen that exists to explain
+    why the crop was not what they asked for.
+    """
+    import app.routes.datasets as dr
+    import app.capabilities as caps
+    from app import config
+    did = _create_concept_free_dataset(client)
+    monkeypatch.setattr(dr.svc, 'face_crop_to_square_webp', lambda raw, **k: (b'RIFFwebp', False))
+    monkeypatch.setattr(dr, 'gpu_exclusive_vision_window', lambda: contextlib.nullcontext())
+    monkeypatch.setattr(caps, 'probe_lmstudio_model', lambda *a, **k: {'ok': False, 'detail': 'no model loaded'})
+    config.save_config({'local_llm': {'provider': 'lmstudio'}})
+
+    resp = client.post(f'/api/dataset/{did}/ref',
+                       data={'file': (io.BytesIO(_png()), 'ref.png'), 'crop': '1'},
+                       content_type='multipart/form-data')
+    body = resp.get_json()
+    assert resp.status_code == 200 and body['head_crop'] is False
+    assert 'LM Studio' in body['warning']
+    assert 'Ollama' not in body['warning'], (
+        'the warning sends an LM Studio user to set up a server they do not run')
+
+
 def test_ref_route_warns_face_not_found_when_model_ready(client, monkeypatch):
     import app.routes.datasets as dr
     import app.capabilities as caps
