@@ -18,6 +18,7 @@ import { faceAnalysisState, faceAnalysisLabel } from './faceScoringGate.js';
 import DatasetGrid from './DatasetGrid';
 import { datasetBusyReason } from './datasetBusyReason.js';
 import KleinModelSetting from '../shared/KleinModelSetting';
+import KleinCompareDialog from '../shared/KleinCompareDialog';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
 import CaptionOptionsPopover from './CaptionOptionsPopover';
@@ -79,7 +80,7 @@ import {
 } from '../../utils/smallImageRescue';
 import { describeDerivedComparison } from '../../utils/derivedCompare';
 import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
-import { postJson, putJson } from '../../api/fetchClient';
+import { apiFetch, postJson, putJson } from '../../api/fetchClient';
 import { datasetToBankRequest, datasetToBankUrl } from './datasetToBank';
 import { HelpBadge } from '../../help/HelpMode';
 import { requestHelpTip } from '../../help/helpTips';
@@ -315,6 +316,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
   const [labImage, setLabImage] = useState(null);
   const [installInpaintOpen, setInstallInpaintOpen] = useState(false);  // panneau d'install LaMa
   const [watermarkMethod, setWatermarkMethod] = useState('lama');  // moteur d'inpaint batch : lama | klein
+  const [kleinCompareOpen, setKleinCompareOpen] = useState(false); // ⚖ essai des modeles avant le batch
+  const [kleinCompareState, setKleinCompareState] = useState({ choices: [], stored: null });
   /* What 🧽 Clean aims at: every flagged page ('all'), only the 🔤 text-flagged
      ones ('text'), or only the 🚩 watermark-flagged ones ('watermark'). The
      split is BY PAGE — a page carrying both counts as text (its zones share one
@@ -1548,6 +1551,22 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     ? `Scanning…${act?.kind === 'watermark_detect' && act.total ? ` ${act.done}/${act.total}` : ''}`
                     : 'Find watermarks…'}
                 </button>
+                {kleinCompareOpen && (
+                  <KleinCompareDialog
+                    choices={kleinCompareState.choices}
+                    stored={kleinCompareState.stored}
+                    compareUrl={`/api/dataset/${d.id}/watermarks/klein-compare`}
+                    adoptLabel="Use for this dataset"
+                    onAdopt={async (model) => {
+                      // The dataset's ONE authority for the Klein model — the
+                      // batch clean already honours it, so adopting IS arming.
+                      await postJson(`/api/dataset/${d.id}/klein-model`, { klein_model: model }).catch(() => null);
+                      setKleinCompareOpen(false);
+                      setKleinCompareState((st) => ({ ...st, stored: model }));
+                    }}
+                    onClose={() => setKleinCompareOpen(false)}
+                  />
+                )}
                 {wmScanOpen && (
                   <WatermarkScanDialog
                     onClose={() => setWmScanOpen(false)}
@@ -1651,7 +1670,27 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       changeable here. basis-full: its own row rather than a squeezed
                       column at 400 px. */}
                   {watermarkMethod === 'klein' && (
-                    <KleinModelSetting datasetId={d.id} className="basis-full" />
+                    <div className="basis-full flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <KleinModelSetting datasetId={d.id} className="min-w-0 flex-1" />
+                      {/* ⚖ The judging half: try the candidates on ONE flagged image
+                          (same zones, same seed) before the batch overwrites all of
+                          them — the same intermediate-window shape as detection. */}
+                      {cleanTargetCount > 0 && (
+                        <button type="button"
+                          onClick={async () => {
+                            // Same endpoint as the picker beside it — one scanner,
+                            // one truth about what is on disk.
+                            const resp = await apiFetch(`/api/dataset/${d.id}/klein-model`).catch(() => null);
+                            setKleinCompareState({ choices: resp?.choices || [], stored: resp?.stored || null });
+                            setKleinCompareOpen(true);
+                          }}
+                          disabled={ds.busy}
+                          title="Run each ticked Klein model on one flagged image (same zones, same seed) and pick the winner before cleaning the batch."
+                          className="min-h-10 lg:min-h-0 px-2.5 py-1 rounded-lg border border-border text-xs font-semibold text-content-subtle hover:text-content hover:bg-surface-raised disabled:opacity-40">
+                          ⚖ Compare models…
+                        </button>
+                      )}
+                    </div>
                   )}
                   {/* Allow auto-crop: the SAME persisted preference as Settings ▸ Watermark
                       inpainting (write-through). Off → a border mark is repainted (LaMa/

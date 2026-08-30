@@ -29,6 +29,7 @@ import { Flag } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient'
 import PassDialog from './PassDialog.jsx'
 import KleinModelSetting from '../shared/KleinModelSetting'
+import KleinCompareDialog from '../shared/KleinCompareDialog'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useToast } from '../common/Toast'
 import {
@@ -80,6 +81,13 @@ export default function BankWatermarkPanel({
      split between two runs). Lives on the panel like the engine toggle, so the
      launch window names it without owning a second copy. */
   const [target, setTarget] = useState('all')
+  // ⚖ Compare-before-the-batch. `kleinRunModel` is a PER-RUN override, armed by
+  // the dialog's "use for this run" and spent by the next Klein inpaint launch —
+  // a bank deliberately STORES no Klein pick (the dataset is the one authority),
+  // so this lives and dies with the panel.
+  const [kleinCompareOpen, setKleinCompareOpen] = useState(false)
+  const [kleinCompare, setKleinCompare] = useState({ choices: [], stored: null })
+  const [kleinRunModel, setKleinRunModel] = useState(null)
   const [comparing, setComparing] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
   /* Which cleaning level's launch window is open ('watermark_crop' /
@@ -280,7 +288,28 @@ export default function BankWatermarkPanel({
             but "no choice" was never a reason to stay silent about the model.
             w-full: this drops onto its own line rather than squeezing the
             toggle at 400 px. */}
-        {method === 'klein' && <KleinModelSetting className="w-full" />}
+        {method === 'klein' && (
+          <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1">
+            <KleinModelSetting className="min-w-0 flex-1" />
+            <button type="button"
+              onClick={async () => {
+                const d = await apiFetch('/api/klein-model').catch(() => null)
+                setKleinCompare({ choices: d?.choices || [], stored: d?.stored || null })
+                setKleinCompareOpen(true)
+              }}
+              title="Run each ticked Klein model on one flagged image (same zones, same seed) and pick the winner for THIS run — a bank stores no Klein choice."
+              className="min-h-10 lg:min-h-0 px-2.5 py-1 rounded-lg border border-border text-xs font-semibold text-content-subtle hover:text-content hover:bg-surface-raised">
+              ⚖ Compare models…
+            </button>
+            {kleinRunModel && (
+              <span className="text-[0.6875rem] text-amber-200">
+                Next Klein clean runs on <span className="font-mono break-all">{kleinRunModel}</span>{' '}
+                <button type="button" onClick={() => setKleinRunModel(null)}
+                  className="underline text-content-muted hover:text-content">use auto</button>
+              </span>
+            )}
+          </div>
+        )}
         {/* 🔤/🚩 WHAT to clean — only offered once Find text flagged something,
             because with no text-flagged page the three choices collapse into
             one and the control would be a dead dial. */}
@@ -356,6 +385,16 @@ export default function BankWatermarkPanel({
           blocks, same measured scope lines as the passes above — the point being
           that these two are not a different kind of action just because they live
           inside the funnel. */}
+      {kleinCompareOpen && (
+        <KleinCompareDialog
+          choices={kleinCompare.choices}
+          stored={kleinCompare.stored}
+          compareUrl={`/api/bank/${bankId}/watermark/klein-compare`}
+          adoptLabel="Use for this run"
+          onAdopt={(model) => { setKleinRunModel(model); setKleinCompareOpen(false) }}
+          onClose={() => setKleinCompareOpen(false)}
+        />
+      )}
       {cleanOpen && (
         <PassDialog passId={cleanOpen} payload={payload} live={live}
           selectionSize={selectedIds.length}
@@ -368,7 +407,12 @@ export default function BankWatermarkPanel({
             /* target only when narrowed: 'all' posts the SAME body as before the
                selector existed — the spread-if-set contract runLevel documents. */
             cleanOpen === 'watermark_inpaint'
-              ? { method, ...(target !== 'all' ? { target } : {}) } : {},
+              ? { method,
+                  ...(target !== 'all' ? { target } : {}),
+                  /* spread-if-set: absent, the body is byte-identical to before
+                     the ⚖ dialog existed, and the run keeps auto resolution. */
+                  ...(method === 'klein' && kleinRunModel
+                    ? { klein_model: kleinRunModel } : {}) } : {},
           )}>
           {cleanOpen === 'watermark_inpaint' && (
             /* WHICH engine this run will use. The toggle stays on the panel —

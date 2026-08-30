@@ -64,7 +64,7 @@ import tempfile
 import time
 import uuid
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 from .. import config as cfg
 from . import image_encoding
@@ -827,6 +827,134 @@ def inpaint_mask_klein(user_id, image_path, boxes=None, *, mask=None, seed=None,
     except (OSError, ValueError) as e:
         return False, {'kind': 'failed', 'detail': f'could not save repaired image: {e}'}
     return True, None
+
+
+def compare_candidate_boxes(watermark_regions, watermark_bbox):
+    """The zones ONE flagged row would hand the clean — the same derivation the
+    batch uses (manual regions first, else the detected bbox), so the compare
+    judges exactly what the pass will repaint. [] when the row carries neither.
+    """
+    import json as _json
+    if watermark_regions:
+        try:
+            regions = _json.loads(watermark_regions)
+        except (ValueError, TypeError):
+            regions = None
+        norm = _normalize_boxes(regions or [])
+        if norm:
+            return norm
+    try:
+        bbox = _json.loads(watermark_bbox) if watermark_bbox else None
+    except (ValueError, TypeError):
+        bbox = None
+    if isinstance(bbox, list) and len(bbox) == 4:
+        return _normalize_boxes([bbox])
+    return []
+
+
+def run_compare(user_id, rows, *, model, image_id=None, seed=None):
+    """One compare call, surface-agnostic: pick the sample row, run ONE model.
+
+    `rows` is an iterable of (id, label, path, regions_json, bbox_json) the ROUTE
+    built from its own table — the only per-surface part. The rest (sample pick,
+    box derivation, model validation, the preview run) must not fork per surface,
+    or the two dialogs drift the way the fence sentences once did.
+
+    Returns a JSON-ready dict, never raises: every failure is {'ok': False,
+    'error': sentence} because the dialog renders errors inline, per candidate.
+    """
+    import base64
+    from . import klein_edit_helper as keh
+
+    name = (model or '').strip()
+    if not name:
+        return {'ok': False, 'error': 'name the Klein model to try'}
+    if not keh.klein_model_on_disk(name):
+        return {'ok': False,
+                'error': f'"{name}" is not on disk any more — re-open the dialog '
+                         'to refresh the list.'}
+    pool = [r for r in rows if compare_candidate_boxes(r[3], r[4])]
+    if not pool:
+        return {'ok': False,
+                'error': 'No flagged image with zones to repaint — run '
+                         'Find watermarks first.'}
+    if image_id is not None:
+        row = next((r for r in pool if r[0] == image_id), None)
+        if row is None:
+            return {'ok': False, 'error': 'that image is not flagged any more'}
+    else:
+        row = pool[0]
+    rid, label, path, regions_json, bbox_json = row
+    if not path or not os.path.isfile(path):
+        return {'ok': False, 'error': 'the flagged image file is missing on disk'}
+    boxes = compare_candidate_boxes(regions_json, bbox_json)
+    seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
+    started = time.monotonic()
+    before, after, err = compare_preview(user_id, path, boxes,
+                                         klein_model=name, seed=seed)
+    if err:
+        return {'ok': False, 'image_id': rid, 'model': name, 'seed': seed,
+                'error': err.get('detail') or 'the repair failed'}
+    return {'ok': True, 'image_id': rid, 'label': label, 'model': name, 'seed': seed,
+            'seconds': round(time.monotonic() - started, 1),
+            'before': base64.b64encode(before).decode(),
+            'after': base64.b64encode(after).decode()}
+
+
+def compare_preview(user_id, image_path, boxes, *, klein_model, seed,
+                    timeout=KLEIN_TIMEOUT, max_side=896):
+    """Run ONE model's inpaint on a THROWAWAY copy and hand back preview bytes.
+
+    The judging half of "compare Klein models before the batch": the caller runs
+    this once per candidate with the SAME image, boxes and seed, so the only
+    variable across the grid is the model — which is the question being asked.
+
+    Deliberately built on `inpaint_watermark_klein` itself rather than a
+    parallel path: the preview must show what the real pass WILL do, and two
+    implementations of one pass is how previews start lying. The original file
+    is never opened for writing — the pass runs on a temp copy that is deleted
+    in `finally`, and the copy is EXIF-uprighted first, exactly like the batch's
+    own staging (the stored boxes live in the upright frame).
+
+    Returns (before_jpeg_bytes, after_jpeg_bytes, err) — err carries the same
+    {'kind','detail'} contract as the pass; both byte payloads are bounded to
+    `max_side` so a 4K source does not ship two 4K frames per candidate.
+    """
+    import tempfile
+
+    def _preview_bytes(img):
+        img = img.convert('RGB')
+        if max(img.size) > max_side:
+            ratio = max_side / max(img.size)
+            img = img.resize((max(1, round(img.width * ratio)),
+                              max(1, round(img.height * ratio))), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, 'JPEG', quality=88)
+        return buf.getvalue()
+
+    try:
+        with Image.open(image_path) as raw:
+            upright = ImageOps.exif_transpose(raw).convert('RGB')
+    except (OSError, ValueError) as e:
+        return None, None, {'kind': 'failed', 'detail': f'unreadable image: {e}'}
+    before = _preview_bytes(upright)
+    tmp = tempfile.NamedTemporaryFile(suffix='.webp', delete=False)
+    tmp_path = tmp.name
+    tmp.close()
+    try:
+        upright.save(tmp_path, 'WEBP', quality=95)
+        ok, err = inpaint_watermark_klein(user_id, tmp_path, boxes, seed=seed,
+                                          timeout=timeout, klein_model=klein_model)
+        if not ok:
+            return before, None, err or {'kind': 'failed', 'detail': 'the repair failed'}
+        with Image.open(tmp_path) as res:
+            after = _preview_bytes(res)
+        return before, after, None
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cpu',

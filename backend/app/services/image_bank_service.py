@@ -8823,7 +8823,7 @@ def _improve_job(bank_id, engine, statuses=None, ids=None):
 
 
 def start_watermark_inpaint(app, user_id, bank_id, method='auto', target='all',
-                            statuses=None, ids=None):
+                            statuses=None, ids=None, klein_model=None):
     """Level 2 — repaint what is STILL flagged after the crop level.
     ``method``: 'auto'/'lama' (LaMa, non-generative, small off-centre marks; marks
     on the subject stay flagged for manual review) or 'klein' (masked Flux.2 Klein
@@ -8869,12 +8869,13 @@ def start_watermark_inpaint(app, user_id, bank_id, method='auto', target='all',
         raise RuntimeError(reason)
     return bank_jobs.start(app, bank_id, 'watermark_inpaint',
                            _watermark_inpaint_job(bank_id, method, want, ids,
-                                                  target=target),
+                                                  target=target,
+                                                  klein_model=klein_model),
                            total=total)
 
 
 def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None,
-                           target='all'):
+                           target='all', klein_model=None):
     def run(job):
         from contextlib import nullcontext
         from . import text_fill, watermark_klein, watermark_lama
@@ -8999,16 +9000,17 @@ def _watermark_inpaint_job(bank_id, method, statuses=None, ids=None,
                         bank_jobs.bump(job)
                         continue
                     if engine == 'klein':
-                        # No klein_model on purpose. The Klein model choice lives on
-                        # the DATASET (it describes what a dataset is made of) and a
-                        # bank has none to inherit — so this pass keeps the auto
-                        # resolution it has always used. Deliberately NOT a global
-                        # setting and NOT a third picker on the bank: that would be a
-                        # second authority for the same UNETLoader. What the bank DOES
-                        # owe the user is the name of the model that will run, which
-                        # the panel now states (BankWatermarkPanel → /api/klein-model).
+                        # `klein_model` is a PER-RUN override (the ⚖ compare
+                        # dialog's "use for this run"), or None = the auto
+                        # resolution this pass has always used. A bank still
+                        # STORES no Klein pick — a stored one would be a second
+                        # authority for the same UNETLoader beside the dataset's
+                        # (the doctrine the old comment here defended, and which
+                        # per-run does not break: same shape as the bank
+                        # caption's per-run {backend, ollama_model}).
                         ok, err = watermark_klein.inpaint_watermark_klein(
-                            bank.user_id, str(dst), [list(b) for b in boxes])
+                            bank.user_id, str(dst), [list(b) for b in boxes],
+                            klein_model=klein_model)
                         generation_ok = _prepare_watermark_write(
                             row, src, expected_raw_fingerprint)
                         if ok and generation_ok:

@@ -1446,6 +1446,31 @@ def dataset_watermarks_clean(dataset_id):
     return jsonify({'ok': True, 'error': error, **counts})
 
 
+@bp.post('/dataset/<int:dataset_id>/watermarks/klein-compare')
+def dataset_watermarks_klein_compare(dataset_id):
+    """Try ONE Klein model on ONE flagged image, without touching it — the
+    judging half of "compare models before the batch". The dialog calls this
+    once per ticked model with the SAME image and seed, so the only variable
+    across its grid is the model. Always 200; failures ride in the body,
+    because the dialog renders them inline per candidate."""
+    ds = svc.get_dataset(LOCAL_USER, dataset_id)
+    if not ds:
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    from ..models import FaceDatasetImage
+    from ..services import watermark_klein
+    flagged = (FaceDatasetImage.query
+               .filter_by(dataset_id=dataset_id, watermark_state='detected')
+               .filter(FaceDatasetImage.filename.isnot(None))
+               .order_by(FaceDatasetImage.id.asc()).all())
+    rows = [(i.id, i.filename, svc._img_path(i), i.watermark_regions, i.watermark_bbox)
+            for i in flagged]
+    out = watermark_klein.run_compare(
+        LOCAL_USER, rows, model=data.get('model'),
+        image_id=data.get('image_id'), seed=data.get('seed'))
+    return jsonify(out), 200
+
+
 @bp.post('/dataset/<int:dataset_id>/watermarks/dismiss')
 def dataset_watermarks_dismiss(dataset_id):
     """Mark flagged images as NOT a watermark (a false positive ruled out in the review

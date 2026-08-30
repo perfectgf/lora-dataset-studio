@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-klein-clean-compare',
+    date: '2026-08-30',
+    title: 'Try your Klein models before the clean commits',
+    blurb:
+      'Watermark clean, Klein engine: a new ⚖ Compare models window runs each '
+      + 'of your Klein checkpoints on the same flagged image — same zones, same '
+      + 'seed — so the only difference between the results is the model. Pick '
+      + "the winner: on a dataset it becomes the dataset's Klein model, on a "
+      + 'bank it applies to that run. The original image is never touched.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-pass-info-dots',
     date: '2026-08-30',
     title: 'Every video pass button now explains itself',

@@ -645,7 +645,34 @@ def bank_watermark_inpaint(bank_id):
     data = request.get_json(silent=True) or {}
     return _start(banks.start_watermark_inpaint, _app(), LOCAL_USER, bank_id,
                   method=data.get('method') or 'auto',
-                  target=data.get('target') or 'all', **_scope(data))
+                  target=data.get('target') or 'all',
+                  klein_model=(data.get('klein_model') or '').strip() or None,
+                  **_scope(data))
+
+
+@bp.post('/bank/<int:bank_id>/watermark/klein-compare')
+def bank_watermark_klein_compare(bank_id):
+    """The bank half of "compare Klein models before the batch" — same service,
+    same contract as the dataset route, on the bank's own flagged rows. The
+    sample path goes through resolved_image_path (the one resolver every bank
+    reader must use), so a previously cleaned image is compared on what the
+    user actually sees."""
+    bank = banks.get_bank(LOCAL_USER, bank_id)
+    if not bank:
+        return jsonify({'error': 'not found'}), 404
+    data = request.get_json(silent=True) or {}
+    from ..models import BankImage
+    from ..services import watermark_klein
+    flagged = (BankImage.query
+               .filter_by(bank_id=bank_id, watermark_state='detected')
+               .order_by(BankImage.id.asc()).all())
+    rows = [(r.id, r.relpath, banks.resolved_image_path(bank, r),
+             r.watermark_regions, r.watermark_bbox)
+            for r in flagged]
+    out = watermark_klein.run_compare(
+        LOCAL_USER, rows, model=data.get('model'),
+        image_id=data.get('image_id'), seed=data.get('seed'))
+    return jsonify(out), 200
 
 
 @bp.post('/bank/<int:bank_id>/watermark/undo')
