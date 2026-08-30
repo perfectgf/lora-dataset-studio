@@ -96,7 +96,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
       try {
         const [opt, mdl] = await Promise.all([
           apiFetch(`/api/dataset/${datasetId}/caption/options`),
-          apiFetch('/api/ollama/models').catch(() => ({ models: [], reachable: false })),
+          apiFetch('/api/local-llm/models').catch(() => ({ models: [], reachable: false })),
         ]);
         if (!alive) return;
         const o = opt.options || {};
@@ -128,7 +128,7 @@ export default function CaptionOptionsPopover({ datasetId, trainType, kind, onCl
   }, [datasetId, toast]);
 
   const refreshModels = async (isCurrent = () => mountedRef.current) => {
-    const mdl = await apiFetch('/api/ollama/models').catch(() => null);
+    const mdl = await apiFetch('/api/local-llm/models').catch(() => null);
     if (mdl && isCurrent()) {
       setModels(mdl.models || []);
       setModelsReachable(mdl.reachable !== false);

@@ -76,6 +76,43 @@ const HF_CLOUD_SECRET = {
      running         → confirmation, plus whether the vision model is pulled.
    Detecting the install independently of the server running is the whole point:
    an installed-but-stopped Ollama used to read as simply "unreachable". */
+function LmStudioStatus({ caps, active }) {
+  const l = (caps && caps.lmstudio) || {}
+  // Deliberately NOT a ▶ Start button: LM Studio has no reliable way to be
+  // launched from here, and offering one that silently does nothing is worse
+  // than saying where the switch actually is.
+  if (!active) {
+    return (
+      <p className="text-xs text-content-muted">
+        <span aria-hidden="true">○</span> Not the provider in use — press Test to check it
+        without switching.
+      </p>
+    )
+  }
+  if (l.reachable && l.model_ready) {
+    return (
+      <p className="text-xs text-emerald-400">
+        <span aria-hidden="true">✓</span> Running · {l.detail}
+      </p>
+    )
+  }
+  if (l.reachable) {
+    return (
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+        <p className="text-sm text-content"><span aria-hidden="true">●</span> Running, but not ready.</p>
+        <p className="mt-1 text-xs text-content-muted">{l.detail}</p>
+      </div>
+    )
+  }
+  return (
+    <p className="text-xs text-content-muted">
+      <span aria-hidden="true">✗</span> Not answering at {l.url || 'the configured URL'} — open
+      LM Studio, go to <span className="font-medium text-content">Developer</span> and press
+      Start Server.
+    </p>
+  )
+}
+
 function OllamaStatus({ caps, refreshCaps, toast }) {
   const o = (caps && caps.ollama) || {}
   const [starting, setStarting] = useState(false)
@@ -244,6 +281,10 @@ export default function LocalToolsSection(props) {
           configDefaults } = props
   // Shipped values come from the server payload, never retyped here.
   const ollamaDefault = (key) => defaultValueAt(configDefaults, 'ollama', key)
+  const lmstudioDefault = (key) => defaultValueAt(configDefaults, 'lmstudio', key)
+  // Total: a config.json written before this setting existed has no local_llm
+  // section at all, and every such install means Ollama.
+  const provider = ((config.local_llm || {}).provider) || 'ollama'
   const comfyDefault = (key) => defaultValueAt(configDefaults, 'comfyui', key)
   // Summary + collapsible groups, one per tool — same shells as Image engines
   // (SettingsGroupsView), and the ?focus= reveal opens a collapsed group on
@@ -319,6 +360,31 @@ export default function LocalToolsSection(props) {
       </SettingsGroup>
 
       <SettingsGroup {...groupProps(ollamaGroup)}>
+      <Card
+        title="Which local LLM"
+        help="Captioning, framing, head-crop and the prompt helpers all run on one local model server. This is which one."
+      >
+        <div>
+          <label htmlFor="local-llm-provider" className="block text-sm font-medium text-content">
+            Local LLM provider
+          </label>
+          <select
+            id="local-llm-provider"
+            value={provider}
+            onChange={(e) => setField('local_llm', 'provider', e.target.value)}
+            className={INPUT_CLASS}
+          >
+            <option value="ollama">Ollama — the default</option>
+            <option value="lmstudio">LM Studio</option>
+          </select>
+          <p className="mt-1 text-xs text-content-muted">
+            Both cards below stay editable whichever you pick, so you can set the other one up
+            and press Test before switching to it. Only the selected provider is used — and only
+            it is checked when the app refreshes its status, so nothing pays for a server you are
+            not running.
+          </p>
+        </div>
+      </Card>
       <Card
         title="Ollama"
         help="Lightweight local vision backend — captioning, framing auto-classify and head-crop."
@@ -401,6 +467,59 @@ export default function LocalToolsSection(props) {
         </div>
       </Card>
 
+      <Card
+        title={provider === 'lmstudio' ? 'LM Studio — in use' : 'LM Studio'}
+        help="A local model server with a graphical app. Unlike Ollama it cannot be started from here, and it only serves a model that is already loaded."
+      >
+        <LmStudioStatus caps={caps} active={provider === 'lmstudio'} />
+        <div className="flex items-end gap-3">
+          <div className="flex-1 space-y-4">
+            <TextField
+              id="lmstudio-url"
+              label="LM Studio URL"
+              value={(config.lmstudio || {}).url || ''}
+              onChange={(v) => setField('lmstudio', 'url', v)}
+              placeholder="http://127.0.0.1:1234"
+              help="The server root. LM Studio's Developer tab shows it with /v1 on the end — either form is accepted."
+            />
+            <TextField
+              id="lmstudio-vision-model"
+              label="LM Studio model"
+              value={(config.lmstudio || {}).vision_model || ''}
+              onChange={(v) => setField('lmstudio', 'vision_model', v)}
+              placeholder="leave empty to use whatever is loaded"
+              help="Left empty, the app uses whichever model LM Studio has loaded — usually what you want, since it only serves a loaded one."
+            />
+            <TestResult result={testResults.lmstudio} />
+          </div>
+          <TestButton target="lmstudio" beforeTest={() => saveConfigSection('lmstudio')}
+            onResult={(r) => recordTestResult('lmstudio', r)} />
+        </div>
+        <div>
+          <label htmlFor="lmstudio-vision-concurrency" className="block text-sm font-medium text-content">
+            Images analysed at once
+          </label>
+          <select
+            id="lmstudio-vision-concurrency"
+            value={String((config.lmstudio || {}).vision_concurrency ?? lmstudioDefault('vision_concurrency'))}
+            onChange={(e) => setField('lmstudio', 'vision_concurrency', Number(e.target.value))}
+            className={INPUT_CLASS}
+          >
+            <option value="1">1 — one at a time (slowest, gentlest)</option>
+            <option value="2">2</option>
+            <option value="4">4 — recommended</option>
+            <option value="6">6</option>
+            <option value="8">8</option>
+          </select>
+          <p className="mt-1 text-xs text-content-muted">
+            The same dial as Ollama's, kept separate because the two servers do not take the
+            same load: LM Studio serves as many parallel requests as its own Parallel setting
+            allows, and going wider here than that gains nothing.
+          </p>
+          <ResetToDefault label="Images analysed at once" section="lmstudio" field="vision_concurrency"
+            config={config} configDefaults={configDefaults} setField={setField} />
+        </div>
+      </Card>
       </SettingsGroup>
 
       <SettingsGroup {...groupProps(aitkGroup)}>

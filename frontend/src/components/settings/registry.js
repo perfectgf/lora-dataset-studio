@@ -54,7 +54,11 @@ export function sectionStatus(id, caps) {
     case 'local-tools': {
       const parts = [
         !!(c.comfyui && c.comfyui.reachable),
-        !!(c.ollama && c.ollama.reachable),
+        // The ACTIVE provider's reachability. Keyed on Ollama alone, this LED
+        // read "off" on a perfectly healthy LM Studio install.
+        (((c.local_llm && c.local_llm.provider) || 'ollama') === 'lmstudio'
+          ? !!(c.lmstudio && c.lmstudio.reachable)
+          : !!(c.ollama && c.ollama.reachable)),
         !!(c.aitoolkit && c.aitoolkit.valid),
       ]
       const n = parts.filter(Boolean).length

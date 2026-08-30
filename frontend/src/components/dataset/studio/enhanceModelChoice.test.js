@@ -28,7 +28,7 @@ test('the pick is remembered under ONE key for every surface that mounts the but
 });
 
 test('the ⚙️ lists the actually-pulled models, and keeps an unlisted pick selectable', () => {
-  assert.match(button, /'\/api\/ollama\/models'/);
+  assert.match(button, /'\/api\/local-llm\/models'/);
   assert.match(button, /\[model, \.\.\.models\]/);
 });
 

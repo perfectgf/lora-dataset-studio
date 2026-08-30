@@ -56,7 +56,7 @@ export default function CaptionLab({ surface, currentCaption, onKeep }) {
 
   useEffect(() => {
     let alive = true;
-    apiFetch('/api/ollama/models').catch(() => ({ models: [], reachable: false }))
+    apiFetch('/api/local-llm/models').catch(() => ({ models: [], reachable: false }))
       .then((mdl) => {
         if (!alive) return;
         setModels(mdl.models || []);

@@ -39,8 +39,11 @@ export const ENGINES_GROUPS = [
 export const LOCAL_TOOLS_GROUPS = [
   { id: 'comfyui', title: 'ComfyUI', icon: Puzzle,
     blurb: 'The local generation backend — API URL, install folder, model paths.' },
-  { id: 'ollama', title: 'Ollama', icon: Bot,
-    blurb: 'Local vision & text models — captions, descriptions, prompt help.' },
+  // The id stays 'ollama' on purpose — it is persisted in localStorage as the
+  // group's open/closed state and used by the settings deep links. Only the
+  // label follows the fact that there are now two providers behind it.
+  { id: 'ollama', title: 'Local LLM', icon: Bot,
+    blurb: 'Ollama or LM Studio — captions, descriptions, framing, prompt help.' },
   { id: 'aitoolkit', title: 'ai-toolkit', icon: Dumbbell,
     blurb: 'The local trainer — install folder and its Python.' },
 ]

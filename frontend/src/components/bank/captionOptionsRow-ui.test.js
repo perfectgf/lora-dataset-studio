@@ -99,7 +99,7 @@ test('the model picker is inert unless the engine can reach Ollama, and keeps an
 
 test('the model list comes from its own always-200 endpoint, not from capabilities', () => {
   // caps.ollama carries the CONFIGURED model, never the installed list.
-  assert.match(ws, /apiFetch\('\/api\/ollama\/models'\)\.catch\(\(\) => \(\{ models: \[\] \}\)\)/);
+  assert.match(ws, /apiFetch\('\/api\/local-llm\/models'\)\.catch\(\(\) => \(\{ models: \[\] \}\)\)/);
 });
 
 test('the explicit warning judges the model that will RUN, and points at a real place', () => {

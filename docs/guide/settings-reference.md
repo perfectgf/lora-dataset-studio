@@ -478,6 +478,14 @@ Where you point the app at the local programs that unlock the full pipeline: **C
 
 This now includes the **training** bases, which were the last exception: an SDXL checkpoint and a Z-Image merge declared in the yaml are listed in the base picker, accepted at launch, and handed to ai-toolkit as a real path. When the same file name exists in two roots, the one a running ComfyUI would load wins (`is_default` first), so you train on the same weights you generate with. Capitalisation of folders and file names doesn't have to match what the picker stored. And when a base genuinely cannot be found, the app says so **naming the file**, instead of passing a bare name down to ai-toolkit and letting it fail on a path you never typed.
 
+### Which local LLM
+
+- **Local LLM provider** → `local_llm.provider`: `ollama` (default) or `lmstudio`. One local model server does captioning, framing auto-classify, auto head-crop, Test Studio Describe & Enhance and the bank's natural-language filter; this picks which. **Nothing changes for an existing install** — the default is Ollama and the second provider only ever adds a door.
+
+Both cards below stay editable whichever provider is selected, so you can configure the other one and press **Test** before switching. Only the selected provider is checked when the app refreshes its status, so an install pays nothing for a server it does not run.
+
+**A note on the per-dataset engine picker.** The Captions ⚙️ option still reads **Ollama vision only** and still stores the value `ollama`: that string lives in datasets people already have, and renaming it would silently change what their saved options mean. Under LM Studio it means *the configured local provider*. The same goes for the caption-origin badge on an image.
+
 ### Ollama
 
 The card shows Ollama's live state and, when the binary is installed but the server isn't running, a **▶ Start Ollama** button that launches it for you — no terminal needed.
@@ -507,6 +515,21 @@ In Docker, choose the deployment only from **Setup → Ollama**: `none` disables
 - **Continue without Ollama** → `ollama.setup_skipped`. Ollama is optional and the Setup wizard no longer holds you on its step. If JoyCaption is installed, captioning already works — JoyCaption writes the same captions the vision model would, prose or booru tags depending on what you train — so the step is simply a recommendation. With neither installed, the wizard offers an explicit **Continue without Ollama** that lists what turns off (auto-classify framing, auto head-crop, Test Studio Describe & Enhance, the bank's "Describe filter", the vision route of watermark detection, short captions) versus what stays on, then remembers the choice so it stops asking. Starting Ollama at any point cancels the skip automatically — the flag never hides the state of an Ollama that *is* running, which is why an Ollama that answers but has no model pulled still shows that gap.
 
 **Test** checks end-to-end: that Ollama is reachable *and* the configured model is actually pulled.
+
+### LM Studio
+
+LM Studio is a local model server with its own desktop app. Two differences from Ollama shape everything here:
+
+- **It cannot be started from LDS.** There is no reliable command-line launch, so there is no ▶ Start button — the card tells you where the switch is instead (LM Studio ▸ **Developer** ▸ **Start Server**). A button that did nothing would be worse than a sentence.
+- **It only serves a model that is already loaded.** JIT loading is off by default, so a freshly installed LM Studio answers every list request and refuses every generation. LDS therefore reports readiness as *a model is loaded*, not *the server answered* — a green tick on an install that cannot caption a single image would be a lie.
+
+- **LM Studio URL** → `lmstudio.url`. The server root. Default **`http://127.0.0.1:1234`**. LM Studio's own Developer tab advertises it as `http://localhost:1234/v1`; **either form is accepted** — the `/v1` is stripped before use, because left in place it would both build wrong request paths and make the GPU arbitration refuse every call.
+- **LM Studio model** → `lmstudio.vision_model`. Leave it **empty** and LDS uses whichever model LM Studio has loaded, which is usually what you want. Name one and LDS insists on that exact model being loaded.
+- **Images analysed at once** → `lmstudio.vision_concurrency`. Same meaning as the Ollama dial, kept separate because the two servers do not take the same load: LM Studio serves as many parallel requests as its own **Parallel** setting allows, and going wider here than that gains nothing.
+- **Keep the vision model warm** → `lmstudio.vision_keep_warm_seconds`. Honoured differently, and worth knowing: Ollama takes a per-request keep-alive, LM Studio has no TTL at all and holds a loaded model until something unloads it. So under LM Studio this value is how long LDS waits before actively unloading — and unlike Ollama, that unload genuinely frees the VRAM.
+- **API key** → `lmstudio.api_key`. Only needed if you configured LM Studio to require a bearer token. Empty by default.
+
+**Test** checks end to end: reachable *and* a usable model is loaded.
 
 ### ai-toolkit
 
@@ -1457,6 +1480,12 @@ A flat cheat-sheet of the main `config.json` keys, for quick lookup or hand-edit
 | `ollama.vision_concurrency` | How many images a bank vision pass (watermark / framing / captions) sends to Ollama at once (default `4`, clamped to 1-16). Higher overlaps more waiting; `1` restores the old one-at-a-time behaviour. |
 | `ollama.vision_keep_warm_seconds` | How long a one-off vision job (auto head-crop, Describe) may leave the model loaded when nothing else wants the GPU (default `120`, `0` = always unload, capped at 600). The lease is revoked as soon as a generation or a training starts. |
 | `ollama.setup_skipped` | You chose **Continue without Ollama** in the Setup wizard (default `false`). Presentation only — it makes the Setup step read as a neutral skip instead of asking again, and gates nothing. A reachable Ollama cancels it automatically. |
+| `local_llm.provider` | Which local model server serves captioning, framing, head-crop and the prompt helpers: `ollama` (default) or `lmstudio`. |
+| `lmstudio.url` | LM Studio server root (default `http://127.0.0.1:1234`). A pasted `.../v1` is accepted and trimmed. |
+| `lmstudio.vision_model` | Model id LDS insists on. Empty (default) = use whichever model LM Studio has loaded. |
+| `lmstudio.vision_concurrency` | How many images a bank pass sends to LM Studio at once (default `4`, clamped 1-16). |
+| `lmstudio.vision_keep_warm_seconds` | How long a one-off job may leave the model resident before LDS unloads it (default `120`). LM Studio has no TTL of its own, so this is what ends the residency. |
+| `lmstudio.api_key` | Bearer token, only if LM Studio is configured to require one. Empty by default. |
 | `aitoolkit.dir` | ai-toolkit install directory. |
 | `aitoolkit.datasets_dir` | Override for ai-toolkit's datasets folder (defaults to `<aitoolkit.dir>/datasets`). |
 | `aitoolkit.output_dir` | Override for ai-toolkit's output folder (defaults to `<aitoolkit.dir>/output`). |

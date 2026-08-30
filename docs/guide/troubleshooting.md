@@ -108,6 +108,20 @@ On a native install, LDS still distinguishes **not installed**, **installed but 
 
 No launcher or **Install everything** action pulls the large vision model. Once the selected service is reachable, use the explicit **Pull** button in LDS Setup; it shows progress and supports cancellation/resume. Keep the **Instruct** tag. The Thinking variant reasons instead of returning the compact captions these workflows expect.
 
+## LM Studio is running but LDS says nothing is loaded
+
+That is usually correct, not a bug. LM Studio ships with **JIT loading off**, so the server answers every request that lists models and refuses every request that generates one. Load a model in its **Developer** tab (a vision model if you want captioning, framing or head-crop) and the status turns green.
+
+Three more things worth knowing when the two disagree:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Every call fails, and the message talks about Ollama holding the GPU | The URL carries a path — LM Studio's Developer tab shows `http://localhost:1234/v1` and that is what gets pasted | Nothing to do on recent builds: the `/v1` is stripped automatically. If you typed something else after the port, remove it. |
+| The card says the server answers but cannot tell what is loaded | Only the OpenAI-compatible API is answering; it reports neither model type nor residency | Name a model explicitly in **Settings ▸ Local tools ▸ LM Studio model**, or update LM Studio so its native API answers |
+| Captioning works but framing/head-crop do not | The loaded model is a text model, not a vision one | Load a VLM (a model LM Studio lists with vision support) |
+
+There is deliberately **no ▶ Start button** for LM Studio: it has no reliable command-line launch, and a button that quietly did nothing would be worse than being told where the switch is.
+
 ## Training log looks frozen for several minutes
 
 **Why:** ai-toolkit's output is block-buffered during model load and latent

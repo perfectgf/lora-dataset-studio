@@ -43,7 +43,7 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
   useEffect(() => {
     let alive = true;
     // Always-200 endpoint: an unreachable Ollama is an empty list, never an error.
-    apiFetch('/api/ollama/models').catch(() => ({ models: [], reachable: false }))
+    apiFetch('/api/local-llm/models').catch(() => ({ models: [], reachable: false }))
       .then((d) => {
         if (!alive) return;
         setModels(d?.models || []);
