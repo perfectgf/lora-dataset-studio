@@ -7090,6 +7090,13 @@ def _run_payload(run) -> dict:
                  'source': c.get('source') or 'local'}
                 for c in resume_pool],
             'train_type': family, 'variant': variant,
+            # Video runs: the thing a person recognises is the TARGET MODEL
+            # ("MiniMax H3"), not the family word 'video' and certainly not the
+            # face lane's default base chip (a video run wore "Z-Image" on the
+            # hub — the maintainer's screenshot, not a hypothesis).
+            'target_label': ((video_targets.get(
+                _run_param(run, 'target_profile')) or {}).get('label')
+                if crd.is_video(run) else None),
             'training_mode': training_mode,
             'artifact_kind': (_run_param(run, 'artifact_kind')
                               or ('full_transformer' if full_transformer else 'lora')),

@@ -241,9 +241,10 @@ export const WHATS_NEW = [
       + 'Steps field on a video dataset now starts from a suggestion sized to '
       + 'the clips it actually holds — about 28 steps per clip, taken from '
       + 'measured runs, never below the old default and never past what the '
-      + 'measurements support. The local ▶ Train button gains the same editable '
-      + 'Steps field the cloud panel already had, so no run starts on a number '
-      + 'you never saw. Type over it freely: what you enter is what trains.',
+      + 'measurements support. And there is exactly ONE such field per dataset: '
+      + 'the training block asks for the settings once, and training on this PC '
+      + 'or on a rented GPU is just the button you press — no run starts on a '
+      + 'number you never saw. Type over it freely: what you enter is what trains.',
     to: '/datasets',
   },
   {

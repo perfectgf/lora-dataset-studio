@@ -59,7 +59,7 @@ import {
    /train/cloud/runs endpoint (actives + recent history + budget summary). */
 
 const POLL_MS = 5000;
-const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima' };
+const FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima', video: 'Video' };
 
 // "Recent" history collapse: a UI preference, not run data — persisted globally
 // (same lazy-init + effect pattern as `datasetGridTileSize` in DatasetGrid.jsx /
@@ -1283,8 +1283,12 @@ export default function CloudRunsPage() {
                   {famLabel(run.train_type)}
                 </span>
                 {/* No variant shown on the active card, so spell the base in
-                    full here — official ("Z-Image Turbo") and custom alike. */}
-                <BaseModelChip label={runBaseModelLabel(run)} />
+                    full here — official ("Z-Image Turbo") and custom alike. A
+                    VIDEO run's base is its target model; the face fallback put
+                    "Z-Image" on a MiniMax H3 run. */}
+                {run.train_type === 'video'
+                  ? (run.target_label ? <BaseModelChip label={{ official: run.target_label }} /> : null)
+                  : <BaseModelChip label={runBaseModelLabel(run)} />}
                 <DatasetVersionChip version={run.version} />
                 <StatusBadge status={run.status} />
                 {isFullTransformerRun(run) && (
@@ -1330,7 +1334,12 @@ export default function CloudRunsPage() {
                   className="px-3 py-1.5 rounded-lg bg-red-600/80 text-white text-xs font-semibold disabled:opacity-40">
                   {stopping[run.run_id] ? 'Stopping…' : stopButtonLabel(run.status)}
                 </button>
-                {!isFullTransformerRun(run) && run.checkpoint_ready && (
+                {/* saves counts THIS run's harvested checkpoints. A
+                    continuation mirrors its SEED file before step one, which
+                    made this button offer the parent's weights during
+                    "Starting up…" — a download that is not what it claims. */}
+                {!isFullTransformerRun(run) && run.checkpoint_ready
+                  && (run.saves || 0) > 0 && (
                   <a href={checkpointHref(run)}
                     className="px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-xs font-semibold no-underline">
                     ⬇ Download the LoRA
