@@ -653,8 +653,10 @@ def test_a_replayed_run_keeps_every_stamped_training_flag():
     have silently trained t2v. Pinned here so the next flag cannot repeat it."""
     from app.services.cloud_video_training import _relaunch_args
     args = _relaunch_args({'base_model': '', 'low_vram': True, 'do_i2v': True,
+                           'sample_prompts': ['a wave'], 'distillation': 'off',
                            'requested_gpu': 'A100 SXM4'})
     assert args == {'base_model': None, 'low_vram': True, 'do_i2v': True,
+                    'sample_prompts': ['a wave'], 'distillation': 'off',
                     'gpu_name': 'A100 SXM4'}
 
 
@@ -716,4 +718,41 @@ def test_the_off_stamp_beats_a_capable_image_and_prompts_reach_the_config(
         assert proc['sample']['prompts'] == ['a wave at dusk']
         assert proc['sample']['num_frames'] == vid.frames
         assert proc['sample']['fps'] == vid.fps
+
+
+def test_the_automatic_retry_of_a_video_run_goes_down_the_video_lane(
+        app, tmp_path, monkeypatch):
+    """Found live on run #169: a video run's boot-timeout retry went down the
+    FACE path, whose dataset lookup reads the face table, and died on "dataset
+    not found" — the safety net that exists to survive a bad host was the one
+    thing that could not. The retry now branches on the run's own table and
+    replays the video stamps, with the same bookkeeping the face path writes
+    (auto_retry_of is how a crash finds its child; the count bounds the
+    ladder)."""
+    from app.services import cloud_training as ct
+    from app.services import cloud_video_training as cvt
+    seen = {}
+
+    def fake_launch(user_id, dataset_id, **kw):
+        seen.update(kw, dataset_id=dataset_id)
+        return {'run_id': 999, 'status': 'preparing'}
+
+    monkeypatch.setattr(cvt, 'launch_cloud_video_training', fake_launch)
+    with app.app_context():
+        vid = _video_dataset(tmp_path, 'surf clips')
+        run = _run(vid.id, crd.VIDEO, status='error')
+        run.vast_instance_id = '123'
+        run.gpu_name = 'A100 SXM4'
+        run.train_params = json.dumps({
+            'train_type': 'video', 'steps': 100, 'distillation': 'off',
+            'sample_prompts': ['a wave'], 'do_i2v': False})
+        db.session.commit()
+        out = ct._maybe_auto_retry(run, 'pod did not become ready in time')
+        assert out == {'run_id': 999, 'status': 'preparing'}
+        assert seen['dataset_id'] == vid.id
+        assert seen['distillation'] == 'off'          # the experiment survives
+        assert seen['sample_prompts'] == ['a wave']
+        assert seen['auto_retry_of'] == run.id
+        assert seen['auto_retry_count'] == 1
+        assert seen['gpu_name'] == 'A100 SXM4'
 
