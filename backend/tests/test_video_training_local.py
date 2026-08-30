@@ -727,3 +727,40 @@ def test_the_stop_route_refuses_a_run_that_is_not_this_datasets(
         f'/api/video-dataset/{b_id}/train/stop').get_json()['ok'] is False
     with app.app_context():
         _clear_fence()
+
+
+def test_the_recipe_is_offered_only_to_a_toolkit_that_can_run_it(
+        app, tmp_path, monkeypatch):
+    """ai-toolkit has no version to read - it is a git checkout whose capabilities
+    move commit by commit - so the probe reads the ARCHITECTURE'S OWN SOURCE for
+    the method that consumes the setting. `load_training_adapter` arrived on
+    2026-08-06; on anything older the generic loader takes over and raises "Only
+    Flux models can load assistant adapters currently", which ends the run.
+
+    Everything unreadable answers False: no folder, no file, no arch. A false
+    negative costs a recipe, a false positive costs the run."""
+    from app.services import video_training_local as vtl
+    _aitoolkit(monkeypatch, tmp_path)
+    arch_dir = (tmp_path / 'aitk' / 'extensions_built_in' / 'diffusion_models'
+                / 'minimax_h3')
+
+    # No extensions tree at all - the shape of an install that predates the arch.
+    assert vtl.supports_training_adapter('minimax_h3') is False
+
+    # The arch is there, but from before the method existed.
+    arch_dir.mkdir(parents=True)
+    source = arch_dir / 'minimax_h3.py'
+    source.write_text('''class MiniMaxH3:
+    def load_model(self): pass
+''', encoding='utf-8')
+    assert vtl.supports_training_adapter('minimax_h3') is False
+
+    # And with the method present.
+    source.write_text('''class MiniMaxH3:
+    def load_training_adapter(self, t): pass
+''', encoding='utf-8')
+    assert vtl.supports_training_adapter('minimax_h3') is True
+
+    # An arch with no recipe never touches the filesystem to find that out.
+    assert vtl.supports_training_adapter('wan22_14b') is False
+    assert vtl.supports_training_adapter(None) is False

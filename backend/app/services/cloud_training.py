@@ -3345,7 +3345,11 @@ def _build_pod_job_config(run, staging_dataset: str, pod_settings: dict) -> dict
             # The measured reason this run is on a rented GPU at all: low_vram
             # cost 170-185 s a step on 24 GB by shuttling the idle expert over
             # PCIe. Stamped at launch so the pod cannot be re-decided later.
-            low_vram=bool(params.get('low_vram', False)))
+            low_vram=bool(params.get('low_vram', False)),
+            # Asked of the image this pod actually boots, not assumed from ours:
+            # the pin is a config value and someone may move it backwards.
+            training_adapter=video_training.image_supports_training_adapter(
+                _pod_image_for(run, cfg.get('cloud') or {})))
     else:
         ds = fds.get_dataset('local', run.dataset_id)
         job_config = lt.build_job_config(

@@ -110,6 +110,33 @@ _RECOVERY_ADAPTERS = {
                   'wan22_14b_t2i_torchao_uint4.safetensors'),
 }
 
+# The de-distillation recipe, per arch, and it is ai-toolkit's OWN default rather
+# than a setting we chose. H3 ships guidance-distilled; a LoRA trained on it raw
+# runs into what ostris named "distillation breakdown", and upstream's answer came
+# in two halves that are meant to travel together: a contrastive guidance loss
+# (2026-08-04) and a frozen "training adapter" LoRA loaded beside the model
+# (2026-08-06, made the default training method the same day). The commit that
+# turned both on at once says it plainly — they yield "better results than one or
+# the other".
+#
+# The adapter is never merged: `minimax_h3.load_training_adapter` keeps it live
+# and frozen because the transformer is pre-quantized and a merge would resample
+# every int8 scale. The sampler switches it off for previews.
+#
+# GATED, and this is the whole reason the caller passes a flag instead of us
+# reading a config: `assistant_lora_path` reaches a per-arch loader that only
+# exists from 2026-08-06. On anything older the generic path
+# (toolkit/assistant_lora.py) is Flux-only and raises "Only Flux models can load
+# assistant adapters currently" — a crash, not a downgrade. The local lane probes
+# the installed toolkit; the cloud lane knows its pinned image.
+_TRAINING_ADAPTERS = {
+    'minimax_h3': {
+        'assistant_lora_path': ('ostris/minimax_h3_training_adapter/'
+                                'minimax_h3_training_adapter_v1.safetensors'),
+        'guidance_loss_target': 3.5,
+    },
+}
+
 # Module names the LoRA must NOT wrap, per arch. `ignore_if_contains` is a plain
 # substring skip over module names (toolkit/lora_special.py), old and generic, so
 # it costs nothing on an ai-toolkit that predates the reason for it.
@@ -231,8 +258,18 @@ def _resolution_for(width, height, size_multiple, max_pixels=None):
 def build_job_config(video_ds, dataset_folder: str, steps: int,
                      training_folder=None, base_model=None, low_vram=True,
                      sample_prompts=None, save_every=None,
-                     max_step_saves_to_keep=2, rank=16) -> dict:
+                     max_step_saves_to_keep=2, rank=16,
+                     training_adapter=False) -> dict:
     """The ai-toolkit job config for training on a built video dataset.
+
+    `training_adapter` says whether the ai-toolkit that will RUN this config can
+    load a per-arch training adapter — a capability that arrived on 2026-08-06 and
+    that this function cannot check for itself, because the toolkit it is building
+    for is not always the one it is running on. The local lane probes the
+    installed copy; the cloud lane knows the tag its pod boots. Left False the
+    config is exactly what it was before the recipe existed, which is what an
+    older toolkit needs: the alternative is not a slower run, it is a raised
+    "Only Flux models can load assistant adapters currently".
 
     `video_ds` needs the `video_dataset` columns and nothing else: `name`,
     `target_profile`, `frames`, `fps`, `width`, `height`. It is duck-typed rather
@@ -374,6 +411,15 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
     if arch in _CACHE_LATENTS_ARCHES:
         dataset_block['cache_latents_to_disk'] = True
 
+    # Upstream's own de-distillation recipe, when the target has one and the
+    # toolkit on the other end can run it. Both halves or neither: the commit
+    # that made them the default turned them on together.
+    recipe = _TRAINING_ADAPTERS.get(arch) if training_adapter else None
+    if recipe:
+        model['assistant_lora_path'] = recipe['assistant_lora_path']
+        train['do_guidance_loss'] = True
+        train['guidance_loss_target'] = recipe['guidance_loss_target']
+
     proc = {
         'type': 'sd_trainer',
         # 'output' is ai-toolkit's own default, relative to its root, and is what
@@ -414,6 +460,36 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
             'process': [proc],
         },
     }
+
+
+# The day `load_training_adapter` landed upstream. Not decoration: it is the line
+# between "the recipe is skipped" and "the run raises Only Flux models can load
+# assistant adapters currently".
+_TRAINING_ADAPTER_SINCE = '2026-08-06'
+
+# vastai publishes its ai-toolkit images as `<sha>-YYYY-MM-DD-cuda-x.y`, and that
+# date is the ONLY signal about a pod's toolkit that exists before the rental.
+_IMAGE_DATE_RE = re.compile(r'-(\d{4}-\d{2}-\d{2})-')
+
+
+def image_supports_training_adapter(image_tag) -> bool:
+    """Is this pinned pod image new enough to load a training adapter?
+
+    A pod cannot be probed before it is rented, so the tag is what there is. Ours
+    is pinned well past the cutoff, but the pin is CONFIGURABLE — someone who
+    moves it back to chase a different trainer must not also, silently, arm a
+    recipe their image cannot run.
+
+    A tag with no readable date answers False. A skipped recipe costs quality on
+    one run; a wrong answer costs the run itself, after the money is spent."""
+    found = _IMAGE_DATE_RE.search(str(image_tag or ''))
+    return bool(found) and found.group(1) >= _TRAINING_ADAPTER_SINCE
+
+
+def training_adapter_for(arch):
+    """The de-distillation recipe this arch has, or None. Public so the capability
+    probe can ask "is there anything to gate?" before touching the filesystem."""
+    return _TRAINING_ADAPTERS.get(str(arch or ''))
 
 
 def _network_block(arch, rank) -> dict:

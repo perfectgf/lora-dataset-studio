@@ -115,6 +115,32 @@ def _models_dir() -> Path:
     return Path(env) if env else Path(str(lt._aitoolkit_dir())) / 'models'
 
 
+def supports_training_adapter(arch) -> bool:
+    """Can the INSTALLED ai-toolkit load a training adapter for this arch?
+
+    Read off the architecture's own source file, not a version string, because
+    ai-toolkit has no version to read: it is a git checkout whose capabilities
+    move commit by commit, and the thing we need arrived on 2026-08-06 without a
+    release to point at. `load_training_adapter` is the method that consumes
+    `model.assistant_lora_path` for this architecture; without it the generic
+    loader takes over, and that one refuses everything that is not Flux.
+
+    Answers False for anything it cannot read - a toolkit path that is not set, a
+    folder that is not there, a file it cannot open, an arch with no adapter to
+    begin with. The asymmetry is deliberate: a false negative costs the run a
+    recipe it would have liked, a false positive costs the run.
+    """
+    if not video_training.training_adapter_for(arch):
+        return False
+    try:
+        source = (Path(str(lt._aitoolkit_dir())) / 'extensions_built_in'
+                  / 'diffusion_models' / str(arch) / f'{arch}.py')
+        return 'def load_training_adapter' in source.read_text(
+            encoding='utf-8', errors='ignore')
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def weights_report(arch) -> dict | None:
     """`{repo, gigabytes, missing, present}` for an arch whose files this build can
     probe, or None when it cannot — which is a different answer from "absent" and
@@ -304,10 +330,16 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
     # Built BEFORE anything is reserved: an uncatalogued target, an illegal frame
     # count or a missing base repo must surface here and not from a child process
     # that has already taken the card.
+    # The recipe is offered to the toolkit that will actually run this, which
+    # here is the one installed on this machine — and its capabilities are read
+    # from its own source, not assumed. `video_targets` owns the arch name.
+    target_arch = (video_targets.get(
+        getattr(ds, 'target_profile', None)) or {}).get('aitk_arch')
     job_config = video_training.build_job_config(
         ds, folder, n_steps, training_folder=training_folder,
         base_model=base_model, low_vram=bool(low_vram), rank=rank,
-        sample_prompts=sample_prompts)
+        sample_prompts=sample_prompts,
+        training_adapter=supports_training_adapter(target_arch))
     proc_cfg = job_config['config']['process'][0]
     arch = proc_cfg['model']['arch']
     run_name = local_run_name(ds)

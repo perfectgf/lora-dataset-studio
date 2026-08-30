@@ -632,3 +632,63 @@ def test_h3_leaves_the_modulation_projection_out_of_the_lora():
     # The rest of the network is untouched by the exclusion.
     assert h3['network']['linear'] == h3['network']['linear_alpha'] == 16
 
+
+def test_the_de_distillation_recipe_travels_as_one_piece_or_not_at_all():
+    """H3 ships guidance-distilled, and a LoRA trained on it raw runs into what
+    upstream named distillation breakdown. The answer shipped in two halves - a
+    contrastive guidance loss and a frozen training adapter loaded beside the
+    model - and the commit that turned them on made them the DEFAULT together,
+    saying the pair yields better results than either alone. So they are emitted
+    together or not at all; half the recipe is a configuration nobody tested."""
+    def proc(adapter):
+        return _proc(vtrain.build_job_config(
+            _VideoDS(target_profile='minimax_h3', frames=39, fps=24),
+            '/pod/ds', 100, training_adapter=adapter))
+
+    on = proc(True)
+    assert on['model']['assistant_lora_path'].endswith(
+        'minimax_h3_training_adapter_v1.safetensors')
+    assert on['train']['do_guidance_loss'] is True
+    assert on['train']['guidance_loss_target'] == 3.5
+
+    # Off, the config is what it was before the recipe existed - which is what an
+    # older toolkit needs. Not a slower run: the alternative is a raised
+    # "Only Flux models can load assistant adapters currently".
+    off = proc(False)
+    assert 'assistant_lora_path' not in off['model']
+    assert 'do_guidance_loss' not in off['train']
+    assert 'guidance_loss_target' not in off['train']
+
+    # An arch with no recipe is unaffected by the flag either way.
+    wan = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='wan22_14b', frames=81, fps=16), '/pod/ds', 100,
+        training_adapter=True))
+    assert 'assistant_lora_path' not in wan['model']
+
+
+def test_a_pod_image_older_than_the_recipe_does_not_get_the_recipe():
+    """A pod cannot be probed before it is rented, so its tag is the only signal
+    there is - and vastai dates those tags. Ours is pinned well past the cutoff,
+    but the pin is a CONFIG value: someone who moves it back to chase a different
+    trainer must not also, silently, arm a recipe their image cannot run.
+
+    Unreadable answers False, deliberately. A skipped recipe costs quality on one
+    run; a wrong answer costs the run, after the money is spent."""
+    supports = vtrain.image_supports_training_adapter
+    assert supports('vastai/ostris-ai-toolkit:abc-2026-08-06-cuda-12.9')
+    assert not supports('vastai/ostris-ai-toolkit:abc-2026-08-05-cuda-12.9')
+    assert not supports('vastai/ostris-ai-toolkit:4625406-2026-07-12-cuda-12.9')
+    for unreadable in ('some/image:latest', '', None):
+        assert not supports(unreadable)
+
+
+def test_the_shipped_video_pin_is_new_enough_for_the_recipe_it_enables():
+    """The two live in different files and neither imports the other, so nothing
+    but this test notices if the pin moves below the capability it is read for."""
+    from app.config import DEFAULTS
+    assert vtrain.image_supports_training_adapter(
+        DEFAULTS['cloud']['video_image'])
+    # …and the face lane's pin is NOT: it is older on purpose, and it must never
+    # be the one a video run reads.
+    assert not vtrain.image_supports_training_adapter(DEFAULTS['cloud']['image'])
+
