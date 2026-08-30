@@ -607,3 +607,24 @@ def test_h3_leads_with_sizes_that_survive_the_trainer_unchanged():
     lossy = vtrain._resolution_for(1344, 768, step, cap)
     assert lossy * lossy < 1344 * 768
 
+
+def test_h3_leaves_the_modulation_projection_out_of_the_lora():
+    """ai-toolkit's H3 preset carries `ignore_if_contains: ['adaln_proj']`, and
+    its history says why: the author removed adaln_proj from H3's network modules
+    on 2026-08-04 and the preset has shipped the exclusion since. Our first real
+    run predates this and its checkpoint proves the gap - 516 LoRA tensors
+    including a [96768, 16] adaln_proj B matrix per block, the largest in the
+    file, spent on a modulation projection.
+
+    `network_kwargs` is generic and old (a substring skip in lora_special.py), so
+    this costs nothing on an older toolkit. And it is emitted ONLY for an arch
+    that asks: an empty exclusion list would claim a decision no catalogue made."""
+    h3 = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
+    assert h3['network']['network_kwargs']['ignore_if_contains'] == ['adaln_proj']
+    wan = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='wan22_14b', frames=81, fps=16), '/pod/ds', 100))
+    assert 'network_kwargs' not in wan['network']
+    # The rest of the network is untouched by the exclusion.
+    assert h3['network']['linear'] == h3['network']['linear_alpha'] == 16
+

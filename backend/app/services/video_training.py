@@ -110,6 +110,21 @@ _RECOVERY_ADAPTERS = {
                   'wan22_14b_t2i_torchao_uint4.safetensors'),
 }
 
+# Module names the LoRA must NOT wrap, per arch. `ignore_if_contains` is a plain
+# substring skip over module names (toolkit/lora_special.py), old and generic, so
+# it costs nothing on an ai-toolkit that predates the reason for it.
+#
+# The reason, for H3, is upstream's own: ostris removed `adaln_proj` from H3's
+# network modules on 2026-08-04 and the shipped preset has carried the exclusion
+# ever since. Size is not the argument but it is what makes it visible - in run
+# #166's checkpoint that single module holds a [96768, 16] B matrix per block,
+# the largest tensor in the file, spent on a modulation projection rather than on
+# anything the LoRA is being asked to learn. That run predates this line and its
+# checkpoint carries the modules; the next one will not.
+_IGNORED_MODULES = {
+    'minimax_h3': ('adaln_proj',),
+}
+
 # The two-expert (MoE) arches. Two consequences, and they are unrelated to each
 # other: training needs `switch_boundary_every` to alternate between the experts,
 # and SAVING writes two files per checkpoint instead of one.
@@ -366,7 +381,7 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         # put a literal null in the config and fail inside the trainer.
         'training_folder': training_folder or 'output',
         'device': 'cuda:0',
-        'network': {'type': 'lora', 'linear': int(rank), 'linear_alpha': int(rank)},
+        'network': _network_block(arch, rank),
         'save': {
             'dtype': 'float16',
             'save_every': int(save_every or max(1, int(steps) // 2)),
@@ -399,6 +414,20 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
             'process': [proc],
         },
     }
+
+
+def _network_block(arch, rank) -> dict:
+    """The LoRA network, plus the modules this architecture leaves alone.
+
+    `network_kwargs` is omitted entirely when an arch has nothing to exclude,
+    rather than emitted empty: an empty dict is a claim that the question was
+    considered and answered "none", and only the catalogue above gets to make
+    that claim."""
+    block = {'type': 'lora', 'linear': int(rank), 'linear_alpha': int(rank)}
+    ignored = _IGNORED_MODULES.get(arch)
+    if ignored:
+        block['network_kwargs'] = {'ignore_if_contains': list(ignored)}
+    return block
 
 
 def job_name_for(video_ds) -> str:
