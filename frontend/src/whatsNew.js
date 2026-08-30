@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-deep-zone-hunt',
+    date: '2026-08-31',
+    title: 'Watermark zones: the detector now finds the small and repeated marks',
+    blurb:
+      'The zone hunt sweeps each flagged image at up to three scales (full '
+      + 'frame plus tiles), so a logo stamped seven times across a large photo '
+      + 'comes back with all seven zones instead of four — and a stock-style '
+      + 'tiled watermark now shows the dozen zones it pinned instead of none. '
+      + 'Every zone is double-checked before it is kept, so rocks and icicles '
+      + 'stop being boxed as logos. Slower per flagged image (a few seconds), '
+      + 'unchanged on clean ones.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-31-not-duplicates',
     date: '2026-08-31',
     title: 'Tell the bank a group is NOT duplicates — once, and for good',

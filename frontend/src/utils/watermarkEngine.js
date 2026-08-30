@@ -48,7 +48,9 @@ export function watermarkEngineStatus(choice, caps = {}) {
     return {
       runs: 'detector', warn: false,
       line: 'Runs on the dedicated detector — SigLIP2 scores every image, '
-        + 'Grounding DINO draws the zones. Roughly 10× faster than the vision '
+        + 'Grounding DINO hunts the zones at up to three scales (full frame + '
+        + 'tiles, so small repeated logos are found too) and keeps a zone only '
+        + 'when two phrasings agree on it. Roughly 10× faster than the vision '
         + 'route, and the threshold below applies.',
     };
   }
