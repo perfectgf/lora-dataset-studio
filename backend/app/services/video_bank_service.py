@@ -52,7 +52,7 @@ from ..extensions import db
 from ..models import (VideoBank, VideoClip, VideoDataset, VideoDatasetClip,
                       VideoSource)
 from . import (bank_jobs, video_metrics, video_camera_motion, ffmpeg_tools,
-               path_guard, video_clip_export, video_targets)
+               path_guard, video_clip_export, video_targets, video_training)
 
 logger = logging.getLogger(__name__)
 
@@ -2625,13 +2625,18 @@ def _dataset_row(ds: VideoDataset) -> dict:
     profile = video_targets.get(ds.target_profile) or {}
     seconds = video_targets.clip_seconds(ds.target_profile, ds.frames) \
         if ds.frames else None
+    clip_count = VideoDatasetClip.query.filter_by(dataset_id=ds.id).count()
     return {
         'id': ds.id, 'name': ds.name, 'target_profile': ds.target_profile,
         'target_label': profile.get('label', ds.target_profile),
         'fps': ds.fps, 'frames': ds.frames,
         'clip_seconds': round(seconds, 3) if seconds else None,
         'width': ds.width, 'height': ds.height, 'output_dir': ds.output_dir,
-        'clips': VideoDatasetClip.query.filter_by(dataset_id=ds.id).count(),
+        'clips': clip_count,
+        # Computed here, where the count already is, so the two can never
+        # disagree on screen. The launch routes do not read it — it prefills an
+        # editable field, and what the user sends is what trains.
+        'suggested_steps': video_training.suggested_steps(clip_count),
         'training_verified': profile.get('training_verified', False),
         # Surfaced on the dataset, not only in the picker: a user who built a set
         # for MiniMax H3 needs the territory restriction in front of them when

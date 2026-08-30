@@ -644,3 +644,27 @@ def _ready_for_promotion(app, tmp_path, *, width, height):
         db.session.add(clip)
         db.session.commit()
         return bank_id
+
+
+def test_dataset_rows_carry_a_step_suggestion_derived_from_their_own_count(app):
+    """`suggested_steps` rides the same payload as `clips` and is computed from
+    the same query, so the two can never disagree on screen. The launch routes
+    never read it - it prefills an editable field, and what the user sends is
+    what trains."""
+    from app.extensions import db
+    from app.models import VideoDataset, VideoDatasetClip
+    from app.services import video_bank_service as svc
+    from app.services import video_training
+    with app.app_context():
+        ds = VideoDataset(user_id='local', name='sugg', target_profile='wan22_14b',
+                          fps=16, frames=81, output_dir='/tmp/x')
+        db.session.add(ds)
+        db.session.commit()
+        for i in range(53):
+            db.session.add(VideoDatasetClip(dataset_id=ds.id,
+                                            filename=f'clip_{i:04d}.mp4'))
+        db.session.commit()
+        row = svc.video_dataset_payload('local', ds.id)
+        assert row['clips'] == 53
+        assert row['suggested_steps'] == video_training.suggested_steps(53) == 1500
+

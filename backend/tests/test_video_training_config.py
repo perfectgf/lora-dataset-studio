@@ -692,3 +692,18 @@ def test_the_shipped_video_pin_is_new_enough_for_the_recipe_it_enables():
     # be the one a video run reads.
     assert not vtrain.image_supports_training_adapter(DEFAULTS['cloud']['image'])
 
+
+def test_suggested_steps_sits_on_the_measured_line_and_never_past_it():
+    """The only public measurements of H3 steps-vs-dataset-size are two winning
+    runs on one recipe: 1,500 steps at 53 clips and 5,000 at 176 (fal, blind
+    judged). Both sit on a 28 steps-per-clip line, and the suggestion reproduces
+    them EXACTLY - not approximately, or the numbers stop being the citation.
+    Floor 1000 = the lane's historic fixed default (no dataset is suggested less
+    than every run before this function got); cap 5000 = the largest measured
+    run, because suggesting past the evidence is a guess in a lab coat."""
+    f = vtrain.suggested_steps
+    assert f(53) == 1500 and f(176) == 5000       # the two measured wins, exact
+    assert f(12) == 1000 and f(0) == 1000         # floor: the historic default
+    assert f(300) == 5000                          # cap: the largest evidence
+    assert f(None) == 1000 and f('nope') == 1000   # junk answers the floor
+

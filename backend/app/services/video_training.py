@@ -486,6 +486,36 @@ def image_supports_training_adapter(image_tag) -> bool:
     return bool(found) and found.group(1) >= _TRAINING_ADAPTER_SINCE
 
 
+def suggested_steps(clip_count) -> int:
+    """A step count sized to the DATASET, for the UI to prefill - never a value
+    this module applies on its own.
+
+    The face lane has had this shape for months (steps per image, clamped, with
+    the rationale shown beside the field); the video lane launched with a fixed
+    number instead, and the only public measurements there are say that is the
+    wrong shape: on the same recipe, 1,500 steps won at 53 clips and the SAME
+    recipe needed 5,000 at 176 (fal, blind-judged H3 realism runs). Those two
+    wins sit on one line - 28.3 and 28.4 steps per clip - so the slope here is
+    28, rounded UP to the hundred, which lands exactly on both measured points.
+
+    Clamped, and each bound has a reason rather than a shrug: the floor is 1000,
+    this lane's historic fixed default, so no dataset is ever suggested LESS
+    than what every run before this function got; the cap is 5000, the largest
+    run any measurement supports - suggesting past the evidence would be a
+    guess dressed as a recommendation, and long cloud runs also walk into the
+    max-runtime safety cap.
+
+    Calibrated on H3 and offered lane-wide: the principle (steps scale with the
+    data) is model-agnostic, the constant is not, which is why the UI presents
+    it as a suggestion beside an editable field and never as this target's
+    number."""
+    try:
+        count = max(0, int(clip_count or 0))
+    except (TypeError, ValueError):
+        count = 0
+    return min(5000, max(1000, (28 * count + 99) // 100 * 100))
+
+
 def training_adapter_for(arch):
     """The de-distillation recipe this arch has, or None. Public so the capability
     probe can ask "is there anything to gate?" before touching the filesystem."""

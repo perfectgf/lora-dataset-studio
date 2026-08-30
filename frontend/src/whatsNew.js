@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-video-steps-sized-to-the-dataset',
+    date: '2026-08-30',
+    title: 'Video training steps now start from your dataset, not a constant',
+    blurb:
+      'A 12-clip set and a 176-clip set used to get the same step count. The '
+      + 'Steps field on a video dataset now starts from a suggestion sized to '
+      + 'the clips it actually holds — about 28 steps per clip, taken from '
+      + 'measured runs, never below the old default and never past what the '
+      + 'measurements support. The local ▶ Train button gains the same editable '
+      + 'Steps field the cloud panel already had, so no run starts on a number '
+      + 'you never saw. Type over it freely: what you enter is what trains.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-h3-trains-the-way-h3-is-trained',
     date: '2026-08-30',
     title: 'MiniMax H3 video LoRAs now train the way the model expects',

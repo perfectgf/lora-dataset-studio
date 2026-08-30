@@ -37,7 +37,10 @@ export default function VideoDatasetCloudPanel({ dataset }) {
   const [run, setRun] = useState(null)
   const [groups, setGroups] = useState([])
   const [busy, setBusy] = useState(false)
-  const [steps, setSteps] = useState(1000)
+  // Prefilled with the server's dataset-sized suggestion (steps scale with the
+  // clip count - measured, not vibes; see suggested_steps in video_training.py).
+  // Still just a prefill: what the user types is what trains.
+  const [steps, setSteps] = useState(dataset?.suggested_steps || 1000)
 
   const id = dataset?.id
 
@@ -99,6 +102,11 @@ export default function VideoDatasetCloudPanel({ dataset }) {
             onChange={(e) => setSteps(Number(e.target.value) || 1000)}
             className="w-20 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content" />
         </label>
+        {Boolean(dataset?.suggested_steps) && (
+          <span className="text-[0.625rem] text-content-subtle">
+            suggested for {dataset.clips} clips
+          </span>
+        )}
         <button type="button" disabled={busy || Boolean(blocked)}
           onClick={() => post(videoDatasetCloudUrl(id), { steps },
             'Renting a pod — the panel follows it from here.')}

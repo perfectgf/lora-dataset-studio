@@ -131,6 +131,10 @@ function VideoTrainingSection({ ds }) {
   const toast = useToast()
   const [progress, setProgress] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The local run used to hard-code 2000 with no field on screen - the one lane
+  // where the user could not see, let alone change, what they were about to
+  // spend a night on. Same dial as the cloud panel now, same prefill source.
+  const [steps, setSteps] = useState(ds?.suggested_steps || 2000)
 
   const poll = useCallback(async () => {
     try {
@@ -157,7 +161,7 @@ function VideoTrainingSection({ ds }) {
     setBusy(true)
     try {
       const r = await postJson(`/api/video-dataset/${ds.id}/train`,
-        { steps: 2000, accept_download: acceptDownload })
+        { steps, accept_download: acceptDownload })
       toast.success(`Training started — ${r.clips} clips, ${r.steps} steps.`)
       // Things the run will not fail on but that change what to expect from it.
       ;(r.warnings || []).forEach((w) => toast.warning(w))
@@ -209,10 +213,23 @@ function VideoTrainingSection({ ds }) {
             ⏹ Stop training
           </button>
         ) : (
-          <button type="button" onClick={() => start(false)} disabled={busy}
-            className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-50">
-            {busy ? 'Starting…' : '▶ Train this dataset'}
-          </button>
+          <>
+            <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
+              Steps
+              <input type="number" min={100} step={100} value={steps}
+                onChange={(e) => setSteps(Number(e.target.value) || 1000)}
+                className="w-20 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content" />
+            </label>
+            {Boolean(ds?.suggested_steps) && (
+              <span className="text-[0.625rem] text-content-subtle">
+                suggested for {ds.clips} clips
+              </span>
+            )}
+            <button type="button" onClick={() => start(false)} disabled={busy}
+              className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-50">
+              {busy ? 'Starting…' : '▶ Train this dataset'}
+            </button>
+          </>
         )}
         <HelpBadge topic="video-train-local" />
       </div>
