@@ -151,7 +151,9 @@ function LmStudioStatus({ caps, active, refreshCaps, toast }) {
           <span aria-hidden="true">●</span> Installed but its server is not running.
         </p>
         <p className="text-xs text-content-muted">
-          A model you had loaded stays loaded across this — measured, not assumed.
+          Restarting the server leaves a model you already had loaded alone. If LM
+          Studio was fully closed it comes back empty — load a model in its
+          Developer tab afterwards.
         </p>
         <button
           type="button"

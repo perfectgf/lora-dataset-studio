@@ -122,7 +122,7 @@ Three more things worth knowing when the two disagree:
 
 **In Docker, `127.0.0.1` is the container, not your machine.** LM Studio runs on the host, so a containerised LDS must be pointed at **`http://host.docker.internal:1234`** — the Settings card shows that address as the placeholder when it detects a container. LM Studio's server also has to be reachable from Docker (it listens on localhost only by default; enable serving on the local network in its Developer tab).
 
-**▶ Start LM Studio** appears on the Local tools card and the Setup step when the server is down and LM Studio's command-line tool is present — it is installed the first time you open LM Studio, so an install that has never been launched gets the Developer-tab sentence instead of a button that could not work. Pressing it does not disturb a loaded model, and it starts the server on the port your settings name. In Docker the button is not offered: the container cannot start an application on your desktop, whatever the URL says.
+**▶ Start LM Studio** appears on the Local tools card and the Setup step when the server is down and LM Studio's command-line tool is present — it is installed the first time you open LM Studio, so an install that has never been launched gets the Developer-tab sentence instead of a button that could not work. Pressing it leaves a model alone if only the server had stopped; if LM Studio itself was closed, the server comes back empty and you load a model in its Developer tab. Either way it starts the server on the port your settings name. In Docker the button is not offered: the container cannot start an application on your desktop, whatever the URL says.
 
 ## Training log looks frozen for several minutes
 

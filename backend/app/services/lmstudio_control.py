@@ -12,9 +12,11 @@ WHAT WAS MEASURED (LM Studio 0.4.23, on a machine with the desktop app running):
     control command that returns. So this module runs it and WAITS for it,
     rather than detaching — a detached spawn here would throw away the exit code
     and the error text, which are the only things that explain a failure.
-  · A model that was loaded before a stop/start cycle is STILL LOADED after it.
-    That matters for what the button can promise: pressing it does not cost the
-    user a model reload, so nothing has to warn them it might.
+  · A model loaded before a SERVER stop/start is STILL LOADED after it, so the
+    button costs a running install nothing. It is NOT true of a cold start: with
+    the LM Studio application fully closed, `lms server start` brings the server
+    up (measured: 7.5 s from zero processes) with NOTHING loaded. Both are
+    correct outcomes and the UI must not promise the first in the second case.
   · `lms server start --port <n>` exists, and without it the server reuses "the
     same port as the last time it was started" — which is not necessarily the
     port LDS is configured to talk to. We pass the configured one, so the button
