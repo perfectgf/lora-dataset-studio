@@ -558,3 +558,52 @@ def test_the_pod_upload_ships_mp4_files():
     folder — after renting the GPU."""
     from app.services import aitoolkit_remote as ar
     assert '.mp4' in ar._DATA_EXTS
+
+
+def test_the_emitted_config_states_how_the_loader_samples_frames():
+    """`shrink_video_to_frames` decides whether the loader reads our clip as-cut
+    or re-samples it, and it defaults to True - so leaving it out does not mean
+    "unset", it means "on, silently".
+
+    On a clip cut to exactly `num_frames` it IS the identity. On a clip one frame
+    too long it takes num_frames spread across the whole file and the motion comes
+    out faster, with nothing raised and nothing logged. The value is therefore not
+    the interesting part; the interesting part is that the config now SAYS it, so
+    the invariant it depends on (this lane cuts exact counts) has somewhere to be
+    written down. Flipping it to False is not the cautious read - that switches
+    the loader to pulling frames at `fps` from a RANDOM start."""
+    cfg = vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100)
+    assert _proc(cfg)['datasets'][0]['shrink_video_to_frames'] is True
+
+
+def test_h3_leads_with_sizes_that_survive_the_trainer_unchanged():
+    """We cut a clip at one size and ai-toolkit trains it at another, because our
+    `resolution` scalar is read as a pixel CAP and the clip is re-bucketed under
+    it. When the cap equals the clip's own pixel count the scaler is exactly 1.0
+    and nothing moves; that happens only when sqrt(w*h) is itself a multiple of
+    the size step, since the scalar is floored to that step (never rounded up -
+    rounding up would ask for pixels the clip does not have).
+
+    So the catalogue leads with the sizes that hold: 1024x576 is the ONLY 16:9
+    size on the 32-grid under H3's pixel cap that round-trips, and 768x768 is its
+    square counterpart. The model's stated maximum canvas stays on the list one
+    place lower, because it is the spec and some users want it knowingly - it
+    comes back as 1312x736, 6.4% smaller than what was encoded.
+
+    NOT a universal property of the catalogue, and that is why this test names
+    H3 rather than looping: wan22_ti2v5b recommends 1280x704 because 720 is not
+    divisible by 32, and that pair is lossy the same way. Those are the official
+    720P sizes of a model this test has no measurements for."""
+    profile = vt.get('minimax_h3')
+    step, cap = profile['size_multiple'], profile['max_pixels']
+    lead = profile['recommended_sizes'][0]
+    assert lead == (1024, 576)
+    for width, height in profile['recommended_sizes'][:3]:
+        resolution = vtrain._resolution_for(width, height, step, cap)
+        assert resolution * resolution == width * height, (width, height)
+    # And the spec maximum is knowingly not one of them.
+    assert (1344, 768) in profile['recommended_sizes']
+    lossy = vtrain._resolution_for(1344, 768, step, cap)
+    assert lossy * lossy < 1344 * 768
+

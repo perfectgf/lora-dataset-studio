@@ -147,9 +147,42 @@ def test_ltx_uses_a_temporal_stride_of_eight_not_four():
 
 def test_minimax_h3_frame_counts_are_five_modulo_seventeen():
     """17 pixel frames per VAE chunk -> 5 latent frames, 3 trailing latents dropped.
-    107 is the count ai-toolkit's own preset ships, and it satisfies the rule."""
+    107 satisfies the rule and appears in ai-toolkit's H3 preset - as the length a
+    PREVIEW renders at. The preset's training length is a different field; see
+    test_the_h3_default_clip_length_is_the_one_ai_toolkit_trains_at."""
     assert vt.is_legal_frames('minimax_h3', 107)
     assert not vt.is_legal_frames('minimax_h3', 108)
+
+
+def test_the_h3_default_clip_length_is_the_one_ai_toolkit_trains_at():
+    """ai-toolkit's H3 preset carries two frame counts, and they mean different
+    things: `sample.num_frames: 107` is how long a preview renders,
+    `datasets[x].num_frames: 39` is how long a training clip is. This default was
+    once read off the first and applied to the second.
+
+    The cost of that confusion is arithmetic, not taste: the VAE packs 17n+5
+    pixel frames into 5n+2 latent frames, so 107 carries 32 latent frames against
+    39's 12 - 2.7x the rows in every step. Both lengths stay on the menu, because
+    a longer clip teaches longer motion and that is a real trade; only the
+    default moved to the one the trainer itself ships."""
+    profile = vt.get('minimax_h3')
+    assert profile['frame_default'] == 39
+    assert 107 in profile['frame_choices']       # still offered, deliberately
+    # The 2.7x, spelled out rather than asserted against a helper that does not
+    # exist: 17n+5 pixel frames -> 5n+2 latent frames.
+    latents = lambda f: (f - 5) // 17 * 5 + 2
+    assert latents(39) == 12 and latents(107) == 32
+    assert latents(107) / latents(39) > 2.5
+
+
+def test_the_h3_menu_offers_the_shortest_length_people_actually_train_at():
+    """22 frames is ~0.92 s, the shortest count practitioners use - a clip shorter
+    than the dataset's num_frames is skipped by the loader, so the floor is a fact
+    about the DATA, not the model. It is a CHOICE, never a rule: ai-toolkit's own
+    snapper documents a minimum of 5, and encoding 22 as a constraint would refuse
+    counts the model accepts."""
+    assert 22 in vt.get('minimax_h3')['frame_choices']
+    assert vt.is_legal_frames('minimax_h3', 5)   # legal, just not on the menu
 
 
 def test_generic_profile_accepts_any_positive_frame_count():

@@ -205,15 +205,38 @@ _TARGETS = {
         'aitk_arch': 'minimax_h3',
         'fps': 24,
         'frame_rule': 'mod17plus5',
-        'frame_choices': (39, 56, 73, 90, 107, 124, 141, 158, 175, 192, 209),
-        # 107 is the count ai-toolkit's own preset ships, and it satisfies the
-        # rule — a third independent confirmation of 17n+5.
-        'frame_default': 107,
+        # 22 is on the menu because it is the shortest count anyone trains at in
+        # practice — a clip shorter than the dataset's `num_frames` is simply
+        # skipped, so the floor is a question about the DATA, not the model.
+        # (The model's own floor is lower: ai-toolkit's snapper documents
+        # "minimum 5". We do not encode 22 as a rule, only as a choice.)
+        'frame_choices': (22, 39, 56, 73, 90, 107, 124, 141, 158, 175, 192, 209),
+        # 39, and the number has a history worth stating. ai-toolkit's H3 preset
+        # carries 107 AND 39: `sample.num_frames: 107` is how long a PREVIEW
+        # renders, `datasets[x].num_frames: 39` is how long a training clip is.
+        # This default was read off the first line and belonged to the second.
+        # The difference is not cosmetic — the VAE packs 17n+5 pixel frames into
+        # 5n+2 latent frames, so 107 is 32 latent frames against 39's 12, which
+        # is 2.7x the rows in every single step (measured on a rented A100:
+        # 21 s/step at 107). Longer clips cost TIME, not VRAM, and teach longer
+        # motion; that is a trade the user can make on the promote screen, but it
+        # should not be the one they get by accident.
+        'frame_default': 39,
         'size_multiple': 32,
         # A step alone is not enough here: the packing code caps the canvas area.
         # 1920x1088 satisfies the multiple of 32 and is still out of spec.
         'max_pixels': 768 * 1344,
-        'recommended_sizes': ((1344, 768), (768, 1344), (768, 768)),
+        # ORDERED BY WHAT SURVIVES THE TRAINER, not by size. ai-toolkit reads our
+        # `resolution` scalar as a pixel CAP and re-buckets the clip under it, so
+        # a size whose geometric mean is not itself a multiple of 32 gets shrunk
+        # after we cut it — silently, and after the encode. Measured against
+        # toolkit/buckets.py: 1024x576 and 768x768 come back unchanged, while the
+        # spec's own maximum canvas (1344x768) loses 6.4% of its pixels to
+        # 1312x736. 1024x576 is the ONLY 16:9 size on the 32-grid under the cap
+        # that round-trips exactly, which is why it leads. The lossy pair stays:
+        # it is the model's stated maximum and some users will want it knowingly.
+        'recommended_sizes': ((1024, 576), (576, 1024), (768, 768),
+                              (1344, 768), (768, 1344)),
         # 32 kHz stereo, from the audio VAE's own constants. "Keep the audio" is
         # not enough: a 44.1 kHz mono source would ride through untouched.
         'audio': {'muxed': True, 'sample_rate': 32000, 'channels': 2},

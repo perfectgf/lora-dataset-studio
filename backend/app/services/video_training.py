@@ -336,6 +336,18 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         # length nobody validated back in charge — and it also forbids any batch
         # size above 1.
         'auto_frame_count': False,
+        # ai-toolkit's default, stated rather than inherited, because what makes
+        # it safe is a property of OUR clips and nothing in the config says so.
+        # True means the loader takes `num_frames` frames spread evenly across
+        # the whole file: on a clip cut to exactly that count it is the identity,
+        # and on a clip one frame too long it silently speeds the motion up. The
+        # cutter guarantees the exact count (see video_clip_export.clip_command,
+        # which refuses a span too short and passes `-frames:v`), so this lane
+        # meets the precondition ai-toolkit's own comment asks for: "trim your
+        # videos to the desired length and use shrink_video_to_frames(default)".
+        # Flipping it to False would NOT be the safer read - it switches the
+        # loader to pulling frames at `fps` from a RANDOM start frame.
+        'shrink_video_to_frames': True,
         'resolution': [_resolution_for(width, height, profile['size_multiple'],
                                        profile['max_pixels'])],
     }
