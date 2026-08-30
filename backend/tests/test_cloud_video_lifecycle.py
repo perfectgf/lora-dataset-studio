@@ -30,6 +30,7 @@ from app.extensions import db
 import os
 
 import pytest
+from pathlib import Path
 
 from app.services import cloud_run_dataset as crd
 from test_cloud_video_launch import _face_dataset, _run, _video_dataset
@@ -615,3 +616,69 @@ def test_a_deleted_dataset_s_runs_never_attach_to_the_id_s_next_owner(
         # The successor wearing the same integer gets NOTHING of the ghost's.
         assert not crd.owns(run, old_id, crd.VIDEO)
 
+
+
+# --- deleting a run (the exit the card never had, 2026-08-30) ------------------------
+
+def _forge_video_run(app, tmp_path, status='done'):
+    from app.extensions import db
+    from app.models import CloudTrainingRun, VideoDataset
+    from app.services import cloud_training as ct
+    ds = VideoDataset(user_id='local', name='jz', target_profile='minimax_h3',
+                      fps=24, frames=39, output_dir=str(tmp_path / 'ds'))
+    db.session.add(ds)
+    db.session.flush()
+    run = CloudTrainingRun(dataset_id=ds.id, dataset_table='video_dataset',
+                           run_name='run', job_name='j', status=status)
+    db.session.add(run)
+    db.session.commit()
+    store = ct.checkpoint_store_dir(run, create=True)
+    (Path(store) / 'lora.safetensors').write_bytes(b'\x00' * 64)
+    return ds, run, store
+
+
+def test_deleting_a_terminal_run_removes_its_files_and_its_row(app, tmp_path):
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import cloud_video_training as cvt
+    with app.app_context():
+        _ds, run, store = _forge_video_run(app, tmp_path, status='done')
+
+        out = cvt.delete_cloud_video_run('local', run.id)
+
+        assert out['deleted'] == run.id and out['files'] == 1
+        assert out['bytes'] == 64
+        assert not os.path.isdir(store)
+        assert db.session.get(CloudTrainingRun, out['deleted']) is None
+
+
+def test_an_active_run_is_refused_its_pod_is_on_the_clock(app, tmp_path):
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    from app.services import cloud_video_training as cvt
+    with app.app_context():
+        _ds, run, store = _forge_video_run(app, tmp_path, status='training')
+
+        with pytest.raises(RuntimeError, match='still on a pod'):
+            cvt.delete_cloud_video_run('local', run.id)
+
+        assert db.session.get(CloudTrainingRun, run.id) is not None
+        assert os.path.isdir(store)
+
+
+def test_the_delete_route_holds_the_ownership_pair(app, client, tmp_path):
+    """A FACE run wearing the same integer must not be deletable through a
+    video dataset's route — same (id, table) contract as download and retry."""
+    from app.extensions import db
+    from app.models import CloudTrainingRun
+    with app.app_context():
+        ds, run, _store = _forge_video_run(app, tmp_path, status='done')
+        run.dataset_table = 'face_dataset'          # someone else's training
+        db.session.commit()
+        ds_id, run_id = ds.id, run.id
+
+    r = client.delete(f'/api/video-dataset/{ds_id}/train/cloud/run/{run_id}')
+
+    assert r.status_code == 404
+    with app.app_context():
+        assert db.session.get(CloudTrainingRun, run_id) is not None

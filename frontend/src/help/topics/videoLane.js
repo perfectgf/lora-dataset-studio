@@ -308,6 +308,8 @@ export const VIDEO_LANE_TOPICS = [
      'minimax h3 training', 'h3 lora', 'video checkpoint', 'download video lora',
      'high noise', 'low noise', 'both experts', 'two files', 'moe pair',
      'retry video run', 'continue video run', 'train further', 'resume video',
+     'delete a run', 'remove a run', 'delete checkpoints', 'clear old runs',
+     'beta', 'video training beta',
      'pod cannot decode', 'decoder', 'no mp4 reached the pod', 'no audio stream',
      'nothing to train on', 'no clips on disk'],
     '/datasets', 'using-the-app', 'video-training-sets-and-the-two-things-to-check-before-you-cut-one'),

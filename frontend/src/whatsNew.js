@@ -112,6 +112,20 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-08-30-delete-video-runs',
+    date: '2026-08-30',
+    title: 'Delete old video training runs — and a Beta label that says so',
+    blurb:
+      'Every run a video dataset ever made stayed on its card forever — '
+      + 'smoke tests, superseded step counts, all of it. Each checkpoint '
+      + 'group now has a 🗑 that removes that run’s LoRA files and its '
+      + 'history line (with a confirmation that counts the files; an active '
+      + 'run must be stopped first, and the dataset itself is never touched). '
+      + 'And the training block now wears a Beta chip — the rail is proven '
+      + 'end to end, but it is days old, and the label says exactly that.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-watermark-engine-choice',
     date: '2026-08-30',
     title: 'Choose which engine finds your watermarks',

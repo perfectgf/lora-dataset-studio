@@ -414,6 +414,23 @@ def video_dataset_cloud_checkpoint(dataset_id):
     return send_file(path, as_attachment=True)
 
 
+@bp.delete('/video-dataset/<int:dataset_id>/train/cloud/run/<int:run_id>')
+def video_dataset_cloud_run_delete(dataset_id, run_id):
+    """🗑 Remove one terminal run — its harvested LoRA files and its history
+    line. Ownership is the (id, table) pair like every other run route; an
+    active run answers 409 (its pod is on the clock — stop it first)."""
+    from ..services import cloud_video_training as cvt
+    run = _video_run(dataset_id, run_id)
+    if not run:
+        return _missing(dataset_id)
+    try:
+        return jsonify(cvt.delete_cloud_video_run(LOCAL_USER, run.id))
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 409
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+
 @bp.post('/video-dataset/<int:dataset_id>/train/cloud/retry')
 def video_dataset_cloud_retry(dataset_id):
     """↻ Relaunch a failed run of this dataset on a fresh pod."""
