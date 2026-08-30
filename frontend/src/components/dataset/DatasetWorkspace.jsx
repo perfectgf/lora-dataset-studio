@@ -1575,7 +1575,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     dismissed={images.filter(
                       (i) => i.status === 'keep' && i.watermark_state === 'dismissed').length}
                     threshold={caps.watermark_detect_threshold}
-                    detectorInstalled={!!caps.watermark_detect}
+                    caps={caps}
                     live={ds.busy}
                     datasetId={d.id} />
                 )}

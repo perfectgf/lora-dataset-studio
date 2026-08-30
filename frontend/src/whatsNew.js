@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-watermark-engine-choice',
+    date: '2026-08-30',
+    title: 'Choose which engine finds your watermarks',
+    blurb:
+      'Both Find-watermarks windows now carry a Detection engine selector: the '
+      + 'dedicated detector (SigLIP2 + Grounding DINO, ~10x faster, scored '
+      + 'threshold) or your local vision model — with a line naming exactly '
+      + 'what the next scan will run. The choice was always honoured by the '
+      + "backend; now there's a control for it, stored once for both surfaces. "
+      + 'Pair it with "Try on a sample first" to judge the two engines on the '
+      + 'same images.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-klein-clean-compare',
     date: '2026-08-30',
     title: 'Try your Klein models before the clean commits',

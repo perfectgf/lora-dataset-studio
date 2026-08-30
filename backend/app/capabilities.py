@@ -2333,6 +2333,15 @@ def probe(force=False) -> dict:
         # work, so this only ever unlocks a faster route, never blocks the old one.
         'watermark_detect': watermark_detect['ok'],
         'watermark_detect_detail': watermark_detect['detail'],
+        # The persisted ENGINE choice (auto|detector|vision). The whole resolver
+        # existed and the config key existed — with no UI anywhere, which is how
+        # the maintainer came to ask "we can't choose the detection model?"
+        # about a choice the backend had been honouring all along. Published so
+        # the two scan windows can edit it where its effect is judged, exactly
+        # like the threshold above.
+        'watermark_detect_backend': (lambda v: v if v in ('auto', 'detector', 'vision')
+                                     else 'auto')(
+            str(cfg.get('watermark_detect.backend') or 'auto').strip().lower()),
         # Will the detector actually reach CUDA in ITS interpreter? The Setup
         # install pins the app-managed CPU-torch venv, so on a machine with a
         # card this is routinely False until the user picks a GPU Python — and
