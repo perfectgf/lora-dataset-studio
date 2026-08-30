@@ -567,6 +567,7 @@ def caption_model_info() -> dict:
     edited by hand."""
     from . import video_caption
     model = video_caption.configured_model()
+    from ..capabilities import bank_scoring_gpu_available
     return {'model': model, 'cached': video_caption.model_is_cached(model),
             'is_default': model == video_caption.DEFAULT_MODEL,
             # The prompt style matters MORE than the checkpoint on real footage
@@ -575,7 +576,15 @@ def caption_model_info() -> dict:
             'styles': video_caption.style_choices(),
             # And the vetted checkpoints, `cached` included per entry — the
             # launch window must be able to say "this one downloads first".
-            'models': video_caption.model_choices()}
+            'models': video_caption.model_choices(),
+            # WHAT RUNS THE MODEL, stated up front. This app drives Ollama,
+            # LM Studio and JoyCaption for image work, so "which engine is
+            # this?" is a fair question with a wrong-guess cost (waiting on an
+            # Ollama that has nothing to do with it). Video captioning is LDS's
+            # own local worker — Hugging Face Transformers in the inference
+            # venv — and the device is the same answer start_caption will give.
+            'runtime': {'engine': 'transformers-local',
+                        'device': 'gpu' if bank_scoring_gpu_available() else 'cpu'}}
 
 
 def _capability() -> dict:

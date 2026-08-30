@@ -379,3 +379,25 @@ def test_the_payload_offers_the_models_with_their_cached_flag(
     assert [m['key'] for m in info['models']] == [
         DEFAULT_MODEL, 'Qwen/Qwen3-VL-8B-Instruct']
     assert all(isinstance(m.get('cached'), bool) for m in info['models'])
+
+
+def test_the_payload_names_the_engine_and_the_device(
+        app, client, tmp_path, monkeypatch):
+    """The app drives Ollama, LM Studio and JoyCaption for image work, so
+    "which engine captions video?" is a fair question with a wrong-guess cost.
+    The payload answers it before the click: LDS's own transformers worker,
+    and the device the launch will actually pick."""
+    from app.services import video_bank_service as svc
+    monkeypatch.setattr(svc, '_probe_file', lambda _p: {
+        'duration_s': 60.0, 'fps_native': 30.0, 'width': 640, 'height': 480,
+        'codec': 'h264', 'probe_state': 'ok', 'file_size': 4096})
+    folder = tmp_path / 'rushes'
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'a.mp4').write_bytes(b'0' * 32)
+    bank_id = client.post('/api/video-bank/create',
+                          json={'name': 'r', 'folder': str(folder)}).get_json()['id']
+
+    info = client.get(f'/api/video-bank/{bank_id}').get_json()['caption_model']
+
+    assert info['runtime']['engine'] == 'transformers-local'
+    assert info['runtime']['device'] in ('gpu', 'cpu')
