@@ -3186,7 +3186,23 @@ def _maybe_auto_retry(run, error):
         retry_flags = _confirmation_flags(params)
         retry_flags['allow_parallel_run'] = True
         try:
-            result = launch_cloud_training(
+            if crd.is_video(run):
+                # A video run retried down the FACE path dies on "dataset not
+                # found": the id points at the video table. Found live — run
+                # #169's boot-timeout retry. The video launcher replays the
+                # run's own stamps (its _relaunch_args is pinned to carry every
+                # training flag) plus the same bookkeeping the face path stamps.
+                from . import cloud_video_training as cvt
+                result = cvt.launch_cloud_video_training(
+                    'local', run.dataset_id,
+                    steps=params.get('steps') or 1000,
+                    **cvt._relaunch_args(params) | {'gpu_name': gpu_name},
+                    resume_ckpt_paths=params.get('resume_ckpt_paths'),
+                    resume_step=params.get('resume_step'),
+                    auto_retry_of=run.id,
+                    auto_retry_count=retry_count + 1)
+            else:
+                result = launch_cloud_training(
                 'local', run.dataset_id,
                 steps=params.get('steps'),
                 base_model=params.get('base_model', ''),
@@ -3203,7 +3219,7 @@ def _maybe_auto_retry(run, error):
                 strict_gpu=bool(gpu_name),
                 train_settings_snapshot=resume_snapshot,
                 train_slider_snapshot=params.get(_TRAIN_SLIDER_SNAPSHOT, _UNSET),
-                resume_topology=topology)
+                    resume_topology=topology)
         except Exception as retry_error:
             params['auto_retry_pending'] = False
             params['auto_retry_error'] = str(retry_error)[:300]

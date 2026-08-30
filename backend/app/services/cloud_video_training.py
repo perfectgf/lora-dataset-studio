@@ -142,7 +142,8 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                                 do_i2v=False, sample_prompts=None,
                                 distillation='auto',
                                 resume_ckpt_paths=None, resume_step=None,
-                                parent_run_id=None, _provision=None) -> dict:
+                                parent_run_id=None, auto_retry_of=None,
+                                auto_retry_count=0, _provision=None) -> dict:
     """Rent a pod and train a LoRA on a built video dataset.
 
     `low_vram` defaults to FALSE here and True in the builder, and the asymmetry
@@ -245,6 +246,12 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                    if resume_step is not None else {}),
                 **({'parent_run_id': int(parent_run_id)}
                    if parent_run_id is not None else {}),
+                # The same bookkeeping the face lane stamps: `auto_retry_of` is
+                # how _auto_retry_child finds an existing child across a crash,
+                # and the count is what bounds the ladder.
+                **({'auto_retry_of': int(auto_retry_of),
+                    'auto_retry_count': int(auto_retry_count)}
+                   if auto_retry_of is not None else {}),
             }))
         # Deliberately NO `version` key and no checkpoint_registry call. That
         # registry freezes a manifest of face-dataset IMAGES and their caption
@@ -295,6 +302,8 @@ def _relaunch_args(p) -> dict:
         # replays an i2v run as t2v — the exact silent retarget this function's
         # docstring exists to forbid.
         'do_i2v': bool(p.get('do_i2v', False)),
+        'sample_prompts': p.get('sample_prompts') or None,
+        'distillation': p.get('distillation') or 'auto',
         'gpu_name': p.get('requested_gpu'),
     }
 
