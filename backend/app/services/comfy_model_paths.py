@@ -515,10 +515,14 @@ def write_root(folder_type: str) -> str | None:
 def _recursive_models(root: str):
     """Yield ``(rel_name, abs_path)`` for every model file under ``root`` (os.walk,
     followlinks), mirroring folder_paths.recursive_search: ``rel_name`` is the path
-    relative to ``root`` with the OS separator and subfolders included."""
+    relative to ``root`` with the OS separator and subfolders included — and
+    ``.git`` pruned, because recursive_search prunes it (see EXCLUDED_DIR_NAMES):
+    ComfyUI validates a loader's combo value against its own listing, so a name
+    under ``.git`` would be one the picker offers and the queue then refuses."""
     if not os.path.isdir(root):
         return
-    for dirpath, _subdirs, filenames in os.walk(root, followlinks=True):
+    for dirpath, subdirs, filenames in os.walk(root, followlinks=True):
+        subdirs[:] = [d for d in subdirs if d not in EXCLUDED_DIR_NAMES]
         for fn in filenames:
             if fn.lower().endswith(_MODEL_EXTENSIONS):
                 ab = os.path.join(dirpath, fn)
@@ -596,6 +600,49 @@ def resolve_model_file(folder_type: str, ref: str):
                        key=lambda r: (r.count(os.sep), r.lower()))
         if found:
             return os.path.join(root, found[0])
+    return None
+
+
+def find_model_by_name(folder_type: str, canonical: str, tokens):
+    """Loader-relative name of ONE model file for a folder type, matched on its
+    BASENAME at any depth under any search root: the ``canonical`` filename if
+    present anywhere, else the first name carrying one of the NARROW ``tokens``.
+    ``None`` when nothing matches — never a blind first-file guess.
+
+    The shared home of klein_edit_helper's and krea_edit_helper's private
+    ``_find_model_file``, which read only the ROOT of each search folder. That
+    depth was a bug, not a design: the app itself files Klein weights under
+    ``unet/klein/`` and ``loras/klein/``, so users mirror the layout for the text
+    encoder — and a file under ``text_encoders/klein/`` was then reported missing,
+    which darkens the engine and offers to re-download ~8 GB already on disk
+    (RiskyBizz216, Reddit, 2026-08-30). ComfyUI's own loaders list every model
+    folder recursively and take the subfolder-relative name (measured — see
+    test_model_scanners_agree), so the deep name returned here loads as-is.
+
+    Ordering is ``resolve_model_file``'s phase-2 rule, reused rather than
+    reinvented: roots in ComfyUI's own priority order; within a root, shortest
+    relative path first, then alphabetical. A canonical file at a root therefore
+    still answers the bare filename — byte-for-byte what every install that
+    followed the download layout resolved before.
+
+    Matching stays on the FILENAME alone and ``tokens`` stay NARROW: unlike a
+    UNET folder, a ``klein/``-named directory carries no claim about an encoder
+    inside it, and a loose match is how Z-Image's qwen3vl once got wired into a
+    Klein graph (mat1/mat2 shape error at sample time). The camera lane keeps its
+    own one-level scan on top of this rule for its ``loras`` searches — that root
+    holds tens of thousands of files on real installs, where a full walk per
+    status poll is a stall, not a search."""
+    per_root = [sorted((rel for rel, _ab in _recursive_models(root)),
+                       key=lambda r: (r.count(os.sep), r.lower()))
+                for root in search_roots(folder_type)]
+    for rels in per_root:
+        for rel in rels:
+            if os.path.basename(rel) == canonical:
+                return rel
+    for rels in per_root:
+        for rel in rels:
+            if any(tok in os.path.basename(rel).lower() for tok in tokens):
+                return rel
     return None
 
 

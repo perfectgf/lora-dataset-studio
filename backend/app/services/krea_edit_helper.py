@@ -197,31 +197,6 @@ class KreaPinnedModelMissing(Exception):
 # worse than a missing one: missing produces an actionable message, wrong dies at
 # sample time on a shape mismatch or renders noise.
 
-def _listings(comfy_type):
-    out = []
-    for folder in comfy_model_paths.search_roots(comfy_type):
-        try:
-            out.append((folder, sorted(n for n in os.listdir(folder)
-                                       if n.lower().endswith(_MODEL_SUFFIXES))))
-        except OSError:
-            continue
-    return out
-
-
-def _find_model_file(comfy_type, canonical, tokens):
-    """Bare filename for a ComfyUI folder type: the canonical name if present in
-    ANY search root, else the first (sorted) name containing a NARROW token.
-    None when nothing matches — never a blind first-file guess."""
-    listings = _listings(comfy_type)
-    if any(canonical in names for _root, names in listings):
-        return canonical
-    for _root, names in listings:
-        for n in names:
-            if any(tok in n.lower() for tok in tokens):
-                return n
-    return None
-
-
 # Checkpoints that carry 'krea' in their name but are NOT a Krea 2 Raw/Turbo
 # base: the identity-edit LoRA renders PURE NOISE on top of them (measured on
 # BigLoveKreaEdit1_fp8mixed). Excluding them here is what stops the resolver from
@@ -388,16 +363,21 @@ def resolve_krea_text_encoder():
     """`clip_name` for the CLIPLoader (type='krea2'). Canonical
     qwen3vl_4b_fp8_scaled.safetensors, else a NARROW qwen3-vl-4b token match.
     Never a bare 'qwen' match — qwen_3_8b (Klein) and qwen_2.5_vl (Qwen-Image)
-    live in the same folder and produce incompatible embeddings."""
-    return _find_model_file('text_encoders', 'qwen3vl_4b_fp8_scaled.safetensors',
-                            ('qwen3vl_4b', 'qwen3_vl_4b', 'qwen3-vl-4b'))
+    live in the same folder and produce incompatible embeddings. Found at ANY
+    depth, subfolder kept in the returned name — same rule and same reason as
+    the Klein slots (comfy_model_paths.find_model_by_name)."""
+    return comfy_model_paths.find_model_by_name(
+        'text_encoders', 'qwen3vl_4b_fp8_scaled.safetensors',
+        ('qwen3vl_4b', 'qwen3_vl_4b', 'qwen3-vl-4b'))
 
 
 def resolve_krea_vae():
     """`vae_name` for the VAELoader — canonical qwen_image_vae.safetensors, else a
-    narrow qwen-image-vae token match. Never flux2-vae (Klein's)."""
-    return _find_model_file('vae', 'qwen_image_vae.safetensors',
-                            ('qwen_image_vae', 'qwen-image-vae', 'qwenimage_vae'))
+    narrow qwen-image-vae token match. Never flux2-vae (Klein's). Any depth, like
+    the text encoder above."""
+    return comfy_model_paths.find_model_by_name(
+        'vae', 'qwen_image_vae.safetensors',
+        ('qwen_image_vae', 'qwen-image-vae', 'qwenimage_vae'))
 
 
 # The LoRA the whole engine hangs on. Config-named first (so a user with a

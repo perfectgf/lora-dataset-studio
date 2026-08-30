@@ -255,6 +255,28 @@ def test_list_models_extension_policy_sft_yes_ckpt_no(app, tmp_path):
         assert 'd.ckpt' not in names and 'e.pt' not in names
 
 
+def test_list_models_skips_dot_git_like_comfyui_does(app, tmp_path):
+    """`folder_paths.recursive_search` prunes exactly one directory name, `.git`,
+    and ComfyUI validates a loader's combo value against that very listing — so a
+    name found under it would be offered by the picker and refused at queue time
+    (measured on a live 0.30.1; see test_model_scanners_agree's header). The
+    family scans always pruned it; the picker/resolver walk now does too."""
+    from app import config as cfg
+    from app.services import comfy_model_paths as cmp
+    with app.app_context():
+        base = _comfy_base(tmp_path, cfg)
+        ext = tmp_path / 'extdiff'
+        _touch(str(ext), '.git', 'ghost.safetensors')
+        _touch(str(ext), 'real.safetensors')
+        _write_yaml(base, f"""
+            comfyui:
+              diffusion_models: {ext}
+        """)
+        names = {rel for rel, _ in cmp.list_models('diffusion_models')}
+        assert 'real.safetensors' in names
+        assert not any('ghost' in n for n in names)
+
+
 # --- Degradation: absent / empty / malformed / dangerous / no-pyyaml ---------
 def test_no_yaml_means_defaults_only(app, tmp_path):
     from app import config as cfg

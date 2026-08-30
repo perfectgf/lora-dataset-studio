@@ -74,6 +74,66 @@ def test_resolve_vae_and_text_encoder_pick_installed_files(app, tmp_path):
         assert keh.resolve_klein_text_encoder() == 'qwen_3_8b_fp8mixed.safetensors'
 
 
+def test_resolve_te_and_vae_see_into_subfolders(app, tmp_path):
+    """The reported layout (Reddit, 2026-08-30): the app itself files Klein
+    weights under unet/klein/ and loras/klein/, so users mirror that for the
+    encoder — and the old root-only listdir then called the file missing. That
+    verdict is load-bearing three times over: it darkens the engine
+    (klein_engine_ready), blocks generation, and queues a ~8 GB re-download of a
+    file already on disk (klein_missing_assets drives the auto-download). The
+    UNET slot always walked its subfolders; these two now do too, and the
+    returned name keeps the prefix a CLIPLoader/VAELoader loads from."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, vae=False, te=False)
+        _install(base, 'models', 'text_encoders', 'klein', 'qwen_3_8b_fp8mixed.safetensors')
+        _install(base, 'models', 'vae', 'klein', 'flux2-vae.safetensors')
+        assert keh.resolve_klein_text_encoder() == os.path.join(
+            'klein', 'qwen_3_8b_fp8mixed.safetensors')
+        assert keh.resolve_klein_vae() == os.path.join('klein', 'flux2-vae.safetensors')
+        missing = keh.klein_missing_assets()
+        assert 'klein_text_encoder' not in missing and 'klein_vae' not in missing
+
+
+def test_a_root_file_still_beats_a_subfolder_twin(app, tmp_path):
+    """Determinism pin for installs that hold BOTH layouts: the canonical file at
+    the folder root keeps winning over a subfolder copy — shortest relative path
+    first, resolve_model_file's existing tie-break reused — so no existing
+    install silently changes which bytes it loads."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg)     # canonical TE at the root, per the fixture
+        _install(base, 'models', 'text_encoders', 'klein', 'qwen_3_8b_fp8mixed.safetensors')
+        assert keh.resolve_klein_text_encoder() == 'qwen_3_8b_fp8mixed.safetensors'
+
+
+def test_a_subfolder_does_not_launder_a_foreign_family(app, tmp_path):
+    """A klein/-named directory carries no claim about an encoder inside it:
+    matching stays on the FILENAME, so Z-Image's qwen3vl filed under
+    text_encoders/klein/ still resolves to None (missing => auto-download),
+    never to a wrong-family pick that dies at sample time on a shape mismatch."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, te=False)
+        _install(base, 'models', 'text_encoders', 'klein', 'qwen3vl_4b_fp8_scaled.safetensors')
+        assert keh.resolve_klein_text_encoder() is None
+
+
+def test_the_deep_finder_skips_dot_git_like_comfyui_does(app, tmp_path):
+    """ComfyUI's recursive_search prunes exactly `.git` (measured — see
+    test_model_scanners_agree's header), and it validates loader values against
+    its own listing: a name found there would be refused at queue time."""
+    from app import config as cfg
+    from app.services import klein_edit_helper as keh
+    with app.app_context():
+        base = _comfy(tmp_path, cfg, te=False)
+        _install(base, 'models', 'text_encoders', '.git', 'qwen_3_8b_fp8mixed.safetensors')
+        assert keh.resolve_klein_text_encoder() is None
+
+
 def test_resolve_text_encoder_never_grabs_another_familys_qwen(app, tmp_path):
     """Regression (live repro 2026-07-10): on a ComfyUI shared with other apps,
     text_encoders/ holds qwen3vl_4b (Z-Image) and qwen_2.5_vl (Qwen-Image) next

@@ -212,6 +212,20 @@ def test_the_vae_never_matches_kleins(krea):
     assert keh.resolve_krea_vae() == 'qwen_image_vae.safetensors'
 
 
+def test_the_encoder_and_vae_are_found_in_subfolders(krea):
+    """Same fix as the Klein slots (the reported bug): a user who files the
+    family's encoder in a subfolder — mirroring the qwen/ and krea/ layouts the
+    installer itself uses elsewhere — must not read as a missing model, and the
+    returned name keeps the prefix the loader wants. The narrow-token discipline
+    is untouched: the two tests above still hold at any depth."""
+    keh, base, _ = krea
+    _write(base / 'models' / 'text_encoders' / 'qwen' / 'qwen3vl_4b_fp8_scaled.safetensors')
+    _write(base / 'models' / 'vae' / 'qwen' / 'qwen_image_vae.safetensors')
+    assert keh.resolve_krea_text_encoder() == os.path.join(
+        'qwen', 'qwen3vl_4b_fp8_scaled.safetensors')
+    assert keh.resolve_krea_vae() == os.path.join('qwen', 'qwen_image_vae.safetensors')
+
+
 def test_the_identity_lora_is_found_even_when_renamed_or_moved(krea):
     keh, base, _ = krea
     loras = base / 'models' / 'loras'

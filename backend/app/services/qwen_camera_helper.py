@@ -112,11 +112,13 @@ def _scan(comfy_type, canonical, tokens, rel_dest=None):
          level of subfolders.
     Never a blind first-file guess.
 
-    ⚠️ Step 3 descends one level, and that is the difference from the Klein
-    lane's finder (which lists the root only). It has to: every asset here ships
-    into a `qwen/` subfolder, and a scan that could not see into it would report
-    an installed model as missing and offer to download 20 GB again. One level,
-    not a full walk — `models/loras` on a working install holds tens of
+    ⚠️ Step 3 descends one level, and that is the difference from the shared
+    `comfy_model_paths.find_model_by_name` the Klein/Krea encoder-and-VAE slots
+    use (which walks to any depth). It has to descend at all: every asset here
+    ships into a `qwen/` subfolder, and a scan that could not see into it would
+    report an installed model as missing and offer to download 20 GB again. And
+    it stays at ONE level rather than the shared full walk because this finder
+    also scans `loras` — `models/loras` on a working install holds tens of
     thousands of files across dozens of families, and a recursive scan of it on
     every status poll is a stall, not a search.
     """

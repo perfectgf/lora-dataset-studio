@@ -103,30 +103,6 @@ def _canonical_name(action):
     return setup_installer._KLEIN_DOWNLOADS[action]['dest'][-1]
 
 
-def _find_model_file(comfy_type, canonical, tokens):
-    """Model file for a ComfyUI folder type ('vae' / 'text_encoders'): the canonical
-    filename if present in ANY search root, else the first (sorted) name containing a
-    NARROW token, scanning roots in ComfyUI's priority order (base <models>/<type>
-    first, then extra_model_paths roots). None when nothing matches — never a blind
-    first-file guess. Returns the bare filename: a VAE/CLIP loader lists these files
-    relative to the (registered) folder that holds them, so the bare name loads.
-    With no extra_model_paths.yaml this scans exactly the one base folder as before."""
-    listings = []
-    for folder in comfy_model_paths.search_roots(comfy_type):
-        try:
-            listings.append(sorted(n for n in os.listdir(folder)
-                                   if n.lower().endswith(_MODEL_SUFFIXES)))
-        except OSError:
-            continue
-    if any(canonical in names for names in listings):
-        return canonical
-    for names in listings:
-        for n in names:
-            if any(tok in n.lower() for tok in tokens):
-                return n
-    return None
-
-
 # Config key + ComfyUI folder type per user-pinnable Klein slot. The consistency
 # LoRA rides along for the STATUS payload only — its resolution lives in
 # _configured_lora (it needs the absolute path too), but the Settings badge logic
@@ -536,20 +512,30 @@ def resolve_klein_vae():
     """`vae_name` for node 10 — the user-pinned klein.vae first, then the canonical
     flux2-vae.safetensors, else a narrow flux2-vae token match (covers the
     'flux2_vae.safetensors.safetensors' double-extension variant some installs
-    carry). Never e.g. qwen_image_vae."""
+    carry). Never e.g. qwen_image_vae. Found at ANY depth — `vae/klein/` mirrors
+    how the app itself files the family's UNET and LoRAs, so a user filing the
+    VAE the same way must not read as a missing model — and the returned name
+    keeps its subfolder, which is what a VAELoader loads (see
+    comfy_model_paths.find_model_by_name)."""
     return (_configured_model('vae', 'klein.vae')
-            or _find_model_file('vae', _canonical_name('klein_vae'),
-                                ('flux2-vae', 'flux2_vae', 'flux-2-vae', 'flux_2_vae')))
+            or comfy_model_paths.find_model_by_name(
+                'vae', _canonical_name('klein_vae'),
+                ('flux2-vae', 'flux2_vae', 'flux-2-vae', 'flux_2_vae')))
 
 
 def resolve_klein_text_encoder():
     """`clip_name` for node 90 — the user-pinned klein.text_encoder first, then the
     canonical qwen_3_8b_fp8mixed.safetensors, else a narrow qwen_3_8b token match.
     NEVER a bare 'qwen' match: qwen3vl_* (Z-Image) and qwen_2.5_vl_* (Qwen-Image)
-    encoders live in the same folder and produce incompatible embeddings."""
+    encoders live in the same folder and produce incompatible embeddings. Found at
+    ANY depth: `text_encoders/klein/` was the reported layout (the scan found the
+    UNET in its subfolder and called this one missing — which also queues a ~8 GB
+    re-download of a file already on disk), and a CLIPLoader takes the
+    subfolder-relative name the shared finder returns."""
     return (_configured_model('text_encoders', 'klein.text_encoder')
-            or _find_model_file('text_encoders', _canonical_name('klein_text_encoder'),
-                                ('qwen_3_8b', 'qwen3_8b', 'qwen-3-8b')))
+            or comfy_model_paths.find_model_by_name(
+                'text_encoders', _canonical_name('klein_text_encoder'),
+                ('qwen_3_8b', 'qwen3_8b', 'qwen-3-8b')))
 
 
 def normalize_rel_model_name(name, sep=os.sep):
