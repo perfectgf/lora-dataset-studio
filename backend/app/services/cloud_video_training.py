@@ -166,6 +166,20 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     if ds is None or str(ds.user_id) != str(user_id):
         raise ValueError('video dataset not found')
 
+    profile = video_training.video_targets.get(ds.target_profile) or {}
+    if profile.get('requires_references'):
+        from . import video_bank_service as _vbs
+        if not _vbs.reference_dirs(ds):
+            raise ValueError(
+                f'{profile.get("label", ds.target_profile)} trains against '
+                'reference images and this dataset has none attached — attach '
+                '1-4 references first')
+        c0 = ct.cfg.get('cloud') or {}
+        image_tag = c0.get('video_image') or c0.get('image') or ''
+        if not video_training.image_supports_ref2va(image_tag):
+            raise ValueError(
+                'the pinned pod image predates ref2va training '
+                '(needs 2026-08-16 or later) — update cloud.video_image')
     clips = _count_clips(ds.output_dir or '')
     if not clips:
         raise ValueError(
@@ -256,6 +270,10 @@ def _relaunch_args(p) -> dict:
     return {
         'base_model': p.get('base_model') or None,
         'low_vram': bool(p.get('low_vram', False)),
+        # Found by self-review the day i2v shipped: a retry that drops this flag
+        # replays an i2v run as t2v — the exact silent retarget this function's
+        # docstring exists to forbid.
+        'do_i2v': bool(p.get('do_i2v', False)),
         'gpu_name': p.get('requested_gpu'),
     }
 

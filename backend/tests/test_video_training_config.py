@@ -750,3 +750,52 @@ def test_a_stills_set_is_legal_for_h3_and_trains_without_a_soundtrack():
         _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
     assert on['datasets'][0]['do_audio'] is True
 
+
+def test_ref2va_refuses_to_train_without_references_and_emits_them_when_given():
+    """Upstream's ref2va trainer reads identity references from the dataset's
+    control images and, finding NONE, returns no conditioning and trains
+    UNCONDITIONED in silence - a paid run that never learns what it was for.
+    So the builder refuses a reference-less ref2va job outright, and the other
+    direction holds too: control dirs on a target that does not read them would
+    load as generic controls with untested effect, and are refused as well.
+    With refs, `control_path` is a LIST of dirs - ai-toolkit matches each dir's
+    file to the clip by stem, the exact layout the attach route writes."""
+    ref_ds = _VideoDS(target_profile='minimax_h3_ref2va', frames=39, fps=24)
+    with pytest.raises(vtrain.VideoTrainingUnsupported) as e:
+        vtrain.build_job_config(ref_ds, '/pod/ds', 100)
+    assert 'reference' in str(e.value).lower()
+    cfg = _proc(vtrain.build_job_config(
+        ref_ds, '/pod/ds', 100, control_dirs=['/pod/ds_ref1', '/pod/ds_ref2']))
+    assert cfg['datasets'][0]['control_path'] == ['/pod/ds_ref1', '/pod/ds_ref2']
+    assert cfg['model']['arch'] == 'minimax_h3_ref2va'
+    with pytest.raises(vtrain.VideoTrainingUnsupported):
+        vtrain.build_job_config(
+            _VideoDS(target_profile='minimax_h3', frames=39, fps=24),
+            '/pod/ds', 100, control_dirs=['/pod/ds_ref1'])
+
+
+def test_ref2va_carries_its_own_recipe_and_the_shared_exclusion():
+    """The ref2va partition has its OWN training adapter file (the fl2va one is
+    a different partition's weights) with the same guidance target, and the
+    adaln_proj exclusion applies to it the same way."""
+    cfg = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3_ref2va', frames=39, fps=24),
+        '/pod/ds', 100, training_adapter=True, control_dirs=['/pod/ds_ref1']))
+    assert cfg['model']['assistant_lora_path'].endswith(
+        'minimax_h3_ref2va_training_adapter_v1.safetensors')
+    assert cfg['train']['guidance_loss_target'] == 3.5
+    assert cfg['network']['network_kwargs']['ignore_if_contains'] == ['adaln_proj']
+
+
+def test_the_ref2va_image_gate_uses_the_full_recipe_date():
+    """The arch landed on 2026-08-13, but VIDEO references and its training
+    adapter landed on the 15th-16th - an image cut between the two would run a
+    half-recipe nobody measured, so the gate reads the later date."""
+    assert vtrain.image_supports_ref2va(
+        'vastai/ostris-ai-toolkit:x-2026-08-16-cuda-12.9')
+    assert not vtrain.image_supports_ref2va(
+        'vastai/ostris-ai-toolkit:x-2026-08-15-cuda-12.9')
+    assert vtrain.image_supports_ref2va(
+        'vastai/ostris-ai-toolkit:da79ebc-2026-08-27-cuda-12.9')
+    assert not vtrain.image_supports_ref2va('nope')
+

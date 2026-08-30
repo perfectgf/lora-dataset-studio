@@ -118,6 +118,26 @@ def _models_dir() -> Path:
     return Path(env) if env else Path(str(lt._aitoolkit_dir())) / 'models'
 
 
+def installed_arch_available(arch) -> bool:
+    """Does the INSTALLED ai-toolkit register this architecture at all?
+
+    Same philosophy as the adapter probe below: no version to read, so the
+    architecture's own source file is the ledger. `minimax_h3_ref2va` lives in
+    minimax_h3.py (one module, two arches) and arrived 2026-08-13 - an install
+    from before simply does not contain the string, and submitting the job
+    would burn the GPU reservation on an "unknown arch" error."""
+    name = str(arch or '')
+    if not name:
+        return False
+    base = name.split('_ref2va')[0] if name.endswith('_ref2va') else name
+    try:
+        source = (Path(str(lt._aitoolkit_dir())) / 'extensions_built_in'
+                  / 'diffusion_models' / base / f'{base}.py')
+        return f'"{name}"' in source.read_text(encoding='utf-8', errors='ignore')
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def supports_training_adapter(arch) -> bool:
     """Can the INSTALLED ai-toolkit load a training adapter for this arch?
 
@@ -336,14 +356,22 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
     # The recipe is offered to the toolkit that will actually run this, which
     # here is the one installed on this machine — and its capabilities are read
     # from its own source, not assumed. `video_targets` owns the arch name.
-    target_arch = (video_targets.get(
-        getattr(ds, 'target_profile', None)) or {}).get('aitk_arch')
+    profile = video_targets.get(getattr(ds, 'target_profile', None)) or {}
+    target_arch = profile.get('aitk_arch')
+    if profile.get('requires_references') and not installed_arch_available(target_arch):
+        raise video_training.VideoTrainingUnsupported(
+            f'{profile.get("label", target_arch)} needs an ai-toolkit from '
+            '2026-08-13 or later — update the installed one (git pull in its '
+            'folder), then relaunch')
+    from . import video_bank_service as _vbs
+    control_dirs = ([str(d) for d in _vbs.reference_dirs(ds)]
+                    if profile.get('requires_references') else None)
     job_config = video_training.build_job_config(
         ds, folder, n_steps, training_folder=training_folder,
         base_model=base_model, low_vram=bool(low_vram), rank=rank,
         sample_prompts=sample_prompts,
         training_adapter=supports_training_adapter(target_arch),
-        do_i2v=bool(do_i2v))
+        do_i2v=bool(do_i2v), control_dirs=control_dirs)
     proc_cfg = job_config['config']['process'][0]
     arch = proc_cfg['model']['arch']
     run_name = local_run_name(ds)

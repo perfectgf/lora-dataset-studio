@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-h3-ref2va-training',
+    date: '2026-08-30',
+    title: 'Train MiniMax H3 Ref2V LoRAs — identity from reference images',
+    blurb:
+      'The Ref2V flavour of H3 generates from reference images of a subject, '
+      + 'and now you can train for it: pick the MiniMax H3 Ref2V target when '
+      + 'promoting clips, attach 1–4 reference images on the dataset card, and '
+      + 'train locally or in the cloud with the same recipe H3 uses. The app '
+      + 'refuses to launch without references on purpose — without them the '
+      + 'trainer silently learns nothing of the identity, which is a paid run '
+      + 'wasted. Local training needs an ai-toolkit from 2026-08-13 or newer; '
+      + 'the app checks yours and says so instead of failing mid-run.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-30-video-cloud-gpu-picker',
     date: '2026-08-30',
     title: 'Pick the GPU for a cloud video run — with prices in front of you',

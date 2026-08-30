@@ -144,6 +144,22 @@ def video_dataset_caption(dataset_id, clip_id):
     return jsonify(out)
 
 
+@bp.post('/video-dataset/<int:dataset_id>/references')
+def video_dataset_references(dataset_id):
+    """Attach 1-4 identity reference images (multipart field `files`). Replaces
+    the previous set whole. 400 names every refusal; the target that needs
+    them is the only one that accepts them."""
+    files = request.files.getlist('files')
+    images = [(f.filename, f.read()) for f in files if f and f.filename]
+    try:
+        out = svc.set_dataset_references(LOCAL_USER, dataset_id, images)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if out is None:
+        return _missing(dataset_id)
+    return jsonify({'ok': True, **out})
+
+
 @bp.delete('/video-dataset/<int:dataset_id>')
 def video_dataset_delete(dataset_id):
     """Throw away a badly cut dataset — the ENCODE, never the triage.

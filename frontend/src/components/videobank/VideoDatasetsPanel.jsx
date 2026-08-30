@@ -65,6 +65,9 @@ export default function VideoDatasetsPanel() {
         {datasets.map((d) => (
           <li key={d.id}
             className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-surface p-3">
+            {d.requires_references && (
+              <ReferenceAttach ds={d} onChanged={refresh} />
+            )}
             <div className="flex min-w-0 items-center gap-2">
               <button type="button" onClick={() => setOpenId(openId === d.id ? null : d.id)}
                 aria-expanded={openId === d.id}
@@ -183,6 +186,47 @@ function StillsFromDatasetButton({ onCreated }) {
       <button type="button" onClick={() => setOpen(false)}
         className="text-[0.6875rem] text-content-subtle hover:underline">cancel</button>
     </span>
+  )
+}
+
+
+/** 📎 Identity references for a ref2va dataset — the launch precondition.
+ *
+ * The trainer reads these as control images; without them it trains
+ * unconditioned in silence, so the server refuses a reference-less launch and
+ * this control is how the user satisfies it. Replacing is whole-set: refs are
+ * one identity, not an album. */
+function ReferenceAttach({ ds, onChanged }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const upload = async (fileList) => {
+    const files = Array.from(fileList || [])
+    if (!files.length) return
+    setBusy(true)
+    try {
+      const form = new FormData()
+      files.forEach((f) => form.append('files', f))
+      const r = await apiFetch(`/api/video-dataset/${ds.id}/references`,
+        { method: 'POST', body: form })
+      toast.success(`${r.references} reference(s) attached — every clip covered.`)
+      onChanged?.()
+    } catch (e) {
+      toast.error(e?.message || 'Could not attach the references.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <label className="flex cursor-pointer items-center gap-1 text-[0.6875rem] text-content-muted">
+      <span className={ds.references > 0 ? '' : 'text-amber-300'}>
+        📎 References: {ds.references || 0}{ds.references > 0 ? '' : ' (required)'}
+      </span>
+      <input type="file" multiple accept="image/*" hidden disabled={busy}
+        onChange={(e) => { upload(e.target.files); e.target.value = '' }} />
+      <span className="underline">{busy ? 'attaching…' : 'attach'}</span>
+    </label>
   )
 }
 

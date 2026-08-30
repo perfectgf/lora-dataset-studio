@@ -57,6 +57,7 @@ _VERIFIED_BASES = {
     # one field where naming the "obvious" upstream repo costs a 43 GB download
     # before anything says a word.
     'minimax_h3': 'Comfy-Org/MiniMax-H3',
+    'minimax_h3_ref2va': 'Comfy-Org/MiniMax-H3',
 }
 
 # What one architecture's weights are ALREADY stored as. `qfloat8` is the value
@@ -69,6 +70,7 @@ _VERIFIED_BASES = {
 _DEFAULT_QTYPE_TE = 'qfloat8'
 _QTYPES = {
     'minimax_h3': {'qtype': 'convrot8', 'qtype_te': 'nvfp4'},
+    'minimax_h3_ref2va': {'qtype': 'convrot8', 'qtype_te': 'nvfp4'},
 }
 
 # The noise schedule each architecture was distilled on, from ai-toolkit's own job
@@ -79,6 +81,7 @@ _QTYPES = {
 _DEFAULT_TIMESTEP_TYPE = 'linear'
 _TIMESTEP_TYPES = {
     'minimax_h3': 'shift',
+    'minimax_h3_ref2va': 'shift',
     'ltx2': 'weighted',
     'ltx2.3': 'weighted',
 }
@@ -87,7 +90,7 @@ _TIMESTEP_TYPES = {
 # where the transformer is largest: H3 leaves roughly two gigabytes of a 24 GB
 # card free, and encoding on the fly keeps the video VAE resident beside it for
 # the whole run. Wan's proven run did not cache, so Wan is left as it trained.
-_CACHE_LATENTS_ARCHES = ('minimax_h3', 'ltx2.3')
+_CACHE_LATENTS_ARCHES = ('minimax_h3', 'minimax_h3_ref2va', 'ltx2.3')
 
 # Preview sampler settings, keyed by arch. H3 is GUIDANCE-DISTILLED: its released
 # pipeline applies no CFG at all, so Wan's 3.5 is not a harmless default here —
@@ -95,6 +98,7 @@ _CACHE_LATENTS_ARCHES = ('minimax_h3', 'ltx2.3')
 _DEFAULT_SAMPLE_GUIDANCE = (3.5, 4)
 _SAMPLE_GUIDANCE = {
     'minimax_h3': (1, 28),
+    'minimax_h3_ref2va': (1, 28),
 }
 
 # The multiplier ai-toolkit's presets give the audio branch of a joint model.
@@ -142,6 +146,12 @@ _TRAINING_ADAPTERS = {
                                 'minimax_h3_training_adapter_v1.safetensors'),
         'guidance_loss_target': 3.5,
     },
+    # Its OWN adapter file — the fl2va one is a different partition's weights.
+    'minimax_h3_ref2va': {
+        'assistant_lora_path': ('ostris/minimax_h3_training_adapter/'
+                                'minimax_h3_ref2va_training_adapter_v1.safetensors'),
+        'guidance_loss_target': 3.5,
+    },
 }
 
 # Module names the LoRA must NOT wrap, per arch. `ignore_if_contains` is a plain
@@ -157,6 +167,7 @@ _TRAINING_ADAPTERS = {
 # checkpoint carries the modules; the next one will not.
 _IGNORED_MODULES = {
     'minimax_h3': ('adaln_proj',),
+    'minimax_h3_ref2va': ('adaln_proj',),
 }
 
 # The two-expert (MoE) arches. Two consequences, and they are unrelated to each
@@ -266,7 +277,8 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
                      training_folder=None, base_model=None, low_vram=True,
                      sample_prompts=None, save_every=None,
                      max_step_saves_to_keep=2, rank=16,
-                     training_adapter=False, do_i2v=False) -> dict:
+                     training_adapter=False, do_i2v=False,
+                     control_dirs=None) -> dict:
     """The ai-toolkit job config for training on a built video dataset.
 
     `training_adapter` says whether the ai-toolkit that will RUN this config can
@@ -326,6 +338,18 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         raise VideoTrainingUnsupported(
             'this video dataset recorded no clip size, so the training resolution '
             'cannot be derived — rebuild it, or pass the size explicitly')
+
+    if video_targets.get(key).get('requires_references'):
+        if not control_dirs:
+            raise VideoTrainingUnsupported(
+                f'{profile["label"]} trains against reference images and this '
+                'dataset has none attached — attach 1-4 references first. '
+                'Without them the trainer runs UNCONDITIONED in silence, which '
+                'is a paid run that learns nothing of what it was for.')
+    elif control_dirs:
+        raise VideoTrainingUnsupported(
+            f'{profile["label"]} does not read reference images — they would '
+            'be loaded as generic controls with untested effect')
 
     if do_i2v and arch not in _I2V_CAPABLE:
         raise VideoTrainingUnsupported(
@@ -416,6 +440,10 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         # Emitted only when asked AND capable; `do_i2v` has been in ai-toolkit's
         # dataset config since before this lane existed, so no version gate.
         **({'do_i2v': True} if do_i2v else {}),
+        # One dir per reference; ai-toolkit matches each dir's file to the clip
+        # by STEM, which is exactly the layout the attach route writes.
+        **({'control_path': [str(d) for d in control_dirs]}
+           if control_dirs else {}),
         'resolution': [_resolution_for(width, height, profile['size_multiple'],
                                        profile['max_pixels'])],
     }
@@ -488,6 +516,18 @@ _TRAINING_ADAPTER_SINCE = '2026-08-06'
 # vastai publishes its ai-toolkit images as `<sha>-YYYY-MM-DD-cuda-x.y`, and that
 # date is the ONLY signal about a pod's toolkit that exists before the rental.
 _IMAGE_DATE_RE = re.compile(r'-(\d{4}-\d{2}-\d{2})-')
+
+
+# ref2va training needs more than the arch (2026-08-13): video references and
+# its own training adapter landed on the 15th-16th, and an image cut between
+# those dates would run a half-recipe nobody measured.
+_REF2VA_SINCE = '2026-08-16'
+
+
+def image_supports_ref2va(image_tag) -> bool:
+    """Is this pinned pod image new enough to train minimax_h3_ref2va?"""
+    found = _IMAGE_DATE_RE.search(str(image_tag or ''))
+    return bool(found) and found.group(1) >= _REF2VA_SINCE
 
 
 def image_supports_training_adapter(image_tag) -> bool:

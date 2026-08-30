@@ -266,6 +266,32 @@ _TARGETS = {
                         'MiniMax grants authorization on request '
                         '(platform.minimax.io/h3-license).',
     },
+    'minimax_h3_ref2va': {
+        'label': 'MiniMax H3 Ref2V',
+        'aitk_arch': 'minimax_h3_ref2va',
+        'fps': 24,
+        'frame_rule': 'mod17plus5',
+        'frame_choices': (22, 39, 56, 73, 90, 107, 124, 141, 158, 175, 192, 209),
+        'frame_default': 39,
+        'size_multiple': 32,
+        'max_pixels': 768 * 1344,
+        'recommended_sizes': ((1344, 768), (768, 1344), (768, 768)),
+        'audio': {'muxed': True, 'sample_rate': 32000, 'channels': 2},
+        'caption_style': 'paragraph_with_audio',
+        'dataset_layout': 'flat',
+        'training_verified': True,
+        # NOT optional decoration, a launch precondition. The ref2va trainer
+        # reads its identity references from the dataset's control images and,
+        # finding none, trains UNCONDITIONED without a word — a run that bills
+        # and yields a LoRA that never learned what it was for. Everything that
+        # launches this target checks the flag first.
+        'requires_references': True,
+        'licence_note': 'MiniMax H3 Community License grants NO rights in the EU, '
+                        'UK, South Korea or USA — and the restriction covers the '
+                        'outputs, not just the model. Check your territory first; '
+                        'MiniMax grants authorization on request '
+                        '(platform.minimax.io/h3-license).',
+    },
     'generic': {
         'label': 'Generic / other',
         # The escape hatch for a target we have not catalogued. It must impose

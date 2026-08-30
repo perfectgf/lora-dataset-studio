@@ -721,3 +721,45 @@ def test_a_stills_set_reuses_the_image_lane_exporter_and_registers_its_rows(
         assert captions['img_0001.png'] == 'trig, a portrait'
         assert captions['img_0002.png'] is None
 
+
+def test_references_cover_every_clip_or_are_refused(app, tmp_path, monkeypatch):
+    """The trainer matches a control to a clip by FILE STEM inside each dir and
+    a clip whose stem finds nothing trains without its reference, silently. The
+    attach route forecloses that: each reference is written once per clip stem,
+    replacing the previous set whole, and only the target that READS references
+    accepts them at all."""
+    from app.extensions import db
+    from app.models import VideoDataset, VideoDatasetClip
+    from app.services import video_bank_service as svc
+    with app.app_context():
+        out = tmp_path / 'ds'
+        out.mkdir()
+        ds = VideoDataset(user_id='local', name='ref', frames=39, fps=24,
+                          target_profile='minimax_h3_ref2va',
+                          output_dir=str(out))
+        db.session.add(ds)
+        db.session.commit()
+        with pytest.raises(ValueError):        # no clips yet
+            svc.set_dataset_references('local', ds.id, [('a.png', b'x')])
+        for i in (1, 2):
+            db.session.add(VideoDatasetClip(dataset_id=ds.id,
+                                            filename=f'clip_{i:04d}.mp4'))
+        db.session.commit()
+        res = svc.set_dataset_references(
+            'local', ds.id, [('face.png', b'a'), ('side.jpg', b'b')])
+        assert res == {'references': 2, 'clips_covered': 2}
+        ref1 = out / '_controls' / 'ref_1'
+        assert sorted(f.name for f in ref1.iterdir()) == [
+            'clip_0001.png', 'clip_0002.png']
+        assert (out / '_controls' / 'ref_2' / 'clip_0001.jpg').read_bytes() == b'b'
+        # replacing whole: a new single-ref set leaves no ref_2 behind
+        svc.set_dataset_references('local', ds.id, [('new.png', b'c')])
+        assert len(svc.reference_dirs(ds)) == 1
+        # the payload says how many references ride the dataset
+        assert svc.video_dataset_payload('local', ds.id)['references'] == 1
+        # a target that does not read references refuses them
+        ds.target_profile = 'minimax_h3'
+        db.session.commit()
+        with pytest.raises(ValueError):
+            svc.set_dataset_references('local', ds.id, [('x.png', b'x')])
+

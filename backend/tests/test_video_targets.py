@@ -30,7 +30,7 @@ def test_profile_keys_are_stable():
     needs an alias path, and this test is what makes someone notice."""
     assert vt.PROFILE_KEYS == (
         'wan21', 'wan21_i2v', 'wan22_14b', 'wan22_14b_i2v', 'wan22_ti2v5b',
-        'ltx2', 'ltx23', 'minimax_h3', 'generic')
+        'ltx2', 'ltx23', 'minimax_h3', 'minimax_h3_ref2va', 'generic')
 
 
 def test_every_profile_declares_the_full_contract():

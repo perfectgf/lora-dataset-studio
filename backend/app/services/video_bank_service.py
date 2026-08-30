@@ -2672,8 +2672,65 @@ def _dataset_row(ds: VideoDataset) -> dict:
         # they come back to it, not once at creation.
         'licence_note': profile.get('licence_note'),
         'trigger_word': ds.trigger_word,
+        'references': len(reference_dirs(ds)),
+        'requires_references': bool(profile.get('requires_references')),
         'created_at': ds.created_at.isoformat() if ds.created_at else None,
     }
+
+
+_REF_DIRNAME = '_controls'          # the ONE directory name ai-toolkit's scan skips
+_REF_IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.webp')
+_MAX_REFERENCES = 4                 # upstream's own ref_1..ref_4 shape
+
+
+def reference_dirs(ds) -> list:
+    """The dataset's reference dirs (ref_1..ref_N), existing ones only, sorted."""
+    root = Path(str(ds.output_dir or '')) / _REF_DIRNAME
+    try:
+        return sorted(d for d in root.iterdir()
+                      if d.is_dir() and d.name.startswith('ref_'))
+    except OSError:
+        return []
+
+
+def set_dataset_references(user_id, dataset_id, images) -> dict:
+    """Attach 1-4 identity reference images to a ref2va dataset.
+
+    `images` is [(filename, bytes)]. The trainer matches a control to a clip by
+    FILE STEM inside each control dir, and a clip whose stem finds nothing is
+    silently trained without its reference - so each reference is written once
+    per clip stem, and the launch-side refusal can then trust that "dirs exist"
+    means "every clip is covered". Replaces any previous set whole: references
+    are one identity, not an album to append to."""
+    ds = get_video_dataset(user_id, dataset_id)
+    if ds is None:
+        return None
+    profile = video_targets.get(ds.target_profile) or {}
+    if not profile.get('requires_references'):
+        raise ValueError(f'{profile.get("label", ds.target_profile)} does not '
+                         'train against reference images')
+    imgs = [(n, b) for (n, b) in (images or [])
+            if os.path.splitext(str(n))[1].lower() in _REF_IMAGE_EXTS and b]
+    if not imgs:
+        raise ValueError('attach 1-4 reference images (png/jpg/webp)')
+    if len(imgs) > _MAX_REFERENCES:
+        raise ValueError(f'at most {_MAX_REFERENCES} references — more of the '
+                         'same identity stops adding information')
+    clips = VideoDatasetClip.query.filter_by(dataset_id=ds.id).all()
+    if not clips:
+        raise ValueError('this dataset has no clips yet — promote first, then '
+                         'attach references')
+    root = Path(str(ds.output_dir)) / _REF_DIRNAME
+    if root.exists():
+        shutil.rmtree(root)
+    stems = {os.path.splitext(c.filename)[0] for c in clips}
+    for k, (name, data) in enumerate(imgs, start=1):
+        ext = os.path.splitext(str(name))[1].lower()
+        ref_dir = root / f'ref_{k}'
+        ref_dir.mkdir(parents=True, exist_ok=True)
+        for stem in stems:
+            (ref_dir / f'{stem}{ext}').write_bytes(data)
+    return {'references': len(imgs), 'clips_covered': len(stems)}
 
 
 def create_stills_dataset_from_face_dataset(user_id, face_dataset_id,
