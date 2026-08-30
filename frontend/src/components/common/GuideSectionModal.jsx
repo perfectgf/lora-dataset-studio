@@ -21,11 +21,11 @@ import { sliceGuideSection } from '../../utils/guideSection'
  * in its chunk for a modal most sessions never open.
  */
 const CHAPTER_LOADERS = {
-  'getting-started': () => import('../../../docs/guide/getting-started.md?raw'),
-  'using-the-app': () => import('../../../docs/guide/using-the-app.md?raw'),
-  'dataset-guide': () => import('../../../docs/DATASET_GUIDE.md?raw'),
-  'settings-reference': () => import('../../../docs/guide/settings-reference.md?raw'),
-  'troubleshooting': () => import('../../../docs/guide/troubleshooting.md?raw'),
+  'getting-started': () => import('../../../../docs/guide/getting-started.md?raw'),
+  'using-the-app': () => import('../../../../docs/guide/using-the-app.md?raw'),
+  'dataset-guide': () => import('../../../../docs/DATASET_GUIDE.md?raw'),
+  'settings-reference': () => import('../../../../docs/guide/settings-reference.md?raw'),
+  'troubleshooting': () => import('../../../../docs/guide/troubleshooting.md?raw'),
 }
 
 export default function GuideSectionModal({ topic, onClose }) {
