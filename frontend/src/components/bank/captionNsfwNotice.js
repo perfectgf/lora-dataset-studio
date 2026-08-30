@@ -131,13 +131,13 @@ export function captionNsfwNotice({ payload, scopeId, piles, engineId,
       heading: `Mostly NSFW — and this run is entirely the ${providerLabel} vision model`,
       paragraphs: [
         scale,
-        'You picked Ollama, so every caption in this run comes from the Ollama '
+        `You picked the local LLM, so every caption in this run comes from the ${providerLabel} `
         + 'vision model — the half that was measured going wrong on explicit '
         + 'images here.',
         measured,
         limits,
         'Every caption records who wrote it, so you can read them back knowing '
-        + 'where they came from. Picking JoyCaption above runs without Ollama.',
+        + `where they came from. Picking JoyCaption above runs without ${providerLabel}.`,
       ],
     };
   }
@@ -146,12 +146,12 @@ export function captionNsfwNotice({ payload, scopeId, piles, engineId,
     heading: 'Mostly NSFW — check who wrote what afterwards',
     paragraphs: [
       scale,
-      'Auto runs JoyCaption first, then the Ollama vision model on whatever '
+      `Auto runs JoyCaption first, then the ${providerLabel} vision model on whatever `
       + 'JoyCaption did not caption. That second half is the one that was measured '
       + 'going wrong on explicit images here.',
       measured,
       limits,
-      'Every caption records who wrote it, so you can read the Ollama-written ones '
+      `Every caption records who wrote it, so you can read the ${providerLabel}-written ones `
       + 'first — or pick JoyCaption above to run without that second half.',
     ],
   };

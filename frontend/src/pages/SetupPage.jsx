@@ -960,6 +960,10 @@ export default function SetupPage() {
             onDone={() => refresh(true)} />
         </div>
       )
+      // Declared BEFORE `fields`, which uses it. `node --test` never executes JSX,
+      // so a temporal-dead-zone reference passes every test and throws on the real
+      // screen — this file has been bitten by exactly that before.
+      const llmName = step.isLmStudio ? 'LM Studio' : 'Ollama'
       const fields = (
         <>
           {!step.dockerManaged
@@ -981,7 +985,7 @@ export default function SetupPage() {
           {!step.dockerManaged && !step.reachable && !step.skipped && (
             <button type="button" onClick={() => setOllamaSkipConfirm(true)}
               className="min-h-10 text-left text-xs text-content-subtle underline hover:text-content lg:min-h-0">
-              Don’t need auto-framing? Continue without Ollama →
+              Don’t need auto-framing? Continue without {llmName} →
             </button>
           )}
         </>
@@ -995,9 +999,9 @@ export default function SetupPage() {
       const ollamaSkipPanel = (
         <div role="status" aria-live="polite"
           className="space-y-3 rounded-md border border-border-strong bg-surface-raised px-4 py-3 text-sm">
-            <p className="font-medium text-content">Continue without Ollama?</p>
+            <p className="font-medium text-content">Continue without {llmName}?</p>
             <p className="text-xs text-content-muted">
-              Ollama powers auto-framing, head-crop and the prompt helpers. You can come back
+              {llmName} powers auto-framing, head-crop and the prompt helpers. You can come back
               anytime — starting it later turns everything below back on automatically.
             </p>
             {step.joycaptionReady ? (
@@ -1037,7 +1041,7 @@ export default function SetupPage() {
             <div className="flex items-center gap-4 pt-1">
               <button type="button" onClick={skipOllama} disabled={busy}
                 className="rounded-lg bg-gradient-primary px-4 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
-                {busy ? 'Saving…' : 'Continue without Ollama'}
+                {busy ? 'Saving…' : `Continue without ${llmName}`}
               </button>
               <button type="button" onClick={() => setOllamaSkipConfirm(false)}
                 className="min-h-10 text-xs text-content-subtle underline hover:text-content lg:min-h-0">
@@ -1049,8 +1053,8 @@ export default function SetupPage() {
       // Already skipped by choice: neutral confirmation, never a warning.
       const ollamaSkipNotice = (
         <div className="rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-content-muted">
-          ⊘ You chose to continue without Ollama. Auto-framing, head-crop, Describe/Enhance
-          and the bank’s natural-language filter stay off — start Ollama anytime to turn them
+          ⊘ You chose to continue without {llmName}. Auto-framing, head-crop, Describe/Enhance
+          and the bank’s natural-language filter stay off — start {llmName} anytime to turn them
           back on.
         </div>
       )

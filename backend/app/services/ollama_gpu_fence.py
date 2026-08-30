@@ -876,10 +876,20 @@ def fence_status() -> dict:
     standing in the way so the user is not told to hunt for it.
     """
     scope, endpoint = _configured_local_endpoint()
+    # The banner has to name the server the user actually runs: telling someone on
+    # LM Studio that "another tool is using a model in Ollama" sends them to look at
+    # a daemon that is not holding anything.
+    try:
+        from . import vision_llm
+        _provider = vision_llm.provider()
+    except Exception:                      # noqa: BLE001 - the banner degrades, never fails
+        _provider = 'ollama'
     if scope == 'remote':
-        return {'applies': False, 'blocked': False, 'scope': 'remote', 'models': []}
+        return {'applies': False, 'blocked': False, 'scope': 'remote', 'models': [],
+                'provider': _provider}
     if scope != 'local':
-        return {'applies': False, 'blocked': False, 'scope': scope, 'models': []}
+        return {'applies': False, 'blocked': False, 'scope': scope, 'models': [],
+                'provider': _provider}
 
     state, loaded, expiry = _probe(endpoint)
     if state in ('unknown', 'down'):
@@ -887,7 +897,7 @@ def fence_status() -> dict:
         # story to tell, and reporting "blocked" here would offer an unload
         # button for a daemon nobody can talk to.
         return {'applies': True, 'blocked': False, 'scope': 'local',
-                'reachable': False, 'models': []}
+                'reachable': False, 'models': [], 'provider': _provider}
     with _lock:
         owned = set(_owned_models.get(endpoint, set()))
         if state != 'empty' and not loaded.issubset(owned):
@@ -897,7 +907,7 @@ def fence_status() -> dict:
                 _foreign_local_endpoints.discard(endpoint)
     foreign = sorted(loaded - owned)
     return {'applies': True, 'blocked': bool(foreign), 'scope': 'local',
-            'reachable': True, 'models': foreign}
+            'reachable': True, 'models': foreign, 'provider': _provider}
 
 
 def unload_foreign_models() -> dict:

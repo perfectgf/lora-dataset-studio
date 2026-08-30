@@ -2188,7 +2188,14 @@ def probe(force=False) -> dict:
     # install still shows its real "pull the model" state instead of a lying "skipped",
     # and the flag only ever softens an ABSENCE. Per-feature gates (framing, head-crop,
     # Describe/Enhance) never read this; they keep reading the live probe.
-    ollama_skipped = bool(cfg.get('ollama.setup_skipped')) and not ollama['ok']
+    # Derived on the ACTIVE provider, not on Ollama by name. The key keeps its
+    # stored spelling (`ollama.setup_skipped` lives in config.json already and
+    # CLAUDE.md forbids renaming without an alias); what it MEANS is "the user
+    # chose to continue without a local LLM". Keyed on Ollama alone, an LM Studio
+    # install could never settle this step: the flag was written and immediately
+    # derived back to false, so the wizard asked again at every Next.
+    _llm_ok = lmstudio['ok'] if _llm_provider == 'lmstudio' else ollama['ok']
+    ollama_skipped = bool(cfg.get('ollama.setup_skipped')) and not _llm_ok
 
     from .services import chatgpt_oauth
     sub_status = chatgpt_oauth.status()

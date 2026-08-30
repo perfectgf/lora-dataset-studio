@@ -20,11 +20,18 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('./SetupPage.jsx', import.meta.url), 'utf8')
 
 test('the Ollama step offers a conscious way out, and persists it', () => {
-  assert.match(source, /Continue without Ollama\?/,
+  // The panel and its button, asserted as FACTS rather than as literal text: the
+  // provider name became an expression when LM Studio arrived, and a contract that
+  // breaks on a behaviour-identical rewording is a contract nobody trusts. What
+  // must hold is that the panel exists, that it names the configured provider, and
+  // that its button commits through skipOllama.
+  assert.match(source, /Continue without \{llmName\}\?/,
     'the confirmation panel that lists what turns off is gone')
+  assert.match(source, /const llmName = step\.isLmStudio/,
+    'the panel names Ollama unconditionally again — wrong product under LM Studio')
   assert.match(source, /onClick=\{skipOllama\}/,
     'the button that commits the choice no longer calls skipOllama')
-  assert.match(source, /'Saving…' : 'Continue without Ollama'/,
+  assert.match(source, /Continue without \$\{llmName\}/,
     'the commit button lost its label')
   assert.match(source, /setup_skipped:\s*true/,
     'skipOllama no longer persists the choice')
@@ -55,7 +62,7 @@ test('the panel is an INSERT, never a replacement for the step body', () => {
   assert.match(source, /\{ollamaSkipConfirm && ollamaSkipPanel\}/,
     'the panel is no longer composed above the step body')
   assert.match(source, /\{ollamaBody\}/, 'the step body is no longer rendered alongside the panel')
-  assert.match(source, /role="status" aria-live="polite"[\s\S]{0,200}Continue without Ollama\?/,
+  assert.match(source, /role="status" aria-live="polite"[\s\S]{0,200}Continue without \{llmName\}\?/,
     'the panel no longer announces itself to a screen reader')
 })
 

@@ -31,10 +31,16 @@ test('a human-written caption is never folded into the two engines', () => {
 });
 
 test('the two engines are named apart, and neither answers for the other', () => {
-  assert.match(captionOriginInfo('joycaption').short, /JoyCaption/);
-  assert.doesNotMatch(captionOriginInfo('joycaption').short, /Ollama/);
-  assert.match(captionOriginInfo('ollama').short, /Ollama/);
-  assert.doesNotMatch(captionOriginInfo('ollama').short, /JoyCaption/);
+  // The claim is that the two are DISTINGUISHABLE, not that one of them is spelled
+  // "Ollama". The stored value keeps that spelling (it is a frozen column on both
+  // surfaces) but the label had to stop naming a product an LM Studio user does not
+  // run — so the assertion moved onto the property, and off the brand.
+  const joy = captionOriginInfo('joycaption').short;
+  const llm = captionOriginInfo('ollama').short;
+  assert.match(joy, /JoyCaption/);
+  assert.doesNotMatch(llm, /JoyCaption/);
+  assert.notEqual(joy, llm, 'the two engines wear the same label');
+  assert.match(llm, /local LLM/i);
 });
 
 /* THE STATE THAT COSTS THE USER WORK IF IT IS READ WRONG. Every row written before

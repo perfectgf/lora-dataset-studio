@@ -444,7 +444,7 @@ export const BANK_PASSES = {
       label: 'Also re-classify images that already have a framing',
     },
     settings: [
-      { name: 'Vision model + Ollama URL (Settings ▸ Local tools)' },
+      { name: 'Vision model + local LLM URL (Settings ▸ Local tools)' },
       { name: 'Vision concurrency (Settings ▸ Local tools)' },
       { name: 'The prompt — NOT configurable',
         note: 'It is the same fixed classifier prompt the datasets use.' },
@@ -541,7 +541,7 @@ export const BANK_PASSES = {
     settings: [
       { name: 'Captioning engine (Settings ▸ Captioning & quality)',
         note: 'Overridden for this run by the Engine picker below.' },
-      { name: 'Vision model + Ollama URL (Settings ▸ Local tools)',
+      { name: 'Vision model + local LLM URL (Settings ▸ Local tools)',
         note: 'Overridden for this run by the Model picker below.' },
       { name: 'Vision concurrency (Settings ▸ Local tools)' },
     ],
@@ -655,10 +655,10 @@ export function watermarkSettings(detectorReady) {
     };
   }
   return {
-    route: 'The vision model (Ollama) — the detector extra is not installed, so '
+    route: 'The vision model (your local LLM) — the detector extra is not installed, so '
       + 'this run falls back to the route that has always worked. ~1.7 s per image.',
     settings: [
-      { name: 'Vision model + Ollama URL (Settings ▸ Local tools)' },
+      { name: 'Vision model + local LLM URL (Settings ▸ Local tools)' },
       { name: 'Vision concurrency (Settings ▸ Local tools)' },
       { name: 'The prompt — NOT configurable' },
     ],

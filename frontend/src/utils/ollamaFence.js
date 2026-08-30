@@ -86,8 +86,11 @@ export function blockingModelsLabel(models) {
 export function fenceNoticeModel(state) {
   if (!state || !state.phase) return null;
   const models = blockingModelsLabel(state.models);
-  const held = models ? `Another tool is using ${models} in Ollama.` : state.message
-    || 'Another tool is using a model in Ollama.';
+  // The server the user actually runs. Naming Ollama to someone on LM Studio sends
+  // them to look at a daemon that is not holding anything.
+  const server = state.provider === 'lmstudio' ? 'LM Studio' : 'Ollama';
+  const held = models ? `Another tool is using ${models} in ${server}.` : state.message
+    || `Another tool is using a model in ${server}.`;
 
   if (state.phase === 'unloading') {
     return { tone: 'busy', headline: 'Unloading the other model…', detail: held,

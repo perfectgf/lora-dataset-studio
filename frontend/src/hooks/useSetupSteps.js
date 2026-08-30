@@ -491,7 +491,11 @@ function ollamaStep(caps, runtimeReadiness) {
   // not reachable), so a reachable Ollama can never read as skipped — its real
   // state, model gap included, always wins. A Docker deployment set to 'none'
   // reaches the same neutral status by its own route.
-  const skipped = !dockerManaged && !isLmStudio && !!o.skipped
+  // NOT excluded for LM Studio any more. The backend derives the flag on the ACTIVE
+  // provider now, so it means "the user chose to continue without a local LLM" —
+  // and excluding LM Studio here made the step impossible to settle: the panel
+  // wrote a flag that read back as false, so the wizard asked again at every Next.
+  const skipped = !dockerManaged && !!o.skipped
   // JoyCaption covers captioning on its own — the caption style follows the
   // TRAIN TYPE (prose for Z-Image, booru for SDXL) and the same prompt goes to
   // both engines, so its presence is what turns this step from a gate into a

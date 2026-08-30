@@ -14,6 +14,16 @@ import { defaultValueAt } from './settingDefaults.js'
    your private custom-base repos — it lives with the ComfyUI card because that's
    where local training/generation is set up. The Klein generation download itself
    (9B KV) is public and needs no token. */
+/* LM Studio can be configured to require a bearer token. It is a SECRET, so it
+   lives in the secret store like every other credential here — never in
+   config.json, where it would come back out of /api/settings in clear. Most local
+   setups never need it, which is why it sits at the bottom of the card. */
+const LMSTUDIO_SECRET = {
+  key: 'LMSTUDIO_API_KEY', label: 'LM Studio API key (optional)', testTarget: null,
+  help: 'Only if you turned on authentication in LM Studio. Left empty — the usual '
+    + 'case for a local server — no Authorization header is sent at all.',
+}
+
 const HF_SECRET = {
   key: 'HF_TOKEN', label: 'Hugging Face token', testTarget: null,
   help: (
@@ -561,6 +571,7 @@ export default function LocalToolsSection(props) {
           <ResetToDefault label="Keep the vision model warm" section="lmstudio" field="vision_keep_warm_seconds"
             config={config} configDefaults={configDefaults} setField={setField} />
         </div>
+        <SecretField field={LMSTUDIO_SECRET} {...props} />
       </Card>
       </SettingsGroup>
 

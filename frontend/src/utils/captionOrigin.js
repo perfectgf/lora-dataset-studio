@@ -26,7 +26,10 @@
                     calling it "machine-written" would be wrong about the work the
                     user did.
      'joycaption' — written by JoyCaption (local, via the ai-toolkit venv).
-     'ollama'     — written by the Ollama vision model.
+     'ollama'     — written by the local LLM vision model. The stored VALUE keeps
+                    its spelling: it sits in caption_origin on BOTH surfaces and a
+                    rename would need an alias table. It means "the configured
+                    local provider", which may be LM Studio.
      NULL / ''    — the author was NEVER RECORDED. This is what every row that
                     predates the column carries, and it is NOT "machine": reading
                     the absence as an engine would put an attribution on screen
@@ -59,9 +62,10 @@ export const CAPTION_ORIGINS = [
   },
   {
     key: 'ollama',
-    chip: 'Ollama',
-    short: 'Written by the Ollama vision model',
-    title: 'Written by the Ollama vision model. With the Auto backend this is the '
+    chip: 'Local LLM',
+    short: 'Written by the local LLM vision model',
+    title: 'Written by the local LLM vision model (Ollama or LM Studio, whichever is '
+      + 'configured). With the Auto backend this is the '
       + 'second half of the run — the images JoyCaption did not caption.',
   },
 ];

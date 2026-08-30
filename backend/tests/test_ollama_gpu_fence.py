@@ -284,7 +284,7 @@ def test_a_stopped_ollama_never_stands_in_comfyuis_way(fence_data_dir):
     # And the status says the daemon is not there rather than pretending it
     # answered with an empty runner.
     assert status == {'applies': True, 'blocked': False, 'scope': 'local',
-                      'reachable': False, 'models': []}
+                      'reachable': False, 'models': [], 'provider': 'ollama'}
 
 
 def test_a_stopped_ollama_clears_a_claim_left_by_a_previous_run(fence_data_dir):
@@ -307,7 +307,8 @@ def test_fence_status_names_what_is_in_the_way_and_clears_when_it_goes(fence_dat
         with patch.object(fence.requests, 'get', return_value=_ps('other-app-model')):
             state = fence.fence_status()
         assert state == {'applies': True, 'blocked': True, 'scope': 'local',
-                         'reachable': True, 'models': ['other-app-model']}
+                         'reachable': True, 'models': ['other-app-model'],
+                         'provider': 'ollama'}
         # Ollama's own idle unload, or the other app closing: the block ends
         # with nobody clicking anything.
         with patch.object(fence.requests, 'get', return_value=_ps()):
@@ -323,8 +324,8 @@ def test_fence_status_never_reports_blocked_for_an_unreachable_or_remote_daemon(
 
     with patch.object(fence, '_configured_local_endpoint', return_value=('remote', None)), \
             patch.object(fence.requests, 'get') as get:
-        assert fence.fence_status() == {'applies': False, 'blocked': False,
-                                        'scope': 'remote', 'models': []}
+        assert fence.fence_status() == {'applies': False, 'blocked': False, 'scope': 'remote',
+                                        'models': [], 'provider': 'ollama'}
     get.assert_not_called()
 
 

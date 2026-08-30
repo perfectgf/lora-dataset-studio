@@ -154,3 +154,35 @@ test('an LM Studio that cannot caption is still counted as missing', () => {
   assert.equal(byLabel.Captioning, false)
   assert.equal(byLabel['Auto-framing & head-crop'], false)
 })
+
+test('the skip settles the step under EITHER provider', () => {
+  // The defect: `skipped` excluded LM Studio, and the backend derived the flag on
+  // Ollama's reachability — so the panel wrote a flag that read back as false and
+  // the wizard asked again at every Next. The step could never be settled.
+  const skipped = (over) => step({ ...LMS(over), ollama: { ...LMS().ollama, skipped: true } })
+  const lms = skipped({ reachable: false, model_ready: false })
+  assert.equal(lms.skipped, true, 'an LM Studio install can never close this step')
+  assert.equal(lms.status, 'skipped')
+  assert.equal(ollamaGateReason(lms), null)
+
+  // …and the Ollama half is unchanged.
+  const oll = deriveSetupSteps({ ollama: { reachable: false, skipped: true } })
+    .find((s) => s.id === 'ollama')
+  assert.equal(oll.skipped, true)
+  assert.equal(ollamaGateReason(oll), null)
+})
+
+test('the skip panel names the provider it is actually about', async () => {
+  // A source-order check, because `node --test` never executes JSX: a const used
+  // above its own declaration passes every test here and throws on the screen.
+  // This file has been bitten by that before, so the order is asserted, not hoped.
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../src/pages/SetupPage.jsx', import.meta.url), 'utf8')
+  const declared = src.indexOf("const llmName = step.isLmStudio")
+  const firstUse = src.indexOf('{llmName}')
+  assert.ok(declared > -1 && firstUse > -1, 'the provider name is no longer computed')
+  assert.ok(declared < firstUse,
+    'llmName is used before it is declared — a temporal dead zone no test here can execute')
+  assert.doesNotMatch(src.slice(src.indexOf('const ollamaSkipNotice'), src.indexOf('const ollamaSkipNotice') + 500),
+    /without Ollama\./, 'the neutral notice still names Ollama whatever the provider')
+})
