@@ -188,7 +188,6 @@ def list_models(*, url: str | None = None,
                 # instance's `id` FIELD. They are not the same name.
                 'instances': [i.get('id') for i in (m.get('loaded_instances') or [])
                               if isinstance(i, dict) and i.get('id')],
-                'display_name': m.get('display_name') or '',
             }
             for m in data['models'] if isinstance(m, dict)
         ])
@@ -205,7 +204,6 @@ def list_models(*, url: str | None = None,
                 'type': _norm_type(m.get('type')),
                 'loaded': str(m.get('state') or '') == 'loaded',
                 'instances': [m.get('id')] if str(m.get('state') or '') == 'loaded' else [],
-                'display_name': '',
             }
             for m in data['data'] if isinstance(m, dict)
         ])
@@ -218,7 +216,7 @@ def list_models(*, url: str | None = None,
     if isinstance(data, dict) and isinstance(data.get('data'), list):
         out.update(ok=True, reachable=True, surface='openai', models=[
             {'id': m.get('id') or '', 'type': '', 'loaded': None,
-             'instances': [], 'display_name': ''}
+             'instances': []}
             for m in data['data'] if isinstance(m, dict)
         ])
     out['answered'], out['refused'] = reach.answered, reach.refused
