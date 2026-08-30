@@ -763,3 +763,51 @@ def test_references_cover_every_clip_or_are_refused(app, tmp_path, monkeypatch):
         with pytest.raises(ValueError):
             svc.set_dataset_references('local', ds.id, [('x.png', b'x')])
 
+
+
+# --- the sidecar carries the MEASURED camera line (C12, 2026-08-30) ------------------
+
+def _pan_scores():
+    """A metrics blob the camera pass could have written: measured, panning
+    right, camera clearly dominant — the STORED RATES, not label names, because
+    labels() derives at read time from exactly these keys."""
+    from app.services import video_camera_motion as vcm
+    return {vcm.STATE_KEY: 'ok', 'camera_coverage': 1.0,
+            'camera_pan_rate': vcm.PAN_FLOOR * 10}
+
+
+def test_the_sidecar_gains_the_classifier_camera_line():
+    import json as _json
+    from app.services import video_camera_motion as vcm
+    from app.services.video_bank_service import compose_sidecar_text
+    scores = _pan_scores()
+    phrase = vcm.camera_phrase(scores)
+    assert phrase, 'fixture scores must produce a phrase for this test to mean anything'
+
+    text = compose_sidecar_text('mychar', 'a woman walks', _json.dumps(scores))
+
+    assert text.startswith('mychar, a woman walks')
+    assert f'Camera: {phrase}.' in text
+
+
+def test_no_camera_line_when_the_classifier_had_nothing_honest_to_say():
+    """Unmeasured metrics, unreadable JSON, no JSON at all: the caption stays
+    exactly what it was — a prompt silent about the camera teaches nothing
+    false, a guessed one teaches the wrong word."""
+    from app.services.video_bank_service import compose_sidecar_text
+
+    assert compose_sidecar_text('mychar', 'a woman walks', None) \
+        == 'mychar, a woman walks'
+    assert compose_sidecar_text('mychar', 'a woman walks', 'not json{') \
+        == 'mychar, a woman walks'
+    assert compose_sidecar_text('mychar', 'a woman walks', '{"cam_state": "unreadable"}') \
+        == 'mychar, a woman walks'
+
+
+def test_a_camera_line_alone_is_still_a_sidecar():
+    """A clip with no caption but a measured camera writes the one honest thing
+    it knows rather than an empty prompt."""
+    import json as _json
+    from app.services.video_bank_service import compose_sidecar_text
+    text = compose_sidecar_text('', None, _json.dumps(_pan_scores()))
+    assert text.startswith('Camera: ')

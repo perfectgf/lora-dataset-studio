@@ -3264,8 +3264,12 @@ ranking computed over one bucket has nothing to say about another.
 
 🔎 Find scenes ranks by what a moment **looks like**. It cannot find an action —
 "turns and walks away" is a fact about *time*, and no single frame carries it. The
-**🗣 Describe shots** pass closes that gap: it watches eight frames spread across
-each shot and writes one or two sentences about what happens in it.
+**🗣 Describe shots** pass closes that gap: it watches sixteen frames spread
+across each shot and writes a full paragraph — the action as it unfolds, the
+subject, the setting and the mood, in the 150-200 words the published
+measurements converge on. The camera is deliberately not the model's job: no
+VLM describes it reliably, so the 🎥 Camera pass's own classifier writes that
+line into the exported prompt instead, in words it measured.
 
 That line does two jobs, and the second is the one nobody sees coming:
 

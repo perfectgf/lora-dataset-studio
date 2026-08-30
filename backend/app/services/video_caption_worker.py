@@ -57,7 +57,7 @@ def unavailable_reason():
 class CaptionWorker:
     """A warm Qwen3-VL, alive for as long as the ``with`` block."""
 
-    def __init__(self, *, use_gpu=False, models_root=None, max_new_tokens=96,
+    def __init__(self, *, use_gpu=False, models_root=None, max_new_tokens=400,
                  model=None):
         # None = let the child fall back to its own default. The parent normally
         # passes the configured id explicitly, so the two halves cannot disagree

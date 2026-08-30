@@ -331,3 +331,46 @@ def test_the_model_is_told_how_long_the_shot_really_is():
     # shave it), never the raw clip length and never a made-up number.
     assert 0 < seen['span_s'] <= 5.0
     assert seen['span_s'] == times[-1] - times[0]
+
+
+# --- the C12 calibration (2026-08-30): frames, length, token budget ------------------
+
+def test_the_frame_budget_is_the_survey_sixteen():
+    """Sixteen frames, because the payoff of a longer caption is a payoff of
+    MOTION and motion is read between frames — eight was the ceiling on what
+    any prompt could extract, whatever it asked for."""
+    assert vc.CAPTION_FRAMES == 16
+
+
+def test_both_prompts_ask_for_the_measured_length():
+    """150-200 words is where the primary sources converge (MiraData's ablation,
+    the vendors' own caption specs). "One or two sentences" was the folklore
+    number, and it starved exactly the dimension a video LoRA learns."""
+    for style in vc.CAPTION_STYLES:
+        prompt = vc.caption_prompt(style)
+        assert '150' in prompt and '200' in prompt
+        assert 'one or two plain sentences' not in prompt.lower()
+
+
+def test_both_prompts_refuse_camera_and_sound():
+    """Refuted twice for the camera (no VLM reads it reliably — our homography
+    classifier writes that line at export) and never true for sound (the model
+    sees silent JPEGs; any audio it wrote would be an invention)."""
+    for style in vc.CAPTION_STYLES:
+        lowered = vc.caption_prompt(style).lower()
+        assert 'do not describe the camera' in lowered
+        assert 'sound' in lowered
+
+
+def test_the_token_budget_matches_the_asked_for_length():
+    """96 tokens truncated a 150-200-word paragraph mid-sentence; 400 leaves
+    room. Pinned in BOTH processes — the worker default and the infer fallback —
+    because they disagree in silence."""
+    from pathlib import Path
+    worker = (Path(__file__).resolve().parents[1] / 'app' / 'services'
+              / 'video_caption_worker.py').read_text(encoding='utf-8')
+    infer = (Path(__file__).resolve().parents[1] / 'infer'
+             / 'video_caption_infer.py').read_text(encoding='utf-8')
+    assert 'max_new_tokens=400' in worker
+    assert "req.get('max_new_tokens') or 400" in infer
+    assert 'max_new_tokens=96' not in worker

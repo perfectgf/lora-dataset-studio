@@ -38,10 +38,14 @@ from ..models import VideoBank, VideoClip, VideoSource
 
 logger = logging.getLogger(__name__)
 
-# How many frames the captioner sees. Eight spans a shot densely enough for a
-# gesture to be visible while staying one modest forward pass — a video VLM's
-# cost grows with frames, and this pass runs over a whole bank.
-CAPTION_FRAMES = 8
+# How many frames the captioner sees. Sixteen, per the 2026-08 captioning
+# survey: the payoff of a richer caption is a payoff of MOTION (MiraData
+# Table 4 — caption density doubles the dynamism and tracking scores while
+# image quality stays flat), and motion is read BETWEEN frames, so this count
+# is the ceiling on what any prompt can extract. Sixteen 448px frames keep the
+# 4B model around 13 GB with its KV cache — still fits a 24 GB card. The 0.2 s
+# spacing floor below means SHORT shots still get fewer, never duplicates.
+CAPTION_FRAMES = 16
 
 # Long side of each frame handed to the model. Larger than the embedding pass's
 # 256 px on purpose: CLIP sees 224 and needs a thumbnail, while a captioner is
@@ -179,13 +183,31 @@ def caption_frame_times(start_s, end_s):
 #   * NO PREAMBLE. Every caption beginning "This video shows" teaches the model
 #     that phrase. Stripping it later is a find-and-replace nobody remembers to
 #     run, so it is refused twice — asked for here, and cleaned in clean_caption.
+# WHY A FULL PARAGRAPH AND NOT "one or two sentences" (the shape until 2026-08-30):
+# the 2026-08 captioning survey converged from three independent directions —
+# MiraData's ablation (dense structured captions double motion tracking while
+# image quality stays flat), the VC4VG instruction study (the instruction beats
+# the checkpoint), and the vendors' own caption specs (LTX-2: 150-220 words,
+# WAN: 60-200) — on 150-220 words of flowing prose. The precision clause is
+# Moving Alphabet's measured cliff: an invented detail costs more than a missing
+# one and cannot be trained away afterwards. And the camera is deliberately NOT
+# asked for: VLMs were tested on it twice and failed twice — our homography
+# classifier writes the camera line at export instead, in words it can prove.
 _PROMPT = (
-    'Describe what happens in this video clip, in one or two plain sentences. '
-    'Lead with the ACTION and how it unfolds — who or what moves, and how — then '
-    'the setting and the look. Include camera movement when there is any (pans, '
-    'tilts, push in, handheld). Do not begin with "This video shows" or any '
-    'similar preamble, do not list objects as an inventory, and do not mention '
-    'the frames or the video itself. Write it as a caption, not as a report.'
+    'Describe what happens in this video clip as one flowing paragraph of '
+    'roughly 150 to 200 words. Lead with the ACTION and follow it in order — '
+    'what moves first, what happens next, how it ends. Write the motion '
+    'precisely: which limb or object moves, in which direction, how quickly, '
+    'what it touches or passes. As the paragraph unfolds, weave in who or what '
+    'the subject is (appearance, clothing, distinguishing details), the '
+    'setting and what surrounds the action, and the look and mood of the '
+    'footage (light, palette, texture). Describe only what is clearly '
+    'visible: an invented detail is far more damaging than a missing one, so '
+    'leave out anything you cannot actually see. Do not describe the camera '
+    'work and do not mention sound — both are recorded separately. Do not '
+    'begin with "This video shows" or any similar preamble, do not list '
+    'objects as an inventory, and do not mention the frames or the video '
+    'itself. Write it as one training caption in plain prose.'
 )
 
 # ── The second prompt, and the measurement that produced it ──────────────────
@@ -211,14 +233,23 @@ _PROMPT = (
 # caption that talks around its footage teaches the trained model to look away,
 # and the output reads perfectly well either way.
 _PROMPT_PLAIN = (
-    'Describe what happens in this video clip, in one or two plain sentences. '
-    'Lead with the ACTION and how it unfolds — who or what moves, and how — then '
-    'the setting and the look. Include camera movement when there is any (pans, '
-    'tilts, push in, handheld). When nudity or sexual content is present, name it '
-    'plainly and specifically — state what body parts are visible and what acts '
-    'occur; never euphemize, never write "intimate" or "sensual" in place of what '
-    'is actually shown. Do not begin with any preamble, do not list objects as an '
-    'inventory, and do not mention the frames or the video itself.'
+    'Describe what happens in this video clip as one flowing paragraph of '
+    'roughly 150 to 200 words. Lead with the ACTION and follow it in order — '
+    'what moves first, what happens next, how it ends. Write the motion '
+    'precisely: which limb or object moves, in which direction, how quickly, '
+    'what it touches or passes. As the paragraph unfolds, weave in who or what '
+    'the subject is (appearance, clothing, distinguishing details), the '
+    'setting and what surrounds the action, and the look and mood of the '
+    'footage (light, palette, texture). When nudity or sexual content is '
+    'present, name it plainly and specifically — state what body parts are '
+    'visible and what acts occur; never euphemize, never write "intimate" or '
+    '"sensual" in place of what is actually shown. Describe only what is '
+    'clearly visible: an invented detail is far more damaging than a missing '
+    'one, so leave out anything you cannot actually see. Do not describe the '
+    'camera work and do not mention sound — both are recorded separately. Do '
+    'not begin with any preamble, do not list objects as an inventory, and do '
+    'not mention the frames or the video itself. Write it as one training '
+    'caption in plain prose.'
 )
 
 # The styles a caption run can be asked for. `standard` is first and is the
@@ -228,7 +259,9 @@ _PROMPT_PLAIN = (
 CAPTION_STYLES = {
     'standard': {
         'label': 'Standard',
-        'hint': 'Describes the action, the setting and the camera.',
+        'hint': 'A full-paragraph caption: the action as it unfolds, the '
+                'subject, the setting and the mood. The camera line is added '
+                'from our own motion classifier at export.',
         'prompt': _PROMPT,
     },
     'plain': {
