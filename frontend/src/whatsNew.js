@@ -122,7 +122,9 @@ export const WHATS_NEW = [
       + 'history line (with a confirmation that counts the files; an active '
       + 'run must be stopped first, and the dataset itself is never touched). '
       + 'And the training block now wears a Beta chip — the rail is proven '
-      + 'end to end, but it is days old, and the label says exactly that.',
+      + 'end to end, but it is days old, and the label says exactly that. '
+      + 'The whole Video training sets section also folds away now, like the '
+      + 'two dataset sections above it.',
     to: '/datasets',
   },
   {
