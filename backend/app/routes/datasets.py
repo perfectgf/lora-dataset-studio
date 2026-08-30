@@ -337,8 +337,8 @@ def dataset_set_ref(dataset_id):
         # Tell the user WHY it didn't run — the usual cause on a fresh install is the
         # Ollama vision model not being pulled — and how to recover (Setup + Crop).
         # (Manual mode: the centered crop is the intended behavior, no warning.)
-        from .. import capabilities
-        model_ready = capabilities.probe_ollama_model()['ok']
+        from ..services import vision_llm
+        model_ready = vision_llm.probe_model()['ok']
         resp['warning'] = (
             "Auto head-crop needs the Ollama vision model, which isn't ready yet — "
             'used a centered crop. Finish the Ollama step in Setup, then click Crop to re-center on the face.'
@@ -412,8 +412,8 @@ def dataset_ref_recrop_auto(dataset_id):
         return jsonify({'error': 'no reference to re-crop'}), 400
     resp = {'ok': True, 'head_crop': head_detected}
     if not head_detected:
-        from .. import capabilities
-        model_ready = capabilities.probe_ollama_model()['ok']
+        from ..services import vision_llm
+        model_ready = vision_llm.probe_model()['ok']
         resp['warning'] = (
             "Auto head-crop needs the Ollama vision model, which isn't ready yet — "
             'used a centered crop. Finish the Ollama step in Setup, then adjust with Crop.'

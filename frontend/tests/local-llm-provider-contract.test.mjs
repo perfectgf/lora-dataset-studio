@@ -73,3 +73,31 @@ test('LM Studio is never offered a Start button it cannot honour', () => {
   assert.doesNotMatch(lmStatus, /Start Server<\/button>|onClick=\{start\}/)
   assert.match(lmStatus, /Developer/)
 })
+
+test('the Setup step describes the provider this install actually uses', () => {
+  // Before this, the wizard sent an LM Studio user to download an Ollama binary,
+  // start a daemon it cannot start, and pull a model into a server it does not
+  // run — three instructions about the wrong product, on the screen a new install
+  // trusts most.
+  const step = read('hooks/useSetupSteps.js')
+  assert.match(step, /isLmStudio/, 'ollamaStep does not know which provider is selected')
+  assert.match(step, /LM Studio — captioning & auto-framing/, 'the step title still names only Ollama')
+  assert.match(step, /has no usable model loaded/,
+    'the gate does not explain LM Studio\'s own readiness question (loaded, not pulled)')
+
+  const page = read('pages/SetupPage.jsx')
+  assert.match(page, /if \(step\.isLmStudio\)/,
+    'the step body still renders the Ollama install guide for an LM Studio install')
+  // And it returns BEFORE the branches that offer Start/Pull, which do not apply.
+  const body = page.slice(page.indexOf('const ollamaBody'))
+  assert.ok(body.indexOf('if (step.isLmStudio)') < body.indexOf('if (step.installed)'),
+    'the LM Studio branch must come before the Ollama ones, or Start/Pull win')
+})
+
+test('the install menu does not offer an Ollama pull under LM Studio', () => {
+  const src = read('hooks/useSetupSteps.js')
+  assert.match(src, /llmProvider === 'ollama' && o\.reachable && modelName/,
+    'installCatalog offers the Ollama model pull regardless of provider')
+  assert.match(src, /download models in the LM Studio app/i,
+    'the row is turned off without saying why — the dead end this menu exists to close')
+})

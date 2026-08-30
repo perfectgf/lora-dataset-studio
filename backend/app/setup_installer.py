@@ -1127,6 +1127,20 @@ def _action_needed(action, caps) -> bool:
     if action == 'ollama_model':
         # Only when Ollama is already reachable AND a model name is configured (the pull
         # needs a target) — Ollama itself can't be auto-installed here.
+        #
+        # And only when Ollama is the SELECTED provider. Offering to pull an Ollama
+        # model to someone running LM Studio installs several GB they will never use,
+        # and it would happen exactly when they are most likely to click: a machine
+        # that still has Ollama running answers `reachable` perfectly well.
+        #
+        # There is deliberately no LM Studio counterpart here. Its own
+        # POST /api/v1/models/download exists, but the matching progress endpoint does
+        # not on 0.4.23 (`GET /api/v1/models/download/status` -> "Unexpected endpoint"),
+        # so an install action for it would be a multi-gigabyte download with no
+        # progress and no cancel — worse than what LM Studio's own app already does
+        # well. Models are downloaded there; the Setup card says so.
+        if (caps.get('local_llm') or {}).get('provider', 'ollama') != 'ollama':
+            return False
         o = caps.get('ollama') or {}
         return bool(o.get('reachable') and not o.get('vision_model_ready')
                     and (o.get('vision_model') or '').strip())

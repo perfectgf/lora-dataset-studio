@@ -7403,7 +7403,7 @@ def start_watermark(app, user_id, bank_id, rescan=False, statuses=None, ids=None
         one that has always worked.
 
     Serialized against training/vision (503 when the GPU is held)."""
-    from ..capabilities import probe_ollama_model
+    from .vision_llm import probe_model as probe_ollama_model
     from . import watermark_detector
     bank = get_bank(user_id, bank_id)
     if not bank:
@@ -9438,7 +9438,7 @@ def start_framing(app, user_id, bank_id, rescan=False, statuses=None, ids=None):
     the 📐 Framing filter chips and the coverage advice. Needs the vision model
     pulled; serialized against training/vision like the watermark pass (503 when
     the GPU is held). ``rescan`` re-classifies rows that already have a framing."""
-    from ..capabilities import probe_ollama_model
+    from .vision_llm import probe_model as probe_ollama_model
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -10341,7 +10341,7 @@ def _score_prereq() -> str | None:
 
 
 def _watermark_prereq() -> str | None:
-    from ..capabilities import probe_ollama_model
+    from .vision_llm import probe_model as probe_ollama_model
     if not probe_ollama_model().get('ok'):
         return 'vision model not available (Settings ▸ Local tools)'
     return None
@@ -10355,7 +10355,7 @@ def _faces_prereq() -> str | None:
 
 
 def _framing_prereq() -> str | None:
-    from ..capabilities import probe_ollama_model
+    from .vision_llm import probe_model as probe_ollama_model
     if not probe_ollama_model().get('ok'):
         return 'vision model not available (Settings ▸ Local tools)'
     return None

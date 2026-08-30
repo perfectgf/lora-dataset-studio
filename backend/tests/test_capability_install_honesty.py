@@ -388,3 +388,27 @@ def test_every_capability_the_app_probes_can_be_installed_from_setup():
         "app probes needs an INSTALL_ACTIONS entry — otherwise Setup shows ✗ with "
         "no button that repairs it. Add the action (plus its packages in "
         "_CAPABILITY_PACKAGES when it installs with pip), or remove the probe.")
+
+
+def test_the_ollama_pull_is_not_offered_to_an_lmstudio_install():
+    """The trap is that it looks perfectly available.
+
+    A machine that switched to LM Studio very often still has Ollama installed and
+    answering, so `reachable` is true and every other precondition passes. Without
+    the provider check the install menu would offer several gigabytes of a model
+    this install will never call — on the one screen where people click everything
+    in sight to finish Setup.
+
+    There is deliberately no LM Studio counterpart action: its download endpoint
+    exists but 0.4.23 ships no progress endpoint beside it (measured:
+    `GET /api/v1/models/download/status` answers "Unexpected endpoint"), so an
+    install action for it would be a multi-gigabyte download with no progress and
+    no cancel — worse than what LM Studio's own app already does well.
+    """
+    from app import setup_installer
+    caps = {'ollama': {'reachable': True, 'vision_model_ready': False,
+                       'vision_model': 'qwen3-vl:8b-instruct'}}
+    assert setup_installer._action_needed('ollama_model', {**caps, 'local_llm': {'provider': 'ollama'}}) is True
+    assert setup_installer._action_needed('ollama_model', {**caps, 'local_llm': {'provider': 'lmstudio'}}) is False
+    # An install predating the setting has no local_llm block at all, and means Ollama.
+    assert setup_installer._action_needed('ollama_model', caps) is True

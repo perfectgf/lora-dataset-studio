@@ -1060,6 +1060,45 @@ export default function SetupPage() {
       // the panel had just taken that button off the screen. The exit and the remedy are
       // not alternatives — the user is choosing between them, so both have to be visible.
       const ollamaBody = (() => {
+      // Under LM Studio none of the branches below describe this install: there is
+      // no binary to download, no daemon to start from here, and no model to pull —
+      // its app owns all three. Sending someone to install Ollama because they
+      // picked the other provider is a wrong-product instruction, so this returns
+      // before any of it.
+      if (step.isLmStudio) {
+        return (
+          <div className="space-y-4">
+            <div className={`rounded-md border px-3 py-3 ${step.visionModelReady
+              ? 'border-emerald-500/30 bg-emerald-500/10'
+              : 'border-amber-500/30 bg-amber-500/10'}`}>
+              <p className="text-sm font-medium text-content">
+                {step.visionModelReady
+                  ? 'LM Studio is ready.'
+                  : step.reachable
+                    ? 'LM Studio is running, but no usable model is loaded.'
+                    : 'LM Studio is not answering.'}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-content-muted">
+                {step.visionModelReady
+                  ? step.lmDetail
+                  : step.reachable
+                    ? 'Open LM Studio, load a vision model in its Developer tab, then Save & re-check. '
+                      + 'It has no just-in-time loading by default, so a model has to be loaded before this app can use it.'
+                    : `Open LM Studio, go to Developer and press Start Server (expected at ${step.lmUrl || 'http://127.0.0.1:1234'}), then Save & re-check.`}
+              </p>
+              <p className="mt-2 text-xs text-content-muted">
+                Models are downloaded inside LM Studio itself — it shows progress and lets you
+                cancel, which this app cannot do for it.
+              </p>
+            </div>
+            <SettingsLink section="local-tools" focus="local-llm-provider">
+              Change provider or URL in Settings ▸ Local tools →
+            </SettingsLink>
+            {saveRecheckBtn}
+          </div>
+        )
+      }
+
       if (step.unconfigured) {
         return (
           <div className="space-y-4">

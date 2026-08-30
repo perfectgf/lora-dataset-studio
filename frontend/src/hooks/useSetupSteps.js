@@ -320,6 +320,21 @@ export function ollamaGateReason(s) {
     return 'Choose No Ollama, Existing host Ollama or Docker Ollama on this page before continuing.'
   }
   if (s.skipped || s.joycaptionReady) return null
+  // LM Studio answers a different pair of questions: it cannot be started from
+  // here, and "ready" means a model is LOADED rather than pulled. Sending someone
+  // to download an Ollama binary they deliberately did not choose is the kind of
+  // wrong-product instruction that costs a support round-trip.
+  if (s.isLmStudio) {
+    if (!s.reachable) {
+      return 'LM Studio is not answering. Open it, go to Developer and press Start Server '
+        + '(then Save & re-check), or switch provider in Settings ▸ Local tools.'
+    }
+    if (!s.visionModelReady) {
+      return 'LM Studio is running but has no usable model loaded — load a vision model '
+        + 'in its Developer tab, then Save & re-check.'
+    }
+    return 'Finish this step to continue.'
+  }
   if (s.managedInitializing) {
     return 'The companion Ollama container is still starting. This page will continue automatically when it is ready.'
   }
@@ -441,6 +456,11 @@ export function aitoolkitVerdict(step, dir) {
 }
 
 function ollamaStep(caps, runtimeReadiness) {
+  // Which local LLM this step is actually about. An install predating the setting
+  // has no local_llm block and means Ollama.
+  const llmProvider = ((caps.local_llm || {}).provider) || 'ollama'
+  const isLmStudio = llmProvider === 'lmstudio'
+  const lms = caps.lmstudio || {}
   const o = caps.ollama || {}
   const managed = (runtimeReadiness && runtimeReadiness.ollama) || {}
   const deploymentMode = managed.mode || 'local'
@@ -456,9 +476,13 @@ function ollamaStep(caps, runtimeReadiness) {
   // never transfer a model-ready verdict across that endpoint switch.
   const capabilityMatchesDeployment = !dockerManaged || !deploymentUrl
     || normalizedCapabilityUrl === deploymentUrl
-  const reachable = dockerManaged ? !!managed.ready : !!o.reachable
-  const visionModelReady = reachable && capabilityMatchesDeployment
-    && !!o.vision_model_ready
+  // Under LM Studio the whole Docker/host/companion machinery is beside the point:
+  // it is one server the user runs themselves, and its readiness question is
+  // "is a model loaded", not "is a model pulled".
+  const reachable = isLmStudio ? !!lms.reachable
+    : dockerManaged ? !!managed.ready : !!o.reachable
+  const visionModelReady = isLmStudio ? !!lms.model_ready
+    : (reachable && capabilityMatchesDeployment && !!o.vision_model_ready)
   const disabled = deploymentMode === 'none'
   const unconfigured = deploymentMode === 'unconfigured'
   const managedInitializing = deploymentMode === 'docker'
@@ -467,7 +491,7 @@ function ollamaStep(caps, runtimeReadiness) {
   // not reachable), so a reachable Ollama can never read as skipped — its real
   // state, model gap included, always wins. A Docker deployment set to 'none'
   // reaches the same neutral status by its own route.
-  const skipped = !dockerManaged && !!o.skipped
+  const skipped = !dockerManaged && !isLmStudio && !!o.skipped
   // JoyCaption covers captioning on its own — the caption style follows the
   // TRAIN TYPE (prose for Z-Image, booru for SDXL) and the same prompt goes to
   // both engines, so its presence is what turns this step from a gate into a
@@ -481,9 +505,13 @@ function ollamaStep(caps, runtimeReadiness) {
         ? 'initializing'
         : gateStatus(reachable, visionModelReady))
   return {
-    id: 'ollama', title: 'Ollama — captioning & auto-framing', recommended: false,
+    id: 'ollama',
+    title: isLmStudio ? 'LM Studio — captioning & auto-framing'
+      : 'Ollama — captioning & auto-framing',
+    recommended: false,
     unlocks: ['Captioning', 'Auto-classify framing', 'Auto head-crop'],
     status, reachable, visionModelReady, skipped, joycaptionReady,
+    llmProvider, isLmStudio, lmDetail: lms.detail || '', lmUrl: lms.url || '',
     deploymentMode, deploymentState, deploymentConfigured, deploymentUrl,
     dockerManaged, disabled, unconfigured, managedInitializing,
     url: deploymentUrl || o.url || '', visionModel: o.vision_model || '',
@@ -876,6 +904,8 @@ export function installAllPlan(caps) {
 //               button, pointing back at the config step that unblocks them.
 export function installCatalog(caps) {
   const c = caps || {}
+  // Total: a config written before this setting existed has no local_llm block.
+  const llmProvider = ((c.local_llm || {}).provider) || 'ollama'
   const mlOk = !(c.python && c.python.ml_supported === false)
   const mlRange = (c.python && c.python.ml_range) || '3.10–3.12'
   const mlHint = `Needs Python ${mlRange} — install it into a separate 3.10–3.12 env and set its path in Settings.`
@@ -975,8 +1005,19 @@ export function installCatalog(caps) {
     // a row to click, and an extra with no row is the dead end this menu exists
     // to close.
     item('video_text', c.video_text, true, ''),
-    item('ollama_model', o.vision_model_ready, o.reachable && modelName,
-      !o.reachable ? 'Start Ollama first (the Captioning step).'
+    // Pulling an Ollama model is offered only when Ollama is the SELECTED provider.
+    // A machine running LM Studio often still has Ollama answering, so without this
+    // the menu would offer several GB of a model that install will never call — and
+    // offer it exactly where a user is clicking everything to finish Setup.
+    // There is no LM Studio row beside it on purpose: its download endpoint exists
+    // but 0.4.23 has no progress endpoint to go with it, so an install action would
+    // be a multi-gigabyte download with no progress and no cancel. LM Studio's own
+    // app does that well; the hint sends people there.
+    item('ollama_model', o.vision_model_ready,
+      llmProvider === 'ollama' && o.reachable && modelName,
+      llmProvider !== 'ollama'
+        ? 'LM Studio is the selected provider — download models in the LM Studio app.'
+        : !o.reachable ? 'Start Ollama first (the Captioning step).'
         : !modelName ? 'Set a vision model name first (the Captioning step).' : ''),
     // klein_enhancement_lora included: it was installable through the improve
     // 409 for weeks and offered by NO surface — the first thing the setup

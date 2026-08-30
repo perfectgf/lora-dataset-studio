@@ -985,3 +985,29 @@ test('an unchosen Docker deployment is still a question, even with JoyCaption re
   assert.equal(s.unconfigured, true);
   assert.match(ollamaGateReason(s), /Choose No Ollama/);
 });
+
+test('the installer stops offering an Ollama pull to someone running LM Studio', () => {
+  // The trap is that it looks available: a machine that switched to LM Studio very
+  // often still has Ollama answering, so `reachable` is true and the row would
+  // offer several GB of a model this install will never call — on the screen where
+  // people click everything to finish Setup.
+  const caps = (provider) => ({
+    local_llm: { provider },
+    ollama: { reachable: true, vision_model_ready: false, vision_model: 'qwen3-vl:8b' },
+  });
+  const row = (provider) =>
+    installCatalog(caps(provider)).find((c) => c.action === 'ollama_model');
+
+  assert.equal(row('ollama').available, true);
+  const lms = row('lmstudio');
+  assert.equal(lms.available, false);
+  assert.match(lms.hint, /LM Studio app/,
+    'a row turned off without a reason is a dead end, which is what this menu exists to close');
+});
+
+test('an install that predates the provider setting still gets the Ollama pull', () => {
+  const row = installCatalog({
+    ollama: { reachable: true, vision_model_ready: false, vision_model: 'qwen3-vl:8b' },
+  }).find((c) => c.action === 'ollama_model');
+  assert.equal(row.available, true);
+});

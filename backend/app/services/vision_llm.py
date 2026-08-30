@@ -141,6 +141,28 @@ def unload_vision_model(**kw) -> bool:
     return vision_ollama.unload_vision_model(**kw)
 
 
+def probe_model(reachable=None, model: str | None = None) -> dict:
+    """`{ok, detail}` — can the CONFIGURED provider caption right now?
+
+    The passive readiness question, as opposed to :func:`ensure_ready`, which is
+    allowed to act (start Ollama) before answering. Both surfaces gate their
+    heavy passes on this: the bank refuses to START a watermark, framing or
+    caption pass when it is false, and the dataset routes use it to decide
+    whether auto head-crop can run.
+
+    It exists because those gates called `probe_ollama_model` directly. That
+    reads `ollama.url` and `ollama.vision_model`, so on an install running LM
+    Studio — where Ollama is deliberately not running — every one of them
+    answered "the vision model is not available" and the whole Bank stopped
+    working, while captioning through the router worked fine two lines later.
+    """
+    if provider() == LMSTUDIO:
+        from ..capabilities import probe_lmstudio_model
+        return probe_lmstudio_model(reachable=reachable, model=model)
+    from ..capabilities import probe_ollama_model
+    return probe_ollama_model(reachable=reachable, model=model)
+
+
 def ensure_ready(model: str | None = None) -> dict:
     """`{ok, error}` — can this provider caption right now, after doing what it can.
 
