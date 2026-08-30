@@ -2430,7 +2430,16 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
     # it, so how many clips are about to ship without one is a limit that has to
     # be visible BEFORE the encode rather than discovered in a training run.
     captioned = sum(1 for c in rows if (c.caption or '').strip())
+    # Shot-rate is a FACT about the source file, and 48+ fps footage is very
+    # often slow motion once conformed — which teaches a model dreamy, floaty
+    # movement (fal audited two thirds of their people clips as slo-mo). Stated,
+    # never judged: no detector is pretended here, only the number the probe
+    # already measured, so the user can weigh footage they know better than we do.
+    high_fps_ids = {vs.id for vs in VideoSource.query.filter(
+        VideoSource.id.in_({c.source_id for c in rows}),
+        VideoSource.fps_native >= 48).all()} if rows else set()
     composition = {
+        'high_fps_clips': sum(1 for c in rows if c.source_id in high_fps_ids),
         'sources': len(per_source),
         'captioned': captioned,
         'uncaptioned': len(rows) - captioned,

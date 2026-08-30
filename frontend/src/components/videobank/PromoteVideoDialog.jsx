@@ -99,6 +99,11 @@ export default function PromoteVideoDialog({
       // by the user's OWN setting, and it is the only limit here they can undo.
       const cost = insetOutcome(d.composition)
       if (cost) toast.warning(cost)
+      if (d.composition?.high_fps_clips > 0) {
+        toast.warning(`${d.composition.high_fps_clips} clip(s) come from 48+ fps `
+          + 'sources — often slow-motion footage, which teaches floaty movement. '
+          + 'Worth a second look if that is not the style you want.')
+      }
       // What the set turned out to be MADE OF. 60% from one source is invisible
       // on disk — the folder looks exactly like a diverse one — so the only
       // place it can be seen is here, right after it happened.
