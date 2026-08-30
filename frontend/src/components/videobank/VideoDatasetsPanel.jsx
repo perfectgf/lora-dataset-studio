@@ -135,6 +135,7 @@ function VideoTrainingSection({ ds }) {
   // where the user could not see, let alone change, what they were about to
   // spend a night on. Same dial as the cloud panel now, same prefill source.
   const [steps, setSteps] = useState(ds?.suggested_steps || 2000)
+  const [doI2v, setDoI2v] = useState(false)
 
   const poll = useCallback(async () => {
     try {
@@ -161,7 +162,7 @@ function VideoTrainingSection({ ds }) {
     setBusy(true)
     try {
       const r = await postJson(`/api/video-dataset/${ds.id}/train`,
-        { steps, accept_download: acceptDownload })
+        { steps, do_i2v: doI2v, accept_download: acceptDownload })
       toast.success(`Training started — ${r.clips} clips, ${r.steps} steps.`)
       // Things the run will not fail on but that change what to expect from it.
       ;(r.warnings || []).forEach((w) => toast.warning(w))
@@ -224,6 +225,13 @@ function VideoTrainingSection({ ds }) {
               <span className="text-[0.625rem] text-content-subtle">
                 suggested for {ds.clips} clips
               </span>
+            )}
+            {ds.target_profile === 'minimax_h3' && (
+              <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
+                <input type="checkbox" checked={doI2v}
+                  onChange={(e) => setDoI2v(e.target.checked)} />
+                i2v (first-frame)
+              </label>
             )}
             <button type="button" onClick={() => start(false)} disabled={busy}
               className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-50">

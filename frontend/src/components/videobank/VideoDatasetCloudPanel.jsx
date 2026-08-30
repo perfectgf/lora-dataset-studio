@@ -43,6 +43,7 @@ export default function VideoDatasetCloudPanel({ dataset }) {
   const [steps, setSteps] = useState(dataset?.suggested_steps || 1000)
   // GPU tiers are fetched on demand, never on mount: a library page with a
   // dozen datasets must not fan out a vast.ai search per card.
+  const [doI2v, setDoI2v] = useState(false)
   const [tiers, setTiers] = useState(null)
   const [gpuName, setGpuName] = useState('')
   const [tiersBusy, setTiersBusy] = useState(false)
@@ -124,6 +125,13 @@ export default function VideoDatasetCloudPanel({ dataset }) {
             suggested for {dataset.clips} clips
           </span>
         )}
+        {dataset?.target_profile === 'minimax_h3' && (
+          <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
+            <input type="checkbox" checked={doI2v}
+              onChange={(e) => setDoI2v(e.target.checked)} />
+            i2v (first-frame)
+          </label>
+        )}
         {tiers === null ? (
           <button type="button" disabled={tiersBusy}
             onClick={fetchTiers}
@@ -148,7 +156,11 @@ export default function VideoDatasetCloudPanel({ dataset }) {
         )}
         <button type="button" disabled={busy || Boolean(blocked)}
           onClick={() => post(videoDatasetCloudUrl(id),
-            gpuName ? { steps, gpu_name: gpuName } : { steps },
+            {
+              steps,
+              ...(doI2v ? { do_i2v: true } : {}),
+              ...(gpuName ? { gpu_name: gpuName } : {}),
+            },
             'Renting a pod — the panel follows it from here.')}
           className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-40">
           ☁ Train in the cloud

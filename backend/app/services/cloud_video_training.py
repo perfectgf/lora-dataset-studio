@@ -136,6 +136,7 @@ def video_gpu_tiers(user_id, video_dataset_id, steps=None) -> dict:
 
 def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                                 base_model=None, low_vram=False, gpu_name=None,
+                                do_i2v=False,
                                 resume_ckpt_paths=None, resume_step=None,
                                 parent_run_id=None, _provision=None) -> dict:
     """Rent a pod and train a LoRA on a built video dataset.
@@ -175,7 +176,7 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     # params at pod boot.
     video_training.build_job_config(
         ds, str(ds.output_dir), n_steps, training_folder='__POD__',
-        base_model=base_model, low_vram=low_vram)
+        base_model=base_model, low_vram=low_vram, do_i2v=bool(do_i2v))
 
     fam = 'video'
     with ct._launch_reservation_lock:
@@ -189,6 +190,9 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                 'steps': n_steps,
                 'base_model': base_model or '',
                 'low_vram': bool(low_vram),
+                # Stamped like low_vram: the pod rebuild happens minutes later
+                # and must not re-read a toggle the user may have moved since.
+                'do_i2v': bool(do_i2v),
                 'target_profile': ds.target_profile,
                 'frames': ds.frames,
                 'artifact_kind': 'lora',

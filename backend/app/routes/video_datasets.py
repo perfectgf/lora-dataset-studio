@@ -159,6 +159,7 @@ def video_dataset_train_local(dataset_id):
             steps=body.get('steps') or 1000,
             base_model=(body.get('base_model') or '').strip() or None,
             low_vram=bool(body.get('low_vram', True)),
+            do_i2v=bool(body.get('do_i2v', False)),
             accept_download=bool(body.get('accept_download', False))))
     except vtl.VideoWeightsMissing as e:
         return jsonify({'error': str(e), 'needs_download': True,
@@ -235,6 +236,7 @@ def video_dataset_train_cloud(dataset_id):
             steps=body.get('steps') or 1000,
             base_model=(body.get('base_model') or '').strip() or None,
             low_vram=bool(body.get('low_vram', False)),
+            do_i2v=bool(body.get('do_i2v', False)),
             gpu_name=body.get('gpu_name')))
     except video_training.VideoTrainingUnsupported as e:
         return jsonify({'error': str(e)}), 400

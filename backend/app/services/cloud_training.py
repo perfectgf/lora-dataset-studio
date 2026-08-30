@@ -3346,6 +3346,7 @@ def _build_pod_job_config(run, staging_dataset: str, pod_settings: dict) -> dict
             # cost 170-185 s a step on 24 GB by shuttling the idle expert over
             # PCIe. Stamped at launch so the pod cannot be re-decided later.
             low_vram=bool(params.get('low_vram', False)),
+            do_i2v=bool(params.get('do_i2v', False)),
             # Asked of the image this pod actually boots, not assumed from ours:
             # the pin is a config value and someone may move it backwards.
             training_adapter=video_training.image_supports_training_adapter(

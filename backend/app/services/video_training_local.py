@@ -290,7 +290,7 @@ def _default_spawn(argv, cwd, env, stdout):
 @lt._serial_local_launch
 def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
                          low_vram=True, rank=16, sample_prompts=None,
-                         accept_download=False, _spawn=None) -> dict:
+                         accept_download=False, do_i2v=False, _spawn=None) -> dict:
     """Train a LoRA on a promoted video dataset, locally, through ai-toolkit.
 
     Everything that can refuse does so BEFORE the GPU fence is taken, in
@@ -339,7 +339,8 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
         ds, folder, n_steps, training_folder=training_folder,
         base_model=base_model, low_vram=bool(low_vram), rank=rank,
         sample_prompts=sample_prompts,
-        training_adapter=supports_training_adapter(target_arch))
+        training_adapter=supports_training_adapter(target_arch),
+        do_i2v=bool(do_i2v))
     proc_cfg = job_config['config']['process'][0]
     arch = proc_cfg['model']['arch']
     run_name = local_run_name(ds)

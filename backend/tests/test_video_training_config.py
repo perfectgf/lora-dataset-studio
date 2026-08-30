@@ -707,3 +707,24 @@ def test_suggested_steps_sits_on_the_measured_line_and_never_past_it():
     assert f(300) == 5000                          # cap: the largest evidence
     assert f(None) == 1000 and f('nope') == 1000   # junk answers the floor
 
+
+def test_first_frame_i2v_is_a_flag_on_h3_and_a_refusal_with_directions_on_wan():
+    """H3's one checkpoint trains t2v AND first-frame i2v, switched by the
+    dataset flag `do_i2v` - a field ai-toolkit has carried since before this
+    lane existed, so no version gate. Wan is different on purpose: its i2v
+    variants are SEPARATE architectures with their own catalogue targets, so
+    asking the t2v arch for i2v is refused with directions rather than
+    forwarded and hoped about. Off, the config is byte-identical to before."""
+    h3 = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24),
+        '/pod/ds', 100, do_i2v=True))
+    assert h3['datasets'][0]['do_i2v'] is True
+    off = _proc(vtrain.build_job_config(
+        _VideoDS(target_profile='minimax_h3', frames=39, fps=24), '/pod/ds', 100))
+    assert 'do_i2v' not in off['datasets'][0]
+    with pytest.raises(vtrain.VideoTrainingUnsupported) as e:
+        vtrain.build_job_config(
+            _VideoDS(target_profile='wan22_14b', frames=81, fps=16),
+            '/pod/ds', 100, do_i2v=True)
+    assert 'I2V target' in str(e.value)
+

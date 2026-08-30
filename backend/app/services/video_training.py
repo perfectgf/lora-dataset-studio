@@ -110,6 +110,13 @@ _RECOVERY_ADAPTERS = {
                   'wan22_14b_t2i_torchao_uint4.safetensors'),
 }
 
+# Arches whose ONE checkpoint trains both t2v and first-frame i2v, switched by
+# the dataset flag `do_i2v` (the first frame becomes the conditioning image).
+# Wan is absent on purpose: its i2v variants are SEPARATE architectures with
+# their own catalogue targets, and asking the t2v arch for i2v is a mistake to
+# refuse with directions, not a flag to forward and hope.
+_I2V_CAPABLE = ('minimax_h3',)
+
 # The de-distillation recipe, per arch, and it is ai-toolkit's OWN default rather
 # than a setting we chose. H3 ships guidance-distilled; a LoRA trained on it raw
 # runs into what ostris named "distillation breakdown", and upstream's answer came
@@ -259,7 +266,7 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
                      training_folder=None, base_model=None, low_vram=True,
                      sample_prompts=None, save_every=None,
                      max_step_saves_to_keep=2, rank=16,
-                     training_adapter=False) -> dict:
+                     training_adapter=False, do_i2v=False) -> dict:
     """The ai-toolkit job config for training on a built video dataset.
 
     `training_adapter` says whether the ai-toolkit that will RUN this config can
@@ -319,6 +326,11 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         raise VideoTrainingUnsupported(
             'this video dataset recorded no clip size, so the training resolution '
             'cannot be derived — rebuild it, or pass the size explicitly')
+
+    if do_i2v and arch not in _I2V_CAPABLE:
+        raise VideoTrainingUnsupported(
+            f'{profile["label"]} does not train i2v from this checkpoint — '
+            'pick its dedicated I2V target instead')
 
     name_or_path = base_model or _VERIFIED_BASES.get(arch)
     if not name_or_path:
@@ -400,6 +412,10 @@ def build_job_config(video_ds, dataset_folder: str, steps: int,
         # Flipping it to False would NOT be the safer read - it switches the
         # loader to pulling frames at `fps` from a RANDOM start frame.
         'shrink_video_to_frames': True,
+        # First-frame i2v, on the arches whose one checkpoint trains both ways.
+        # Emitted only when asked AND capable; `do_i2v` has been in ai-toolkit's
+        # dataset config since before this lane existed, so no version gate.
+        **({'do_i2v': True} if do_i2v else {}),
         'resolution': [_resolution_for(width, height, profile['size_multiple'],
                                        profile['max_pixels'])],
     }
