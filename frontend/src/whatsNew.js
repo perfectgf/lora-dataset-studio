@@ -83,6 +83,23 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-h3-trains-the-way-h3-is-trained',
+    date: '2026-08-30',
+    title: 'MiniMax H3 video LoRAs now train the way the model expects',
+    blurb:
+      'H3 ships guidance-distilled, and training a LoRA on it without accounting '
+      + 'for that quietly degrades the result. ai-toolkit answered with a '
+      + 'contrastive guidance loss and a small training adapter, and made the '
+      + 'pair its default for H3 — video training here now uses both, wherever '
+      + 'the ai-toolkit it is driving can actually run them: your installed copy '
+      + 'is read for the capability, and a rented pod is judged on the image it '
+      + 'boots, so an older setup quietly skips the recipe instead of failing. '
+      + 'Alongside it, a clip now defaults to 39 frames instead of 107 — the '
+      + 'length the trainer itself trains at, and about a third of the work per '
+      + 'step — with every other length still on the menu, 22 included.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-29-video-lora-in-the-cloud',
     date: '2026-08-29',
     title: 'Train a video LoRA on a rented GPU — MiniMax H3 included',
