@@ -1347,6 +1347,39 @@ def test_probe_skipped_false_by_default(app):
     assert caps['comfyui']['skipped'] is False
 
 
+# --- ollama.skipped: same contract, annulled by REACHABILITY not by a path -----
+
+def test_probe_ollama_skipped_true_when_flag_set_and_unreachable(app):
+    """"Continue without Ollama" reads as a neutral skip while Ollama is absent."""
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'setup_skipped': True}})
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    assert caps['ollama']['skipped'] is True
+
+
+def test_probe_ollama_skip_annulled_when_reachable(app):
+    """A REACHABLE Ollama annuls the skip on the spot, so the flag can never hide the
+    real state of a running one — here: up, but with no vision model pulled."""
+    with app.app_context():
+        from app import capabilities, config
+        config.save_config({'ollama': {'setup_skipped': True}})
+        with patch('app.capabilities._http_ok', return_value=True):
+            caps = capabilities.probe(force=True)
+    assert caps['ollama']['skipped'] is False
+    assert caps['ollama']['reachable'] is True
+    assert caps['ollama']['vision_model_ready'] is False   # the real gap still surfaces
+
+
+def test_probe_ollama_skipped_false_by_default(app):
+    with app.app_context():
+        from app import capabilities
+        with patch('app.capabilities._http_ok', return_value=False):
+            caps = capabilities.probe(force=True)
+    assert caps['ollama']['skipped'] is False
+
+
 def test_is_comfyui_dir_accepts_desktop_layout(tmp_path):
     """The ComfyUI Desktop app's basedir has models/ + custom_nodes/ but NO
     main.py (a user had to symlink one to pass the old check)."""

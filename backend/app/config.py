@@ -100,7 +100,16 @@ DEFAULTS = {
                # Seconds an ISOLATED vision call may keep the model resident when
                # nothing else wants the GPU (0 = always unload, the old
                # behaviour). See services/vision_keepalive.py.
-               'vision_keep_warm_seconds': 120},
+               'vision_keep_warm_seconds': 120,
+               # setup_skipped (default False): the user consciously chose "continue
+               # without Ollama" in the Setup wizard — the same shape as
+               # comfyui.setup_skipped above. It ONLY makes the Setup step render a
+               # neutral "skipped" instead of blocking; it never gates a capability,
+               # and the per-feature gates (framing, head-crop, Describe/Enhance) keep
+               # reading the live probe. A REACHABLE Ollama annuls it (the DERIVED
+               # ollama.skipped in capabilities.probe), so it can never mask a real
+               # error of a running Ollama — a stopped one has nothing to error on.
+               'setup_skipped': False},
     'aitoolkit': {'dir': '', 'datasets_dir': '', 'output_dir': '', 'hf_home': '',
                   # Explicit interpreter for installs without venv/.venv
                   # (conda, uv, system python). Empty = auto-detect.

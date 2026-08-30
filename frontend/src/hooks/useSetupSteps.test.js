@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   deriveSetupSteps, deriveCapabilitySummary, kleinMissingLabels, KLEIN_ASSET_LABELS,
   comfyuiDirVerdict, COMFYUI_SKIP_LOST, COMFYUI_SKIP_KEPT,
+  OLLAMA_SKIP_LOST, OLLAMA_SKIP_KEPT, ollamaSkipKept, ollamaGateReason,
   aitoolkitVerdict, AITOOLKIT_INSTALL_STEPS, SETUP_STEP_IDS,
 } from './useSetupSteps.js';
 // installAllPlan / installCatalog are imported further down, next to their own
@@ -863,4 +864,96 @@ test('Settings and Setup share one subscription component', () => {
   assert.match(engines, /<ChatgptSubscriptionConnect/);
   assert.doesNotMatch(engines, /chatgpt-oauth\/start/,
     'EnginesSection re-implements the device-code login instead of sharing it');
+});
+
+// --- Ollama: an optional tool the wizard stopped treating as a prerequisite ----
+//
+// The step used to refuse Next outright when Ollama was absent, and a NATIVE install
+// had no per-step way out: the "No Ollama" card only renders for Docker deployments
+// (ollamaStep leaves deploymentMode at 'local'). These lock the two lifts and the
+// self-annulling skip, so neither can quietly come back.
+
+const ollamaStepOf = (caps) => deriveSetupSteps(caps).find((s) => s.id === 'ollama');
+
+test('a chosen "continue without Ollama" reads as a neutral skip, not a failure', () => {
+  const s = ollamaStepOf({ ollama: { reachable: false, skipped: true } });
+  assert.equal(s.skipped, true);
+  assert.equal(s.status, 'skipped');
+  assert.equal(ollamaGateReason(s), null, 'a skipped step must not hold the wizard');
+});
+
+test('the skip never survives a reachable Ollama — the real state wins', () => {
+  // The backend derives `skipped` as (flag AND not reachable), so a running Ollama
+  // arrives with skipped:false and its own gap on show. Nothing to undo by hand.
+  const s = ollamaStepOf({ ollama: { reachable: true, vision_model_ready: false, skipped: false } });
+  assert.equal(s.skipped, false);
+  assert.notEqual(s.status, 'skipped');
+});
+
+test('a ready JoyCaption lifts the Ollama gate', () => {
+  const caps = { ollama: { reachable: false, installed: false } };
+  const blocked = ollamaStepOf(caps);
+  assert.equal(blocked.joycaptionReady, false);
+  assert.match(ollamaGateReason(blocked), /isn't installed/);
+
+  const withJoy = ollamaStepOf({ ...caps, captioners: { joycaption: true } });
+  assert.equal(withJoy.joycaptionReady, true);
+  assert.equal(ollamaGateReason(withJoy), null,
+    'JoyCaption writes the same prompt (prose for Z-Image, booru for SDXL) — it is not an SDXL-only fallback');
+});
+
+test('the gate still holds on states the user can act on right here', () => {
+  // Lifting the gate for JoyCaption must not lift it for a Docker deployment that
+  // has not been chosen yet, or a container mid-start: those are answerable on the page.
+  const unchosen = { status: 'available', unconfigured: true };
+  assert.match(ollamaGateReason(unchosen), /Choose No Ollama/);
+  const starting = { status: 'initializing', managedInitializing: true };
+  assert.match(ollamaGateReason(starting), /still starting/);
+  // And a Docker deployment explicitly set to "None" was never a block.
+  assert.equal(ollamaGateReason({ status: 'skipped', disabled: true }), null);
+});
+
+test('what continuing without Ollama costs is sourced, and captioning is not on that list', () => {
+  const lost = OLLAMA_SKIP_LOST.join(' | ');
+  const kept = OLLAMA_SKIP_KEPT.join(' | ');
+  // The Ollama-only passes — each one a real gate in the app.
+  assert.match(lost, /framing/i);
+  assert.match(lost, /head-crop/i);
+  assert.match(lost, /Describe/);
+  assert.match(lost, /Short captions/i);
+  // Captioning itself survives, and the panel says by what.
+  assert.match(kept, /JoyCaption/);
+  assert.ok(!OLLAMA_SKIP_LOST.some((t) => /^Captioning\b/i.test(t)),
+    'captioning is not lost with Ollama — JoyCaption covers it');
+});
+
+test('nothing the wizard SAYS claims JoyCaption is SDXL-only', () => {
+  // The premise that justified the hard block, asserted where it counts: the
+  // sentences a user can actually read. Every branch of the gate, plus both lists.
+  const everySentence = [
+    ollamaGateReason({ status: 'available', unconfigured: true }),
+    ollamaGateReason({ status: 'initializing', managedInitializing: true }),
+    ollamaGateReason({ status: 'available', reachable: false, deploymentMode: 'host' }),
+    ollamaGateReason({ status: 'available', reachable: false, installed: false }),
+    ollamaGateReason({ status: 'available', reachable: false, installed: true }),
+    ollamaGateReason({ status: 'partial', reachable: true, visionModelReady: false }),
+    ollamaGateReason({ status: 'partial', reachable: true, visionModelReady: true }),
+    ...OLLAMA_SKIP_LOST, ...OLLAMA_SKIP_KEPT,
+  ].filter(Boolean).join(' | ');
+  assert.ok(everySentence.length > 0);
+  assert.doesNotMatch(everySentence, /only covers SDXL/i);
+  assert.doesNotMatch(everySentence, /JoyCaption only/i);
+});
+
+test('the KEPT column never ticks a captioner this machine does not have', () => {
+  const withJoy = ollamaSkipKept(true);
+  assert.deepEqual(withJoy, OLLAMA_SKIP_KEPT);
+  assert.match(withJoy.join(' | '), /JoyCaption/);
+
+  const without = ollamaSkipKept(false);
+  assert.doesNotMatch(without.join(' | '), /JoyCaption/,
+    'promising JoyCaption captioning on an install that has none is the half-truth this avoids');
+  // Everything true of ANY install stays — the column must not go empty.
+  assert.equal(without.length, OLLAMA_SKIP_KEPT.length - 1);
+  assert.match(without.join(' | '), /LoRA training/);
 });

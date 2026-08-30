@@ -104,6 +104,8 @@ In Docker, host binary detection is not the deployment selector. Open **Setup �
 
 On a native install, LDS still distinguishes **not installed**, **installed but stopped**, and **running**. The **▶ Start Ollama** button applies only to a detected native binary.
 
+**You do not have to install Ollama to finish Setup.** If JoyCaption is installed, captioning already works without it and the step is only a recommendation. With neither installed, the step offers **Continue without Ollama**, which lists what turns off (auto-classify framing, auto head-crop, Test Studio Describe & Enhance, the bank's "Describe filter", the vision route of watermark detection, short captions) before you commit, and then stops asking. Starting Ollama later cancels the skip on its own — nothing to undo.
+
 No launcher or **Install everything** action pulls the large vision model. Once the selected service is reachable, use the explicit **Pull** button in LDS Setup; it shows progress and supports cancellation/resume. Keep the **Instruct** tag. The Thinking variant reasons instead of returning the compact captions these workflows expect.
 
 ## Training log looks frozen for several minutes

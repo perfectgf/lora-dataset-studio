@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-setup-without-ollama',
+    date: '2026-08-30',
+    title: 'Setup no longer stops at Ollama',
+    blurb:
+      'Ollama is optional, and the wizard finally treats it that way. With '
+      + 'JoyCaption installed, captioning already works without it — JoyCaption '
+      + 'writes the same captions the vision model would, prose or booru tags '
+      + 'depending on what you train — so the step is a recommendation, not a '
+      + 'gate. With neither installed you get an explicit "Continue without '
+      + 'Ollama" that lists exactly what turns off first: auto-framing, '
+      + 'head-crop, Describe & Enhance, the bank’s natural-language filter. '
+      + 'Start Ollama later and everything switches back on by itself.',
+    to: '/setup',
+  },
+  {
     id: '2026-08-29-video-lora-in-the-cloud',
     date: '2026-08-29',
     title: 'Train a video LoRA on a rented GPU — MiniMax H3 included',

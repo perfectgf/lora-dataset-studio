@@ -2052,6 +2052,14 @@ def probe(force=False) -> dict:
     # on. The engine/studio gates below are computed independently of this and stay
     # the source of truth; `skipped` only lets the Setup step render neutral.
     comfy_skipped = bool(cfg.get('comfyui.setup_skipped')) and not base_dir
+    # Same shape for "continue without Ollama". DERIVED on REACHABILITY rather than on
+    # a configured path, because that is where the two tools differ: ComfyUI is a
+    # directory you either set or don't, Ollama is a daemon that answers or doesn't.
+    # A reachable Ollama annuls the skip on the spot — so a running-but-model-less
+    # install still shows its real "pull the model" state instead of a lying "skipped",
+    # and the flag only ever softens an ABSENCE. Per-feature gates (framing, head-crop,
+    # Describe/Enhance) never read this; they keep reading the live probe.
+    ollama_skipped = bool(cfg.get('ollama.setup_skipped')) and not ollama['ok']
 
     from .services import chatgpt_oauth
     sub_status = chatgpt_oauth.status()
@@ -2097,6 +2105,9 @@ def probe(force=False) -> dict:
             'url': cfg.get('ollama.url') or '',
             'vision_model': cfg.get('ollama.vision_model') or '',
             'vision_model_ready': probe_ollama_model(reachable=ollama['ok'])['ok'],
+            # Conscious "continue without Ollama" (Setup wizard), derived above.
+            # Presentation only — nothing downstream gates on it.
+            'skipped': ollama_skipped,
         },
         'aitoolkit': {
             'configured': bool(cfg.get('aitoolkit.dir')),

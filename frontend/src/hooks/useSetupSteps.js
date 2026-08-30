@@ -259,6 +259,78 @@ export const COMFYUI_SKIP_KEPT = [
   'Publishing datasets and LoRAs to Hugging Face',
 ]
 
+// What "continue without Ollama" costs vs keeps. Same rule as the ComfyUI lists
+// above: every line is sourced from a real gate, nothing is invented.
+//   LOST  — classifyFramingGate.js ("Ollama is the only backend for this pass"),
+//           detect_head_bbox, lora_test_studio.describe/enhance_test_prompt,
+//           bank_filter_translator.translate, watermark_detect.backend='vision',
+//           and the caption_short derivation (text-only, Ollama-only).
+//   KEPT  — captioning itself, because JoyCaption writes the SAME prompt: the
+//           caption style is chosen by train_type (prose for Z-Image, booru for
+//           SDXL) and handed to BOTH engines, so JoyCaption is not an SDXL-only
+//           fallback. The wizard used to claim otherwise and gated on it.
+export const OLLAMA_SKIP_LOST = [
+  'Auto-classify framing (📐) on datasets and the bank',
+  'Auto head-crop when a dataset is built from a reference photo',
+  'Test Studio 🔎 Describe and ✨ Enhance',
+  'The bank’s “Describe filter” natural-language search',
+  'Watermark detection through the vision route (the detector engine still works)',
+  'Short captions derived from long ones',
+]
+export const OLLAMA_SKIP_KEPT = [
+  'Captioning with JoyCaption — prose or booru tags, matched to what you train',
+  'Scraping, dataset curation and the bank',
+  'Local generation, Test Studio comparisons and the Canvas (ComfyUI)',
+  'LoRA training — local ai-toolkit and cloud (vast.ai)',
+  'Nano Banana, ChatGPT and OpenRouter image engines',
+]
+
+// The KEPT list as THIS machine may claim it. Every other line is true of any
+// install; the captioning one is not — ticking it where JoyCaption is absent would
+// promise a captioner that isn't there. The panel's amber note names the fix, so
+// the line is withheld rather than reworded into a half-promise.
+export function ollamaSkipKept(joycaptionReady) {
+  return joycaptionReady
+    ? OLLAMA_SKIP_KEPT
+    : OLLAMA_SKIP_KEPT.filter((t) => !/^Captioning with JoyCaption/.test(t))
+}
+
+// Why the wizard would keep you on the Ollama step, or `null` when it would not.
+//
+// This step used to HARD BLOCK, on the premise that "JoyCaption only covers SDXL
+// booru tags" — which the code it guarded contradicts: the caption STYLE follows
+// the TRAIN TYPE (face_dataset_service picks prose unless sdxl) and the resulting
+// prompt is handed to BOTH engines, so JoyCaption writes the very prose Z-Image
+// wants. A ready JoyCaption therefore lifts the gate outright, and a conscious
+// skip lifts it too; with neither, SetupPage offers the skip panel rather than a
+// wall. What Ollama alone still unlocks — framing, head-crop, Describe/Enhance,
+// the bank's NL filter, short captions — stays listed, counted and honestly
+// absent (OLLAMA_SKIP_LOST, and the capability summary below).
+//
+// Pure, and living here rather than inside the page, so it can be re-evaluated
+// against FRESH capabilities after a save — and so `node --test` can hold every
+// branch of it, which is what the page's own closures can never offer.
+export function ollamaGateReason(s) {
+  if (!s || s.status === 'ready' || s.disabled) return null
+  if (s.skipped || s.joycaptionReady) return null
+  if (s.unconfigured) {
+    return 'Choose No Ollama, Existing host Ollama or Docker Ollama on this page before continuing.'
+  }
+  if (s.managedInitializing) {
+    return 'The companion Ollama container is still starting. This page will continue automatically when it is ready.'
+  }
+  if (!s.reachable) {
+    if (s.deploymentMode === 'host') {
+      return 'Host Ollama is selected but unreachable from Docker. Start it on the host and make port 11434 reachable from Docker, or choose Docker Ollama on this page.'
+    }
+    // Installed-but-stopped gets a Start nudge; genuinely absent gets install.
+    if (!s.installed) return "Ollama isn't installed — download it and start it (port 11434) to continue."
+    return 'Ollama is installed but not running — click ▶ Start Ollama below to continue.'
+  }
+  if (!s.visionModelReady) return 'Pull the vision model below to continue — with no JoyCaption installed, it is the only captioner this install has.'
+  return 'Finish this step to continue.'
+}
+
 // Map a /api/setup/comfyui-dir verdict to the wizard's inline feedback: a tone
 // (drives the colour) and an actionable message. `suggestion` is carried through so
 // the caller can render an "adopt this folder" button for the launcher-folder case.
@@ -387,9 +459,19 @@ function ollamaStep(caps, runtimeReadiness) {
   const unconfigured = deploymentMode === 'unconfigured'
   const managedInitializing = deploymentMode === 'docker'
     && managed.state === 'starting' && !managed.ready
+  // Conscious "continue without Ollama". The backend derives it (stored flag AND
+  // not reachable), so a reachable Ollama can never read as skipped — its real
+  // state, model gap included, always wins. A Docker deployment set to 'none'
+  // reaches the same neutral status by its own route.
+  const skipped = !dockerManaged && !!o.skipped
+  // JoyCaption covers captioning on its own — the caption style follows the
+  // TRAIN TYPE (prose for Z-Image, booru for SDXL) and the same prompt goes to
+  // both engines, so its presence is what turns this step from a gate into a
+  // recommendation. Everything else Ollama unlocks stays genuinely unavailable.
+  const joycaptionReady = !!((caps.captioners || {}).joycaption)
   const status = unconfigured
     ? 'available'
-    : disabled
+    : (disabled || skipped)
     ? 'skipped'
     : (managedInitializing
         ? 'initializing'
@@ -397,7 +479,7 @@ function ollamaStep(caps, runtimeReadiness) {
   return {
     id: 'ollama', title: 'Ollama — captioning & auto-framing', recommended: false,
     unlocks: ['Captioning', 'Auto-classify framing', 'Auto head-crop'],
-    status, reachable, visionModelReady,
+    status, reachable, visionModelReady, skipped, joycaptionReady,
     deploymentMode, deploymentState, deploymentConfigured, deploymentUrl,
     dockerManaged, disabled, unconfigured, managedInitializing,
     url: deploymentUrl || o.url || '', visionModel: o.vision_model || '',
