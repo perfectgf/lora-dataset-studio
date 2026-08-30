@@ -100,7 +100,8 @@ export const WHATS_NEW = [
     title: 'Use LM Studio instead of Ollama, if that is what you run',
     blurb:
       'Captioning, framing, head-crop, Describe and Enhance can now run on '
-      + 'LM Studio. Pick your local LLM in Settings ▸ Local tools and the whole '
+      + 'LM Studio. The Setup wizard asks which one you run, and Settings ▸ Local '
+      + 'tools switches it any time — the whole '
       + 'app follows — both the Dataset and the Bank pickers, and the GPU '
       + 'arbitration that keeps a vision model and ComfyUI from fighting over '
       + 'the card. Ollama stays the default and nothing changes unless you '

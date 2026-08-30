@@ -480,7 +480,7 @@ This now includes the **training** bases, which were the last exception: an SDXL
 
 ### Which local LLM
 
-- **Local LLM provider** → `local_llm.provider`: `ollama` (default) or `lmstudio`. One local model server does captioning, framing auto-classify, auto head-crop, Test Studio Describe & Enhance and the bank's natural-language filter; this picks which. **Nothing changes for an existing install** — the default is Ollama and the second provider only ever adds a door.
+- **Local LLM provider** → `local_llm.provider`: `ollama` (default) or `lmstudio`. One local model server does captioning, framing auto-classify, auto head-crop, Test Studio Describe & Enhance and the bank's natural-language filter; this picks which. The **Setup wizard asks it too**, on its local-LLM step, whichever provider is currently selected — an install that only has LM Studio should not have to find this page to say so. **Nothing changes for an existing install** — the default is Ollama and the second provider only ever adds a door.
 
 Both cards below stay editable whichever provider is selected, so you can configure the other one and press **Test** before switching. Only the selected provider is checked when the app refreshes its status, so an install pays nothing for a server it does not run.
 

@@ -146,6 +146,7 @@ export default function SetupPage() {
   const [dirCheck, setDirCheck] = useState(null)    // live classify of the typed ComfyUI dir
   const [skipConfirm, setSkipConfirm] = useState(false) // "continue without ComfyUI" panel open
   const [ollamaSkipConfirm, setOllamaSkipConfirm] = useState(false) // same, for Ollama
+  const [savingProvider, setSavingProvider] = useState(false)   // local-LLM switch in flight
   const autodetectedRef = useRef(false)             // run the on-load autodetect only once
   // Last SERVER-acknowledged config (JSON) — dirty = user edits not yet saved.
   const savedConfigRef = useRef(null)
@@ -276,6 +277,25 @@ export default function SetupPage() {
     }, 350)
     return () => { alive = false; clearTimeout(t) }
   }, [baseDir])
+
+  /* Switch which local LLM this install uses, from the wizard.
+
+     Why it lives HERE and not only in Settings: every LM Studio sentence on this
+     step is behind `step.isLmStudio`, so on the default install the wizard never
+     said the other provider existed. Someone who runs LM Studio and no Ollama was
+     walked through installing and starting Ollama, with no hint there was a
+     choice -- on the screen a new install trusts most. Found by running Setup. */
+  const pickProvider = async (provider) => {
+    if (provider === (config.local_llm || {}).provider || savingProvider) return
+    setSavingProvider(true)
+    const next = { ...config, local_llm: { ...(config.local_llm || {}), provider } }
+    try {
+      const saved = await putJson('/api/settings', { config: next })
+      setConfig(saved.config); savedConfigRef.current = JSON.stringify(saved.config)
+      await refresh(true)
+    } catch (e) { toast.error(`Save failed: ${e.message}`) }
+    finally { setSavingProvider(false) }
+  }
 
   // Apply a disk-scanned path suggestion (user-confirmed) into config + save.
   const applyDetectedPath = async (section, key, val) => {
@@ -1305,8 +1325,40 @@ export default function SetupPage() {
         </GuidedSteps>
       )
       })()
+      /* FIRST on the step, whichever provider is active and whichever branch the
+         body took: this is the only affordance that tells a new install the choice
+         exists at all. Neither option installs anything -- both servers are
+         external apps -- so this is a "which do you have", not a "which do you
+         want", and the sentence says so. */
+      const llmProviderPicker = (
+        <div className="rounded-md border border-border bg-surface-raised px-3 py-3">
+          <p className="text-sm font-medium text-content">Which local LLM do you run?</p>
+          <p className="mt-1 text-xs leading-relaxed text-content-muted">
+            One server does captioning, auto-framing and the prompt helpers. Pick the one
+            you already have — this app installs neither, and switching changes nothing
+            else about your setup.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2" role="group"
+            aria-label="Local LLM provider">
+            {[['ollama', 'Ollama'], ['lmstudio', 'LM Studio']].map(([id, label]) => {
+              const active = step.llmProvider === id
+              return (
+                <button key={id} type="button" aria-pressed={active}
+                  onClick={() => pickProvider(id)} disabled={savingProvider}
+                  className={`min-h-10 rounded-md border px-3 py-1.5 text-xs font-semibold lg:min-h-0
+                    disabled:opacity-50 ${active
+                      ? 'border-amber-400/60 bg-amber-500/15 text-content'
+                      : 'border-border text-content-muted hover:bg-surface hover:text-content'}`}>
+                  {active ? `✓ ${label}` : label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )
       return (
         <div className="space-y-4">
+          {llmProviderPicker}
           {ollamaSkipConfirm && ollamaSkipPanel}
           {step.skipped && !ollamaSkipConfirm && ollamaSkipNotice}
           {ollamaBody}

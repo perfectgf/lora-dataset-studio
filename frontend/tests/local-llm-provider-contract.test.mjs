@@ -85,6 +85,35 @@ test('LM Studio gets a Start button, and only where it can honour one', () => {
   assert.match(lmStatus, /Developer/)
 })
 
+test('the Setup wizard OFFERS the choice, on the default install too', () => {
+  // The defect this refuses, found by running Setup on a stock install: every LM
+  // Studio sentence on that step sits behind `step.isLmStudio`, so with the
+  // default provider the wizard never said the other one existed. Someone running
+  // LM Studio and no Ollama was walked through installing and starting Ollama,
+  // with no hint there was a choice — on the screen a new install trusts most.
+  const page = read('pages/SetupPage.jsx')
+  assert.match(page, /Which local LLM do you run\?/,
+    'the Setup step no longer offers the provider choice')
+  assert.match(page, /\[\['ollama', 'Ollama'\], \['lmstudio', 'LM Studio'\]\]/,
+    'the picker no longer lists both providers')
+  assert.match(page, /const pickProvider = async \(provider\)/,
+    'choosing a provider no longer persists anything')
+
+  // ORDER is the assertion that matters. The picker has to be composed ABOVE the
+  // step body, outside every branch — put inside one, it would disappear on
+  // exactly the installs that need it.
+  const picker = page.indexOf('{llmProviderPicker}')
+  const body = page.indexOf('{ollamaBody}')
+  assert.ok(picker > -1 && body > -1 && picker < body,
+    'the picker is not composed above the step body')
+
+  // ...and it must not be gated on the provider it exists to change.
+  const block = page.slice(page.indexOf('const llmProviderPicker'), body)
+  assert.doesNotMatch(block, /step\.isLmStudio \?/,
+    'the chooser is behind the very flag it is there to flip')
+})
+
+
 test('the Setup step describes the provider this install actually uses', () => {
   // Before this, the wizard sent an LM Studio user to download an Ollama binary,
   // start a daemon it cannot start, and pull a model into a server it does not
