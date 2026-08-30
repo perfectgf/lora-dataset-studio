@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import threading
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -324,6 +325,83 @@ def probe_resident(endpoint: str | None = None) -> tuple[str, list, dict]:
     return 'empty', [], {'surface': listed['surface']}
 
 
+_load_lock = threading.Lock()
+# (endpoint, model) pairs this process has SEEN resident -- spares one listing per
+# call on the hot path of a caption batch. Cleared when LDS itself unloads (the
+# keep-warm lease, a consented eviction); an unload done inside LM Studio's own
+# window simply makes the next call fail with the server's "no models loaded",
+# which the next batch heals by loading again.
+_seen_loaded: set = set()
+
+
+def ensure_model_loaded(model: str, *, url: str | None = None,
+                        timeout: tuple[float, float] | float = (10, 600)) -> tuple[bool, str]:
+    """Make `model` resident, loading it OURSELVES when LM Studio has it on disk.
+
+    This is the answer to a fair complaint from the first real install: "why do I
+    have to keep loading a model? LDS is supposed to handle everything." It was
+    right on principle AND on consistency -- this driver already starts the server
+    and unloads models, so refusing to load one was not caution, just a gap.
+
+    Measured on 0.4.23 before writing this:
+      · POST /api/v1/models/load {"model": <key>} → 200 {"status": "loaded",
+        "instance_id": ..., "load_time_seconds": ...}
+      · loading an ALREADY-loaded model does not no-op -- it stacks a second
+        instance (":2") and doubles the VRAM. Hence the residency check first,
+        and the lock, so a concurrent batch cannot double-load either.
+      · an unknown model → {"error": {"type": "model_not_found", ...}} -- turned
+        into a sentence naming the one gesture left to the user: downloading,
+        which stays in LM Studio (it shows progress and lets you cancel).
+
+    A load LDS performs is a residency LDS OWNS: it is registered with the GPU
+    fence, so the keep-warm lease may legitimately unload it later and a ComfyUI
+    hand-off can actually free the card. A model found already loaded stays
+    BORROWED -- the user put it there, and this function never touches it.
+    Returns (ok, detail); never raises.
+    """
+    endpoint = _suffix_free(url) if url else base_url()
+    if (endpoint, model) in _seen_loaded:
+        return True, 'already loaded'
+    with _load_lock:
+        if (endpoint, model) in _seen_loaded:      # loaded by the call we waited on
+            return True, 'already loaded'
+        listed = list_models(url=endpoint)
+        if not listed['reachable']:
+            return False, failure_sentence(listed.get('last_status'),
+                                           listed.get('last_body') or '')
+        if listed['surface'] == 'openai':
+            # This surface reports no residency, so a blind load risks the double-
+            # instance above -- and a JIT-enabled server behind it loads on its
+            # own. Leave the request to the server, exactly as before.
+            return True, 'residency unknown (OpenAI-compatible surface only)'
+        row = next((m for m in listed['models'] if m.get('id') == model), None)
+        if row is not None and row.get('loaded'):
+            _seen_loaded.add((endpoint, model))
+            return True, 'already loaded'
+        try:
+            resp = requests.post(f'{endpoint}/api/v1/models/load',
+                                 json={'model': model},
+                                 headers={'Content-Type': 'application/json', **_headers()},
+                                 timeout=timeout)
+        except requests.RequestException as exc:
+            return False, failure_sentence(None, str(exc))
+        if resp.status_code >= 400:
+            body = resp.text or ''
+            if 'model_not_found' in body:
+                return False, (f'"{model}" is not downloaded in LM Studio. Download it '
+                               'there (it shows progress and lets you cancel), or name '
+                               'a downloaded one in Settings ▸ Local tools.')
+            return False, failure_sentence(resp.status_code, body)
+        from . import ollama_gpu_fence
+        ollama_gpu_fence.register_lds_load(endpoint, model)
+        _seen_loaded.add((endpoint, model))
+        try:
+            seconds = float(resp.json().get('load_time_seconds') or 0)
+            return True, f'loaded in {seconds:.1f}s'
+        except (ValueError, AttributeError):
+            return True, 'loaded'
+
+
 def release(endpoint: str | None = None, model: str | None = None) -> bool:
     """Unload a resident model. Measured: this genuinely frees the VRAM.
 
@@ -341,6 +419,7 @@ def release(endpoint: str | None = None, model: str | None = None) -> bool:
         # something answered and we could not read it, so we have proved nothing.
         return state in ('empty', 'down')
     ok = True
+    _seen_loaded.difference_update({(url, t) for t in targets})
     for inst in targets:
         try:
             resp = requests.post(f'{url}/api/v1/models/unload',
@@ -514,6 +593,12 @@ def describe_image(image_bytes: bytes, prompt: str, *,
             raise RuntimeError(msg)
         logger.warning('vision_lmstudio: describe skipped: %s', msg)
         return ''
+    loaded_ok, load_detail = ensure_model_loaded(target, url=endpoint)
+    if not loaded_ok:
+        if strict:
+            raise RuntimeError(load_detail)
+        logger.warning('vision_lmstudio: describe skipped: %s', load_detail)
+        return ''
 
     # Measured order: data URI first. The other form is tried once, only when the
     # server says the url field was invalid, and the answer is remembered.
@@ -570,6 +655,12 @@ def generate_text(prompt: str, *,
         if strict:
             raise RuntimeError(msg)
         logger.warning('vision_lmstudio: text generate skipped: %s', msg)
+        return ''
+    loaded_ok, load_detail = ensure_model_loaded(target, url=endpoint)
+    if not loaded_ok:
+        if strict:
+            raise RuntimeError(load_detail)
+        logger.warning('vision_lmstudio: text generate skipped: %s', load_detail)
         return ''
     try:
         _admit(endpoint, target)

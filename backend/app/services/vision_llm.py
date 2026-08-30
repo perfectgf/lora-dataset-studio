@@ -176,6 +176,29 @@ def probe_model(reachable=None, model: str | None = None) -> dict:
     return probe_ollama_model(**kw)
 
 
+def load_model() -> dict:
+    """Make the active provider's vision model resident. `{ok, model?, error?}`.
+
+    LM Studio: resolve the model (configured, else the downloaded VLM) and load it
+    through the server's own API -- the answer to "why do I have to keep loading a
+    model?". Ollama needs none of this: it loads on demand, so the honest result
+    is its ensure_captioning_ready, which can also start the daemon.
+    """
+    if provider() == LMSTUDIO:
+        from . import vision_lmstudio
+        target = vision_lmstudio.resolve_model()
+        if not target:
+            return {'ok': False,
+                    'error': 'No vision model is downloaded in LM Studio yet — '
+                             'download one there, then come back.'}
+        ok, detail = vision_lmstudio.ensure_model_loaded(target)
+        return ({'ok': True, 'model': target, 'detail': detail} if ok
+                else {'ok': False, 'error': detail})
+    from . import ollama_control
+    got = ollama_control.ensure_captioning_ready()
+    return {'ok': bool(got.get('ok')), 'error': got.get('error')}
+
+
 def start_server() -> dict:
     """Start the configured provider's local server. `{ok, reachable, ...}`.
 

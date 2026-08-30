@@ -375,7 +375,11 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         # The fence's other half is untouched — ensure_released_for_comfy() still
         # has to prove the card is free before a ComfyUI hand-off, and now it can
         # actually free it, because LM Studio's unload really releases the VRAM.
-        borrowed = _driver_for(endpoint) == 'lmstudio' and model in loaded
+        # ...and not already OURS: after ensure_model_loaded, the resident model
+        # is LDS's own load. Marking it borrowed too would make the ComfyUI
+        # hand-off refuse to release a model LDS is fully entitled to release.
+        borrowed = (_driver_for(endpoint) == 'lmstudio' and model in loaded
+                    and model not in owned)
         # ...and the mirror of it. An EMPTY LM Studio is not "the card is free for
         # the model I am about to load" -- nothing here loads a model on LDS's
         # behalf, so this call is simply about to fail with "no models loaded".
@@ -803,6 +807,23 @@ def stop_sharing() -> None:
     global _share_until, _share_endpoint
     with _lock:
         _share_until, _share_endpoint = 0.0, None
+
+
+def register_lds_load(endpoint_url, model) -> None:
+    """LDS itself just loaded `model` there -- own it, with everything owning means.
+
+    Called by vision_lmstudio.ensure_model_loaded, nowhere else. Ownership is what
+    lets the keep-warm lease unload it later and lets a ComfyUI hand-off actually
+    free the card; without this the auto-loaded model would read as borrowed, and
+    borrowed models are exactly the ones the fence refuses to touch.
+    """
+    scope, endpoint = _endpoint_scope(endpoint_url)
+    if scope != 'local':
+        return
+    with _lock:
+        _owned_models.setdefault(endpoint, set()).add(model)
+        _borrowed_models.get(endpoint, set()).discard(model)
+        _foreign_local_endpoints.discard(endpoint)
 
 
 def ensure_released_for_comfy() -> bool:

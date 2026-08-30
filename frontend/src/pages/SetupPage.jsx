@@ -361,6 +361,19 @@ export default function SetupPage() {
   // to ready with no app restart. A failure returns 502 -> apiFetch throws (and
   // auto-toasts the generic 5xx notice); the catch adds the specific reason,
   // matching the existing saveSecretThenTest pattern.
+  const loadLlmModel = async () => {
+    setStartingOllama(true)
+    try {
+      // Explicit click — probes never load. The backend resolves WHICH model
+      // (configured, else the downloaded VLM) and loads it through LM Studio's
+      // own API; a big model takes a while, so the button says so.
+      const r = await postJson('/api/local-llm/load', {})
+      if (r.ok) { toast.success(`Model ready — ${r.model || 'loaded'}.`); await refresh(true) }
+      else { toast.error(r.error || 'The model could not be loaded.') }
+    } catch (e) { toast.error(e.message || 'The model could not be loaded.') }
+    finally { setStartingOllama(false) }
+  }
+
   const startLocalLlm = async (name) => {
     setStartingOllama(true)
     try {
@@ -1121,9 +1134,9 @@ export default function SetupPage() {
                 {step.visionModelReady
                   ? step.lmDetail
                   : step.reachable
-                    ? 'Open LM Studio, load a vision model in its Developer tab, then Save & re-check. '
-                      + 'It has no just-in-time loading by default, so a model has to be loaded before this app can use it — '
-                      + 'turn JIT on in LM Studio and it will load the model itself, whenever anything asks for it.'
+                    ? 'LDS can load it for you — press Load below, and it also happens automatically '
+                      + 'the first time captioning or framing needs it. Downloading NEW models still '
+                      + 'happens inside LM Studio, which shows progress and lets you cancel.'
                     : step.installed
                       ? `LM Studio is installed but its server is not running. Start it below — it will listen at ${step.lmUrl || 'http://127.0.0.1:1234'}.`
                       : `Open LM Studio, go to Developer and press Start Server (expected at ${step.lmUrl || 'http://127.0.0.1:1234'}), then Save & re-check.`}
@@ -1132,6 +1145,12 @@ export default function SetupPage() {
                 Models are downloaded inside LM Studio itself — it shows progress and lets you
                 cancel, which this app cannot do for it.
               </p>
+              {step.reachable && !step.visionModelReady && (
+                <button type="button" onClick={loadLlmModel} disabled={startingOllama}
+                  className="mt-2 rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
+                  {startingOllama ? 'Loading… (a big model takes a minute)' : '⏬ Load the vision model'}
+                </button>
+              )}
               {!step.reachable && step.installed && (
                 <button type="button" onClick={() => startLocalLlm('LM Studio')}
                   disabled={startingOllama}

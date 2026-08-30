@@ -95,6 +95,23 @@ function LmStudioStatus({ caps, active, refreshCaps, toast }) {
      CLI sits at a fixed per-user path and `lms server start` is a one-shot
      command that returns in well under a second, with the loaded model surviving
      the cycle. The button exists now, and only when the CLI was actually found. */
+  const loadModel = async () => {
+    setStarting(true)
+    try {
+      const r = await postJson('/api/local-llm/load', {})
+      if (r.ok) {
+        toast?.success(`Model ready — ${r.model || 'loaded'}.`)
+        await refreshCaps?.(true)
+      } else {
+        toast?.error(r.error || 'The model could not be loaded.')
+      }
+    } catch (e) {
+      toast?.error(e.message || 'The model could not be loaded.')
+    } finally {
+      setStarting(false)
+    }
+  }
+
   const start = async () => {
     setStarting(true)
     try {
@@ -128,9 +145,13 @@ function LmStudioStatus({ caps, active, refreshCaps, toast }) {
   }
   if (l.reachable) {
     return (
-      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
+      <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
         <p className="text-sm text-content"><span aria-hidden="true">●</span> Running, but not ready.</p>
-        <p className="mt-1 text-xs text-content-muted">{l.detail}</p>
+        <p className="text-xs text-content-muted">{l.detail}</p>
+        <button type="button" onClick={loadModel} disabled={starting}
+          className="inline-flex items-center gap-1.5 rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
+          {starting ? 'Loading…' : '⏬ Load the vision model'}
+        </button>
       </div>
     )
   }

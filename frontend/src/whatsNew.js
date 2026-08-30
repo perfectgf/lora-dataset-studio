@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-lmstudio-loads-itself',
+    date: '2026-08-30',
+    title: 'LM Studio models now load themselves',
+    blurb:
+      'No more opening LM Studio just to load the model: LDS loads it for you — '
+      + 'automatically the first time captioning or framing needs it, or from the '
+      + 'new ⏬ Load button in Setup and Settings ▸ Local tools. A model LDS '
+      + 'loads is also one it can unload later to hand the GPU to ComfyUI; one '
+      + 'YOU loaded is never touched. Downloading new models stays in LM Studio.',
+    to: '/settings/local-tools',
+  },
+  {
     id: '2026-08-30-promote-window-knows-the-numbers',
     date: '2026-08-30',
     title: 'The video promote window now tells you what the numbers mean',

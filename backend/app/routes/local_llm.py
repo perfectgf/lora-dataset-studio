@@ -24,6 +24,16 @@ def start_server():
     return jsonify(vision_llm.start_server()), 200
 
 
+@bp.post('/load')
+def load_model():
+    """Load the provider's vision model now (explicit click; probes never do this).
+
+    Always 200 -- "nothing downloaded" is a handled outcome with its remedy in the
+    body, and a 5xx would stack a generic toast on top of the specific sentence.
+    """
+    return jsonify(vision_llm.load_model()), 200
+
+
 @bp.get('/models')
 def list_models():
     """Models the CONFIGURED provider can caption with.
