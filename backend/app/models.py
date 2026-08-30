@@ -634,8 +634,15 @@ class BankDupDistinct(db.Model):
 
     NO relationship() to ImageBank or BankImage, deliberately — same reason as
     BankFolderPerson (the delete-500 lesson): the services drop these rows
-    explicitly, children first. A row left pointing at a deleted image is inert
-    rather than wrong: it can no longer match any live group."""
+    explicitly, children first.
+
+    ⚠️ A row left pointing at a deleted image is NOT inert, and an earlier comment
+    here said it was. SQLite hands out ``max(rowid) + 1``, so the ids of deleted
+    images ARE reused by the next imports: a surviving pair silently starts
+    matching two images nobody ever ruled on, and it fails in the direction that
+    HIDES a group rather than the one that shows an extra. So dropping these rows
+    when their images go is a correctness obligation, not housekeeping — see
+    ``drop_distinct_for_images`` and the three paths that must call it."""
     __tablename__ = 'bank_dup_distinct'
     __table_args__ = (db.UniqueConstraint('bank_id', 'image_a', 'image_b',
                                           name='uq_bank_dup_distinct'),)

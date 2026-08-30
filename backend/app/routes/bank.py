@@ -1127,6 +1127,13 @@ def _distinct_action(bank_id, data, mark, restore, col):
     the group id is read from, exactly like the resolve pair above."""
     restoring = bool(data.get('restore'))
     group = data.get('group')
+    # A group id is a NUMBER. Left to int() alone, {"group": true} became group 1
+    # — a veto on a group the caller never named — and {"group": {}} raised a
+    # TypeError that int()'s ValueError guard below does not catch, so a 500.
+    # bool is rejected explicitly because it IS an int in Python.
+    if group is not None and (isinstance(group, bool)
+                              or not isinstance(group, (int, str))):
+        return jsonify({'error': 'group must be a group id'}), 400
     if not restoring and group is None:
         # There is no "mark every group distinct": ≠ is a judgement about ONE
         # group's copies, and a bulk form of it would silently answer questions

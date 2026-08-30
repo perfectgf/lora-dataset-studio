@@ -254,3 +254,78 @@ def test_deleting_the_images_takes_their_verdicts(client, three_copies, app):
         db.session.commit()
         # a is in both of its pairs, so removing it takes two of the three
         assert BankDupDistinct.query.filter_by(bank_id=bank_id).count() == 1
+
+
+# --- what the /verif swarm found, pinned so it cannot come back ---------------
+
+def test_restoring_one_stage_leaves_the_OTHER_stage_verdicts_alone(client, tmp_path, app):
+    """"Put them back" is offered by ONE panel, under ITS own count.
+
+    It used to delete every ≠ row of the bank, so pressing it in ≈ Duplicates
+    also threw away every verdict made in ✂ Same shot — decisions the sentence
+    never mentioned, and no way to tell they were gone. A veto stays a fact about
+    the images; UNDOING it must not reach past what the button counted."""
+    im = checkerboard(size=256, cell=16)
+    bank_id, _src = _mkbank(client, tmp_path, {
+        'a.jpg': im, 'b.jpg': im, 'c.jpg': im, 'd.jpg': im,
+    })
+    client.post(f'/api/bank/{bank_id}/scan', json={})
+    from app.extensions import db
+    from app.models import BankImage
+    with app.app_context():
+        rows = (BankImage.query.filter_by(bank_id=bank_id)
+                .order_by(BankImage.id.asc()).all())
+        for r in rows:
+            r.dup_group = r.semantic_dup_group = None
+            r.status = 'pending'
+        rows[0].dup_group = rows[1].dup_group = 1            # stage 1: a + b
+        rows[2].semantic_dup_group = rows[3].semantic_dup_group = 1   # stage 2: c + d
+        db.session.commit()
+
+    client.post(f'/api/bank/{bank_id}/dups/distinct', json={'group': 1})
+    client.post(f'/api/bank/{bank_id}/semantic-dups/distinct', json={'group': 1})
+    assert _unresolved(client, bank_id, 'dup-groups') == 0
+    assert _unresolved(client, bank_id, 'semantic-dup-groups') == 0
+
+    r = client.post(f'/api/bank/{bank_id}/dups/distinct', json={'restore': True})
+    assert r.get_json()['restored'] == 1, 'only the pair of THIS stage'
+    assert _unresolved(client, bank_id, 'dup-groups') == 1, 'this panel is restored'
+    assert _unresolved(client, bank_id, 'semantic-dup-groups') == 0, \
+        'the other panel keeps the verdict it was never asked about'
+
+
+def test_a_group_id_that_is_not_a_number_is_refused(client, three_copies):
+    """int() alone let {"group": true} through as group 1 — a veto on a group the
+    caller never named — and {"group": {}} raised TypeError, i.e. a 500."""
+    bank_id, _ids = three_copies
+    for bad in (True, {}, []):
+        r = client.post(f'/api/bank/{bank_id}/dups/distinct', json={'group': bad})
+        assert r.status_code == 400, f'{bad!r} must be refused, not honoured'
+    assert _unresolved(client, bank_id) == 1, 'nothing was vetoed by a bad id'
+    # A numeric string stays acceptable — that is what a query string sends.
+    assert client.post(f'/api/bank/{bank_id}/dups/distinct',
+                       json={'group': '1'}).status_code == 200
+
+
+def test_deleting_rejected_images_takes_their_verdicts_THROUGH_THE_ROUTE(
+        client, three_copies, app):
+    """The real deletion path, not the helper called by hand — and re-read from a
+    fresh app context, because that is what proves the delete was committed.
+
+    An orphan row is NOT inert: SQLite hands out max(rowid)+1, so a deleted
+    image's id comes back on the next import and a surviving pair would veto a
+    group nobody ruled on."""
+    bank_id, ids = three_copies
+    client.post(f'/api/bank/{bank_id}/dups/distinct', json={'group': 1})
+    with app.app_context():
+        from app.models import BankDupDistinct
+        assert BankDupDistinct.query.filter_by(bank_id=bank_id).count() == 3
+    client.post(f'/api/bank/{bank_id}/images/status',
+                json={'ids': [ids[0]], 'status': 'reject'})
+    client.post(f'/api/bank/{bank_id}/delete-rejected', json={})
+    with app.app_context():
+        from app.models import BankDupDistinct, BankImage
+        assert BankImage.query.filter_by(id=ids[0]).count() == 0, 'the row really went'
+        left = BankDupDistinct.query.filter_by(bank_id=bank_id).all()
+        assert len(left) == 1, 'the two pairs naming the deleted image went with it'
+        assert ids[0] not in (left[0].image_a, left[0].image_b)
