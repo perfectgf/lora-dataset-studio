@@ -272,6 +272,8 @@ def video_dataset_train_cloud(dataset_id):
             base_model=(body.get('base_model') or '').strip() or None,
             low_vram=bool(body.get('low_vram', False)),
             do_i2v=bool(body.get('do_i2v', False)),
+            sample_prompts=body.get('sample_prompts'),
+            distillation=body.get('distillation') or 'auto',
             gpu_name=body.get('gpu_name')))
     except video_training.VideoTrainingUnsupported as e:
         return jsonify({'error': str(e)}), 400

@@ -139,7 +139,8 @@ def video_gpu_tiers(user_id, video_dataset_id, steps=None) -> dict:
 
 def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                                 base_model=None, low_vram=False, gpu_name=None,
-                                do_i2v=False,
+                                do_i2v=False, sample_prompts=None,
+                                distillation='auto',
                                 resume_ckpt_paths=None, resume_step=None,
                                 parent_run_id=None, _provision=None) -> dict:
     """Rent a pod and train a LoRA on a built video dataset.
@@ -189,6 +190,15 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
             'be nothing to train on; rebuild it before launching')
 
     n_steps = max(100, int(steps or 1000))
+    # Previews: capped and cleaned here, once, so the stamp is what runs. Each
+    # preview is a full video generation on the paid GPU (num_frames at 28
+    # sampling steps), which is why the cap is small and the default is none.
+    prompts = [str(x).strip() for x in (sample_prompts or []) if str(x).strip()]
+    if len(prompts) > 4:
+        raise ValueError('at most 4 sample prompts — each preview is a full '
+                         'video generation on the rented GPU')
+    if distillation not in ('auto', 'off'):
+        raise ValueError("distillation must be 'auto' or 'off'")
     # Built HERE, before the reservation, purely so an unsupported target raises
     # now rather than from the monitor thread with a pod already running. The
     # result is deliberately discarded: the monitor rebuilds it from the stamped
@@ -215,6 +225,12 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                 # Stamped like low_vram: the pod rebuild happens minutes later
                 # and must not re-read a toggle the user may have moved since.
                 'do_i2v': bool(do_i2v),
+                **({'sample_prompts': prompts} if prompts else {}),
+                # 'off' exists for measurement, not preference: it is the ONLY
+                # way to run the same dataset with and without upstream's
+                # de-distillation recipe and compare the previews. 'auto'
+                # (the default) keeps the capability-gated behaviour.
+                **({'distillation': 'off'} if distillation == 'off' else {}),
                 'target_profile': ds.target_profile,
                 'frames': ds.frames,
                 'artifact_kind': 'lora',

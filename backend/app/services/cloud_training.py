@@ -3359,8 +3359,13 @@ def _build_pod_job_config(run, staging_dataset: str, pod_settings: dict) -> dict
             do_i2v=bool(params.get('do_i2v', False)),
             # Asked of the image this pod actually boots, not assumed from ours:
             # the pin is a config value and someone may move it backwards.
-            training_adapter=video_training.image_supports_training_adapter(
-                _pod_image_for(run, cfg.get('cloud') or {})),
+            sample_prompts=params.get('sample_prompts') or None,
+            # The stamped 'off' beats capability: it exists so the SAME dataset
+            # can run with and without the recipe and the previews be compared.
+            training_adapter=(
+                params.get('distillation') != 'off'
+                and video_training.image_supports_training_adapter(
+                    _pod_image_for(run, cfg.get('cloud') or {}))),
             control_dirs=control_dirs)
     else:
         ds = fds.get_dataset('local', run.dataset_id)
