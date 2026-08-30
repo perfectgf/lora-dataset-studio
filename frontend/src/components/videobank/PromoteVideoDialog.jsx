@@ -3,7 +3,7 @@ import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import {
   frameOptions, defaultFrames, needsManualFrames, sizeOptions,
-  promoteProblem, promotePayload, promoteScopeLabel,
+  promoteProblem, promotePayload, promoteScopeLabel, datasetScaleNote,
   insetProblem, insetHint, insetOutcome,
   capProblem, capHint, capBalanceNote,
 } from './videoTargetChoice'
@@ -135,6 +135,13 @@ export default function PromoteVideoDialog({
           folder of clips with caption sidecars. This is the only step that writes
           video files — your source folder is never touched.
         </p>
+        {(() => {
+          const note = datasetScaleNote((selectedIds || []).length || keepCount)
+          if (!note) return null
+          const tone = note.tone === 'warning' ? 'text-amber-300'
+            : note.tone === 'good' ? 'text-emerald-300' : 'text-content-subtle'
+          return <p className={`text-xs ${tone}`}>{note.text}</p>
+        })()}
 
         <div>
           <label htmlFor="video-ds-name" className="block text-sm font-medium text-content">Name</label>

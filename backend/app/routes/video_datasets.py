@@ -54,6 +54,11 @@ def video_targets_list():
                                 if default_frames else None),
             'size_multiple': profile['size_multiple'],
             'recommended_sizes': [list(s) for s in profile['recommended_sizes']],
+            # Sizes WE verified survive the trainer's re-bucketing unchanged —
+            # a separate field on purpose; recommended_sizes stays the model's
+            # own claim (resolution_note quotes it back to the user as such).
+            'exact_sizes': [list(s) for s in profile.get('exact_sizes', ())],
+            'picker_hint': profile.get('picker_hint'),
             # Kept as a plain boolean because the picker only ever asks
             # "does this target want sound?"; `audio` carries the format
             # the exporter has to impose (32 kHz stereo for MiniMax H3).

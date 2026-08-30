@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   frameOptions, clipSeconds, frameOptionLabel, defaultFrames, needsManualFrames,
   sizeOptions, targetWarnings, targetBadge, promoteProblem, promotePayload,
+  datasetScaleNote,
   promoteScopeLabel,
   insetProblem, insetHint, insetOutcome,
   capProblem, capHint, capBalanceNote,
@@ -287,3 +288,29 @@ test('a balanced result says nothing, and neither does an already capped one', (
   // One source is not an imbalance, it is the whole bank.
   assert.equal(capBalanceNote({ sources: 1, top_source_share: 1 }, null), '');
 });
+
+test('exact sizes lead the size menu and say so; stated sizes name their cost', () => {
+  const target = {
+    max_pixels: 768 * 1344,
+    exact_sizes: [[1024, 576], [768, 768]],
+    recommended_sizes: [[1344, 768], [768, 768]],
+  }
+  const labels = sizeOptions(target).map((s) => s.label)
+  assert.ok(labels[1].includes('1024 × 576 — trains exactly as cut'))
+  assert.ok(labels.some((l) => l.includes("model's stated size")))
+  // the duplicate (768x768) appears once, as exact
+  assert.equal(labels.filter((l) => l.includes('768 × 768')).length, 1)
+  // a target with no exact sizes keeps its plain labels — no cost invented
+  const plain = sizeOptions({ recommended_sizes: [[1280, 704]] })
+  assert.equal(plain[1].label, '1280 × 704')
+})
+
+test('the dataset scale note tells a novice where their clip count sits', () => {
+  assert.equal(datasetScaleNote(0), null)
+  assert.equal(datasetScaleNote('nope'), null)
+  assert.equal(datasetScaleNote(5).tone, 'warning')
+  assert.ok(datasetScaleNote(12).text.includes('50-200'))
+  assert.equal(datasetScaleNote(80).tone, 'good')
+  assert.ok(datasetScaleNote(300).text.includes('curation'))
+})
+

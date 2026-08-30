@@ -799,3 +799,22 @@ def test_the_ref2va_image_gate_uses_the_full_recipe_date():
         'vastai/ostris-ai-toolkit:da79ebc-2026-08-27-cuda-12.9')
     assert not vtrain.image_supports_ref2va('nope')
 
+
+def test_exact_sizes_are_held_by_the_resolution_arithmetic_itself():
+    """`exact_sizes` is OUR claim — sizes the trainer's re-bucketing returns
+    unchanged — kept separate from `recommended_sizes`, which stays the model's
+    own statement (the resolution note quotes that one back to the user). A
+    claim of exactness is cheap to make and expensive to be wrong about, so
+    every listed size is re-derived here through the real arithmetic: if the
+    derivation ever stops holding, the field fails before a user trusts it."""
+    for key in ('minimax_h3', 'minimax_h3_ref2va'):
+        profile = vt.get(key)
+        sizes = profile.get('exact_sizes')
+        assert sizes, key
+        for width, height in sizes:
+            resolution = vtrain._resolution_for(
+                width, height, profile['size_multiple'], profile['max_pixels'])
+            assert resolution * resolution == width * height, (key, width, height)
+    # And the field is absent where nothing was verified — absence is honest.
+    assert 'exact_sizes' not in vt.get('wan22_14b')
+
