@@ -350,8 +350,8 @@ def ensure_model_loaded(model: str, *, url: str | None = None,
         instance (":2") and doubles the VRAM. Hence the residency check first,
         and the lock, so a concurrent batch cannot double-load either.
       · an unknown model → {"error": {"type": "model_not_found", ...}} -- turned
-        into a sentence naming the one gesture left to the user: downloading,
-        which stays in LM Studio (it shows progress and lets you cancel).
+        into a sentence pointing at the download field (Settings ▸ Local tools),
+        which lmstudio_download drives through the server's own job API.
 
     A load LDS performs is a residency LDS OWNS: it is registered with the GPU
     fence, so the keep-warm lease may legitimately unload it later and a ComfyUI
@@ -388,9 +388,9 @@ def ensure_model_loaded(model: str, *, url: str | None = None,
         if resp.status_code >= 400:
             body = resp.text or ''
             if 'model_not_found' in body:
-                return False, (f'"{model}" is not downloaded in LM Studio. Download it '
-                               'there (it shows progress and lets you cancel), or name '
-                               'a downloaded one in Settings ▸ Local tools.')
+                return False, (f'"{model}" is not downloaded yet — download it from '
+                               'Settings ▸ Local tools (or inside LM Studio), or name '
+                               'a downloaded one there.')
             return False, failure_sentence(resp.status_code, body)
         from . import ollama_gpu_fence
         ollama_gpu_fence.register_lds_load(endpoint, model)

@@ -114,6 +114,22 @@ test('the Setup wizard OFFERS the choice, on the default install too', () => {
 })
 
 
+test('the model download is offered on BOTH provider surfaces', () => {
+  // One component, two mounts — the Settings card and the Setup step. Mounted on
+  // one only, the other surface would keep telling the user that downloads happen
+  // inside LM Studio, which stopped being true the day this shipped.
+  for (const [name, rel] of [['settings', 'components/settings/LocalToolsSection.jsx'],
+                             ['setup', 'pages/SetupPage.jsx']]) {
+    const src = read(rel)
+    assert.match(src, /<LmStudioDownload /, `the ${name} surface lost the download form`)
+  }
+  // ...and the component polls the PROVIDER-ROUTED endpoint, not an Ollama one.
+  const comp = read('components/settings/LmStudioDownload.jsx')
+  assert.match(comp, /\/api\/local-llm\/pull/)
+  assert.doesNotMatch(comp, /\/api\/ollama\/pull/)
+})
+
+
 test('the Setup step describes the provider this install actually uses', () => {
   // Before this, the wizard sent an LM Studio user to download an Ollama binary,
   // start a daemon it cannot start, and pull a model into a server it does not

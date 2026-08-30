@@ -8,6 +8,7 @@ import {
   folderEffectiveNote, folderWarning, detectedSuggestion, foldersQuery, hasAnyOverride,
 } from './comfyFolders'
 import ResetToDefault from './ResetToDefault'
+import LmStudioDownload from './LmStudioDownload'
 import { defaultValueAt } from './settingDefaults.js'
 
 /* HF token is for gated TRAINING bases (Krea 2 / FLUX.1 / FLUX.2 Klein) and reading
@@ -579,6 +580,10 @@ export default function LocalToolsSection(props) {
               placeholder="leave empty to use whatever is loaded"
               help="Left empty, the app uses whichever model LM Studio has loaded — usually what you want, since it only serves a loaded one."
             />
+            {/* ⏬ The missing half of the Ollama pull, asked for in those words.
+                The job runs inside LM Studio itself, so it survives navigation
+                and an LDS restart — the component re-attaches on mount. */}
+            <LmStudioDownload refreshCaps={refreshCaps} toast={toast} />
             <TestResult result={testResults.lmstudio} />
           </div>
           <TestButton target="lmstudio" beforeTest={() => saveConfigSection('lmstudio')}

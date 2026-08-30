@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { apiFetch, getCsrfToken, putJson, postJson } from '../api/fetchClient'
 import { useToast } from '../components/common/Toast'
 import { useCapabilities } from '../context/CapabilitiesContext'
+import LmStudioDownload from '../components/settings/LmStudioDownload'
 import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissingLabels,
   comfyuiDirVerdict, comfyuiLauncherState, COMFYUI_SKIP_LOST, COMFYUI_SKIP_KEPT, installAllPlan,
   OLLAMA_SKIP_LOST, ollamaSkipKept, ollamaGateReason,
@@ -1135,16 +1136,15 @@ export default function SetupPage() {
                   ? step.lmDetail
                   : step.reachable
                     ? 'LDS can load it for you — press Load below, and it also happens automatically '
-                      + 'the first time captioning or framing needs it. Downloading NEW models still '
-                      + 'happens inside LM Studio, which shows progress and lets you cancel.'
+                      + 'the first time captioning or framing needs it. Need a model? Download one '
+                      + 'right here — the download runs inside LM Studio, so it survives a reload.'
                     : step.installed
                       ? `LM Studio is installed but its server is not running. Start it below — it will listen at ${step.lmUrl || 'http://127.0.0.1:1234'}.`
                       : `Open LM Studio, go to Developer and press Start Server (expected at ${step.lmUrl || 'http://127.0.0.1:1234'}), then Save & re-check.`}
               </p>
-              <p className="mt-2 text-xs text-content-muted">
-                Models are downloaded inside LM Studio itself — it shows progress and lets you
-                cancel, which this app cannot do for it.
-              </p>
+              <div className="mt-2">
+                <LmStudioDownload refreshCaps={(f) => refresh(f)} toast={toast} />
+              </div>
               {step.reachable && !step.visionModelReady && (
                 <button type="button" onClick={loadLlmModel} disabled={startingOllama}
                   className="mt-2 rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">

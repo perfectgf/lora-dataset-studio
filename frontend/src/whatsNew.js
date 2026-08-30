@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-lmstudio-download',
+    date: '2026-08-30',
+    title: 'Download LM Studio models without leaving the app',
+    blurb:
+      'The LM Studio card in Settings ▸ Local tools (and the Setup step) now '
+      + 'downloads models — give it a model id like qwen/qwen3-vl-4b, or paste a '
+      + 'huggingface.co model URL, and watch the progress. The download runs '
+      + 'inside LM Studio itself, so reloading the page or restarting LDS does '
+      + 'not stop it. The same parity Ollama has always had with its pull.',
+    to: '/settings/local-tools',
+  },
+  {
     id: '2026-08-30-lmstudio-loads-itself',
     date: '2026-08-30',
     title: 'LM Studio models now load themselves',
@@ -91,7 +103,7 @@ export const WHATS_NEW = [
       + 'automatically the first time captioning or framing needs it, or from the '
       + 'new ⏬ Load button in Setup and Settings ▸ Local tools. A model LDS '
       + 'loads is also one it can unload later to hand the GPU to ComfyUI; one '
-      + 'YOU loaded is never touched. Downloading new models stays in LM Studio.',
+      + 'YOU loaded is never touched.',
     to: '/settings/local-tools',
   },
   {

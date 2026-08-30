@@ -5,7 +5,7 @@ up listing different providers' models — the divergence the repo's Bank/Datase
 parity rule exists to prevent. `/api/ollama/models` survives as an alias of the
 same function for older cached bundles.
 """
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from ..services import vision_llm
 
@@ -32,6 +32,34 @@ def load_model():
     body, and a 5xx would stack a generic toast on top of the specific sentence.
     """
     return jsonify(vision_llm.load_model()), 200
+
+
+@bp.post('/pull')
+def start_pull():
+    """Download the named model through the CONFIGURED provider (explicit click).
+
+    One routed path, like /models and /load: the same button works whichever
+    server the install runs — Ollama pulls, LM Studio downloads its job, and the
+    answer keeps the pull shape both UIs already render. Always 200; the body
+    carries {ok, state, model, progress, log, error}.
+    """
+    data = request.get_json(silent=True) or {}
+    model = data.get('model') or ''
+    if vision_llm.provider() == 'lmstudio':
+        from ..services import lmstudio_download
+        return jsonify(lmstudio_download.start_download(model)), 200
+    from ..services import ollama_control
+    return jsonify(ollama_control.start_pull(model)), 200
+
+
+@bp.get('/pull')
+def pull_status():
+    """Poll the current/last download: {state, model, progress, log, error}."""
+    if vision_llm.provider() == 'lmstudio':
+        from ..services import lmstudio_download
+        return jsonify(lmstudio_download.download_status()), 200
+    from ..services import ollama_control
+    return jsonify(ollama_control.pull_status()), 200
 
 
 @bp.get('/models')
