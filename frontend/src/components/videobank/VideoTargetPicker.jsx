@@ -50,6 +50,11 @@ export default function VideoTargetPicker({ targets, targetKey, onPick }) {
                     {badge.text}
                   </span>
                 </span>
+                {t.picker_hint ? (
+                  <span className="mt-0.5 block text-xs text-content-muted">
+                    {t.picker_hint}
+                  </span>
+                ) : null}
                 <span className="mt-0.5 block text-xs text-content-subtle">
                   {t.fps ? `${t.fps} fps` : 'no fixed frame rate'}
                   {t.keep_audio ? ' · keeps audio' : ' · video only'}

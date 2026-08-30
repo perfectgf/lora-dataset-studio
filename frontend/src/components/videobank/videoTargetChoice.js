@@ -84,11 +84,50 @@ export function sizeOptions(target) {
   if (target && target.max_pixels) {
     out[0].hint = `This target caps the canvas at ${target.max_pixels.toLocaleString()} px — sources larger than that must be rescaled (pick a size below).`
   }
+  // Sizes the app VERIFIED survive the trainer's re-bucketing lead the list,
+  // said in plain words; the model's own stated sizes follow, with the cost of
+  // picking one named instead of discovered after the encode. Membership only,
+  // no arithmetic here — the backend derives exact_sizes and a test holds it.
+  const exact = ((target && target.exact_sizes) || []).map(([w, h]) => `${w}x${h}`)
+  for (const pair of (target && target.exact_sizes) || []) {
+    const [w, h] = pair
+    out.push({ key: `${w}x${h}`, label: `${w} × ${h} — trains exactly as cut`,
+               width: w, height: h })
+  }
   for (const pair of (target && target.recommended_sizes) || []) {
     const [w, h] = pair
-    out.push({ key: `${w}x${h}`, label: `${w} × ${h}`, width: w, height: h })
+    if (exact.includes(`${w}x${h}`)) continue
+    out.push({
+      key: `${w}x${h}`,
+      label: exact.length
+        ? `${w} × ${h} — model's stated size (rescaled a little in training)`
+        : `${w} × ${h}`,
+      width: w, height: h,
+    })
   }
   return out
+}
+
+/** One honest sentence about the dataset's SIZE, the number the research says
+ * matters most and the promote window never mentioned: on one recipe, 1,500
+ * steps won at 53 clips and the same recipe needed 5,000 at 176 — strong LoRAs
+ * live around 50-200 clips, and a dozen proves plumbing, not a look. */
+export function datasetScaleNote(count) {
+  const n = Number(count)
+  if (!Number.isFinite(n) || n <= 0) return null
+  if (n < 10) {
+    return { tone: 'warning',
+             text: `${n} clip${n > 1 ? 's' : ''} — enough to prove the pipeline, not to teach a look.` }
+  }
+  if (n < 50) {
+    return { tone: 'info',
+             text: `${n} clips — fine for a test; strong LoRAs are typically trained on 50-200 clips.` }
+  }
+  if (n <= 200) {
+    return { tone: 'good', text: `${n} clips — in the measured 50-200 sweet spot.` }
+  }
+  return { tone: 'info',
+           text: `${n} clips — above the measured range; curation beats volume from here.` }
 }
 
 /** Everything the picker must SHOW about a target, in one object.

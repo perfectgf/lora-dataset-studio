@@ -83,6 +83,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-promote-window-knows-the-numbers',
+    date: '2026-08-30',
+    title: 'The video promote window now tells you what the numbers mean',
+    blurb:
+      'Building a first video training set means guessing a target, a size and '
+      + 'a clip count — so the window stops making you guess. Each target '
+      + 'carries a one-line hint (which one is proven locally, which trains in '
+      + 'the cloud, which needs reference photos). The size menu says which '
+      + 'sizes train exactly as cut and which of the model’s stated sizes get '
+      + 'rescaled a little. And a line under the clip count tells you where '
+      + 'your dataset sits: a dozen clips proves the pipeline, strong LoRAs '
+      + 'are typically trained on 50–200. All of it measured, none of it '
+      + 'blocking — every field stays yours to set.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-30-start-lm-studio',
     date: '2026-08-30',
     title: 'Start LM Studio without leaving the app',
