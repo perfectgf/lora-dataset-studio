@@ -83,6 +83,33 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-30-describe-shots-window',
+    date: '2026-08-30',
+    title: 'Describe shots now asks its questions before it runs',
+    blurb:
+      'The video bank’s 🗣 Describe button opens a launch window instead of '
+      + 'firing blind. Pick the wording there — Standard, or Plain, which '
+      + 'names explicit content instead of describing around it (measured on '
+      + 'real adult footage: the prompt matters more than the model). And '
+      + 'choose what it covers: only the shots still missing a caption, or a '
+      + 'rewrite of the whole bank in the new wording — captions you edited '
+      + 'by hand are never touched unless you explicitly say so.',
+    to: '/video-bank',
+  },
+  {
+    id: '2026-08-30-video-triage-exits',
+    date: '2026-08-30',
+    title: 'Un-decide video shots, and always reach the ✕',
+    blurb:
+      'Two dead ends gone from the video bank. Selected shots can now go '
+      + '↩ back to triage — until now a mis-kept shot could only switch to the '
+      + 'other verdict, never to “undecided”. And the shot player’s header '
+      + 'stays pinned while you scroll, so the ✕ is always on screen — on a '
+      + 'phone, where Esc does not exist, it was possible to scroll the only '
+      + 'way out off the top of the page.',
+    to: '/video-bank',
+  },
+  {
     id: '2026-08-30-lmstudio-download',
     date: '2026-08-30',
     title: 'Download LM Studio models without leaving the app',

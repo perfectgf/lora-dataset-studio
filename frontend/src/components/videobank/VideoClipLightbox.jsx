@@ -97,12 +97,17 @@ export default function VideoClipLightbox({
     <div role="dialog" aria-modal="true" aria-label={`Shot ${clipLabel(clip.start_s, clip.end_s)}`}
       className="fixed inset-0 z-50 flex flex-col bg-black/90 p-2 sm:p-4">
       <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {/* STICKY, because this column scrolls: with the caption editor and the
+            trim panel below the player, the header was the first thing to leave
+            the screen — and on a phone, where Esc does not exist, the ✕ in it
+            was the only way out of the dialog (reported from a phone, with the
+            close hint on screen and nothing to press). */}
+        <div className="sticky top-0 z-10 flex min-w-0 flex-wrap items-center gap-2 bg-black/85">
           <p className="min-w-0 truncate font-mono text-xs text-white/80" title={clip.relpath}>
             {clip.relpath}
           </p>
           <button type="button" onClick={onClose} aria-label="Close the player"
-            className="ml-auto rounded-md border border-white/20 px-2 py-1 text-sm text-white hover:bg-white/10">
+            className="ml-auto min-h-10 rounded-md border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10 lg:min-h-0">
             ✕
           </button>
         </div>
