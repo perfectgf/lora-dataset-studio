@@ -60,7 +60,17 @@ def test_policy_prompt_asks_for_describe_families_and_forbids_omit_ones():
     assert p != fv.JOYCAPTION_PROMPT
     assert 'ponytail' in p.lower()                 # still forbids hair
     assert 'mascara' in p.lower()                  # asks for makeup
-    assert 'no makeup' in p.lower()
+    assert 'cosmetics' in p.lower()                # lipstick is not lip anatomy
+    assert 'say "no makeup"' not in p.lower()
+    assert 'bare nails' not in p.lower()
+    assert 'makeup verdict' in p.lower()
+    b = fv.caption_prompt_for('booru', appearance=DEFAULTS)
+    assert 'clearly visible makeup products' in b.lower()
+    assert 'absence of makeup' not in b.lower()
+    shave = fv.caption_prompt_for(
+        'booru', appearance=fv.normalize_appearance({'facial_hair': 'describe'}))
+    assert 'clean shave' in shave.lower()
+    assert 'absence of makeup' not in shave.lower()
     # Flip hair to describe: the forbid examples leave, the MUST-describe lands.
     described = fv.normalize_appearance({'hair': 'describe'})
     d = fv.caption_prompt_for('prose', appearance=described)
@@ -293,7 +303,8 @@ def test_concise_length_names_describe_families(app, client, monkeypatch):
     monkeypatch.setattr(vision_ollama, 'unload_vision_model', lambda *a, **k: True)
     client.post(f'/api/dataset/{ds_id}/caption', json={'force': True})
     assert 'the hairstyle' in captured['prompt']
-    assert 'the makeup or lack of it' in captured['prompt']
+    assert 'clearly visible makeup products' in captured['prompt']
+    assert 'the makeup or lack of it' not in captured['prompt']
     # The historical concise sentence is gone so it cannot fight the policy.
     assert 'the clothing and the setting' not in captured['prompt']
 

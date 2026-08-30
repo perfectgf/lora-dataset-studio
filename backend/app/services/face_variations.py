@@ -2577,11 +2577,17 @@ APPEARANCE_FAMILY_META = {
             'makeup and nails (mascara, lipstick, eyeshadow, blush, eyeliner, '
             'manicure, nail polish)'),
         'prose_describe': (
-            'any visible makeup or the lack of it (mascara, lipstick, eyeshadow, blush, '
-            'nails) — say "no makeup" or "bare nails" when that is what the photo shows'),
+            'clearly visible makeup products and their colours (mascara, lipstick, '
+            'eyeshadow, blush, nail polish) — these are cosmetics, not lip shape or '
+            'eyelashes, which stay omitted. Only name a product you can clearly see; '
+            'if you are not sure, skip it. Do not add a makeup verdict when nothing '
+            'is clearly visible'),
         'booru_omit': (
             'makeup (mascara, lipstick, eyeshadow, blush, nail_polish, manicure)'),
-        'concise': 'the makeup or lack of it',
+        'booru_describe': (
+            'clearly visible makeup products only (mascara, lipstick, eyeshadow, '
+            'blush, nail_polish) — skip makeup tags when none are clearly visible'),
+        'concise': 'clearly visible makeup products (lipstick, mascara, nail polish)',
         'shorten_omit': 'makeup, mascara, lipstick, nails',
     },
     'facial_hair': {
@@ -2719,16 +2725,22 @@ def _appearance_caption_prompt(mode, appearance) -> str:
         if _family_state(appearance, fam) == 'omit':
             omit_bits.append(meta['booru_omit'] if mode == 'booru' else meta['prose_omit'])
         elif fam != 'glasses':
-            describe_bits.append(meta['prose_describe'] if mode != 'booru'
-                                 else meta['booru_omit'].split(' (', 1)[0])
+            if mode == 'booru':
+                describe_bits.append(
+                    meta.get('booru_describe')
+                    or meta['booru_omit'].split(' (', 1)[0])
+            else:
+                describe_bits.append(meta['prose_describe'])
     if mode == 'booru':
         clothes = ('clothing and accessories with their colours'
                    + (' (except glasses and sunglasses)' if glasses_omit else ''))
         extra_describe = ''
         if describe_bits:
-            extra_describe = (
-                ' Also tag: ' + ', '.join(describe_bits)
-                + ' (including the absence of makeup or facial hair when that is what the image shows).')
+            extra_describe = ' Also tag: ' + ', '.join(describe_bits)
+            if _family_state(appearance, 'facial_hair') == 'describe':
+                extra_describe += (
+                    ' (including a clean shave when that is what the image shows)')
+            extra_describe += '.'
         omit_list = _join_en(omit_bits + [_CORE_BOORU_OMIT])
         return (
             "Caption Type: Booru tag list.\n\n"
