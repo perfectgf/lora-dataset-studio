@@ -97,6 +97,21 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-08-30-compare-duplicate-copies',
+    date: '2026-08-30',
+    title: 'See which duplicate you are keeping, before you keep it',
+    blurb:
+      'Duplicate and "same shot" groups get a ⤢ Compare button that opens their '
+      + 'copies full screen — side by side, or one at a time in the same frame '
+      + 'so ← → flips between them and the difference lands on the same pixels. '
+      + 'Resolution, sharpness, score and weight sit under each copy with the '
+      + "group's best value lit, byte-identical copies are marked as such, and "
+      + 'K keeps the one you are looking at while R throws out just that one. '
+      + 'Keep best and keep first are still one click away — now you can check '
+      + 'them first.',
+    to: '/bank',
+  },
+  {
     id: '2026-08-30-watermark-engine-choice',
     date: '2026-08-30',
     title: 'Choose which engine finds your watermarks',

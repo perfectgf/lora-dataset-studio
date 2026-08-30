@@ -54,6 +54,16 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
           Watches each shot and writes what happens in it — the caption a
           training run reads as the shot&rsquo;s prompt.
         </p>
+        {/* WHICH ENGINE, before the click: this app also drives Ollama,
+            LM Studio and JoyCaption for images, so without this line the fair
+            guess is "it goes through Ollama" — and the wrong guess costs
+            someone a wait on a server that has nothing to do with this pass. */}
+        <p className="text-xs text-content-subtle">
+          Runs in LDS&rsquo;s own local captioning process (Hugging Face
+          Transformers{captionModel?.runtime?.device
+            ? `, on the ${captionModel.runtime.device.toUpperCase()}` : ''})
+          — not Ollama or LM&nbsp;Studio. Models download from Hugging Face.
+        </p>
 
         {models.length > 1 && (
           <fieldset>

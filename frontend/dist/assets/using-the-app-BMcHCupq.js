@@ -1,4 +1,4 @@
-# Using the app
+const e=`# Using the app
 
 The workspace is a **guided flow**: each stage stays folded until the one
 before it is done, and the progress rail on the left tells you where you are
@@ -55,7 +55,7 @@ captioning rules and a few guards change with the dataset kind.
    hair). ⚙️ Options lets you Describe hair, makeup, facial hair or glasses so
    they stay prompt-controllable. Fix every flagged caption. A find/replace +
    tag-frequency panel sweeps the whole set at once; its **💾 Write .txt
-   files** button drops a kohya-style `<image>.txt` next to each kept image
+   files** button drops a kohya-style \`<image>.txt\` next to each kept image
    in the dataset folder (same format as the export ZIP) for external tools.
 8. **Fix individual shots** — every generated tile has a ✏️ button: edit the
    exact prompt that made it and regenerate in place, without losing the rest.
@@ -165,7 +165,7 @@ checkpoint**. Inside a full model's card the same tool appears with that model
 already filled in as the base.
 
 **Say what you are merging.** Pick a full-precision base, then add one or more
-LoRAs, each with a weight. `1.0` applies a LoRA exactly as it was trained;
+LoRAs, each with a weight. \`1.0\` applies a LoRA exactly as it was trained;
 lower blends it in more gently; a negative weight subtracts it. Several LoRAs
 stack — that is what "baked in LoRAs with balanced weights" means when you read
 it on a model page.
@@ -216,13 +216,13 @@ fp8 tool — which is the order the refusal points you at.
   written, naming the weights it expected to find. A LoRA trained for another
   model has nothing to merge into.
 - **Tensors that are not part of the model** are reported, not dropped. Not every
-  `.safetensors` contains only a model: one community Krea 2 file circulating
+  \`.safetensors\` contains only a model: one community Krea 2 file circulating
   today carries about 75 MB of an image in two tensors hiding under a legitimate
   name. Nothing we do not understand is modified — it is copied through, and the
   plan names it so you know it is there.
 
 **What the merge needs:** the same Python that quantization uses — one with
-`torch` available. If it is missing, the plan says so with the command to fix it,
+\`torch\` available. If it is missing, the plan says so with the command to fix it,
 before you click anything.
 
 ## The generation queue
@@ -340,7 +340,7 @@ recovered or different ComfyUI state.
 
 First recover or restart ComfyUI. For a valid local portable install,
 **Setup → ComfyUI → ▶ Start ComfyUI** uses the app's fixed local-safe profile.
-It does not read, change or execute any `.bat` file; your existing launcher and
+It does not read, change or execute any \`.bat\` file; your existing launcher and
 its settings stay untouched. Once ComfyUI is responding, **Cancel** the paused
 batch and resume it from Studio. That makes the next prompt an explicit choice,
 never an automatic continuation.
@@ -354,14 +354,14 @@ the captioner needs to know exactly *what to omit*. What changes vs character:
   **scraper** (paste a gallery URL or run a Reddit keyword search, tick the
   frames you want, they land straight in the dataset — deduplicated and
   quality-filtered). Already have a kohya-style dataset on disk (images +
-  same-name `.txt` captions)? **⋯ More → 📂 Import from folder…** merges it in
+  same-name \`.txt\` captions)? **⋯ More → 📂 Import from folder…** merges it in
   from a pasted folder path — captions attach, duplicates are skipped (a ZIP
   works too, via **📦 Import dataset**). On gallery sites (PornPics), a category/tag/search scan
   shows **the same previews the listing page does** — one per gallery, the shot
   that actually matches your keyword. Tick **Scan full albums** to pull every
-  photo of each matched gallery instead, or paste a single `/galleries/…` URL
+  photo of each matched gallery instead, or paste a single \`/galleries/…\` URL
   to get that whole album. Sex.com works the same way for keyword searches
-  (`sex.com/en/pics?search=…`) — every pin **is** a single matching image, so
+  (\`sex.com/en/pics?search=…\`) — every pin **is** a single matching image, so
   there is no album option to worry about. Civitai searches return **SFW
   results only** unless you add a Civitai API key in **Settings → Scraping &
   sources**.
@@ -396,14 +396,14 @@ Pick **Style** at creation. What changes:
 You are not locked into the captioners shipped here. The round trip is:
 
 1. **⬇ Export ZIP** from *Import & export*. The archive is a plain kohya layout —
-   one folder of `image.png` + same-name `image.txt` pairs. If some kept images
+   one folder of \`image.png\` + same-name \`image.txt\` pairs. If some kept images
    have no caption yet, the app asks before exporting instead of refusing:
-   confirm and their `.txt` files come out empty, ready to be filled.
-2. **Caption them wherever you like.** Any tool that writes a `<image>.txt`
+   confirm and their \`.txt\` files come out empty, ready to be filled.
+2. **Caption them wherever you like.** Any tool that writes a \`<image>.txt\`
    sidecar next to each image works — that is the convention this app reads,
    whatever the file names are and whatever folder depth you use.
 3. **📦 Import dataset (ZIP)** (or **📂 Import from folder…**) with the same
-   images and their new `.txt` files. Images already in the dataset are **not
+   images and their new \`.txt\` files. Images already in the dataset are **not
    duplicated**: their caption lands on the row that already holds them, and the
    toast says how many were applied.
 
@@ -417,7 +417,7 @@ Two things worth knowing before you start:
   have, not as a replacement dataset.
 
 **A Style dataset asks louder, on purpose.** A Style LoRA learns everything its
-captions do *not* name, so an empty `.txt` teaches it nothing; the export
+captions do *not* name, so an empty \`.txt\` teaches it nothing; the export
 confirmation says so before letting you through. Cancelling takes you straight
 to the captions instead.
 
@@ -450,7 +450,7 @@ grid.
 
 **Export first.** The exported file is the format, and the example an LLM needs:
 
-```json
+\`\`\`json
 {
   "format": "lds-shots/1",
   "subject_type": "animal",
@@ -463,26 +463,26 @@ grid.
   ],
   "examples": []
 }
-```
+\`\`\`
 
 Then ask a chat assistant for more shots *in that exact shape*, and import the
 file it gives you.
 
 Each shot needs three things:
 
-- **`label`** — a short name, max 80 characters, shown on the card. It must be
+- **\`label\`** — a short name, max 80 characters, shown on the card. It must be
   unique: not a built-in label (of *any* subject type), and not one of your
   existing shots. The app refuses a collision and tells you which label is at
   fault — two shots sharing a label would make it resolve the wrong prompt the
   day you regenerate one.
-- **`framing`** — exactly one of `face`, `bust`, `body`, `back`. Anything else is
+- **\`framing\`** — exactly one of \`face\`, \`bust\`, \`body\`, \`back\`. Anything else is
   refused; it is never quietly remapped.
-- **`prompt`** — the text sent to the image engine, max 500 characters.
+- **\`prompt\`** — the text sent to the image engine, max 500 characters.
 
-`nsfw: true` is optional and only has an effect when Klein is the only engine
-checked. Everything under **`examples`** is ignored on import — that's how the
+\`nsfw: true\` is optional and only has an effect when Klein is the only engine
+checked. Everything under **\`examples\`** is ignored on import — that's how the
 export can show you samples without them coming back as duplicates. Any other
-field (including `aspect`) is ignored too, and the import summary says so: an
+field (including \`aspect\`) is ignored too, and the import summary says so: an
 imported shot uses its framing's default aspect ratio.
 
 **Nothing is written until you confirm.** The app reads the file, lists what
@@ -522,7 +522,7 @@ setup into a single file so you can move to a new machine — or recover from on
   choices, training defaults, cloud tuning, watermark preferences. It's a
   *logical* backup, one entry per dataset, not a raw disk dump.
 - **Include trained LoRAs** (checkbox next to the button): also bundle the
-  trained `.safetensors` files themselves. These are large — hundreds of MB per
+  trained \`.safetensors\` files themselves. These are large — hundreds of MB per
   checkpoint — so it's **off by default**; the light training history above is
   always included, so a dataset comes back under **Trained** either way. Tick it
   when you want the finished LoRAs to travel too.
@@ -540,7 +540,7 @@ setup into a single file so you can move to a new machine — or recover from on
   machine; if it isn't, they're reported as skipped and the **Trained** status
   still stands (the run is what marks it trained, not the file on disk). Nothing
   is ever overwritten — a dataset whose name already exists comes back with a
-  `(restored)` suffix — and you get an honest final report of what was restored,
+  \`(restored)\` suffix — and you get an honest final report of what was restored,
   renamed or skipped.
 
 ## The image bank (triage a big folder)
@@ -652,7 +652,7 @@ The funnel itself:
    caption just those. It runs in the background, frees the GPU like the other
    passes, and is Stop-able mid-run. The captions are plain descriptions (no
    trigger word, nothing omitted) whose real job is **search**: type into the
-   🔍 box — `red dress`, `sunset`, a file name — and the grid filters to
+   🔍 box — \`red dress\`, \`sunset\`, a file name — and the grid filters to
    matching images, combinable with every other filter. It's the fast way to
    find shots in a 9 000-image dump.
    → **🧪 Caption Lab**, in the same 🏷️ Caption window, benches up to four
@@ -758,7 +758,7 @@ the panel — see [Pick a balanced set](#pick-a-balanced-set).
 with your triage, it removes every image you marked ✕ rejected from its source
 folder — the actual files, not just the status. It asks you to type **DELETE**
 first, and tells you where the files will go before you confirm: your OS trash
-when [`send2trash`](https://pypi.org/project/Send2Trash/) is installed, the
+when [\`send2trash\`](https://pypi.org/project/Send2Trash/) is installed, the
 app's own Trash otherwise (recoverable until you empty it from Settings), and a
 permanent delete only when neither can take the file. Kept and undecided images
 are never touched, and a file it can't remove (locked, read-only) is reported
@@ -791,7 +791,7 @@ skipped and why, with the headline counts.
 
 ## Choosing where a bank pass runs
 
-Every pass button in the bank ends in `…` and opens a **launch window** before
+Every pass button in the bank ends in \`…\` and opens a **launch window** before
 anything runs. The window is not a settings panel — it says three separate
 things, and keeping them apart is the point.
 
@@ -820,7 +820,7 @@ them.
 
 **Settings this pass reads.** Only what the *calculation* consumes, with where
 each value lives. 🔎 Scan quality, for instance, reads exactly one of the twelve
-🎚 filter thresholds (`dup_distance`), and it reads it for the duplicate grouping
+🎚 filter thresholds (\`dup_distance\`), and it reads it for the duplicate grouping
 at the end — not for the measuring.
 
 **Not decided here.** The knobs that only change how the grid is **sorted and
@@ -1068,7 +1068,7 @@ recovering the original file's size.
 bank with the **🔎 Origin** chips:
 
 - **🤖 AI** — the file still carries generation metadata: a ComfyUI workflow
-  in the PNG, A1111-style `parameters`, or the C2PA/XMP "generated" marker the
+  in the PNG, A1111-style \`parameters\`, or the C2PA/XMP "generated" marker the
   commercial generators write. Certain when present.
 - **📷 Camera** — the file still carries camera EXIF (make, model, exposure).
   Strong evidence it was actually photographed.
@@ -1110,7 +1110,7 @@ unclassified; the row says how many.
 
 **You no longer have to ask for it.** Because it costs nothing beyond what
 ✨ Score already paid, it now runs **automatically at the end of every ✨ Score
-pass**, and the pass's own line reports it (`· 🎨 Medium: 812 classified`). If
+pass**, and the pass's own line reports it (\`· 🎨 Medium: 812 classified\`). If
 the CLIP text encoder is missing, the line says *skipped* and names the reason
 rather than staying quiet. The **🎨 Classify medium** button is still there: it
 is how you re-run the pass on its own, and how you re-classify images that
@@ -1166,7 +1166,7 @@ writes nothing but the angle, and leaves your person groups exactly as they are.
 ## Set the bank filters from a sentence
 
 At the top of **Triage**, **🗣 Describe the set you want** takes a plain request —
-`an amateur photo set, least polished first` — and moves the bank's own controls:
+\`an amateur photo set, least polished first\` — and moves the bank's own controls:
 medium, quality flags, resolution tier, sort. The chip counters below then say,
 measured, how many images that lands on.
 
@@ -1178,15 +1178,15 @@ same filters a click would set, and clearing them is the same gesture as always.
 It answers over what your bank has actually measured. The real per-value counts go
 to the model with the request, so it cannot reach for a bucket that holds nothing.
 
-**It says when it cannot.** Asking for what is *in* the pictures — `women
-outdoors` — has nowhere to land while captions cover a small fraction of a bank
+**It says when it cannot.** Asking for what is *in* the pictures — \`women
+outdoors\` — has nowhere to land while captions cover a small fraction of a bank
 and framing almost none of it. That part of the request comes back as *not
 expressible here* rather than as a filter that would return a few thousand
 convincing, unrelated images.
 
 **It will not turn an exclusion into a search.** The ranker returns *more* of a
-negated thing, not less (`a woman without a bikini` measured 60% bikinis against a
-10.1% baseline), so `without a watermark` is reported back to you instead of being
+negated thing, not less (\`a woman without a bikini\` measured 60% bikinis against a
+10.1% baseline), so \`without a watermark\` is reported back to you instead of being
 quietly sent. To guarantee an absence, use the word-exclude box.
 
 ## Choose CLIP or SigLIP 2 for Bank semantics
@@ -1219,8 +1219,8 @@ images. **Reindex SigLIP 2** rebuilds that cache only; it never touches Score.
 ## Find bank images by describing them
 
 Under **Curate**, **🔤 Find by text…** ranks images by how close they are to a
-phrase you type — `brunette outdoors, wide shot`, `red dress against a white
-wall`, `close-up, harsh flash`. It reads the Bank's selected semantic index:
+phrase you type — \`brunette outdoors, wide shot\`, \`red dress against a white
+wall\`, \`close-up, harsh flash\`. It reads the Bank's selected semantic index:
 the existing **✨ Score** cache for CLIP, or the separate index you explicitly
 built for SigLIP 2. A search itself performs no image inference; searching while
 a LoRA trains is fine.
@@ -1234,7 +1234,7 @@ says whether you can trust the bottom of the list.
 
 **Do not read those numbers as percentages, and do not compare engines by their
 raw values.** The following measurements are specifically for the default CLIP
-ViT-L/14 `openai` space, on a real bank (48 images from 8 unrelated datasets):
+ViT-L/14 \`openai\` space, on a real bank (48 images from 8 unrelated datasets):
 
 | | Range |
 |---|---|
@@ -1286,9 +1286,9 @@ setting, materials and colour**, and unreliable for three things in particular:
 
 The negation case is the one to remember, because it fails *silently and
 backwards*: CLIP does not penalise "without", it simply ignores the word. Someone
-searching `woman without glasses` gets women **wearing** glasses and has no way
-to tell the search misfired. The same measurement on a 7,316-image bank: `a
-photo of a woman without a bikini` returned **60% bikinis**, against a 10%
+searching \`woman without glasses\` gets women **wearing** glasses and has no way
+to tell the search misfired. The same measurement on a 7,316-image bank: \`a
+photo of a woman without a bikini\` returned **60% bikinis**, against a 10%
 base rate — the query did not miss, it inverted. See **Push down** below.
 
 These are properties of the model, not bugs to report. Describe what *is* in the
@@ -1299,8 +1299,8 @@ the negation case, use the **Push down** field described next, because typing
 ### Push down what you do not want
 
 The panel has a second field, **Push down**, for the trait you are trying to get
-away from: `hat`, `sunglasses`, `blonde hair`. You can also write it inline in
-the query with a leading dash — `a woman in a car -hat` means the same thing.
+away from: \`hat\`, \`sunglasses\`, \`blonde hair\`. You can also write it inline in
+the query with a leading dash — \`a woman in a car -hat\` means the same thing.
 Typing a query that starts negating something ("a woman without a hat") offers
 you the field instead, rather than letting the search fail quietly.
 
@@ -1327,7 +1327,7 @@ off a cliff (10 points at Strong, 25 past it). That is why Normal is the default
 and why Strong is described as a trade rather than as "better".
 
 **Some pairs cannot be separated at all,** and the app says so instead of
-pretending. Excluding `a bikini` from `a woman at the beach` barely moved: at
+pretending. Excluding \`a bikini\` from \`a woman at the beach\` barely moved: at
 every usable strength two thirds of the results still had a bikini, because in
 this model's eyes a beach photo largely *is* a bikini photo — and by the strength
 that finally bit, the beach was gone too. After each search the summary reports
@@ -1350,8 +1350,8 @@ search, then releases it when you close the panel or after the idle window.
 Every phrase is cached under that engine's model key, so CLIP and SigLIP 2 text
 vectors can never be mixed and re-typing one is free even after a restart.
 
-On a memory-tight machine you can set `bank_scoring.text_search_idle_minutes` to
-`0`: nothing is ever kept warm, and each new phrase pays the ten seconds instead.
+On a memory-tight machine you can set \`bank_scoring.text_search_idle_minutes\` to
+\`0\`: nothing is ever kept warm, and each new phrase pays the ten seconds instead.
 
 ## Choose who captions a bank, and which pile
 
@@ -1417,7 +1417,7 @@ that are already there.
 
 **It keeps the captions you wrote yourself.** Every caption now records who wrote
 it — JoyCaption, Ollama, or you. "You" means: typed or corrected in a dataset's
-caption box, changed by a find/replace across a dataset, or brought back as `.txt`
+caption box, changed by a find/replace across a dataset, or brought back as \`.txt\`
 sidecars from another tool. That record travels with the text through
 **Import to bank**, bank-to-bank copies, promotion back to a dataset, and backup
 restores, so a caption you wrote in a dataset three steps ago is still recognised
@@ -1603,12 +1603,12 @@ byte-for-byte the original again.
 ## Find more images like this one — by attribute, not by look
 
 **Select an image** in a captioned bank and its tags are already there: beside
-the gallery on desktop, or in the filter bar on a phone. Tick `woman`, `red`,
-`dress` or `balcony` and the grid narrows to the images whose captions mention
+the gallery on desktop, or in the filter bar on a phone. Tick \`woman\`, \`red\`,
+\`dress\` or \`balcony\` and the grid narrows to the images whose captions mention
 them. No extra click, no badge to find.
 
 **Select several and the row counts.** Each chip carries how many of your
-selected images cite it — `red dress 7 / 12` means 7 of the 12 captioned images
+selected images cite it — \`red dress 7 / 12\` means 7 of the 12 captioned images
 you picked mention it. That is deliberately *not* an intersection: keeping only
 the tags every single image shares would print 12 next to each survivor (a number
 that says nothing) and usually leave you with one word. What you want to know is
@@ -1617,8 +1617,8 @@ that a tag describes over half of what you selected.
 The row is honest about what it did **not** count, on its own lines:
 
 - images in your selection with **no caption yet** — named, not folded into the
-  denominator, so `7 / 12` always means 7 of 12 images that had something to say;
-- images whose caption held **no word worth filtering on** (`a photo of her`) —
+  denominator, so \`7 / 12\` always means 7 of 12 images that had something to say;
+- images whose caption held **no word worth filtering on** (\`a photo of her\`) —
   a different problem with a different fix;
 - a selection **too large to read in one request**, which says how many images it
   left out rather than quietly shrinking the total.
@@ -1645,14 +1645,14 @@ worth knowing because they fail differently:
 
 Details that decide what you get:
 
-- **Several chips mean AND.** Ticking `red` and `dress` shows images mentioning
+- **Several chips mean AND.** Ticking \`red\` and \`dress\` shows images mentioning
   both, so every extra chip narrows further. The line under the chips says so
   while the filter is active.
-- **Chips are matched as whole words**, in captions *and* file names. `car` will
-  not bring back `scarf`. (The 🚫 exclude box below is looser — it matches
+- **Chips are matched as whole words**, in captions *and* file names. \`car\` will
+  not bring back \`scarf\`. (The 🚫 exclude box below is looser — it matches
   anywhere — because a word you type by hand is often a fragment on purpose.)
-- **Booru captions keep their tags whole** (`red dress` stays one chip); prose
-  captions are cut into words, so `golden hour` becomes two chips and ticking
+- **Booru captions keep their tags whole** (\`red dress\` stays one chip); prose
+  captions are cut into words, so \`golden hour\` becomes two chips and ticking
   both means "captions with both words", not "captions about golden hour".
 - **It only sees what a captioner wrote.** An attribute nobody put in words is
   invisible here, however plain it is in the picture. Caption more of the bank
@@ -1667,10 +1667,10 @@ The bank's 🔍 search box narrows the grid *to* a word. Next to it, the 🚫
 file name** contains what you type. That turns a captioned bank into a checklist
 — *what have I not tagged yet?* — instead of a list you have to keep re-reading.
 
-- **Several words at once**, comma-separated: `logo, watermark, screenshot` hides
+- **Several words at once**, comma-separated: \`logo, watermark, screenshot\` hides
   anything mentioning any of them.
 - **It composes with everything else** — the search box included. Searching
-  `dress` while excluding `red` gives you the dresses that are not red, and the
+  \`dress\` while excluding \`red\` gives you the dresses that are not red, and the
   filter chips, subfolder, resolution tier and framing all still apply.
 - **It travels with the filter**: **Select all in filter**, **▶ Review one by
   one** and the curation picks (🎨 diverse, ⚖️ balanced, similar) all work on the
@@ -1678,8 +1678,8 @@ file name** contains what you type. That turns a captioned bank into a checklist
 
 Two limits worth knowing:
 
-- **It matches anywhere in the text**, like the search box — so `car` also hides
-  `scarf`. Type the longer word when that matters.
+- **It matches anywhere in the text**, like the search box — so \`car\` also hides
+  \`scarf\`. Type the longer word when that matters.
 - **Images with no caption are never hidden.** They have nothing to match, and
   hiding them would remove exactly the images a checklist is looking for.
 
@@ -1790,9 +1790,9 @@ The full-screen view is where you can actually *see* whether a hand is right or
 an eye is mush — so that is where the verdict belongs. The bar under the image
 carries the same three buttons as the Bank's **▶ Review**, on the same keys:
 
-- **✓ Keep** — `K`
-- **✕ Reject** — `R`
-- **⏭ Skip** — `S` (or **→**)
+- **✓ Keep** — \`K\`
+- **✕ Reject** — \`R\`
+- **⏭ Skip** — \`S\` (or **→**)
 
 **Keep and Reject move you on** as soon as the verdict is saved, so a folder of
 300 pictures is worked through with one hand on the keyboard and never a return
@@ -1946,7 +1946,7 @@ Three things each control tells you that a bare number cannot:
   duplicates is cheap: it walks the stored hashes and decodes nothing.
 - **How many images it would touch.** As you change a read-time value, the panel
   asks the server how many images that number *would* flag and shows
-  `1 240 → 3 019 images flagged` before you save anything. Nothing is written
+  \`1 240 → 3 019 images flagged\` before you save anything. Nothing is written
   until you press **Save**.
 
 Every field has **↺ Reset to default** (it only appears when the value is not
@@ -2011,7 +2011,7 @@ press **Stop** in the ⏳ progress bar at the top of the bank; the buttons come
 back by themselves the moment the bank is free.
 
 When a re-run does start, the button reports what the pass produced right where
-you pressed it: **`Done — 12 duplicate groups · 34 images (was 9 · 26)`**. If
+you pressed it: **\`Done — 12 duplicate groups · 34 images (was 9 · 26)\`**. If
 your new value groups exactly the same images it says so — *unchanged* — rather
 than leaving you unable to tell a no-op from a pass that never ran.
 
@@ -2046,7 +2046,7 @@ what the app shows you and to what it copies when you **⬆ Promote**; your
 original keeps its exact bytes, whatever you do. Select the images and use
 **↺ Rotate left** / **↻ Rotate right** in the selection bar to fix a whole
 sideways batch at once, or turn one image without leaving **▶ Review** with the
-↺ / ↻ buttons (keyboard: `[` and `]`). Rotating in Review never decides
+↺ / ↻ buttons (keyboard: \`[\` and \`]\`). Rotating in Review never decides
 anything — the image stays under your cursor so you can judge it once it is the
 right way up.
 
@@ -2064,7 +2064,7 @@ place. (Asked for by nofaceman on Discord, backed by mr.arrow.)
 
 **✂ Crop** is per image, in **▶ Review** — the only place a bank shows a picture
 big enough to draw a box on. Open Review (or press ▶ on a tile), then click
-**✂ Crop** or press `C`. Drag the box, or snap it to a ratio, and confirm.
+**✂ Crop** or press \`C\`. Drag the box, or snap it to a ratio, and confirm.
 Cropping decides nothing: the image stays under your cursor so you can judge it
 once it is framed properly.
 
@@ -2236,7 +2236,7 @@ once into the same Python the **✨ Score** pass already uses.
 
 **How good is it, measured.** On 110 images pulled from a real bank and labelled
 by eye — half of them hard on purpose: faint corner logos, semi-transparent
-handles across the subject, an `OnlyFans.com/…` line barely a few pixels tall, and
+handles across the subject, an \`OnlyFans.com/…\` line barely a few pixels tall, and
 clean photos containing legitimate signage — the detector at its default setting
 flagged **none of the 55 clean images** and **54 of the 55 marked ones**. The
 vision model, on the exact same 110, flagged one clean image and missed one marked
@@ -2244,7 +2244,7 @@ one. So the detector is not a downgrade in judgement; the gain you actually buy 
 the ten-fold speed-up. Neither is a verdict: both are a review flag, and both leave
 your source files untouched.
 
-The one image the detector missed was a `MET-ART.com` line in a bottom corner
+The one image the detector missed was a \`MET-ART.com\` line in a bottom corner
 scoring 0.929, just under the 0.94 cut — and the highest-scoring clean image sat
 at 0.939. The two overlap by about a hundredth, which is why the cut is a
 **setting** (Settings ▸ Captioning & quality ▸ *Watermark detector sensitivity*)
@@ -2341,7 +2341,7 @@ actually read, and the flagged-pages strip.
 
 The detector draws **one** box, and it is a guess: it can miss a second logo,
 swallow half the face, or land beside the mark. Open **▶ Review**, walk to the
-image and press **🚩 Edit mask** (shortcut `M`) — the same zone editor the
+image and press **🚩 Edit mask** (shortcut \`M\`) — the same zone editor the
 datasets use, on the bank image, right there.
 
 It also opens on an image the scan flagged **nothing** on, where the button reads
@@ -2391,7 +2391,7 @@ images sometimes. When you would rather drop the whole pile and move on,
 
 Four things worth knowing before you click it:
 
-- **The number is the number.** `N` is what the button will really reject, not
+- **The number is the number.** \`N\` is what the button will really reject, not
   how many are flagged. Small-image rescue pairs are excluded (the server refuses
   a batch containing one, so including them would reject *nothing*) and failed
   rows are excluded (the server skips them). If the two differ, the row says so
@@ -2480,7 +2480,7 @@ Paste or browse to the new folder
 and press **🔍 Check this folder**. Nothing is written yet: the app walks the
 candidate folder and tells you how many of *this bank's* images are in there and
 how many are not. Paste it however you like — Windows' *Copy as path* wraps the
-path in quotes, and a trailing `\` or forward slashes are equally fine; the field
+path in quotes, and a trailing \`\\\` or forward slashes are equally fine; the field
 then shows the folder the app actually resolved, so what you confirm is what it
 will use.
 
@@ -2523,8 +2523,8 @@ package**:
 - **GPU ready** — everything the pass imports is there *and* PyTorch sees the
   card. Pick it and the next Score run is minutes instead of hours.
 - **Missing packages** — the reason is named. The common one is an interpreter
-  with a perfect CUDA PyTorch but no **OpenCLIP**: Score needs `open_clip` and
-  `transformers`/`timm` too, so CUDA alone is not enough. Such an interpreter is
+  with a perfect CUDA PyTorch but no **OpenCLIP**: Score needs \`open_clip\` and
+  \`transformers\`/\`timm\` too, so CUDA alone is not enough. Such an interpreter is
   **refused**, on purpose — accepting it would trade slow-but-working scoring for
   an import error an hour into the pass.
 - **CPU only** — it can run the pass, it just has no usable CUDA.
@@ -2533,7 +2533,7 @@ package**:
 
 **The app never installs anything into an environment it did not create.** Your
 ai-toolkit venv runs your training and ComfyUI's runs your generation; a silent
-`pip install` into either is not something a dataset tool gets to do. When a
+\`pip install\` into either is not something a dataset tool gets to do. When a
 package is missing the dialog shows you the exact command and leaves the choice
 to you — run it in a terminal, then hit **↻ Check again** and the row updates.
 
@@ -2580,12 +2580,12 @@ Python I already have**. It is the same detector, the same dialog and the same
 promise — with one difference that matters:
 
 **The dependency list is SigLIP 2's, not Score's.** The semantic worker never
-imports `open_clip` or `timm`. An interpreter Score refuses for a missing
+imports \`open_clip\` or \`timm\`. An interpreter Score refuses for a missing
 OpenCLIP — the most common shape of a ComfyUI venv — can be perfectly good here,
 and refusing it would be a lie about a worker that does not need it. What it
-*does* need is a **Transformers recent enough to carry `Siglip2Model`** (4.49 or
+*does* need is a **Transformers recent enough to carry \`Siglip2Model\`** (4.49 or
 newer). That one is checked by really looking for the class, not just for the
-package: an older `transformers` imports fine and then dies at model load, an
+package: an older \`transformers\` imports fine and then dies at model load, an
 hour into an index. Such an interpreter is refused, and the repair line the
 dialog hands you carries the version floor.
 
@@ -2617,7 +2617,7 @@ Two things changed:
   reports which device the scan *actually* ran on — "(detector on GPU, …)" or
   "(detector on CPU, …)" — read back from the scan itself, not from a guess.
 - **The picker speaks the detector's own dependency list.** It never imports
-  `open_clip`, `timm` or even NumPy, so the ComfyUI interpreter Score refuses
+  \`open_clip\`, \`timm\` or even NumPy, so the ComfyUI interpreter Score refuses
   is usually perfect here. What it *does* need is a **Transformers carrying
   both halves of the cascade** — the SigLIP classifier and the Grounding-DINO
   locator (4.40 or newer). Both classes are really looked for, not assumed
@@ -2640,14 +2640,14 @@ on its own.
 Videos are a different kind of material and they get their own bank. On the
 **🗃️ Bank** page the switch at the top right says which kind you are making —
 **🖼 Images** or **🎬 Video**. This matters more than it looks: an image bank
-skips every `.mp4` you drop into its folder **without a word**, so a folder of
+skips every \`.mp4\` you drop into its folder **without a word**, so a folder of
 video used to look like an empty bank.
 
 A video bank triages **shots**, not files. One two-hour rush is not something you
 can judge; the three hundred shots inside it are.
 
-1. **Create it** — name it, point it at the folder. Every `.mp4`, `.mov`, `.mkv`,
-   `.webm` and `.avi` under it (subfolders included) is inventoried in place.
+1. **Create it** — name it, point it at the folder. Every \`.mp4\`, \`.mov\`, \`.mkv\`,
+   \`.webm\` and \`.avi\` under it (subfolders included) is inventoried in place.
    Nothing is copied, and **no pass ever modifies your files** — scanning,
    cutting and building all write elsewhere. The one thing that adds to that
    folder is a scrape you send to this bank yourself (next step).
@@ -2681,7 +2681,7 @@ can judge; the three hundred shots inside it are.
    above the buttons always names the one step to take next — run them out of
    order and each simply finds nothing to do and reports success.
 3. **Triage** — the grid is thumbnails, and only thumbnails. Click one to watch
-   exactly that shot, `←`/`→` to move, `K` to keep, `R` to reject. Filter by
+   exactly that shot, \`←\`/\`→\` to move, \`K\` to keep, \`R\` to reject. Filter by
    status, or click a file in the **Files** list to see only its shots. For a
    whole bank at speed, **⌨ Burst mode** judges shots straight from the grid,
    one keystroke each — see *Triage a video bank from the keyboard* below.
@@ -2709,34 +2709,34 @@ marker under the thumbnail. From there:
 
 | Key | What it does |
 | --- | --- |
-| `K` | Keep this shot |
-| `R` | Reject this shot |
-| `P` | Put it back to untriaged |
-| `S` or `→` | Move on without deciding |
-| `←` | Move back one shot |
-| `U` | Undo the last decision, and go to that shot |
-| `Home` | Jump to the first untriaged shot |
-| `?` | Show or hide the shortcut panel |
-| `Esc` | Leave burst mode |
+| \`K\` | Keep this shot |
+| \`R\` | Reject this shot |
+| \`P\` | Put it back to untriaged |
+| \`S\` or \`→\` | Move on without deciding |
+| \`←\` | Move back one shot |
+| \`U\` | Undo the last decision, and go to that shot |
+| \`Home\` | Jump to the first untriaged shot |
+| \`?\` | Show or hide the shortcut panel |
+| \`Esc\` | Leave burst mode |
 
-They are the same keys as the image bank's **▶ Review** — `K` keep, `R` reject,
-`S` skip, `←` back, `Esc` out — because a reflex that is right on one screen and
-wrong on the next is worse than no reflex. `P`, `U` and `Home` are this lane's
+They are the same keys as the image bank's **▶ Review** — \`K\` keep, \`R\` reject,
+\`S\` skip, \`←\` back, \`Esc\` out — because a reflex that is right on one screen and
+wrong on the next is worse than no reflex. \`P\`, \`U\` and \`Home\` are this lane's
 own: a video bank has three verdicts where the image review has two.
 
 Four things are worth knowing before you lean on it:
 
 - **The cursor jumps to the next shot you have not judged yet**, not simply the
   next tile. On a half-triaged bank that is most of the speed. Untick
-  **Auto-advance** and the cursor stays put instead, so `K` then `R` corrects
+  **Auto-advance** and the cursor stays put instead, so \`K\` then \`R\` corrects
   the same shot — useful when you are being careful rather than fast.
 - **It never wraps.** When nothing untriaged is left ahead of the cursor, the
-  bar says so — and says how many are still sitting *behind* it, with `Home` to
+  bar says so — and says how many are still sitting *behind* it, with \`Home\` to
   go back to the first. A run that silently looped back to the top would put
   your next keystroke on a shot you did not expect.
 - **Undo goes back one step at a time, and shows you what it fixed.** The bar
   always names the decision it would take back (*"↩ U undoes ✕ Reject on 0:12 –
-  0:15"*) and how many steps are left in the net — ten. Each `U` restores what
+  0:15"*) and how many steps are left in the net — ten. Each \`U\` restores what
   the shot actually was before, so undoing a reject on a shot you had already
   kept puts the **keep** back, not a blank. The offer sits in the bar rather
   than in a toast on purpose: at one keystroke a second a toast is replaced
@@ -2940,7 +2940,7 @@ The number is stored per shot and read by one cut in **🎚 Quality cuts**,
 **Motion irregularity floor** — the one threshold in the panel that works the
 other way round from the rest. **A LOW score is the suspicious one**, so this is
 a floor and raising it flags *more* shots; a shot below it wears a **May be
-AI-generated** chip in the grid like any other flag. Set it as a `_max` in your
+AI-generated** chip in the grid like any other flag. Set it as a \`_max\` in your
 head and you will flag every handheld shot in the bank and clear every generated
 one.
 
@@ -2993,7 +2993,7 @@ chip says *may be*. Use it to decide what to look at, not what to throw away.
 
 The 🗃️ Bank already tells you whether a still is AI, and the two answers are
 **different in kind**, which is why they are worded differently. The image
-lane's `AI` verdict reads **metadata** — a generator's own prompt block inside
+lane's \`AI\` verdict reads **metadata** — a generator's own prompt block inside
 the PNG, an A1111 parameter string, a C2PA mark — and that is *proof* when it is
 present. It is also absent from almost everything scraped, and its silence means
 "unknown", never "not AI". This pass reads **the pixels** and infers, so it is
@@ -3029,14 +3029,14 @@ as it does to you.
 | **Static shot** | Nothing moved enough to name — a tripod, a clamp, or very steady hands. |
 | **Handheld** | The movement has a high-frequency part nobody is steering. |
 
-Three more are **this app's own**, and the gallery marks them with a small `ᐩ` so
+Three more are **this app's own**, and the gallery marks them with a small \`ᐩ\` so
 you never carry one into a caption expecting the trainer to recognise it:
 
 | Label | What it means |
 | --- | --- |
-| **Rolling** `ᐩ` | The horizon turns — the camera rotates about its own axis. Absent from the trainer's fourteen, and measured here because it is the one movement a language model reading the footage reliably gets wrong. |
-| **Slideshow** `ᐩ` | The whole frame moved as one rigid picture, which is what a photograph panned across does — a Ken Burns move, not a camera. |
-| **Subject moves** `ᐩ` | Something in the shot moved more than the camera did, so no direction could be read at all. |
+| **Rolling** \`ᐩ\` | The horizon turns — the camera rotates about its own axis. Absent from the trainer's fourteen, and measured here because it is the one movement a language model reading the footage reliably gets wrong. |
+| **Slideshow** \`ᐩ\` | The whole frame moved as one rigid picture, which is what a photograph panned across does — a Ken Burns move, not a camera. |
+| **Subject moves** \`ᐩ\` | Something in the shot moved more than the camera did, so no direction could be read at all. |
 
 A shot carries **several** labels where several apply: a handheld pan that also
 zooms is all three, and the filter row lets you pick any one of them.
@@ -3084,7 +3084,7 @@ a **🎥 Camera** row of filters above the grid. It composes with the ⚑ flag c
 so *"shaky shots that also pan right"* is one click each.
 
 If you do want to **cut** on camera movement, 🎚 Quality cuts gains
-**`camera_shake_max`**. It is empty by default like every other cut, and it is
+**\`camera_shake_max\`**. It is empty by default like every other cut, and it is
 deliberately **not** the same threshold as the *Handheld* label: the label fires
 at a fixed internal floor and describes, the cut fires wherever you put it and
 rejects. A shot can be labelled handheld without being flagged, or the reverse,
@@ -3289,7 +3289,7 @@ in the bank.
 **What it cannot do**, measured on the model this app uses:
 
 - **“Without” is ignored, not honoured.** Ask for *a street without cars* and you
-  get cars. Type `-cars` instead: that subtracts the unwanted thing from the score
+  get cars. Type \`-cars\` instead: that subtracts the unwanted thing from the score
   and pushes those shots down the ranking. It cannot promise their absence, and
   the panel says so rather than pretending otherwise.
 - **It cannot count.** *Two people* barely outranks a picture of one.
@@ -3314,7 +3314,7 @@ line into the exported prompt instead, in words it measured.
 
 That line does two jobs, and the second is the one nobody sees coming:
 
-- **It is what the clip trains on.** At promotion each clip gets a `.txt` sidecar
+- **It is what the clip trains on.** At promotion each clip gets a \`.txt\` sidecar
   next to it, and that file *is* the prompt. Before this pass existed every
   promoted clip shipped with an **empty** one — which the trainer accepts in
   silence, training the clip on no prompt at all. The build dialog now tells you
@@ -3337,10 +3337,10 @@ other than the shot*, and a LoRA trained on those learns the evasion. It was
 measured rather than assumed: the wording turned out to matter **more than the
 model**, and the stock model asked plainly beat an uncensored one asked the old
 way. Every caption records which wording produced it, and the choice is
-remembered as `video_caption.style` if you set it in your config.
+remembered as \`video_caption.style\` if you set it in your config.
 
 **You can change which model writes them.** The pass ships with one checkpoint
-and uses it unless you say otherwise (`video_caption.model` — see *Settings
+and uses it unless you say otherwise (\`video_caption.model\` — see *Settings
 reference*). It is worth changing when the default **talks around** what your
 footage shows: a caption that names things evasively is not a style choice, it
 teaches the trained model to look away too, and the captions read perfectly well
@@ -3357,7 +3357,7 @@ captioned stays captioned and the next run picks up where it left off.
 
 ## Video training sets (and the two things to check before you cut one)
 
-Promoting a video bank builds a flat folder of clips with a `.txt` caption next
+Promoting a video bank builds a flat folder of clips with a \`.txt\` caption next
 to each one, and lists it in your library under **🎬 Video training sets**.
 
 **You can cap how many clips one source contributes.** A 50-clip set that is
@@ -3460,7 +3460,7 @@ to look at.
 
 - **Datasets** opens a menu with a search box, **Select all** / **Clear**, and
   one checkbox per dataset with its run count. The search matches the name *and*
-  the model family, so typing `krea` brings up every Krea lane.
+  the model family, so typing \`krea\` brings up every Krea lane.
 - **Models** and **Status** are the same idea for the model family and the run
   state (Active, Completed, Errors, Unknown).
 - **Pinned** toggles the pinned images on and off. Turned off it goes amber:
@@ -3499,7 +3499,7 @@ temperature: amber from 70°, red from 85°, the band where a GPU starts
 throttling); **▾** folds the readout away and stops the polling with it, and
 the choice is remembered. It is a glance, not a monitor: there is no history,
 no graph and no per-process breakdown. On a machine with no NVIDIA card (or
-with `nvidia-smi` unavailable, as in some containers) the GPU, VRAM and
+with \`nvidia-smi\` unavailable, as in some containers) the GPU, VRAM and
 temperature numbers are simply absent rather than shown as zeros. On a phone
 the readout rides in the board's **⋯** shelf rather than the toolbar.
 
@@ -3673,7 +3673,7 @@ The dialog also names **what “resume” means**; it never silently guesses:
   Save/preview cadence, learning rate and timestep weighting stay locked because
   changing any of them would change the trajectory the state belongs to.
 - **LoRA weights only** is the explicit fallback and is available for legacy
-  checkpoints. The chosen `.safetensors` is copied into a clean run folder;
+  checkpoints. The chosen \`.safetensors\` is copied into a clean run folder;
   optimizer, scheduler, scaler, RNG and dataloader progress restart. The source
   run is renamed aside, not deleted, so all its saves remain recoverable.
 
@@ -3804,7 +3804,7 @@ them. There is **no limit**: drop a third, a tenth, they all join the strip.
 - **Which side.** Drop on the left half of a picture to land before it, on the
   right half to land after it. The same gesture **re-orders** a group: drag a
   member out and back onto the slot you want.
-- **Move the whole group** by its **title bar** (`⠿ N images`), which is also
+- **Move the whole group** by its **title bar** (\`⠿ N images\`), which is also
   where its **✕** lives. That bar is the only thing that moves a group, on
   purpose: dragging a *picture* inside a group means something else entirely.
 - **Take one back out** by dragging it **off the group**. That is the whole rule
@@ -3818,7 +3818,7 @@ them. There is **no limit**: drop a third, a tenth, they all join the strip.
 - **Which ✕ am I about to press?** At rest a group is nothing but photographs.
   Hover (or Tab to) one and *that* picture lights up and shows its own step
   label, its 🔍 and its ✕ — the group's own ✕ is the one on the title bar, and it
-  carries the count (`✕3`) precisely so the two can never be confused. Closing a
+  carries the count (\`✕3\`) precisely so the two can never be confused. Closing a
   group closes all of its pictures, undoes the group, and each one keeps its own
   remembered size; re-pinning one from its gallery brings back **that one**, not
   the strip.
@@ -3896,7 +3896,7 @@ inline previews). The canvas is a second way in, not a replacement.
 
 ## Undeploy several LoRAs at once
 
-Deploying a checkpoint copies it into ComfyUI's `loras` folder so you can use it
+Deploying a checkpoint copies it into ComfyUI's \`loras\` folder so you can use it
 in a workflow. Over a few months of training that folder fills up, and taking
 LoRAs back out used to be a one-at-a-time errand: open a run's checkpoint pill,
 open its popover, press ⏏ Undeploy, repeat. Nothing anywhere even told you how
@@ -3977,3 +3977,4 @@ otherwise be read as a vote for the checkpoint that did not produce it.
   flexibility.
 - The next chapter — **Building a good dataset** — explains *why* behind every
   rule above. Read it once before your first serious run.
+`;export{e as default};

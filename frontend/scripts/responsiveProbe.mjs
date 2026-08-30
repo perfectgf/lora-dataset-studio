@@ -170,6 +170,22 @@ const PAGES = {
       { name: 'passes', open: ['[aria-controls="bank-passes-panel"]'] },
       { name: 'auto-reject', open: ['button:has-text("Auto-reject")'] },
       { name: 'review', open: ['[aria-label^="Review from"]'] },
+      /* ≈ Duplicates REPLACES the grid with the resolution panel, and ⤢ Compare
+         opens the full-screen picker over it. Two variants each, because the
+         chip lives in the rail on a desktop and in the DRAWER below lg — and
+         the drawer does not close itself when a filter is picked, so the phone
+         variant closes it before anything is measured. Without that, the run
+         would measure the drawer and report it as the dup panel. Each variant
+         is skipped (and said so) on the viewports where its first control is
+         absent, which is how the two split the five devices between them. */
+      { name: 'dups', open: ['button:has-text("≈ Duplicates")'] },
+      { name: 'dups-drawer', open: ['[aria-controls="bank-filter-rail"]',
+        'button:has-text("≈ Duplicates")', '[aria-label="Close the filters"]'] },
+      { name: 'dup-compare', open: ['button:has-text("≈ Duplicates")',
+        'button:has-text("Compare & pick")'] },
+      { name: 'dup-compare-drawer', open: ['[aria-controls="bank-filter-rail"]',
+        'button:has-text("≈ Duplicates")', '[aria-label="Close the filters"]',
+        'button:has-text("Compare & pick")'] },
       // 🧪 The Caption Lab, on the surface it was ported to. Same three steps a
       // user takes: the passes panel, the 🏷️ Caption window, then the bench. The
       // Caption pass button's label is computed (it carries the run's count), so it
