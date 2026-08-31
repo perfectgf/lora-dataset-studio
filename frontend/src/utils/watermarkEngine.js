@@ -64,3 +64,27 @@ export function watermarkEngineStatus(choice, caps = {}) {
   }
   return { runs: 'vision', warn: false, line: visionLine };
 }
+
+/** The config write that arms the vision route's model — `{provider}.vision_model`
+ *  is what the vision scan reads, on both surfaces and in Settings ▸ Local tools. */
+export function visionModelSetting(provider, model) {
+  const key = provider === 'lmstudio' ? 'lmstudio' : 'ollama';
+  return { [key]: { vision_model: String(model || '').trim() } };
+}
+
+/** Caps with the vision model swapped for the one just picked, so the status
+ *  sentence names it at once instead of after the next capabilities refresh. */
+export function withVisionModel(caps = {}, provider, model) {
+  const key = provider === 'lmstudio' ? 'lmstudio' : 'ollama';
+  return { ...caps, [key]: { ...(caps[key] || {}), vision_model: model } };
+}
+
+/** The pull affordance in each provider's own words — Ollama pulls, LM Studio
+ *  downloads — over the ONE routed endpoint (/api/local-llm/pull). */
+export function pullCopy(provider) {
+  return provider === 'lmstudio'
+    ? { button: '⏬ Download', busy: 'Downloading', inputLabel: 'LM Studio model to download',
+      placeholder: 'qwen/qwen3-vl-4b — or a huggingface.co model URL' }
+    : { button: '⏬ Pull', busy: 'Pulling', inputLabel: 'Ollama model to pull',
+      placeholder: 'qwen2.5vl:7b' };
+}

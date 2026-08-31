@@ -53,6 +53,12 @@ NON_DATASET_JOB_NAMES = {
     # instead would point the dispatch at face_dataset_service and look up a
     # dataset row that does not exist.
     'qwen_camera_angle',
+    # The Video Test Studio routes on `is_video_test`, checked before
+    # model_name — same shape as the grid above, and for the same reason: its
+    # row is a `video_test_clip`, not a dataset image, so pointing the dispatch
+    # at face_dataset_service would look up a row that does not exist. The
+    # finished mp4 reaches its clip through video_test_studio.link_completed_clip.
+    'video_lora_test',
 }
 
 

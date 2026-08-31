@@ -83,6 +83,39 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-video-test-studio',
+    date: '2026-08-31',
+    title: 'Play your video LoRA back, without leaving the app (beta)',
+    blurb:
+      'Training a video LoRA gave you a file and a loss curve, and judging it '
+      + 'meant wiring a graph in ComfyUI by hand. The Test Studio now has a '
+      + 'Video tab: pick a LoRA you trained (it is copied into ComfyUI for you '
+      + 'the first time), give it a start frame — uploaded, from a bank, or the '
+      + 'first frame of a clip in a training set — or none at all for '
+      + 'text-to-video, describe the motion, and get a clip. ⚡ Turbo renders in '
+      + 'minutes instead of tens of minutes, sparse attention and the latent '
+      + 'upscale trade a little fidelity for speed, and every clip keeps the '
+      + 'settings that made it so Reuse can rerun the same seed with one dial '
+      + 'moved. New here? Setup ▸ 🎬 Video Test Studio downloads the engine '
+      + '(about 39.5 GB); the clip itself needs no ComfyUI add-on at all, and '
+      + 'the three optional accelerators are named and linked for you to '
+      + 'install on the ComfyUI side. Marked beta while the first clips come '
+      + 'back from real machines.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-08-31-vision-model-in-the-scan-window',
+    date: '2026-08-31',
+    title: 'Watermark scans on the vision route: pick — or pull — the model right there',
+    blurb:
+      'When Find watermarks runs on your local LLM, the scan window now names the '
+      + 'exact model that will judge your images, lists the ones installed in Ollama '
+      + 'or LM Studio to switch in one click, and pulls a new one without leaving the '
+      + 'window — a finished pull is selected for the next scan. Stored, so the bank, '
+      + 'the dataset and Settings ▸ Local tools all read the same choice.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-31-deep-zone-hunt',
     date: '2026-08-31',
     title: 'Watermark zones: the detector now finds the small and repeated marks',

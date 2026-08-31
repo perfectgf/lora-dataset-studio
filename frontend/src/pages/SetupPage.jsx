@@ -91,6 +91,10 @@ const CAPABILITY_STEP_ID = {
   // (CameraInstallCard) lives on the install screen, and the comfyui step
   // carries Klein's weights only — mapping there would land on nothing to press.
   '📷 Camera angles (local)': 'install',
+  // Same screen, same reason: VideoStudioInstallCard is what downloads its
+  // 39.5 GB, and it lives on the install step. The comfyui step would land on
+  // nothing to press.
+  '🎬 Video Test Studio (beta)': 'install',
   'Captioning': 'ollama',
   'Auto-framing & head-crop': 'ollama',
   'Face-similarity scoring': 'quality',

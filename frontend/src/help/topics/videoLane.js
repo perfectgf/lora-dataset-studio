@@ -22,6 +22,24 @@ export const VIDEO_LANE_TOPICS = [
       'video unavailable', 'video extra', 'which piece is missing'],
     guide: { chapter: 'using-the-app', anchor: 'the-video-bank-turn-a-folder-of-rushes-into-shots' },
     app: { route: '/video-bank' } },
+  // 🎬 The Video tab of the Test Studio. Its own PAGE topic rather than keywords
+  // on page-studio: the two lanes share a screen but nothing else — different
+  // tables, different pipeline, one clip instead of a grid — and someone whose
+  // video LoRA renders nothing is not helped by the Z-Image troubleshooting the
+  // image topic carries.
+  { id: 'page-video-studio', kind: 'page', title: 'Video Test Studio',
+    keywords: ['video studio', 'test a video lora', 'video lora', 'try my video lora',
+      'i2v', 'image to video', 'image-to-video', 'animate', 'animate an image',
+      't2v', 'text to video', 'text-to-video', 'minimax', 'h3', 'minimax h3',
+      'generate a clip', 'render a video', 'make a video', 'motion prompt',
+      'turbo', '4 step', '4-step', 'distillation', 'sparse', 'sparse attention',
+      'latent upscale', 'upscale a clip', '10eros', 'eros', 'base model',
+      'deploy a video lora', 'copy lora into comfyui', 'lora not listed',
+      'seed', 'same seed', 'compare two clips', 'strength', 'clip length',
+      'frames', 'how many frames', 'megapixels', 'prompt not respected',
+      'slow generation', 'takes forever', 'missing node', 'node pack'],
+    guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
+    app: { route: '/studio?lane=video' } },
   // Searched for by what people TRIED and could not do: they pasted a RedGifs or
   // TikTok link into the image scraper and got "no images found", or they
   // downloaded clips by hand into a folder because nothing else was on offer.

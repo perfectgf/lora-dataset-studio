@@ -643,6 +643,15 @@ export function deriveCapabilitySummary(caps) {
     // payload that predates it. Keyed on Ollama alone, a working LM Studio install
     // was counted as two MISSING capabilities here — on the screen whose entire
     // job is to tell the user whether they are ready.
+    // 🎬 Counted like Krea and Camera angles, and for the same reason: the Video
+    // tab ships to every install, so a machine without the weights must read
+    // "not ready, here is the install" rather than vanish from the denominator.
+    // Its OPTIONS are not counted — each one degrades a checkbox, not the lane.
+    { label: '🎬 Video Test Studio (beta)', ok: !!cu.video_studio_ready,
+      topic: 'setup-video-studio', waitingTopic: WAITING,
+      ...(!cu.video_studio_ready
+        && !(Array.isArray(cu.video_studio_missing) && cu.video_studio_missing.length)
+        && comfyOff ? { pending: true, note: NOTE } : {}) },
     { label: 'Captioning',
       ok: !!(cap.joycaption || (cap.local_llm !== undefined ? cap.local_llm : cap.ollama)),
       topic: 'setup-ollama' },
@@ -781,6 +790,15 @@ export const INSTALL_ALL_ACTION_LABELS = {
   camera_lora: 'Camera angles LoRA (96 positions)',
   camera_speed_lora: 'Camera angles speed LoRA (4-step)',
   camera_text_encoder: 'Camera angles text encoder (Qwen 2.5-VL)',
+  // 🎬 Video Test Studio. The four weights are named by what they DO, because
+  // "qwen3vl_32b_minimax_h3_nvfp4_awq" tells a user nothing about whether they
+  // need it. The three packs say which checkbox they unlock, for the same
+  // reason: they are optional, and a row that does not say so reads as required.
+  h3_base: 'Video model (MiniMax H3)',
+  h3_text_encoder: 'Video prompt encoder (Qwen3-VL)',
+  h3_video_vae: 'Video decoder (VAE)',
+  h3_audio_vae: 'Video sound decoder (VAE)',
+  h3_turbo_lora: 'Video turbo LoRA (4-step — clips in minutes)',
 }
 
 // The Krea 2 Edit engine, installable in ONE click but deliberately NOT part of
@@ -863,6 +881,26 @@ export const CAMERA_INSTALL_ORDER = [
   'camera_model', 'camera_lora', 'camera_speed_lora', 'camera_text_encoder',
   'krea_vae',
 ]
+
+// 🎬 The Video Test Studio — WEIGHTS ONLY, required first, so a partial install
+// leaves a lane that RENDERS rather than one that only has its options.
+//
+// Its ComfyUI node packs are deliberately absent: the app downloads model files
+// and does not install code into somebody's ComfyUI (maintainer's call,
+// 2026-08-31). They are named and linked instead — see the card.
+export const VIDEO_STUDIO_INSTALL_ORDER = [
+  'h3_base', 'h3_text_encoder', 'h3_video_vae', 'h3_audio_vae', 'h3_turbo_lora',
+]
+
+export function videoStudioInstallPlan(caps) {
+  const cu = (caps || {}).comfyui || {}
+  if (!cu.dir_valid) return []
+  // An entry with no `action` is a file the app will not fetch: it gets a
+  // sentence in the card, never a button here.
+  const missing = (Array.isArray(cu.video_studio_missing) ? cu.video_studio_missing : [])
+    .map((m) => m && m.action).filter(Boolean)
+  return VIDEO_STUDIO_INSTALL_ORDER.filter((a) => missing.includes(a))
+}
 
 export function cameraInstallPlan(caps) {
   const cu = (caps || {}).comfyui || {}
@@ -1000,6 +1038,12 @@ export function installCatalog(caps) {
     // repair of one that's already present (its install targets whatever env it lives in).
     return item(action, present, mlOk || present, mlHint)
   }
+  // 🎬 The video engine's five files, one row each. `videoStudioMissing` holds
+  // the ones absent from disk; anything not in it is present. Same shape as the
+  // camera rows above — and, like them, gated on a valid ComfyUI folder,
+  // because that is where they land.
+  const videoStudioMissing = (Array.isArray(cu.video_studio_missing)
+    ? cu.video_studio_missing : []).map((m) => m && m.action).filter(Boolean)
   return [
     mlItem('face_scoring'),
     mlItem('masks'),
@@ -1067,6 +1111,14 @@ export function installCatalog(caps) {
     // invisible where the user decides they are done" gap the menu closes.
     ...['camera_model', 'camera_lora', 'camera_speed_lora', 'camera_text_encoder'].map(
       (a) => item(a, dirValid && !cameraMissing.includes(a), dirValid, kleinHint)),
+    // 🎬 Video Test Studio — five WEIGHT rows and no pack row, which is the
+    // whole shape of this lane's install: the app downloads model files and
+    // leaves ComfyUI's custom_nodes alone. Its three optional packs are linked
+    // from the card instead, so this menu never offers a button that would add
+    // code to somebody's ComfyUI.
+    ...['h3_base', 'h3_text_encoder', 'h3_video_vae', 'h3_audio_vae',
+      'h3_turbo_lora'].map(
+      (a) => item(a, dirValid && !videoStudioMissing.includes(a), dirValid, kleinHint)),
     // LanPaint — the sampler the masked ✦ Repair lane runs on (a ~1 MB clone,
     // zero pip dependencies). Same present/restart logic as the Krea pack: a
     // reachable ComfyUI that exposes the node counts as present whatever the
