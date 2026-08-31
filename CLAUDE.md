@@ -23,7 +23,41 @@ any file.
   or `LDS_PRIVACY_NAMES`) — writing them here to forbid them would publish them;
   with no list that half SKIPS and says so.
 
-## Tests — targeted while you work, full and green before you push
+## Where work lands: `nightly` first, `main` when it is done
+
+Two branches, and the difference is what each one costs.
+
+**`nightly` is where development happens.** Land there freely, as often as you
+like: targeted tests, the tree-wide invariants, both linters and the frontend
+suite — and that is the whole gate. **No full backend suite on nightly.** It is
+six minutes, it was being paid several times an evening, and during a fast
+development phase it cost more than the confidence it bought (maintainer's call,
+2026-08-31: "arrête avec les suites complètes en développement").
+
+**`main` is what the world runs, and it is where the full suite is paid — once.**
+When a body of work is finished, merge `nightly` into `main` and run BOTH suites
+whole on that merged tree before the push. One run for a wave, not one per
+commit.
+
+- **The maintainer's test instance is checked out on `nightly`.** Two things
+  follow, and both are easy to forget: nightly must be **pushed** (that instance
+  pulls from origin — the in-app updater fast-forwards whatever branch its
+  checkout is on, so it follows nightly by itself), and the **`dist` rebuild
+  stays part of every nightly landing**. Skipping it is not a saving, it is a
+  test instance serving last week's UI while you ask whether the feature works.
+  A rebuild is seven seconds; the suite is what was expensive, not this.
+- **Nothing else guards nightly.** CI runs on `push: [main]` and on pull
+  requests only, so a push to nightly triggers no workflow at all. The local
+  targeted tests are the entire safety net there — which is the trade, not an
+  oversight.
+- **`main` stays releasable**, exactly as before. `release.yml` reruns both
+  suites unconditionally on a tag, so a release is gated a second time.
+- Feature branches still exist for anything worth reviewing on its own, and they
+  are still pushed (see below) — they merge into `nightly`.
+- **Say what your green proves.** "Targeted + invariants + linters green; full
+  backend suite not run (nightly)" is honest. "All tests pass" is not.
+
+## Tests — targeted while you work, full when a wave reaches `main`
 
 The backend suite is ~7 500 tests. Run whole and sequentially it takes **40
 minutes**; run on 8 workers it takes **7**, with the same result — measured, on
@@ -39,18 +73,22 @@ during a wave, so the full gate belongs at the **push**, not at every commit.
   `backend/tests/test_no_personal_data.py` and `backend/tests/test_*contract*.py`
   check invariants across the whole tree. Frontend: `node --test` from
   `frontend/` (~1 min — it carries the help-registry and What's-new contracts).
-- **Before the push that LANDS the wave** — both suites, whole and green, on
-  that exact tree: `python -m pytest -n 8 --dist loadfile` (system Python) and
-  `node --test` from `frontend/`. **Plus both linters**: `ruff check backend
+- **Before the merge that puts a wave on `main`** — both suites, whole and
+  green, on that exact MERGED tree: `python -m pytest -n 8 --dist loadfile`
+  (system Python) and `node --test` from `frontend/`. This is the one place the
+  full backend suite is owed, and the tree it is owed on is the merged one: when
+  several waves land in a row, each was gated on ITS tree and nobody measured
+  theirs together. **Plus both linters**: `ruff check backend
   scripts packaging` and `npx eslint .` from `frontend/` — CI's Lint job runs
   outside the size gate, so a branch merged with a pre-gate file can turn
   `main` red on lint alone with every test green (it happened: an F401 in a
   branch written before the gate existed). Non-negotiable. **Do not lean on CI for this**:
   its push gate is size-based (`.github/workflows/ci.yml`) and skips the heavy
   jobs on a small push, so a red can reach `main` with nothing having run.
-- **Before an intermediate push on a branch** — the targeted tests above, plus
-  the two families no filename leads to (`test_no_personal_data.py` and
-  `test_*contract*.py`, 8 s together). And MEASURE what the diff touches before
+- **Before landing on `nightly`, or an intermediate push on a branch** — the
+  targeted tests above, plus the two families no filename leads to
+  (`test_no_personal_data.py` and `test_*contract*.py`, 8 s together), both
+  linters, and `node --test`. No `-n 8`. And MEASURE what the diff touches before
   choosing, rather than judging it:
   `git diff --name-only <base>...HEAD | grep -c '^backend/'` — zero means the
   backend suite is not owed at all, because a frontend-only diff can reach the
@@ -165,6 +203,9 @@ the same reason. In that week 96 commits reached `main` and 7 went through a PR.
 - **Look before you start**, on anything a contributor might also be attempting:
   `git ls-remote --heads origin` and the open PRs. An overlap found before the
   work is a conversation; found after, it is somebody's wasted evening.
+- **A finished branch merges into `nightly`, not into `main`.** `main` receives
+  `nightly`, once, when the work is done and both suites are green on the merged
+  tree (see the section above).
 - **`main` stays releasable.** A branch may be red while it cooks; `main` may
   not. The gate does not move for what LANDS: both suites green on that exact
   tree before the push that makes the wave landable, and before anything reaches
