@@ -28,6 +28,10 @@ No model is ever loaded here: the worker is a seam and is monkeypatched.
 
 from app.services import video_caption as vc
 
+# The video-extra gate answers for the MACHINE: without this the route test passes
+# where PyAV/ffmpeg are installed and 503s on CI. Imported for its autouse effect.
+from _video_extra import video_extra_ready  # noqa: F401
+
 DEFAULT_MODEL = 'Qwen/Qwen3-VL-4B-Instruct'
 
 
