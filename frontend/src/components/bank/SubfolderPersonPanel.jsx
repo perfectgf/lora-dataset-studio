@@ -25,7 +25,7 @@ export default function SubfolderPersonPanel({
   const scan = offer && onScan ? (
     <div className="flex flex-wrap items-center gap-2 text-xs text-content-subtle">
       <button type="button" onClick={onScan} disabled={busy} title={offer.note}
-        className="rounded-md border border-border px-2 py-1 font-semibold text-content hover:bg-white/10 disabled:opacity-50">
+        className="rounded-md border border-border px-2 py-1 font-semibold text-content hover:bg-white/10 disabled:opacity-50 min-h-10 lg:min-h-0">
         {offer.label}
       </button>
       <span>{offer.note}</span>
@@ -84,12 +84,12 @@ export default function SubfolderPersonPanel({
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={onCheck} disabled={busy}
           title={checkCostNote(entry)}
-          className="rounded border border-border px-2 py-0.5 font-semibold text-content hover:bg-white/10 disabled:opacity-50">
+          className="rounded border border-border px-2 py-0.5 font-semibold text-content hover:bg-white/10 disabled:opacity-50 min-h-10 lg:min-h-0">
           🔍 {sample ? 'Check the sample again' : `Check a sample (${SAMPLE_SIZE} images)`}
         </button>
         <button type="button" onClick={onRevoke} disabled={busy}
           title={revokeNote(subfolder)}
-          className="rounded border border-border px-2 py-0.5 text-content-subtle hover:bg-white/10 disabled:opacity-50">
+          className="rounded border border-border px-2 py-0.5 text-content-subtle hover:bg-white/10 disabled:opacity-50 min-h-10 lg:min-h-0">
           ↩ Not one person after all
         </button>
       </div>
