@@ -28,6 +28,11 @@ No model is ever loaded here: the worker is a seam and is monkeypatched.
 
 from app.services import video_caption as vc
 
+# The video-extra gate answers for the MACHINE, so without this the one route
+# test in this file passes where PyAV is installed and 503s on CI.
+# Imported for its autouse effect; see _video_extra.py for why not importorskip.
+from _video_extra import video_extra_ready  # noqa: F401
+
 DEFAULT_MODEL = 'Qwen/Qwen3-VL-4B-Instruct'
 
 
