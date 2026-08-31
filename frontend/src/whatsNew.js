@@ -1,8 +1,6 @@
-// ==============================================================  },
-  {
+// =====================================================================
 //  🎁 What's new — in-app changelog feed (source of truth)
-// ==============================================================  },
-  {
+// =====================================================================
 //
 //  WHY THIS FILE EXISTS
 //  --------------------
@@ -77,8 +75,7 @@
 //    `id`/`date` move unchanged (the seen-marker keys on ids); `to:` is
 //    dropped on the way (months-old targets go stale, and no `to` keeps the
 //    archive import-free). whatsNewArchive.test.js holds the pairing.
-// ==============================================================  },
-  {
+// =====================================================================
 import { SETTINGS_SECTIONS } from './components/settings/registry.js';
 import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
