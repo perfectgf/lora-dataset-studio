@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-cloud-stop-ban-from-dataset',
+    date: '2026-08-31',
+    title: 'Skip a bad cloud machine from the dataset panel too',
+    blurb:
+      'Stopping a cloud run from the dataset training panel used to skip the '
+      + '"Do not rent this machine again" tick box — the one the Runs page already '
+      + 'offers. A pod stuck on "Renting the machine and booting the pod" is exactly '
+      + 'when you want that option, and that is where you are looking. Stop cloud run '
+      + 'now opens the same dialog, same tick box, same few-day skip. '
+      + '(Reported by OneCodingDude.)',
+    to: '/datasets?section=training&panel=launch',
+  },
+  {
     id: '2026-08-31-watermark-zones-whole-mark',
     date: '2026-08-31',
     title: 'Watermark zones that cover the whole mark — thumbnails included',
