@@ -100,7 +100,12 @@ export default function DupCompareLightbox({
   const [refilling, setRefilling] = useState(false)
   // The server holds no unresolved group this run has not already walked.
   const [drained, setDrained] = useState(false)
+  // …or the asking FAILED, which is a different sentence and must not be told
+  // as the first one.
+  const [refillFailed, setRefillFailed] = useState(false)
   const dialogRef = useRef(null)
+  // See the refill effect: a ref, deliberately, so it changes no dependency.
+  const refillingRef = useRef(false)
 
   useFocusTrap(dialogRef, true)
 
@@ -116,10 +121,19 @@ export default function DupCompareLightbox({
   /* Refill when the walk runs out. The keyboard is deliberately asleep while
      this is in flight (see the handler): the answer is compared against the
      session it was started from, and a decision landing in between would make
-     "nothing new came back" mean the wrong thing. */
+     "nothing new came back" mean the wrong thing.
+
+     THE IN-FLIGHT GUARD IS A REF, NOT STATE, and that is the whole point. Held
+     as state it had to be listed in the deps, so `setRefilling(true)` re-ran the
+     effect, whose cleanup set `cancelled` on its OWN request: the answer was
+     thrown away, `finally` skipped the reset, and every run that reached the end
+     of its groups froze on "Looking for the next groups…" with the end screen
+     unreachable. A ref changes no deps, so the effect stays put while its own
+     fetch is in the air. `setRefilling` survives for the rendering only. */
   useEffect(() => {
-    if (!exhausted || drained || refilling) return undefined
+    if (!exhausted || drained || refillingRef.current) return undefined
     let cancelled = false
+    refillingRef.current = true
     setRefilling(true)
     apiFetch(`/api/bank/${bankId}/${groupsPath}?offset=0&limit=${REFILL_LIMIT}`)
       .then((d) => {
@@ -130,15 +144,27 @@ export default function DupCompareLightbox({
       })
       .catch((e) => {
         if (cancelled) return
-        // A refill that FAILED is not "you are finished" — say so, so nobody
-        // reads a network error as a clean bank.
+        // A refill that FAILED is not "you are finished". `drained` stops the
+        // retry loop, and `refillFailed` is what keeps the end screen from
+        // claiming a clean bank over a network error — see the done branch.
         setError(e?.message || 'Could not load the next groups — this is a network'
           + ' error, not an empty bank.')
+        setRefillFailed(true)
         setDrained(true)
       })
-      .finally(() => { if (!cancelled) setRefilling(false) })
+      // Released whether or not this run was cancelled: a ref left true would
+      // wedge every later refill exactly as the state version did.
+      .finally(() => {
+        refillingRef.current = false
+        if (!cancelled) setRefilling(false)
+      })
     return () => { cancelled = true }
-  }, [bankId, groupsPath, session, exhausted, drained, refilling])
+  }, [bankId, groupsPath, session, exhausted, drained])
+
+  /** Ask again after a failed refill — the run is not over, the network blinked. */
+  const retryRefill = useCallback(() => {
+    setError(null); setRefillFailed(false); setDrained(false)
+  }, [])
 
   /** Keep ONE copy: the server rejects every other member of its group in a
    * single call, and the run moves to the next group. */
@@ -147,14 +173,17 @@ export default function DupCompareLightbox({
     setBusy(true)
     setError(null)
     try {
+      // The group is captured BEFORE the round trip: applying the verdict to
+      // "wherever the cursor is now" is how a decision lands on the next group.
+      const gid = currentGroup(session)?.group ?? null
       await postJson(`/api/bank/${bankId}/${resolvePath}`, { keep_ids: [im.id] })
-      setSession((s) => resolveGroup(s))
+      setSession((s) => resolveGroup(s, gid, im.id))
     } catch (e) {
       setError(e?.message || 'Could not settle that group — nothing was changed.')
     } finally {
       setBusy(false)
     }
-  }, [bankId, busy, live, resolvePath])
+  }, [bankId, busy, live, resolvePath, session])
 
   /** Reject ONE copy and nothing else. The group stays open while two copies
    * still stand — which is how a group of five is worked down one obvious loser
@@ -184,7 +213,7 @@ export default function DupCompareLightbox({
     setError(null)
     try {
       await postJson(`/api/bank/${bankId}/${distinctPath}`, { group: g.group })
-      setSession((s) => vetoGroup(s))
+      setSession((s) => vetoGroup(s, g.group))
     } catch (e) {
       // The server refuses a group too big for a per-pair verdict, and names the
       // dial to turn instead — that sentence is the useful part, so it is shown
@@ -297,11 +326,18 @@ export default function DupCompareLightbox({
       {done ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
           <p className="text-2xl font-bold text-white">
-            <PartyPopper aria-hidden="true" className="mr-2 inline h-6 w-6 align-[-3px]" />
-            {p.resolved || p.vetoed
-              ? `${p.resolved + p.vetoed} group${p.resolved + p.vetoed === 1 ? '' : 's'} settled`
-              : 'Nothing left to compare'}
+            {!refillFailed && <PartyPopper aria-hidden="true" className="mr-2 inline h-6 w-6 align-[-3px]" />}
+            {/* "Nothing left to compare" is a claim about the BANK. After a
+                failed refill the only honest claim is about the network. */}
+            {refillFailed
+              ? '⚠️ Could not load the next groups'
+              : (p.resolved || p.vetoed
+                ? `${p.resolved + p.vetoed} group${p.resolved + p.vetoed === 1 ? '' : 's'} settled`
+                : 'Nothing left to compare')}
           </p>
+          {refillFailed && error && (
+            <p role="alert" className="max-w-xl text-sm text-rose-300">{error}</p>
+          )}
           <p className="max-w-xl text-sm text-white/70">
             {/* The two outcomes are counted apart because they are opposites: one
                 rejected copies, the other kept every one of them. A single
@@ -316,10 +352,18 @@ export default function DupCompareLightbox({
               ? `${p.skipped} skipped — still unresolved, and waiting for you next time.`
               : ''}
           </p>
-          <button type="button" onClick={onClose}
-            className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
-            Back to the groups
-          </button>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {refillFailed && (
+              <button type="button" onClick={retryRefill}
+                className="rounded-lg border border-white/25 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">
+                ↻ Try again
+              </button>
+            )}
+            <button type="button" onClick={onClose}
+              className="rounded-lg bg-gradient-primary px-5 py-2 text-sm font-semibold text-gray-950">
+              Back to the groups
+            </button>
+          </div>
         </div>
       ) : refilling ? (
         <p className="flex flex-1 items-center justify-center text-sm text-white/60">
@@ -422,7 +466,8 @@ export default function DupCompareLightbox({
               className="min-h-10 lg:min-h-0 rounded-lg border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10">
               ★ App’s pick{shortcut('B')}
             </button>
-            <button type="button" onClick={() => keepImage(member)} disabled={busy || live || !member}
+            <button type="button" onClick={() => keepImage(member)}
+              disabled={busy || live || !member || isRejected(member, session.rejected)}
               title="Keep the copy under the cursor and reject the rest of this group (K) — reversible, nothing is deleted"
               className="min-h-10 lg:min-h-0 rounded-lg border border-emerald-400/60 bg-emerald-500/20 px-5 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50 hover:bg-emerald-500/30">
               ✓ Keep this one{shortcut('K')}
@@ -440,7 +485,7 @@ export default function DupCompareLightbox({
               className="min-h-10 lg:min-h-0 rounded-lg border border-sky-400/60 bg-sky-500/20 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50 hover:bg-sky-500/30">
               ≠ Not duplicates{shortcut('N')}
             </button>
-            <button type="button" onClick={skip}
+            <button type="button" onClick={skip} disabled={busy}
               title="Decide later (S) — the group stays unresolved and is shown again next time, but not again in this run"
               className="min-h-10 lg:min-h-0 rounded-lg border border-white/25 px-4 py-2 text-sm font-semibold text-white hover:bg-white/10">
               ⏭ Skip group{shortcut('S')}

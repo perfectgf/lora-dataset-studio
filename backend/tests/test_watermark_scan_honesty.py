@@ -96,16 +96,29 @@ def _infer_module():
     return module
 
 
-def test_tiled_marks_covering_the_frame_come_back_unlocated_not_one_tile():
-    """The measured case: "Watermark stock photo" tiled edge to edge. The raw
-    boxes cover most of the frame; the per-box cap would have kept one corner
-    tile and dropped the truth. Unlocated ([]) routes the image to 🔍 Review,
-    where the parent already explains itself."""
+def test_a_wall_to_wall_claim_with_almost_nothing_located_stays_unlocated():
+    """The original lie-by-omission, still guarded: raw boxes claim most of the
+    frame (giant "text overlay" matches, dropped by the per-box cap) but the
+    locator pinned under WALL_TO_WALL_MIN_ZONES actual tiles. Reporting the one
+    surviving tile would read as "handled"; [] routes to 🔍 Review instead."""
+    infer = _infer_module()
+    claim = [[0, 0, 900, 800], [10, 15, 260, 135]]   # frame-sized junk + 1 tile
+    assert infer._raw_coverage(claim, (1000, 1000)) > infer.WALL_TO_WALL_COVERAGE
+    assert infer.effective_regions(claim, (1000, 1000)) == []
+
+
+def test_a_well_located_tiling_reports_its_zones_instead_of_hiding_them():
+    """The 2026-08-31 reversal, by the maintainer's mandate: when the sweep DID
+    pin the tiles (the real stock photo localises 12 of ~25), those zones are
+    the honest report — twelve boxes across the frame say "it is everywhere"
+    better than zero did. The old rule blanked ANY coverage above the guard."""
     infer = _infer_module()
     tiles = [[x, y, x + 250, y + 120]
              for x in range(0, 1000, 250) for y in range(0, 1000, 200)]
     assert infer._raw_coverage(tiles, (1000, 1000)) > infer.WALL_TO_WALL_COVERAGE
-    assert infer.effective_regions(tiles, (1000, 1000)) == []
+    out = infer.effective_regions(tiles, (1000, 1000))
+    assert len(out) >= infer.WALL_TO_WALL_MIN_ZONES, (
+        'located tiles were hidden behind the wall-to-wall guard again')
 
 
 def test_a_corner_mark_keeps_its_zone_exactly_as_before(app=None):
@@ -131,8 +144,9 @@ def test_the_locator_actually_routes_through_the_wall_to_wall_rule():
     path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         'infer', 'watermark_detect_infer.py')
     src = open(path, encoding='utf-8').read()
-    assert 'return effective_regions(boxes, image.size)' in src, (
-        'regions() no longer routes through the wall-to-wall decision')
+    assert ('return effective_regions(base, image.size, '
+            'validate_boxes=validate)') in src, (
+        'regions() no longer routes through the consensus + wall-to-wall decision')
 
 
 # --- 3. zero flagged names the near-miss -------------------------------------

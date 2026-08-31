@@ -9450,16 +9450,27 @@ def _detect_watermarks_detector(dataset_id, row_ids, *, include_dismissed,
             if state == 'detected':
                 img.watermark_state = 'detected'
                 if regions:
-                    # ONE box, the child's first — it orders them
-                    # most-peripheral-first precisely because this line takes one
-                    # (see the bank's identical write for the full reasoning).
-                    img.watermark_bbox = json.dumps(
-                        [round(float(v), 4) for v in regions[0][:4]])
+                    rounded = [[round(float(v), 4) for v in r[:4]] for r in regions]
+                    # bbox stays the child's FIRST (most-peripheral) box — the
+                    # crop/inpaint ROUTING reads one rectangle and that contract
+                    # does not move. What moves is the rest: EVERY extra zone now
+                    # lands in watermark_regions, because "losing the smaller
+                    # boxes is the honest cost" did not survive contact with a
+                    # real image — eight logos, one boxed, Clean repainting one
+                    # eighth of the problem (maintainer's call, 2026-08-30, the
+                    # Luke Collins test pair). Single-zone rows write NO regions,
+                    # byte-for-byte the old behaviour, so ✂ Auto-crop keeps its
+                    # whole pool: a lone border mark is still croppable, while a
+                    # multi-mark image never was one crop anyway.
+                    img.watermark_bbox = json.dumps(rounded[0])
+                    if len(rounded) >= 2 and not text_zones:
+                        img.watermark_regions = json.dumps(rounded)
                     if text_zones:
                         from .text_regions import text_mask_regions
+                        # Fold ALL boxes into the text zones, not just the first —
+                        # the same eight-logo case, on a page 🔤 also flagged.
                         merged, _ = text_mask_regions(
-                            [], _stored_mask_regions(img)
-                            + [[round(float(v), 4) for v in regions[0][:4]]])
+                            [], _stored_mask_regions(img) + rounded)
                         img.watermark_regions = json.dumps(merged)
                     located += 1
                 else:

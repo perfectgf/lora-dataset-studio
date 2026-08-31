@@ -250,12 +250,28 @@ export function skipGroup(s) {
 
 /** The server accepted a resolve on this group — record it and move on. Callers
  * must not call this on a failed POST: the group has to stay under the cursor
- * with the error visible, exactly as `bankReview.decide` demands. */
-export function resolveGroup(s, gid = null) {
+ * with the error visible, exactly as `bankReview.decide` demands.
+ *
+ * `keptId` is the copy the server just ELECTED, and passing it matters: the
+ * server rejected every other member in the same call, and the session has to
+ * know. ⇧← walks back into a settled group, and without this its tiles still
+ * look alive — a second K there sends keep_ids for a copy whose rivals are
+ * already rejected, `resolve_dups` rejects the lone survivor too, and the whole
+ * group ends up empty. Recording the losers greys them out and disarms the
+ * button instead. Omitted by `rejectMember`, which resolves a group by
+ * elimination and must leave the survivor standing. */
+export function resolveGroup(s, gid = null, keptId = null) {
   const id = gid == null ? groupId(currentGroup(s)) : gid;
   if (id == null) return s;
   const resolved = s.resolved.includes(id) ? s.resolved : [...s.resolved, id];
-  return nextGroup({ ...s, resolved });
+  let rejected = s.rejected;
+  if (keptId != null) {
+    const losers = currentImages(s)
+      .filter((im) => im.id !== keptId && !isRejected(im, rejected))
+      .map((im) => im.id);
+    if (losers.length) rejected = [...rejected, ...losers];
+  }
+  return nextGroup({ ...s, resolved, rejected });
 }
 
 /** ≠ — the server accepted "these are not duplicates". The group is answered

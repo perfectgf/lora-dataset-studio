@@ -92,6 +92,25 @@ LOCATE_PROMPT = 'a watermark. a logo. a text overlay.'
 # purpose: the question here is no longer "is this image marked" (already
 # answered) but "where", and a timid box is better than none.
 LOCATE_BOX_THRESHOLD = 0.25
+# The locator also sweeps the image in TILES (2x2 and 3x3 windows), because a
+# small corner logo in a large photo shrinks below DINO's notice at full frame:
+# measured on a real 2048px photo carrying seven copies of a logo, the full
+# pass found 4, the tiled sweep all 7. Tiles are noisier — a tile promotes rock
+# texture to "a logo" — so the tile passes demand a HIGHER confidence, and the
+# floor below is measured: at 0.25 the tile junk pushed raw coverage past the
+# wall-to-wall guard and zeroed the scan; at 0.35 the same sweep returned every
+# true mark with coverage 0.23.
+LOCATE_TILE_THRESHOLD = 0.35
+TILE_OVERLAP = 0.12
+# Second, WIDER prompt used as a validator: a box is kept only when the two
+# phrasings agree on the spot (strict consensus). Ground-truth bench, 12
+# stamped scenarios over 3 real photos: base prompt alone at these scales is
+# 79% recall / 72% precision; the strict consensus costs one recall point
+# (77%) and lifts precision to 90% — the boxes it drops are exactly the rock
+# and icicle shapes a single phrasing hallucinates in tiles.
+LOCATE_VALIDATE_PROMPT = (LOCATE_PROMPT
+                          + ' a semi-transparent text. a small logo.'
+                          + ' a repeated watermark pattern.')
 
 # A big box is not a watermark, it is a failed localisation — the phrase "a logo"
 # matched the subject, or "a text overlay" matched the whole picture — and acting
@@ -190,26 +209,49 @@ class _Locator:
             self.failed = f'{type(e).__name__}: {e}'
             _log(f'[wmdet] locator unavailable, flagging without boxes: {self.failed}')
 
+    def _detect(self, image, prompt, threshold):
+        """One DINO forward on one (sub)image → raw pixel boxes. Tiles are sent
+        ONE BY ONE on purpose: batching the sweep pads every tile to the
+        largest and was measured at up to 25x the sequential time."""
+        inputs = self.processor(images=image, text=prompt,
+                                return_tensors='pt').to(self.device)
+        with self.torch.no_grad():
+            outputs = self.model(**inputs)
+        result = self.processor.post_process_grounded_object_detection(
+            outputs, inputs['input_ids'], threshold=threshold,
+            text_threshold=threshold,
+            target_sizes=[(image.size[1], image.size[0])])[0]
+        return [[float(v) for v in b.tolist()] for b in result['boxes']]
+
+    def _collect(self, image, prompt):
+        """Raw pixel boxes for one prompt across the whole tile plan, mapped
+        back to full-frame coordinates. A failed window contributes nothing and
+        the sweep goes on — one bad tile must not cost the other twelve."""
+        raw = []
+        for grid_n, threshold in tile_plan(image.size):
+            for x1, y1, x2, y2 in tile_windows(image.size, grid_n):
+                try:
+                    tile = image if grid_n == 1 else image.crop((x1, y1, x2, y2))
+                    raw += [[b[0] + x1, b[1] + y1, b[2] + x1, b[3] + y1]
+                            for b in self._detect(tile, prompt, threshold)]
+                except Exception as e:      # noqa: BLE001 — one window, not the pass
+                    _log(f'[wmdet] locate window failed: {type(e).__name__}: {e}')
+        return raw
+
     def regions(self, image):
-        """Normalised [x1,y1,x2,y2] boxes in 0..1, biggest first. [] when the
-        locator could not load or found nothing nameable."""
+        """Normalised [x1,y1,x2,y2] boxes in 0..1, most peripheral first. []
+        when the locator could not load or found nothing both prompts name.
+
+        Two sweeps (geometry prompt + validator prompt) over the same adaptive
+        tile plan, then the strict consensus + wall-to-wall rule — the whole
+        recipe and its measured numbers live on effective_regions and the
+        constants above."""
         self._ensure()
         if self.model is None:
             return []
-        try:
-            inputs = self.processor(images=image, text=LOCATE_PROMPT,
-                                    return_tensors='pt').to(self.device)
-            with self.torch.no_grad():
-                outputs = self.model(**inputs)
-            result = self.processor.post_process_grounded_object_detection(
-                outputs, inputs['input_ids'], threshold=LOCATE_BOX_THRESHOLD,
-                text_threshold=LOCATE_BOX_THRESHOLD,
-                target_sizes=[(image.size[1], image.size[0])])[0]
-            boxes = [[float(v) for v in b.tolist()] for b in result['boxes']]
-        except Exception as e:      # noqa: BLE001 — one image, not the pass
-            _log(f'[wmdet] locate failed on one image: {type(e).__name__}: {e}')
-            return []
-        return effective_regions(boxes, image.size)
+        base = self._collect(image, LOCATE_PROMPT)
+        validate = self._collect(image, LOCATE_VALIDATE_PROMPT)
+        return effective_regions(base, image.size, validate_boxes=validate)
 
 
 # Above this fraction of the frame (raw DINO boxes, before the per-box area
@@ -242,15 +284,81 @@ def _raw_coverage(boxes, size):
     return min(1.0, total)
 
 
-def effective_regions(boxes, size):
+# Under a wall-to-wall claim, fewer located zones than this is a FAILED
+# localisation (the old one-tile-for-a-tiled-mark lie) and reports nothing;
+# at or above it the zones are worth showing even though more marks exist —
+# the real tiled stock photo localises 12 of ~25 text tiles, and 12 drawn
+# boxes in Review tell the user "it is everywhere" far better than zero did.
+WALL_TO_WALL_MIN_ZONES = 3
+
+
+def effective_regions(boxes, size, validate_boxes=None):
     """The zones a scan should REPORT for these raw pixel boxes — the one
     decision point, pure so the parent's tests can hold it.
 
-    Wall-to-wall coverage returns [] (unlocated → Review, the parent says why);
-    anything else returns the capped, merged zones as before."""
-    if _raw_coverage(boxes, size) > WALL_TO_WALL_COVERAGE:
+    ``validate_boxes`` (raw pixel boxes from the second prompt) enables the
+    strict consensus: only base boxes the validator agrees on survive. None
+    keeps the single-set behaviour (legacy callers, degraded validator).
+
+    A wall-to-wall claim (raw coverage above WALL_TO_WALL_COVERAGE) with fewer
+    than WALL_TO_WALL_MIN_ZONES located zones returns [] — unlocated → Review,
+    the parent says why. With enough located zones the zones ARE the honest
+    report, tiling or not."""
+    kept = _normalise_boxes(boxes, size)
+    if validate_boxes is not None:
+        kept = _strict_consensus(kept, _normalise_boxes(validate_boxes, size))
+    merged = _merge_boxes(kept)
+    if (_raw_coverage(boxes, size) > WALL_TO_WALL_COVERAGE
+            and len(merged) < WALL_TO_WALL_MIN_ZONES):
         return []
-    return _merge_boxes(_normalise_boxes(boxes, size))
+    return merged
+
+
+def _strict_consensus(base, validate):
+    """Boxes (normalised) both prompt passes agree on — agreement = overlap.
+    The base box carries the geometry (its boxes hug the full mark); the
+    validator only vouches for the SPOT. Validator-only boxes are dropped:
+    symmetric union was measured at 72% precision against 90% for this."""
+    return [b for b in base if any(_overlaps(b, v) for v in validate)]
+
+
+# A tile below this on its short side is an upscaled thumbnail, not a window —
+# DINO has nothing left to see into. 250px keeps every measured win: the
+# 1200x800 tiled stock photo owes 11 of its 12 zones to the 3x3 sweep
+# (800/3 = 267), and a 640px phone-sized image still earns its 2x2.
+TILE_MIN_SIDE = 250
+
+
+def tile_plan(size):
+    """[(grid_n, box_threshold)] for this image size — pure and adaptive.
+
+    Every image gets the legacy full-frame pass at the legacy floor, so a
+    small image behaves byte-for-byte as before; each deeper grid joins only
+    while its tiles keep TILE_MIN_SIDE on the short side."""
+    short = min(size[0] or 0, size[1] or 0)
+    plan = [(1, LOCATE_BOX_THRESHOLD)]
+    for grid_n in (2, 3):
+        if short / grid_n >= TILE_MIN_SIDE:
+            plan.append((grid_n, LOCATE_TILE_THRESHOLD))
+    return plan
+
+
+def tile_windows(size, grid_n, overlap=TILE_OVERLAP):
+    """Pixel crop windows [(x1, y1, x2, y2)] for an n x n sweep, each grown by
+    ``overlap`` of a tile per side so a mark cut by a seam still lands whole in
+    one window. grid_n == 1 is the full frame."""
+    width, height = size
+    if grid_n <= 1:
+        return [(0, 0, width, height)]
+    tw, th = width / grid_n, height / grid_n
+    ox, oy = tw * overlap, th * overlap
+    windows = []
+    for j in range(grid_n):
+        for i in range(grid_n):
+            windows.append((max(0, int(i * tw - ox)), max(0, int(j * th - oy)),
+                            min(width, int((i + 1) * tw + ox)),
+                            min(height, int((j + 1) * th + oy))))
+    return windows
 
 
 def _normalise_boxes(boxes, size):

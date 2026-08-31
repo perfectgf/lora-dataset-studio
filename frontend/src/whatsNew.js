@@ -1,6 +1,8 @@
-// =====================================================================
+// ==============================================================  },
+  {
 //  🎁 What's new — in-app changelog feed (source of truth)
-// =====================================================================
+// ==============================================================  },
+  {
 //
 //  WHY THIS FILE EXISTS
 //  --------------------
@@ -75,7 +77,8 @@
 //    `id`/`date` move unchanged (the seen-marker keys on ids); `to:` is
 //    dropped on the way (months-old targets go stale, and no `to` keeps the
 //    archive import-free). whatsNewArchive.test.js holds the pairing.
-// =====================================================================
+// ==============================================================  },
+  {
 import { SETTINGS_SECTIONS } from './components/settings/registry.js';
 import { WORKSPACE_SECTIONS } from './components/dataset/workspaceSections.js';
 import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
@@ -104,6 +107,32 @@ export const WHATS_NEW = [
     to: '/studio?lane=video',
   },
   {
+    id: '2026-08-31-vision-model-in-the-scan-window',
+    date: '2026-08-31',
+    title: 'Watermark scans on the vision route: pick — or pull — the model right there',
+    blurb:
+      'When Find watermarks runs on your local LLM, the scan window now names the '
+      + 'exact model that will judge your images, lists the ones installed in Ollama '
+      + 'or LM Studio to switch in one click, and pulls a new one without leaving the '
+      + 'window — a finished pull is selected for the next scan. Stored, so the bank, '
+      + 'the dataset and Settings ▸ Local tools all read the same choice.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-08-31-deep-zone-hunt',
+    date: '2026-08-31',
+    title: 'Watermark zones: the detector now finds the small and repeated marks',
+    blurb:
+      'The zone hunt sweeps each flagged image at up to three scales (full '
+      + 'frame plus tiles), so a logo stamped seven times across a large photo '
+      + 'comes back with all seven zones instead of four — and a stock-style '
+      + 'tiled watermark now shows the dozen zones it pinned instead of none. '
+      + 'Every zone is double-checked before it is kept, so rocks and icicles '
+      + 'stop being boxed as logos. Slower per flagged image (a few seconds), '
+      + 'unchanged on clean ones.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-31-not-duplicates',
     date: '2026-08-31',
     title: 'Tell the bank a group is NOT duplicates — once, and for good',
@@ -117,6 +146,18 @@ export const WHATS_NEW = [
       + 'later gains a new copy asks you again, because that copy is a new '
       + 'question. One line above the list puts them all back.',
     to: '/bank',
+  },
+  {
+    id: '2026-08-30-every-watermark-zone-survives',
+    date: '2026-08-30',
+    title: 'Multi-logo watermarks: every zone survives the scan',
+    blurb:
+      'An image stamped with several logos used to come out of Find watermarks '
+      + 'with a single box — Clean repainted one logo and left the rest. The '
+      + 'detector now keeps every zone it finds (Review shows them all, Clean '
+      + 'repaints them all), on datasets and banks alike. Single-mark images '
+      + 'behave exactly as before, so border marks stay croppable.',
+    to: '/datasets',
   },
   {
     id: '2026-08-30-watermark-scan-honesty',
