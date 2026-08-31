@@ -12,9 +12,13 @@
  * cf StudioSection.anchorId) puis scrolle sur l'ancre — scrollIntoView remonte
  * aussi l'aside interne (overflow-auto en desktop). Le FAB GlobalJobsDock est
  * relevé au-dessus via PAGES_WITH_BOTTOM_BAR ('/studio').
+ *
+ * `note` (optionnel, 2026-08-31) : la raison pour laquelle le bouton est gris,
+ * affichée à sa gauche — la lane vidéo l'utilise (« Pick a start frame… ») ;
+ * sans la prop, la barre est byte-identique à ce qu'elle a toujours été.
  */
 
-export default function StudioActionBar({ shortcuts = [], canRun, running, onRun, runLabel = '🚀 Run the test' }) {
+export default function StudioActionBar({ shortcuts = [], canRun, running, onRun, runLabel = '🚀 Run the test', note = null }) {
   const jump = (id) => {
     try { window.dispatchEvent(new CustomEvent('studio:reveal', { detail: id })); } catch { /* ignore */ }
     // Laisse la section s'ouvrir (setState) avant de scroller vers elle.
@@ -35,8 +39,13 @@ export default function StudioActionBar({ shortcuts = [], canRun, running, onRun
             <span aria-hidden="true">{s.emoji}</span> {s.label}
           </button>
         ))}
+        {note && (
+          <span className="ml-auto min-w-0 shrink truncate text-[0.6875rem] text-content-subtle" title={note}>
+            {note}
+          </span>
+        )}
         <button type="button" onClick={onRun} disabled={!canRun}
-          className="min-h-10 lg:min-h-0 ml-auto shrink-0 px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
+          className={`min-h-10 lg:min-h-0 ${note ? '' : 'ml-auto'} shrink-0 px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40`}>
           {running ? '…' : runLabel}
         </button>
       </div>

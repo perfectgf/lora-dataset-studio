@@ -9,6 +9,16 @@
  * comparison happens in time (two players, same seed, one setting changed)
  * rather than in space.
  *
+ * THE SHAPE OF THE SCREEN (redesign, 2026-08-31 — "respecte le thème général")
+ * A take sheet. On a wide screen the TAKE sits on the left — which LoRA, which
+ * start frame, what moves — and the RENDER rail on the right stays in view
+ * while you scroll: the dials and the Generate button, with a one-line readback
+ * of exactly what is about to be rendered. Below, full width, the clips. On a
+ * phone everything stacks and the same fixed StudioActionBar the image lane
+ * uses keeps Generate one thumb away — one vocabulary for both lanes, no chrome
+ * invented for this one. The first build was a flat stack of identical cards
+ * with the button at the bottom, grey, under twenty rows of LoRA files.
+ *
  * WHAT IT SHARES WITH THE IMAGE STUDIO
  * The queue, the missing-asset refusal, the completion callback and the LoRA
  * safety guard are all the same code. The pipeline underneath is the MiniMax H3
@@ -20,13 +30,15 @@ import { Clapperboard, Play } from 'lucide-react';
 import { apiFetch, del, postJson } from '../../../../api/fetchClient';
 import { HelpBadge } from '../../../../help/HelpMode';
 import { useToast } from '../../../common/Toast';
+import StudioActionBar from '../StudioActionBar';
 import VideoClipHistory from './VideoClipHistory';
 import VideoLoraPicker from './VideoLoraPicker';
 import VideoOptionsPanel from './VideoOptionsPanel';
 import VideoSourcePicker from './VideoSourcePicker';
+import { shortLoraName } from './videoLoraGroups';
 import {
-  buildGeneratePayload, clipRateUrl, clipUrl, clipsUrl, generateUrl, isRunning,
-  optionsUrl,
+  buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
+  isRunning, optionsUrl,
 } from './videoStudioApi';
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
@@ -36,6 +48,16 @@ const DEFAULT_OPTIONS = {
   turbo: true, eros: false, sparse: '', latentUpscale: false,
   frames: 56, megapixels: 0.3, seed: '',
 };
+
+/* The bottom bar's jump targets — the sections of the take sheet, in the
+   order you fill them. Same component and same idiom as the image lane. */
+const SHORTCUTS = [
+  { id: 'vs-lora', emoji: '🧬', label: 'LoRA' },
+  { id: 'vs-source', emoji: '🖼', label: 'Start frame' },
+  { id: 'vs-motion', emoji: '✍', label: 'Motion' },
+  { id: 'vs-render', emoji: '⚙', label: 'Render' },
+  { id: 'vs-clips', emoji: '🎞', label: 'Clips' },
+];
 
 export default function VideoTestStudio() {
   const toast = useToast();
@@ -152,9 +174,36 @@ export default function VideoTestStudio() {
 
   const needsImage = mode === 'i2v' && !source.image;
   const blocked = busy || needsImage || !prompt.trim();
+  const reason = needsImage
+    ? 'Pick a start frame, or switch to text-only.'
+    : (!prompt.trim() ? 'Describe the motion first.' : null);
+
+  /* The readback: what is about to be rendered, in one line, next to the
+     button — the moment before a multi-minute job is the moment to catch
+     "wrong LoRA" or "still on 10Eros". */
+  const fps = options?.fps || 24;
+  const seconds = clipSeconds(opts.frames, fps);
+  const readback = [
+    lora.lora ? `${shortLoraName(lora.lora)} @ ${Number(strength).toFixed(2)}` : 'no LoRA',
+    mode === 't2v' ? 'text only' : 'from an image',
+    seconds ? `${seconds}s` : `${opts.frames} frames`,
+    `${Number(opts.megapixels).toFixed(2)} MP`,
+    opts.turbo ? 'turbo' : null,
+    opts.eros ? '10Eros' : null,
+    opts.sparse ? `sparse ${opts.sparse}` : null,
+    opts.latentUpscale ? 'upscale ×2' : null,
+  ].filter(Boolean).join(' · ');
+
+  const generateButton = (
+    <button type="button" onClick={generate} disabled={blocked}
+      className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-40 min-h-10">
+      <Play aria-hidden="true" className="h-4 w-4" />
+      {busy ? 'Queueing…' : 'Generate clip'}
+    </button>
+  );
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <header data-probe-chrome="video-studio-header"
         className="flex flex-wrap items-center gap-2">
         <h2 className="flex items-center gap-2 font-bold text-content">
@@ -164,6 +213,9 @@ export default function VideoTestStudio() {
         </h2>
         <span className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[0.6875rem] font-semibold text-amber-200">
           MiniMax H3 · beta
+        </span>
+        <span className="hidden text-xs text-content-subtle sm:inline">
+          One clip per launch — compare in time, same seed, one dial changed.
         </span>
       </header>
 
@@ -187,43 +239,58 @@ export default function VideoTestStudio() {
         </div>
       )}
 
-      <VideoLoraPicker value={lora.lora} onChange={setLora}
-        strength={strength} onStrength={setStrength} />
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_22.5rem] lg:items-start">
+        {/* THE TAKE — what is being tested, top to bottom in the order you
+            decide it. */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <div id="vs-lora" className="scroll-mt-16">
+            <VideoLoraPicker value={lora.lora} onChange={setLora}
+              strength={strength} onStrength={setStrength} />
+          </div>
 
-      <VideoSourcePicker mode={mode} onMode={setMode} image={source.image}
-        preview={source.preview} aspect={aspect} onAspect={setAspect}
-        onPicked={setSource} />
+          <div id="vs-source" className="scroll-mt-16">
+            <VideoSourcePicker mode={mode} onMode={setMode} image={source.image}
+              preview={source.preview} aspect={aspect} onAspect={setAspect}
+              onPicked={setSource} />
+          </div>
 
-      <label className="flex flex-col gap-1 rounded-xl border border-border bg-surface p-2">
-        <span className="text-sm font-semibold text-content">Motion</span>
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
-          placeholder="What happens in the shot — she turns her head and smiles, the camera pushes in slowly…"
-          className="w-full resize-y rounded-lg border border-border bg-app px-2 py-1.5 text-sm text-content" />
-        <span className="text-[0.6875rem] text-content-subtle">
-          Describe the movement, not the picture: the start frame already says
-          what the scene looks like.
-        </span>
-      </label>
+          <label id="vs-motion" className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-3 scroll-mt-16">
+            <span className="text-sm font-semibold text-content">Motion</span>
+            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
+              placeholder="What happens in the shot — she turns her head and smiles, the camera pushes in slowly…"
+              className="w-full resize-y rounded-lg border border-border bg-app px-2.5 py-2 text-sm text-content" />
+            <span className="text-[0.6875rem] text-content-subtle">
+              Describe the movement, not the picture: the start frame already says
+              what the scene looks like.
+            </span>
+          </label>
+        </div>
 
-      <VideoOptionsPanel options={options} value={opts} onChange={setOpts} />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={generate} disabled={blocked}
-          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 font-semibold text-accent-contrast disabled:opacity-50 min-h-10">
-          <Play aria-hidden="true" className="h-4 w-4" />
-          {busy ? 'Queueing…' : 'Generate clip'}
-        </button>
-        {needsImage && (
-          <span className="text-xs text-content-subtle">
-            Pick a start frame, or switch to text-only.
-          </span>
-        )}
-        {!needsImage && !prompt.trim() && (
-          <span className="text-xs text-content-subtle">Describe the motion first.</span>
-        )}
+        {/* THE RENDER RAIL — sticky on a wide screen so the dials and the
+            button never leave the eye while the take scrolls. */}
+        <aside id="vs-render" className="flex min-w-0 flex-col gap-3 scroll-mt-16 lg:sticky lg:top-3">
+          <VideoOptionsPanel options={options} value={opts} onChange={setOpts} />
+          <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3">
+            <p className="break-words font-mono text-[0.6875rem] leading-snug text-content-muted">
+              {readback}
+            </p>
+            {generateButton}
+            {reason && (
+              <p className="text-[0.6875rem] text-content-subtle">{reason}</p>
+            )}
+          </div>
+        </aside>
       </div>
 
-      <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} />
+      <section id="vs-clips" className="flex flex-col gap-2 scroll-mt-16">
+        <h2 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">
+          Clips — newest first
+        </h2>
+        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} />
+      </section>
+
+      <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
+        onRun={generate} runLabel="▶ Generate clip" note={reason} />
     </div>
   );
 }
