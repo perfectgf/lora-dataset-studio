@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-vision-model-in-the-scan-window',
+    date: '2026-08-31',
+    title: 'Watermark scans on the vision route: pick — or pull — the model right there',
+    blurb:
+      'When Find watermarks runs on your local LLM, the scan window now names the '
+      + 'exact model that will judge your images, lists the ones installed in Ollama '
+      + 'or LM Studio to switch in one click, and pulls a new one without leaving the '
+      + 'window — a finished pull is selected for the next scan. Stored, so the bank, '
+      + 'the dataset and Settings ▸ Local tools all read the same choice.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-31-deep-zone-hunt',
     date: '2026-08-31',
     title: 'Watermark zones: the detector now finds the small and repeated marks',

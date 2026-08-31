@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
-  DETECTOR_INSTALL_ROUTE, WATERMARK_ENGINES, normalizeEngine, watermarkEngineStatus,
+  DETECTOR_INSTALL_ROUTE, WATERMARK_ENGINES, normalizeEngine, pullCopy, visionModelSetting,
+  watermarkEngineStatus, withVisionModel,
 } from './watermarkEngine.js';
 
 const CAPS_LMS = {
@@ -78,4 +79,30 @@ test('both scan windows mount the engine choice', () => {
   // like the threshold beside it.
   const comp = read('components/shared/WatermarkEngineChoice.jsx');
   assert.match(comp, /watermark_detect: \{ backend: engine \}/);
+});
+
+// --- the vision model, picked IN the scan window ------------------------------
+
+test('picking a vision model writes the key the scan reads, per provider', () => {
+  assert.deepEqual(visionModelSetting('ollama', ' llava:13b '), { ollama: { vision_model: 'llava:13b' } });
+  assert.deepEqual(visionModelSetting('lmstudio', 'qwen/qwen3-vl-4b'),
+    { lmstudio: { vision_model: 'qwen/qwen3-vl-4b' } });
+  // An unknown provider falls back to the historical key rather than inventing one.
+  assert.deepEqual(visionModelSetting('surprise', 'x'), { ollama: { vision_model: 'x' } });
+});
+
+test('the status sentence names the model just picked, before any caps refresh', () => {
+  const lms = withVisionModel(CAPS_LMS, 'lmstudio', 'google/gemma-3-12b');
+  assert.match(watermarkEngineStatus('vision', lms).line, /google\/gemma-3-12b via LM Studio/);
+  const oll = withVisionModel({ local_llm: { provider: 'ollama' }, ollama: { reachable: true } },
+    'ollama', 'llava:13b');
+  assert.match(watermarkEngineStatus('vision', oll).line, /llava:13b via Ollama/);
+  // The overlay is a copy — the caps object handed in is not mutated.
+  assert.equal(CAPS_LMS.lmstudio.vision_model, 'qwen/qwen3-vl-4b');
+});
+
+test('the pull affordance speaks each provider’s language', () => {
+  assert.equal(pullCopy('ollama').button, '⏬ Pull');
+  assert.equal(pullCopy('lmstudio').button, '⏬ Download');
+  assert.match(pullCopy('lmstudio').placeholder, /huggingface/);
 });

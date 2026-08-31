@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { putJson } from '../../api/fetchClient';
-import { WATERMARK_ENGINES, normalizeEngine, watermarkEngineStatus } from '../../utils/watermarkEngine.js';
+import { activeLocalLlm } from '../../utils/localLlm.js';
+import {
+  WATERMARK_ENGINES, normalizeEngine, watermarkEngineStatus, withVisionModel,
+} from '../../utils/watermarkEngine.js';
+import VisionModelPicker from './VisionModelPicker.jsx';
 
 /* Which engine 🚩 Find watermarks runs — ONE control, mounted in BOTH scan
  * windows (dataset dialog and bank panel), write-through persisted exactly like
@@ -17,7 +21,13 @@ import { WATERMARK_ENGINES, normalizeEngine, watermarkEngineStatus } from '../..
 export default function WatermarkEngineChoice({ caps = {}, disabled = false, onChanged }) {
   const [value, setValue] = useState(() => normalizeEngine(caps.watermark_detect_backend));
   const [saving, setSaving] = useState(false);
-  const status = watermarkEngineStatus(value, caps);
+  // The model picked below is reflected in the sentence at once — a select that
+  // saved a value while the line under it kept naming the old model would read
+  // as a failed save.
+  const [visionModel, setVisionModel] = useState('');
+  const capsView = visionModel
+    ? withVisionModel(caps, activeLocalLlm(caps).provider, visionModel) : caps;
+  const status = watermarkEngineStatus(value, capsView);
 
   const save = async (next) => {
     const engine = normalizeEngine(next);
@@ -47,6 +57,9 @@ export default function WatermarkEngineChoice({ caps = {}, disabled = false, onC
       <span className={`mt-1 block leading-snug ${status.warn ? 'text-amber-300' : 'text-content-subtle'}`}>
         {status.line}
       </span>
+      {status.runs === 'vision' && (
+        <VisionModelPicker caps={capsView} disabled={disabled} onModel={setVisionModel} />
+      )}
     </label>
   );
 }
