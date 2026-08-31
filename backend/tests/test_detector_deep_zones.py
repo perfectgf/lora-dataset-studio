@@ -25,6 +25,25 @@ On the maintainer's two images: the seven-logo photo reports 7 whole boxes
 before and after, the tiled stock photo goes from 12 zones to 14, and the same
 photo after a clean stays at 0.
 
+Two rules joined them on 2026-08-31, both measured on the same bench, and both
+about what a zone SAYS rather than where it is:
+
+    what changed                        recall   precision   completeness
+    geometry rescue (timid boxes)       46/57 =  46/50->43/47  0.71 -> 0.79
+    untiled wall-to-wall claim          46/57 =  92% =         =
+
+The first one exists because a zone that covers half a mark is a zone the
+clean cannot finish: the emblem left outside the box was re-rendered as a ghost
+glyph. "Completeness" is how much of a stamped mark its zone covers, and it is
+measured against "spill" (how much of the zone falls outside every mark, 0.412
+-> 0.416) — otherwise a rule that grows everything would score perfectly. The
+three zones that disappear from the count are fragments of one logo fused into
+one whole box, which is the point of the rule and not a cost of it.
+
+The second one exists because on an image too small to tile the coverage union
+is made of failed localisations, not of found marks: it read 0.59 on a stock
+thumbnail and blanked the word the same pass had located at 0.65.
+
 torch never loads here: the recipe's decisions (tile plan, window mapping,
 consensus, merge, wall-to-wall rule) are pure functions, which is what makes
 them testable at all — the GPU sweep only feeds them boxes.
@@ -250,3 +269,152 @@ def test_too_few_located_zones_under_a_wall_to_wall_claim_stay_unlocated():
     assert infer.effective_regions(claim, (1000, 1000)) == [], (
         'two pinned tiles of a wall-to-wall mark read as "handled" — the '
         'lie-by-omission the guard exists for')
+
+
+# --- the geometry rescue ------------------------------------------------------
+
+def test_a_confirmed_zone_grows_to_cover_the_emblem_above_its_caption():
+    """The case the rescue exists for, from the maintainer's seven-logo photo:
+    the two-line caption is boxed confidently (0.502) and the emblem right
+    above it only at 0.349 — under the tile floor — so the reported zone
+    stopped at the text, the clean pre-erased only that, and the re-render put
+    the emblem back as a ghost glyph. Same geometry, on a 1000x1000 frame."""
+    infer = _infer()
+    caption = [220, 550, 385, 620]           # confident: this IS the zone
+    emblem = [260, 480, 350, 560]            # timid: only says how far it goes
+    validate = [222, 553, 383, 590]          # the validator vouches for the spot
+    without = infer.effective_regions([caption], (1000, 1000),
+                                      validate_boxes=[validate])
+    assert without == [[0.22, 0.55, 0.385, 0.62]], 'fixture drifted'
+    grown = infer.effective_regions([caption], (1000, 1000),
+                                    validate_boxes=[validate],
+                                    weak_boxes=[caption, emblem])
+    assert grown == [[0.22, 0.48, 0.385, 0.62]], (
+        'the zone stops at the caption again — the emblem is outside it, the '
+        'clean never erases it and the re-render regenerates it')
+
+
+def test_the_rescue_never_invents_a_zone_of_its_own():
+    """A spot no confident box named is not a mark. The timid boxes complete a
+    geometry, they never create one — which is what keeps this away from the
+    symmetric union measured at 72% precision against 90%."""
+    infer = _infer()
+    caption = [220, 550, 385, 620]
+    elsewhere = [700, 700, 800, 780]         # timid, and nowhere near a zone
+    out = infer.effective_regions([caption], (1000, 1000),
+                                  validate_boxes=[caption],
+                                  weak_boxes=[caption, elsewhere])
+    assert out == [[0.22, 0.55, 0.385, 0.62]]
+
+
+def test_the_rescue_refuses_to_grow_a_zone_into_the_picture():
+    """A box that SWALLOWS the zone is a failed localisation, not the rest of
+    the mark. _same_mark says yes to it (the zone nests inside), so the size
+    cap is what stops it: past ONE_MARK_MAX_AREA a zone is no longer one mark,
+    and the crop or inpaint it feeds would act on the photo."""
+    infer = _infer()
+    caption = [220, 550, 385, 620]
+    swallows = [180, 500, 480, 720]          # 0.066 of the frame
+    share = ((swallows[2] - swallows[0]) * (swallows[3] - swallows[1])) / 1e6
+    assert infer.MAX_REGION_AREA > share > infer.ONE_MARK_MAX_AREA, (
+        'fixture must survive the per-box cap and fail the one-mark cap')
+    out = infer.effective_regions([caption], (1000, 1000),
+                                  validate_boxes=[caption],
+                                  weak_boxes=[caption, swallows])
+    assert out == [[0.22, 0.55, 0.385, 0.62]]
+
+
+def test_two_pieces_of_one_mark_that_grow_into_each_other_come_back_as_one():
+    """Growing happens BEFORE the last merge on purpose: an icon half and a
+    caption half the sweep found separately get bridged by a timid box, and
+    the mask editor must then show ONE rectangle, not two overlapping ones."""
+    infer = _infer()
+    left = [100, 100, 200, 160]
+    right = [300, 100, 400, 160]
+    bridge = [180, 100, 320, 160]            # timid, joins the two halves
+    apart = infer.effective_regions([left, right], (1000, 1000),
+                                    validate_boxes=[left, right])
+    assert len(apart) == 2, 'fixture must start as two zones'
+    joined = infer.effective_regions([left, right], (1000, 1000),
+                                     validate_boxes=[left, right],
+                                     weak_boxes=[left, right, bridge])
+    assert joined == [[0.1, 0.1, 0.4, 0.16]]
+
+
+def test_the_rescue_floor_is_the_full_frame_floor_not_a_new_number():
+    """A box confident enough to be reported on its own at full frame is
+    confident enough to say how far a CONFIRMED mark extends. Swept both ways
+    on the ground truth: at the tile floor the rescue is off (completeness
+    0.71), at 0.20 and below the zones start growing over the picture instead
+    of over marks (spill 0.416 -> 0.429 -> 0.451 while completeness flattens
+    at 0.81)."""
+    infer = _infer()
+    assert infer.GEOMETRY_RESCUE_THRESHOLD == infer.LOCATE_BOX_THRESHOLD
+    assert infer.GEOMETRY_RESCUE_THRESHOLD < infer.LOCATE_TILE_THRESHOLD, (
+        'at or above the tile floor the rescue has nothing left to add')
+
+
+# --- the wall-to-wall claim, once the sweep could not tile --------------------
+
+def test_an_untiled_sweep_judges_the_claim_on_the_biggest_single_box():
+    """The 474px stock thumbnails, measured. Their sweep is ONE forward, where
+    DINO answers "the whole picture is a logo" two or three times; the union of
+    those claims reads 0.59 and blanked the word the same pass had just
+    located, at 0.65 confidence, dead centre. That union is not evidence of a
+    tiling here — it is one failed localisation counted several times."""
+    infer = _infer()
+    size = (474, 270)
+    assert infer.tile_plan(size) == [(1, infer.LOCATE_BOX_THRESHOLD)], (
+        'fixture must be an image the sweep cannot tile')
+    junk = [57, 25, 412, 229]                # 0.567 of the frame
+    word = [104, 104, 370, 150]              # "shutterstock", across the middle
+    footer = [144, 254, 330, 269]            # the site line under it
+    raw = [junk, word, footer]
+    assert infer._raw_coverage(raw, size) > infer.WALL_TO_WALL_COVERAGE, (
+        'fixture no longer trips the union rule, so it tests nothing')
+    assert infer._biggest_box_share(raw, size) < infer.WHOLE_FRAME_CLAIM
+    out = infer.effective_regions(raw, size, validate_boxes=raw)
+    assert len(out) == 2, (
+        'the two located marks were blanked again — this is the stock '
+        'thumbnail coming back "flagged, no position"')
+
+
+def test_an_untiled_whole_frame_claim_still_reports_nothing():
+    """The other edge, and why this is not simply "no guard on small images":
+    a picture whose watermark really IS the whole picture produces one box over
+    the whole frame (measured 0.983 on a 474px thumbnail of the tiled stock
+    photo, against 0.86 and below on every other image of the bench). Two of
+    its ten tiles located must not read as "handled"."""
+    infer = _infer()
+    size = (474, 316)
+    everything = [0, 3, 474, 313]            # 0.98 of the frame
+    tile_a = [146, 97, 290, 145]
+    tile_b = [159, 142, 303, 191]
+    raw = [everything, tile_a, tile_b]
+    assert infer._biggest_box_share(raw, size) >= infer.WHOLE_FRAME_CLAIM
+    assert infer.effective_regions(raw, size, validate_boxes=raw) == []
+
+
+def test_a_tiled_sweep_keeps_judging_the_claim_on_the_union():
+    """Nothing moves where the sweep CAN tile — the whole ground-truth bench
+    lives there (46/57 recall, 92% precision, both unchanged). The same shape
+    that now reports on a thumbnail still reports nothing at a tileable size,
+    because there the union is made of what the tiles really found."""
+    infer = _infer()
+    size = (1000, 1000)
+    assert len(infer.tile_plan(size)) > 1
+    raw = [[0, 0, 900, 800], [10, 15, 260, 135]]
+    assert infer._biggest_box_share(raw, size) < infer.WHOLE_FRAME_CLAIM
+    assert infer.effective_regions(raw, size) == []
+
+
+def test_the_biggest_box_share_is_bounded_and_junk_proof():
+    infer = _infer()
+    assert infer._biggest_box_share([], (1000, 1000)) == 0.0
+    assert infer._biggest_box_share([[0, 0, 10, 10]], (0, 0)) == 0.0
+    assert infer._biggest_box_share([['x', 1, 2, 3], None,
+                                     [0, 0, 500, 500]], (1000, 1000)) == 0.25
+    # Clamped like the coverage: a box DINO returned slightly outside the frame
+    # claims the frame, not more.
+    assert infer._biggest_box_share([[-20, -10, 1100, 1050]],
+                                    (1000, 1000)) == 1.0

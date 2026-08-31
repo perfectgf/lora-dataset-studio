@@ -121,6 +121,37 @@ TILE_OVERLAP = 0.20
 LOCATE_VALIDATE_PROMPT = (LOCATE_PROMPT
                           + ' a semi-transparent text. a small logo.'
                           + ' a repeated watermark pattern.')
+# WHERE a mark is and HOW FAR IT REACHES are two different questions, and the
+# second one is answered by boxes too timid to be a zone of their own. The spot
+# stays decided by the strict consensus above; once it is confirmed, a box that
+# only clears this floor may EXTEND that zone, never create one.
+#
+# Measured on the maintainer's seven-logo photo (2048x1365, an emblem above a
+# two-line caption): the caption alone is boxed at 0.502 and reported as the
+# zone, while the emblem right above it is boxed at 0.349 by this prompt and
+# 0.323 by the validator — both under LOCATE_TILE_THRESHOLD. So the zone
+# stopped at the text (y1 0.551 for a mark starting at 0.470), the clean
+# pre-erased only what the zone covered, and the re-render put the emblem back
+# as a ghost glyph. With the rescue the same zone starts at 0.480.
+#
+# The floor IS the full-frame floor, deliberately not a new number: a box
+# confident enough to be reported on its own at full frame is confident enough
+# to say how far a CONFIRMED mark extends. Swept on the ground-truth bench (57
+# marks stamped in known positions over 3 real photos), everything else held at
+# what this file ships, measuring how much of each stamped mark its zone covers
+# (completeness) against how much of the reported zone falls outside every mark
+# (spill — the counter-metric, because "grow everything" maximises the first):
+#     0.35 (= tile floor: rescue off)  completeness 0.71  spill 0.412
+#     0.30                             completeness 0.75  spill 0.416
+#     0.25                             completeness 0.79  spill 0.416   <- here
+#     0.20                             completeness 0.81  spill 0.429
+#     0.15                             completeness 0.81  spill 0.451
+# Below 0.25 the zones stop growing over marks and start growing over the
+# picture: completeness flattens while spill climbs. Recall holds at 46/57
+# throughout and precision at 46/50 -> 43/47, where the three "lost" zones are
+# fragments of one logo (glyph half + caption half) fused into one whole box —
+# which is the point of the rule, not a cost of it.
+GEOMETRY_RESCUE_THRESHOLD = LOCATE_BOX_THRESHOLD
 
 # A big box is not a watermark, it is a failed localisation — the phrase "a logo"
 # matched the subject, or "a text overlay" matched the whole picture — and acting
@@ -220,48 +251,72 @@ class _Locator:
             _log(f'[wmdet] locator unavailable, flagging without boxes: {self.failed}')
 
     def _detect(self, image, prompt, threshold):
-        """One DINO forward on one (sub)image → raw pixel boxes. Tiles are sent
-        ONE BY ONE on purpose: batching the sweep pads every tile to the
-        largest and was measured at up to 25x the sequential time."""
+        """One DINO forward on one (sub)image → raw pixel boxes WITH their
+        scores. Tiles are sent ONE BY ONE on purpose: batching the sweep pads
+        every tile to the largest and was measured at up to 25x the sequential
+        time.
+
+        The post-processing floor is the lowest floor anything downstream asks
+        for (the geometry rescue's), and the caller filters on the score after
+        the fact — so the rescue costs NO second forward. That substitution is
+        measured, not assumed: post-processing at 0.10 and keeping
+        ``score > t`` in Python returns the identical box list, to the score,
+        that post-processing at ``t`` returns — checked on two images (a
+        2048px photo, a 474px thumbnail) at five thresholds from 0.20 to
+        0.40."""
+        floor = min(threshold, GEOMETRY_RESCUE_THRESHOLD)
         inputs = self.processor(images=image, text=prompt,
                                 return_tensors='pt').to(self.device)
         with self.torch.no_grad():
             outputs = self.model(**inputs)
         result = self.processor.post_process_grounded_object_detection(
-            outputs, inputs['input_ids'], threshold=threshold,
-            text_threshold=threshold,
+            outputs, inputs['input_ids'], threshold=floor,
+            text_threshold=floor,
             target_sizes=[(image.size[1], image.size[0])])[0]
-        return [[float(v) for v in b.tolist()] for b in result['boxes']]
+        return [([float(v) for v in b.tolist()], float(s))
+                for b, s in zip(result['boxes'], result['scores'])]
 
     def _collect(self, image, prompt):
-        """Raw pixel boxes for one prompt across the whole tile plan, mapped
-        back to full-frame coordinates. A failed window contributes nothing and
-        the sweep goes on — one bad tile must not cost the other twelve."""
-        raw = []
+        """``(strong, weak)`` raw pixel boxes for one prompt across the whole
+        tile plan, mapped back to full-frame coordinates.
+
+        STRONG is what the plan's own threshold admits — the boxes allowed to
+        BE a zone. WEAK is everything down to GEOMETRY_RESCUE_THRESHOLD: those
+        boxes never create a zone, they only say how far a confirmed one
+        reaches (see the constant). A failed window contributes nothing and the
+        sweep goes on — one bad tile must not cost the other twelve."""
+        strong, weak = [], []
         for grid_n, threshold in tile_plan(image.size):
             for x1, y1, x2, y2 in tile_windows(image.size, grid_n):
                 try:
                     tile = image if grid_n == 1 else image.crop((x1, y1, x2, y2))
-                    raw += [[b[0] + x1, b[1] + y1, b[2] + x1, b[3] + y1]
-                            for b in self._detect(tile, prompt, threshold)]
+                    for box, score in self._detect(tile, prompt, threshold):
+                        moved = [box[0] + x1, box[1] + y1,
+                                 box[2] + x1, box[3] + y1]
+                        weak.append(moved)
+                        if score > threshold:
+                            strong.append(moved)
                 except Exception as e:      # noqa: BLE001 — one window, not the pass
                     _log(f'[wmdet] locate window failed: {type(e).__name__}: {e}')
-        return raw
+        return strong, weak
 
     def regions(self, image):
         """Normalised [x1,y1,x2,y2] boxes in 0..1, most peripheral first. []
         when the locator could not load or found nothing both prompts name.
 
         Two sweeps (geometry prompt + validator prompt) over the same adaptive
-        tile plan, then the strict consensus + wall-to-wall rule — the whole
-        recipe and its measured numbers live on effective_regions and the
-        constants above."""
+        tile plan, then the strict consensus + geometry rescue + wall-to-wall
+        rule — the whole recipe and its measured numbers live on
+        effective_regions and the constants above. The validator's weak boxes
+        are dropped on purpose: it vouches for a SPOT, and adding its timid
+        boxes to the rescue measured identically on the whole bench."""
         self._ensure()
         if self.model is None:
             return []
-        base = self._collect(image, LOCATE_PROMPT)
-        validate = self._collect(image, LOCATE_VALIDATE_PROMPT)
-        return effective_regions(base, image.size, validate_boxes=validate)
+        base, base_weak = self._collect(image, LOCATE_PROMPT)
+        validate, _validate_weak = self._collect(image, LOCATE_VALIDATE_PROMPT)
+        return effective_regions(base, image.size, validate_boxes=validate,
+                                 weak_boxes=base_weak)
 
 
 # Above this fraction of the frame (raw DINO boxes, before the per-box area
@@ -286,6 +341,37 @@ class _Locator:
 # guard that hides every zone of every one-mark photo scores perfectly and
 # helps nobody.
 WALL_TO_WALL_COVERAGE = 0.50
+
+# ...but that union only carries information when the sweep had TILES. On an
+# image too small to tile (tile_plan returns the single full-frame pass), the
+# only boxes in the union come from one forward, where DINO habitually answers
+# "the whole picture is a logo" two or three times — and those claims alone
+# push the union past the guard with no repeated mark involved. Measured on six
+# 474px-wide images: a CLEAN thumbnail unions to 0.32, a stock placard carrying
+# one word to 0.59, another to 0.88. The guard was blanking the word it had
+# just located: two Shutterstock thumbnails came back "flagged, no position".
+#
+# So on an untiled sweep the same question — is the mark EVERYWHERE? — is put
+# to the biggest single box instead, which is the shape a genuinely tiled
+# picture produces and a failed localisation does not. Measured over the 21
+# images of the bench, largest single geometry-prompt box per image:
+#     the tiled stock photo          0.958 (full size) / 0.983 (474px thumb)
+#     every other image              0.860 and below (stock placards 0.57/0.86,
+#                                    clean photos 0.16..0.33, logo photos 0.03)
+# 0.90 sits in that gap, nearer the failed-localisation population on purpose:
+# erring low reproduces today's behaviour (blank), erring high would report two
+# tiles of a tiling as if they were the whole mark. With it, both thumbnails
+# report their word, the tiled photo stays guarded at BOTH scales, and every
+# tiled-sweep image of the ground truth is untouched (46/57 recall, 92%
+# precision, tiled photo 14 zones, cleaned photo 0 — all unchanged).
+#
+# Known cost, measured and not papered over: a thumbnail of a tiled photo whose
+# claim lands UNDER 0.90 would report the two tiles it found. Nothing in the
+# boxes separates that case from a placard carrying two marks — the two are
+# geometrically identical (a frame-wide claim plus two mark-sized boxes over
+# ~9% of the frame) — so the trade is which error to make, and the maintainer's
+# call (2026-08-31) is that a located word beats a silent flag.
+WHOLE_FRAME_CLAIM = 0.90
 
 
 def _raw_coverage(boxes, size):
@@ -351,7 +437,7 @@ def _raw_coverage(boxes, size):
 WALL_TO_WALL_MIN_ZONES = 3
 
 
-def effective_regions(boxes, size, validate_boxes=None):
+def effective_regions(boxes, size, validate_boxes=None, weak_boxes=None):
     """The zones a scan should REPORT for these raw pixel boxes — the one
     decision point, pure so the parent's tests can hold it.
 
@@ -359,18 +445,79 @@ def effective_regions(boxes, size, validate_boxes=None):
     strict consensus: only base boxes the validator agrees on survive. None
     keeps the single-set behaviour (legacy callers, degraded validator).
 
-    A wall-to-wall claim (raw coverage above WALL_TO_WALL_COVERAGE) with fewer
-    than WALL_TO_WALL_MIN_ZONES located zones returns [] — unlocated → Review,
-    the parent says why. With enough located zones the zones ARE the honest
-    report, tiling or not."""
+    ``weak_boxes`` (same prompt, down to GEOMETRY_RESCUE_THRESHOLD) enables the
+    geometry rescue: a zone the consensus CONFIRMED is extended to the whole
+    mark. They never add a zone — a spot no confident box named is not a mark.
+
+    A wall-to-wall claim (see _wall_to_wall) with fewer than
+    WALL_TO_WALL_MIN_ZONES located zones returns [] — unlocated → Review, the
+    parent says why. With enough located zones the zones ARE the honest report,
+    tiling or not."""
     kept = _normalise_boxes(boxes, size)
     if validate_boxes is not None:
         kept = _strict_consensus(kept, _normalise_boxes(validate_boxes, size))
     merged = _merge_boxes(kept)
-    if (_raw_coverage(boxes, size) > WALL_TO_WALL_COVERAGE
-            and len(merged) < WALL_TO_WALL_MIN_ZONES):
+    if weak_boxes:
+        weak = _normalise_boxes(weak_boxes, size)
+        # Re-merged after growing: two halves of one logo that grew into each
+        # other must come back as ONE rectangle, which is the whole point.
+        merged = _merge_boxes([_grow_to_whole_mark(b, weak) for b in merged])
+    if _wall_to_wall(boxes, size) and len(merged) < WALL_TO_WALL_MIN_ZONES:
         return []
     return merged
+
+
+def _grow_to_whole_mark(zone, weak):
+    """Extend a CONFIRMED zone with the timid boxes that describe the same
+    mark — the emblem above a caption, the half of a logo a tile seam cut off.
+
+    Biggest first, so the box that carries the most geometry is taken while
+    there is room under the cap; measured identical to sweep order and to
+    running it to a fixed point, so the order is a determinism choice, not a
+    result. Two things keep this from growing a zone into the picture: only
+    boxes _same_mark() calls the same mark are taken (its own union clause is
+    what a cut logo needs), and the grown zone may never exceed
+    ONE_MARK_MAX_AREA — the measured top of the population every real mark of
+    this bench lives in. Swept: at 0.02 the emblem is left out again (y1 0.540
+    instead of 0.480), at 0.06 the tiled photo's zones start swallowing each
+    other and spill rises 0.416 -> 0.424; 0.03 and 0.04 measure identically."""
+    out = list(zone)
+    for box in sorted(weak, key=_area, reverse=True):
+        grown = [min(out[0], box[0]), min(out[1], box[1]),
+                 max(out[2], box[2]), max(out[3], box[3])]
+        if _area(grown) <= ONE_MARK_MAX_AREA and _same_mark(out, box):
+            out = grown
+    return out
+
+
+def _biggest_box_share(boxes, size):
+    """The fraction of the frame the LARGEST single raw box claims — the
+    untiled sweep's answer to "is the mark everywhere" (see WHOLE_FRAME_CLAIM).
+    Same clamping as _raw_coverage, and the same junk tolerance: one unreadable
+    box must not cost the verdict."""
+    width, height = size
+    if not width or not height:
+        return 0.0
+    best = 0.0
+    for box in boxes:
+        try:
+            x1, y1, x2, y2 = (float(v) for v in box[:4])
+        except (TypeError, ValueError):
+            continue
+        x1, x2 = sorted((max(0.0, x1 / width), min(1.0, x2 / width)))
+        y1, y2 = sorted((max(0.0, y1 / height), min(1.0, y2 / height)))
+        best = max(best, (x2 - x1) * (y2 - y1))
+    return best
+
+
+def _wall_to_wall(boxes, size):
+    """Do these raw boxes claim the mark is EVERYWHERE? Two readings of one
+    question, because the evidence differs: with tiles, the union of everything
+    the sweep found; without them, the biggest single claim (WHOLE_FRAME_CLAIM
+    carries both measurements)."""
+    if len(tile_plan(size)) > 1:
+        return _raw_coverage(boxes, size) > WALL_TO_WALL_COVERAGE
+    return _biggest_box_share(boxes, size) >= WHOLE_FRAME_CLAIM
 
 
 def _strict_consensus(base, validate):

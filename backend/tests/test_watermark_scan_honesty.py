@@ -13,6 +13,7 @@ photos tiled wall-to-wall with watermarks) and sent three screenshots:
 3. detector @ 0.99 → both ruled clean, with nothing on screen saying the top
    score was just under the bar.
 """
+import contextlib
 import json
 
 import pytest
@@ -136,17 +137,121 @@ def test_the_coverage_is_bounded_and_junk_proof():
     assert infer._raw_coverage([[0, 0, 10, 10]], (0, 0)) == 0.0
 
 
+# --- ...and the locator really routes through it -----------------------------
+#
+# The pure rules above are only worth their tests if regions() calls them, and
+# the real DINO cannot run here. This used to be checked by matching the source
+# line as TEXT, which said nothing about behaviour and broke on the first
+# legitimate change to the call. So the sweep is driven instead, against a
+# scripted stand-in for the processor/model pair: the Nth window of a prompt
+# gets the Nth canned box list, and the fixtures are the measured ones.
+
+class _Row(list):
+    """What one box row looks like to _detect: a list that answers .tolist()."""
+
+    def tolist(self):
+        return list(self)
+
+
+class _Inputs(dict):
+    def to(self, _device):
+        return self
+
+
+class _FakeProcessor:
+    def __init__(self, script):
+        self.script = {k: list(v) for k, v in script.items()}
+        self.floors = []
+        self._prompt = None
+
+    def __call__(self, images=None, text=None, return_tensors=None):
+        self._prompt = text
+        return _Inputs(input_ids='ids')
+
+    def post_process_grounded_object_detection(self, outputs, input_ids,
+                                               threshold=None,
+                                               text_threshold=None,
+                                               target_sizes=None):
+        self.floors.append(threshold)
+        queue = self.script.get(self._prompt) or []
+        canned = queue.pop(0) if queue else []
+        return [{'boxes': [_Row(b[:4]) for b in canned],
+                 'scores': [b[4] for b in canned]}]
+
+
+class _FakeModel:
+    def __init__(self):
+        self.forwards = 0
+
+    def __call__(self, **_kw):
+        self.forwards += 1
+        return None
+
+
+class _FakeTorch:
+    no_grad = contextlib.nullcontext
+
+
+class _FakeImage:
+    def __init__(self, size):
+        self.size = size
+
+    def crop(self, box):
+        return _FakeImage((box[2] - box[0], box[3] - box[1]))
+
+
+def _locator(infer, script):
+    loc = infer._Locator('cpu', None)
+    loc.processor = _FakeProcessor(script)
+    loc.model = _FakeModel()
+    loc.torch = _FakeTorch()
+    return loc
+
+
 def test_the_locator_actually_routes_through_the_wall_to_wall_rule():
-    """Source-as-text, because the real DINO cannot run here: the pure rule
-    above is only worth its tests if regions() calls it. Reverting regions() to
-    the bare merge would keep every pure test green over the original bug."""
-    import os
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        'infer', 'watermark_detect_infer.py')
-    src = open(path, encoding='utf-8').read()
-    assert ('return effective_regions(base, image.size, '
-            'validate_boxes=validate)') in src, (
-        'regions() no longer routes through the consensus + wall-to-wall decision')
+    """Reverting regions() to the bare merge must fail HERE, not only in the
+    pure tests: the fixture is a picture whose watermark is the whole picture
+    (a 474px thumbnail of the tiled stock photo), where the merge alone happily
+    reports two tiles and the rule says [] — 'we know it is marked, we do not
+    know where'."""
+    infer = _infer_module()
+    size = (474, 316)
+    canned = [[0, 3, 474, 313, 0.55],       # the frame-wide claim
+              [146, 97, 290, 145, 0.50], [159, 142, 303, 191, 0.45]]
+    loc = _locator(infer, {infer.LOCATE_PROMPT: [canned],
+                           infer.LOCATE_VALIDATE_PROMPT: [canned]})
+    boxes = [b[:4] for b in canned]
+    assert len(infer._merge_boxes(infer._normalise_boxes(boxes, size))) == 2, (
+        'fixture must be one the bare merge would report, or it proves nothing')
+    assert loc.regions(_FakeImage(size)) == [], (
+        'regions() no longer routes through the consensus + wall-to-wall '
+        'decision')
+
+
+def test_the_locator_hands_the_pure_rule_its_timid_boxes_from_the_same_forward():
+    """The geometry rescue, driven end to end: the caption is found at full
+    frame (0.50) and the emblem above it only in a tile, at 0.30 — under the
+    tile floor, so it can never be a zone, and the reported zone must still
+    reach it. And it costs no second pass: ONE forward per window, every
+    post-process at the rescue floor, the split done on the scores."""
+    infer = _infer_module()
+    size = (1200, 800)
+    caption = [220, 550, 385, 620, 0.50]
+    emblem = [260, 480, 350, 560, 0.30]
+    windows = sum(len(infer.tile_windows(size, n))
+                  for n, _t in infer.tile_plan(size))
+    assert windows == 14, 'the tile plan changed; this fixture scripts 14 windows'
+    loc = _locator(infer, {infer.LOCATE_PROMPT: [[caption], [emblem]],
+                           infer.LOCATE_VALIDATE_PROMPT: [[caption]]})
+    out = loc.regions(_FakeImage(size))
+    assert len(out) == 1
+    assert out[0][1] == pytest.approx(480 / 800, abs=1e-4), (
+        'the zone stopped at the caption — the emblem is outside it again')
+    assert loc.model.forwards == windows * 2, (
+        'the rescue paid for a second sweep instead of reusing the forward')
+    assert set(loc.processor.floors) == {infer.GEOMETRY_RESCUE_THRESHOLD}, (
+        'the post-process no longer runs at the rescue floor, so the timid '
+        'boxes never reach the rule')
 
 
 # --- 3. zero flagged names the near-miss -------------------------------------

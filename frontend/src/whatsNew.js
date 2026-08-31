@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-watermark-zones-whole-mark',
+    date: '2026-08-31',
+    title: 'Watermark zones that cover the whole mark — thumbnails included',
+    blurb:
+      'A logo is usually an emblem above a line of text, and the detector was '
+      + 'boxing only the text: the clean erased the words and re-rendered the '
+      + 'emblem as a ghost. Zones now reach the whole mark, so a clean has '
+      + 'nothing left to put back. And small stock thumbnails — the 474px '
+      + 'previews with the brand stamped across them — no longer come back '
+      + '“watermarked, position unknown”: the word gets a zone you can crop, '
+      + 'mask or clean like any other.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-31-klein-clean-prompt-and-size',
     date: '2026-08-31',
     title: 'See — and change — what the Klein watermark clean actually does',
