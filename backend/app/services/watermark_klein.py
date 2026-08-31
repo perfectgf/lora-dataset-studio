@@ -200,6 +200,7 @@ KLEIN_INPAINT_PROMPT = ('Reconstruct this photo as a clean, natural image: repla
 # the queue row reads "remove watermark", which is what the user thinks they asked for.
 KLEIN_CLEAN_PROMPT = 'remove watermark'
 
+
 # Nodes this module rewires — fail loudly if the shipped workflow changes shape. Node 53
 # (VAEEncode of the pre-filled crop) is the latent for BOTH the ReferenceLatent and the
 # KSampler now (full-edit), so it is checked too even though its wiring is fixed in the JSON.
@@ -244,10 +245,15 @@ KLEIN_MASK_STEPS = 4            # this graph is distilled harder than the crop o
 # Unpainted pixels are copied from the ORIGINAL either way, so the cap costs
 # detail only INSIDE the painted area, and only on images large enough to risk
 # an out-of-memory failure halfway through an in-place edit.
-# The 🧽 CLEAN sends whole frames too and shares this cap — with one difference
-# that has to be said out loud: it composites nothing back, so on a photo above
-# the cap the WHOLE image returns resampled (down to 2 MP, back up to its
-# original dimensions) rather than only the painted area.
+# The 🧽 CLEAN sends whole frames too and this is its DEFAULT cap — with one
+# difference that has to be said out loud: it composites nothing back, so on a
+# photo above the cap the WHOLE image returns resampled (down to the cap, back up
+# to its original dimensions) rather than only the painted area. Since 2026-08-31
+# the clean's cap is a user setting (`clean_max_mp`, config
+# `watermark_clean.klein_max_mp`, clamped [0.5, 4.0]) and so is the second
+# resample (`clean_output_mode`) — this number is what it falls back to. The
+# MASKED repair lane keeps it fixed: that one composites, so a larger frame buys
+# it nothing outside the mask.
 KLEIN_MASK_MAX_MP = 2.0
 # Grow the painted mask before the model sees it — BFL's own Erase (the closest
 # thing to an official reference for mask-driven Klein removal) recommends
@@ -281,6 +287,63 @@ KLEIN_SAMPLER = 'euler'       # written into node 77 rather than trusted to the 
 KLEIN_CFG = 1.0               # so the recipe lives where the tests can read it. Both graphs
                               # already carried these values; pinning them changes no render.
 KLEIN_TIMEOUT = 300           # per-image ComfyUI round-trip budget (seconds)
+
+# --- The 🧽 clean's three dials (config `watermark_clean.*`) --------------------
+# The constants above are DEFAULTS now, not the whole story: the maintainer asked
+# for the prompt to be visible and editable ("we can't see what is sent?"), and for
+# the processing size to be a choice rather than a hard-coded 2 MP. Three resolvers,
+# read here and published to the front by capabilities.probe(), so the sentence the
+# user reads quotes the exact value the pass will use — the same doctrine as
+# `watermark_detect_threshold`.
+#
+# Each takes an optional per-run override and falls back to config, then to the
+# shipped constant. A blank/absent/garbage config value is NOT an error: it means
+# "the default", because this config file is hand-editable and a typo must not stop
+# somebody cleaning their images.
+KLEIN_CLEAN_MAX_MP_MIN = 0.5    # below this the render is too coarse to be worth writing back
+KLEIN_CLEAN_MAX_MP_MAX = 4.0    # measured ceiling: 4 MP fits a 24 GB card next to ComfyUI
+KLEIN_CLEAN_OUTPUT_MODES = ('original', 'render')
+KLEIN_CLEAN_OUTPUT_DEFAULT = 'original'
+
+
+def clean_prompt(override=None) -> str:
+    """The instruction the 🧽 clean actually sends. NOT the lane switch — see the
+    `prompt` argument of inpaint_watermark_klein, which decides between the clean and
+    the ✦ Repair and must stay empty on this lane."""
+    for candidate in (override, cfg.get('watermark_clean.klein_prompt')):
+        text = str(candidate or '').strip()
+        if text:
+            return text
+    return KLEIN_CLEAN_PROMPT
+
+
+def clean_max_mp(override=None) -> float:
+    """Megapixel cap for the frame handed to Klein, clamped to the supported range.
+    Bools are skipped rather than coerced: `float(True)` is 1.0, and a JSON `true`
+    silently becoming a 1 MP cap is the kind of value nobody would ever debug."""
+    for candidate in (override, cfg.get('watermark_clean.klein_max_mp')):
+        if candidate is None or isinstance(candidate, bool):
+            continue
+        try:
+            value = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        return min(KLEIN_CLEAN_MAX_MP_MAX, max(KLEIN_CLEAN_MAX_MP_MIN, value))
+    return KLEIN_MASK_MAX_MP
+
+
+def clean_output_mode(override=None) -> str:
+    """'original' (resample the render back to the file's own dimensions, what
+    shipped) or 'render' (write the render as it came back — the file CHANGES
+    dimensions)."""
+    for candidate in (override, cfg.get('watermark_clean.klein_output')):
+        mode = str(candidate or '').strip().lower()
+        if mode in KLEIN_CLEAN_OUTPUT_MODES:
+            return mode
+    return KLEIN_CLEAN_OUTPUT_DEFAULT
+
 
 _POLL_INTERVAL = 1.0
 
@@ -1082,18 +1145,22 @@ def compare_preview(user_id, image_path, boxes, *, klein_model, seed,
 
 def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cpu',
                             timeout=KLEIN_TIMEOUT,
-                            klein_model=None, prompt=None) -> tuple[bool, dict | None]:
+                            klein_model=None, prompt=None,
+                            klein_prompt=None, klein_max_mp=None,
+                            klein_output=None) -> tuple[bool, dict | None]:
     """Klein, on `image_path`, in place — the 🧽 watermark CLEAN or the ✦ BOX repair.
 
     ONE entry point, TWO lanes, and `prompt` is the switch (see the module docstring):
 
     * `prompt` empty → the CLEAN. `boxes` are ERASED on the whole photo first (LaMa /
       cv2 TELEA, no crop), then the WHOLE photo is re-rendered by Klein under the
-      instruction "remove watermark" (4 steps, euler, cfg 1, denoise 1.0). The zones no
-      longer bound the repaint — they keep Klein from re-inventing the mark it would
-      otherwise see in its own reference — and the pass still clears marks the detector
-      missed. The result is a new render of the entire frame at its original
-      dimensions: nothing is byte-preserved any more, ↩ Restore original is the way back.
+      stored clean instruction (default "remove watermark"; 4 steps, euler, cfg 1,
+      denoise 1.0). The zones no longer bound the repaint — they keep Klein from
+      re-inventing the mark it would otherwise see in its own reference — and the pass
+      still clears marks the detector missed. The result is a new render of the entire
+      frame, at the file's own dimensions or at the render's own size depending on
+      `clean_output_mode`: nothing is byte-preserved any more, ↩ Restore original is
+      the way back.
     * `prompt` given → the BOX repair: prefill, Klein refine of a padded crop, per-zone
       seam harmonization, and a feathered paste of the `boxes` footprint only. Every
       pixel outside it keeps its ORIGINAL bytes. Unchanged since 2026-07-17.
@@ -1105,7 +1172,15 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
     `device` selects the prefill LaMa device on BOTH lanes ('cpu' by default so the
     pending ComfyUI GPU job runs alone; Klein itself always owns the GPU via ComfyUI).
     `klein_model`: see _run_klein_job — the dataset's pick, or None (auto) when the
-    caller has no dataset to inherit from."""
+    caller has no dataset to inherit from.
+
+    `klein_prompt` / `klein_max_mp` / `klein_output` are the CLEAN's three dials
+    (config `watermark_clean.*`, resolved by clean_prompt / clean_max_mp /
+    clean_output_mode). They are per-run overrides — None everywhere today, because
+    both surfaces persist their choice instead of posting it — and they reach the
+    clean ONLY. `klein_prompt` is deliberately not `prompt`: that argument is the lane
+    switch above, so routing an edited clean instruction into it would silently turn
+    every clean into a crop repair."""
     if not is_available():
         return False, {'kind': 'unavailable',
                        'detail': 'Klein inpaint is not ready (ComfyUI unreachable or models missing)'}
@@ -1121,12 +1196,15 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
                                              device=device, timeout=timeout,
                                              klein_model=klein_model, prompt=prompt)
     return _clean_full_frame(user_id, image_path, original, norm, seed=seed, device=device,
-                             timeout=timeout, klein_model=klein_model)
+                             timeout=timeout, klein_model=klein_model,
+                             klein_prompt=klein_prompt, klein_max_mp=klein_max_mp,
+                             klein_output=klein_output)
 
 
 def _clean_full_frame(user_id, image_path, original, norm=None, *, seed=None,
                       device='cpu', timeout=KLEIN_TIMEOUT,
-                      klein_model=None) -> tuple[bool, dict | None]:
+                      klein_model=None, klein_prompt=None, klein_max_mp=None,
+                      klein_output=None) -> tuple[bool, dict | None]:
     """The 🧽 clean (maintainer's 2026-08-31 recipe): ERASE the detected zones on the
     whole photo, hand that whole photo to Klein under "remove watermark", and write the
     render back at the file's own size.
@@ -1145,14 +1223,31 @@ def _clean_full_frame(user_id, image_path, original, norm=None, *, seed=None,
     still removes marks, but the ghost-glyph risk above comes back with it. No caller
     reaches that path today — every one of them derives boxes before calling.
 
-    The frame travels at KLEIN_MASK_MAX_MP at most, snapped to the latent stride and
-    never magnified (`_mask_frame_size`, shared with the masked lane) — a 24 MP photo is
-    not worth 12× the VRAM on a box that also runs ComfyUI and possibly a training run.
-    The margin is applied in SENT pixels, where the erasing actually happens. The render
-    comes back at that sent size and is resampled to the ORIGINAL dimensions, because a
-    clean must never change the shape of a dataset image."""
+    THREE DIALS, all resolved here so every caller — batch, lightbox, ⚖ compare, both
+    surfaces — obeys the same stored choice without threading arguments through four
+    layers of service:
+
+    * the PROMPT (`clean_prompt`): what Klein is told. Editable since 2026-08-31,
+      because "remove watermark" was invisible from the app and a user whose mark
+      survived had no dial to turn. It reaches `_run_klein_job(prompt=...)`; the
+      caller-facing `prompt` argument stays empty on this lane by construction.
+    * the SIZE (`clean_max_mp`, default 2 MP, clamped [0.5, 4.0]): the frame travels at
+      that cap at most, snapped to the latent stride and never magnified
+      (`_mask_frame_size`, shared with the masked lane) — a 24 MP photo is not worth
+      12× the VRAM on a box that also runs ComfyUI and possibly a training run. Raise
+      it for finer regenerated detail, pay for it in VRAM and seconds. The margin is
+      applied in SENT pixels, where the erasing actually happens.
+    * the WRITE-BACK (`clean_output_mode`): 'original' resamples the render back to the
+      file's own dimensions — what shipped, and what keeps a clean from changing the
+      shape of a dataset image. 'render' writes the render as it came back, so a photo
+      above the cap keeps the detail the second resample would soften AND THE FILE
+      CHANGES DIMENSIONS. That is the user's choice to make, said in those words on
+      every surface that offers it."""
     W, H = original.size
-    sent_size = _mask_frame_size(W, H)
+    prompt = clean_prompt(klein_prompt)
+    max_mp = clean_max_mp(klein_max_mp)
+    output_mode = clean_output_mode(klein_output)
+    sent_size = _mask_frame_size(W, H, max_mp=max_mp)
     frame = original if original.size == sent_size else original.resize(sent_size, Image.LANCZOS)
 
     if norm:
@@ -1170,12 +1265,20 @@ def _clean_full_frame(user_id, image_path, original, norm=None, *, seed=None,
                 return False, err
 
     seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
+    # The run's own record of what was actually sent. The prompt is EDITABLE now, so
+    # "which words cleaned this batch?" stopped being answerable from the source — it
+    # has to be in the log, next to the size and the write-back mode. Logged BEFORE the
+    # render, so a job that fails or times out still says what it was asked to do. No
+    # file path: this line ends up in pasted diagnostics.
+    logger.info('watermark_klein clean: prompt=%r · sent %d×%d (cap %.2f MP) · '
+                'write-back %s', prompt, sent_size[0], sent_size[1], max_mp, output_mode)
     rendered, err = _run_klein_job(user_id, frame, seed=seed, steps=KLEIN_CLEAN_STEPS,
                                    denoise=KLEIN_DENOISE, timeout=timeout,
-                                   klein_model=klein_model, prompt=KLEIN_CLEAN_PROMPT)
+                                   klein_model=klein_model, prompt=prompt)
     if err:
         return False, err
-    result = rendered if rendered.size == (W, H) else rendered.resize((W, H), Image.LANCZOS)
+    result = (rendered if output_mode == 'render' or rendered.size == (W, H)
+              else rendered.resize((W, H), Image.LANCZOS))
     try:
         image_encoding.save_edit(
             result, image_path, image_encoding.format_for_path(image_path, original),

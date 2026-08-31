@@ -15,6 +15,7 @@
  *
  * LaMa did not change, and is still described as what it is.
  */
+import { sentPromptLine } from './kleinCleanOptions.js'
 
 /** The full tooltip on the Klein engine button. Same words on every surface.
  *  It names the LIMIT as well as the reach on purpose. The zones are erased
@@ -32,6 +33,18 @@ export const KLEIN_CLEAN_TITLE =
   + 'the subject. What can survive is a distinct mark nobody found. Every pixel is '
   + 'regenerated, so details shift outside the marks too: look at the result, and '
   + '↩ Restore original brings your file back.';
+
+/** The tooltip, with the instruction THIS install will actually send appended.
+ *
+ *  It takes the capabilities object rather than a prompt string because that is where
+ *  the resolved value lives (`caps.watermark_clean_prompt`, published by the backend
+ *  after its own clamping) — so every surface quotes what the pass will really send,
+ *  and a caps refresh updates all of them at once with no per-screen state. Before the
+ *  prompt was editable the constant above was the whole truth; now it is the half that
+ *  does not depend on the install, and a tooltip that kept naming a prompt the user had
+ *  changed would be worse than one that named none. */
+export const kleinCleanTitle = (caps) =>
+  `${KLEIN_CLEAN_TITLE} ${sentPromptLine(caps?.watermark_clean_prompt)}`
 
 /** The half-sentence appended after "Engine: Klein" in a launch window, where the
  *  engine name is already on screen and only the difference is worth the room. */

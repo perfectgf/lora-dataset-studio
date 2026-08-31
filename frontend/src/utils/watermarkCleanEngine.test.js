@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
-  CLEAN_ENGINES_BLURB, KLEIN_CLEAN_SHORT, KLEIN_CLEAN_TITLE,
+  CLEAN_ENGINES_BLURB, KLEIN_CLEAN_SHORT, KLEIN_CLEAN_TITLE, kleinCleanTitle,
 } from './watermarkCleanEngine.js'
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -26,8 +26,29 @@ test('every surface that offers Klein shows the SAME sentence about it', () => {
     const text = read(rel)
     assert.match(text, /watermarkCleanEngine\.js/,
       `${rel} does not import the shared clean-engine wording`)
-    assert.match(text, /KLEIN_CLEAN_TITLE/,
-      `${rel} describes the Klein clean in its own words instead of the shared one`)
+    /* kleinCleanTitle(caps), not the bare constant: since the prompt became editable
+       (2026-08-31) the sentence has an install-specific half, and a surface that
+       pasted the constant would quote "remove watermark" at a user who had changed
+       it — the exact failure the shared module exists to prevent, one level down. */
+    assert.match(text, /kleinCleanTitle\(caps\)/,
+      `${rel} describes the Klein clean in its own words, or names the prompt from a `
+      + 'stale constant instead of the resolved capabilities value')
+  }
+})
+
+test('the tooltip names the prompt this install will actually send', () => {
+  /* "remove watermark" lived only in the backend source, which is not a place a user
+     can look — the maintainer's own question ("we can't see what is sent?"). Now the
+     value is published resolved (caps.watermark_clean_prompt) and quoted here. */
+  assert.match(kleinCleanTitle({ watermark_clean_prompt: 'erase every logo' }),
+    /Sent to Klein: “erase every logo”/)
+  // The whole shared sentence survives the addition — the trade is not replaced by it.
+  assert.ok(kleinCleanTitle({}).startsWith(KLEIN_CLEAN_TITLE))
+  // No caps yet (the probe is async), an empty prompt, a non-string: all read as the
+  // shipped default rather than an empty quote or "undefined".
+  for (const caps of [undefined, {}, { watermark_clean_prompt: '  ' },
+    { watermark_clean_prompt: 7 }]) {
+    assert.match(kleinCleanTitle(caps), /Sent to Klein: “remove watermark”/)
   }
 })
 

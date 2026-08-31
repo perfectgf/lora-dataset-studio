@@ -29,11 +29,12 @@ import { Flag } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient'
 import PassDialog from './PassDialog.jsx'
 import KleinModelSetting from '../shared/KleinModelSetting'
+import KleinCleanOptions from '../shared/KleinCleanOptions'
 import KleinCompareDialog from '../shared/KleinCompareDialog'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useToast } from '../common/Toast'
 import {
-  CLEAN_ENGINES_BLURB, KLEIN_CLEAN_SHORT, KLEIN_CLEAN_TITLE,
+  CLEAN_ENGINES_BLURB, KLEIN_CLEAN_SHORT, kleinCleanTitle,
 } from '../../utils/watermarkCleanEngine.js'
 import {
   cropLevelState, findLevelState, hasCleanedImages, inpaintLevelState,
@@ -74,7 +75,7 @@ export default function BankWatermarkPanel({
   bankId, live, onFind, onFindText = null, onChanged, payload = null,
   selectedIds = [], gpuPresent = true, onPickPython = null,
 }) {
-  const { caps } = useCapabilities()
+  const { caps, refresh: refreshCaps } = useCapabilities()
   const toast = useToast()
   const [levels, setLevels] = useState(null)
   const [method, setMethod] = useState('auto')
@@ -279,7 +280,7 @@ export default function BankWatermarkPanel({
           <button type="button" aria-pressed={method === 'klein'} onClick={() => setMethod('klein')}
             disabled={!caps.watermark_klein}
             title={caps.watermark_klein
-              ? KLEIN_CLEAN_TITLE
+              ? kleinCleanTitle(caps)
               : (kleinReason || 'Klein inpainting needs ComfyUI running + the Klein models (Setup ▸ ComfyUI).')}
             className={`rounded-md px-2.5 py-1 font-semibold disabled:opacity-40 ${method === 'klein'
               ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
@@ -292,6 +293,7 @@ export default function BankWatermarkPanel({
             w-full: this drops onto its own line rather than squeezing the
             toggle at 400 px. */}
         {method === 'klein' && (
+          <>
           <div className="w-full flex flex-wrap items-center gap-x-3 gap-y-1">
             <KleinModelSetting className="min-w-0 flex-1" />
             <button type="button"
@@ -312,6 +314,15 @@ export default function BankWatermarkPanel({
               </span>
             )}
           </div>
+          {/* WHAT the clean will actually do, and the three dials that change it: the
+              prompt Klein is sent, the size the photo travels at, and whether the file
+              keeps its dimensions. Stored, so the dataset side reads the same values —
+              the shared feature rule (CLAUDE.md), applied to the dials and not just to
+              the pass. `refreshCaps` re-reads the resolved values so the engine tooltip
+              beside it quotes the prompt the user just typed. */}
+          <KleinCleanOptions caps={caps} disabled={live} className="w-full"
+            onChanged={() => refreshCaps(true, { background: true })} />
+          </>
         )}
         {/* 🔤/🚩 WHAT to clean — only offered once Find text flagged something,
             because with no text-flagged page the three choices collapse into

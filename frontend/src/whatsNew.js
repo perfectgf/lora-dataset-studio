@@ -83,6 +83,24 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-08-31-klein-clean-prompt-and-size',
+    date: '2026-08-31',
+    title: 'See — and change — what the Klein watermark clean actually does',
+    blurb:
+      'Cleaning a watermark with Klein had one option: which model. The prompt it '
+      + 'sends was a constant in the code, so a mark that survived left you nothing '
+      + 'to turn. Pick Klein on the Bank panel or the dataset Clean bar and you now '
+      + 'see the exact instruction being sent — “remove watermark” — in an editable '
+      + 'box with a Reset to default beside it, plus the processing size (1 to 4 MP, '
+      + 'default 2: higher regenerates finer detail and costs more VRAM and time, and '
+      + 'a photo already smaller is never enlarged) and whether the cleaned file keeps '
+      + 'your original dimensions or is written at the render size, which changes the '
+      + 'file dimensions. One stored choice, so setting it on either surface arms both '
+      + '— and every clean now logs the prompt it used, so you can tell afterwards '
+      + 'what ran.',
+    to: '/datasets',
+  },
+  {
     id: '2026-08-31-video-test-studio',
     date: '2026-08-31',
     title: 'Play your video LoRA back, without leaving the app (beta)',

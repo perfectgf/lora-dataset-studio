@@ -1136,6 +1136,20 @@ def _watermark_detect_threshold() -> float:
     return watermark_detector.threshold()
 
 
+def _watermark_clean_options() -> dict:
+    """The 🧽 Klein clean's three dials, RESOLVED — not the raw config values.
+
+    Published so the bank panel and the dataset Clean bar can show, and edit, the
+    exact prompt / cap / write-back the next run will use. Reading the raw config
+    instead would let a screen quote a hand-edited `klein_max_mp: 12` that the pass
+    silently clamps to 4, which is the failure mode `watermark_detect_threshold`
+    above exists to avoid."""
+    from .services import watermark_klein
+    return {'prompt': watermark_klein.clean_prompt(),
+            'max_mp': watermark_klein.clean_max_mp(),
+            'output': watermark_klein.clean_output_mode()}
+
+
 def watermark_detect_weights_present() -> bool:
     """True when BOTH model repos are cached under the detector's models_root.
     A cheap directory check — huggingface_hub names its cache folders
@@ -2161,6 +2175,7 @@ def probe(force=False) -> dict:
     ollama_installed = probe_ollama_installed()
     from .services import vision_llm as _vision_llm
     _llm_provider = _vision_llm.provider()
+    _wm_clean = _watermark_clean_options()
     _lmstudio_url = ''
     # A filesystem stat, not a round-trip, so it runs for the INACTIVE provider
     # too: "LM Studio is installed on this machine" is worth knowing on the card
@@ -2382,6 +2397,16 @@ def probe(force=False) -> dict:
         # The measured flag threshold, published so the panel and the Settings
         # field quote the SAME number the pass will actually use.
         'watermark_detect_threshold': _watermark_detect_threshold(),
+        # The 🧽 CLEAN's three dials, same doctrine as the threshold above: the
+        # screens that offer them must quote what the pass will really do, and
+        # both surfaces write them back through PUT /api/settings so one stored
+        # choice rules the bank, the dataset and the review lightbox alike.
+        # The prompt in particular was invisible until now — it was a constant in
+        # the source, which is not a place a user can look ("we can't see what is
+        # sent?"). None of the three is a secret and none carries a path.
+        'watermark_clean_prompt': _wm_clean['prompt'],
+        'watermark_clean_max_mp': _wm_clean['max_mp'],
+        'watermark_clean_output': _wm_clean['output'],
         # The video lane, reported as its three independent pieces. A single
         # boolean would be a lie here: decoding, shot detection and encoding come
         # from three different installs and fail apart. The front uses the parts to

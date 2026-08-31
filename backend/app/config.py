@@ -496,6 +496,38 @@ DEFAULTS = {
     # engine). A persisted user preference (Settings ▸ Watermark inpainting AND the
     # batch Clean bar both edit it); the review lightbox can still override it per image.
     'watermark': {'python': '', 'device': 'auto', 'allow_crop': True},  # auto|cuda|cpu
+    # 🧽 The KLEIN clean's own three dials, on BOTH surfaces (bank panel and the
+    # dataset Clean bar write the same keys through, exactly like the scan dials
+    # next to them). Its own section rather than three more keys under
+    # `watermark` above, because none of them touches LaMa: that section is the
+    # LaMa device plus a routing preference, and folding a Klein prompt into it
+    # would make `watermark.*` mean two engines.
+    # klein_prompt: the instruction Klein is actually sent when it re-renders the
+    #   whole photo. Empty = the shipped three words (watermark_klein
+    #   .KLEIN_CLEAN_PROMPT, 'remove watermark'), which are deliberately short —
+    #   the long reconstruction sentence belongs to the ✦ Repair lane, and asked
+    #   to clean a whole photo Klein answers the short instruction better. This
+    #   is NOT the repair prompt and must never be routed into it: inside
+    #   inpaint_watermark_klein the `prompt` argument is the LANE SWITCH (given →
+    #   crop repair, empty → this clean), so the clean's editable text travels as
+    #   its own `klein_prompt` argument and only ever reaches _clean_full_frame.
+    # klein_max_mp: how large the frame handed to Klein may be, in megapixels —
+    #   the cap that used to be the fixed KLEIN_MASK_MAX_MP. Clamped to
+    #   [0.5, 4.0]; default 2.0. Higher regenerates finer detail (the render is
+    #   what the file becomes on this lane — nothing is composited back) and
+    #   costs VRAM and time roughly with the pixel count: 4 MP is twice 2 MP's
+    #   work per step and fits a 24 GB card, and it is a poor trade on a card
+    #   that is also holding ComfyUI and a training run. Never MAGNIFIES: a photo
+    #   already under the cap goes at its own size, so raising this changes
+    #   nothing for small images.
+    # klein_output: what dimensions the cleaned file ends up with. 'original'
+    #   (default, and what shipped) resamples the render back to the file's own
+    #   size, so a clean never changes the shape of a dataset image. 'render'
+    #   writes the render as it came back — no second resample, so a photo above
+    #   the cap keeps the detail the resample would soften, and THE FILE CHANGES
+    #   DIMENSIONS. Every surface that offers it says so.
+    'watermark_clean': {'klein_prompt': 'remove watermark', 'klein_max_mp': 2.0,
+                        'klein_output': 'original'},
     # 🔤 Find text (bank + dataset). score_min: the OCR confidence a line must
     # carry to become a repaint zone — the launch window's Sensitivity slider
     # writes it through. 0.5 is the engine's conventional floor (the video

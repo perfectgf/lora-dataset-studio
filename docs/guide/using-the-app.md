@@ -2248,6 +2248,18 @@ launch by hand** — cheapest and safest first:
    would catch it. Erasing the zones first removed every trace of that. It is
    still worth a look at the picture.
 
+   **Three dials, right there under the engine.** Picking Klein reveals the
+   **prompt it is actually sent** (`remove watermark` by default, editable, with
+   *Reset to default* to get it back), the **processing size** the photo travels
+   at (1 – 4 MP, default 2 — higher means finer regenerated detail and more VRAM
+   and time, and a photo already smaller than the setting is never enlarged), and
+   **what size the cleaned file is written at**: back at your file's own
+   dimensions, as before, or at the render's size — in which case **the file
+   changes dimensions**. The dataset's Clean bar offers exactly the same three,
+   and they are one stored choice, so setting them on either side arms both.
+   Every clean also writes the prompt, size and write-back mode it used to
+   🪵 Server log, so you can tell afterwards what actually ran.
+
 Each step shows how many images it still has to work on and how many it has
 already handled, so you can see where the funnel stands. **Your source files are
 never modified** — a cleaned image is a copy the app keeps beside the bank's

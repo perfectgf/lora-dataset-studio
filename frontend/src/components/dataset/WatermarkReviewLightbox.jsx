@@ -28,7 +28,7 @@ import { requestHelpTip } from '../../help/helpTips';
 import KleinModelSetting from '../shared/KleinModelSetting';
 import { displayLabel } from '../../utils/labels';
 import { localEngineUnavailableReason } from '../../utils/localEngineReason.js';
-import { KLEIN_CLEAN_TITLE } from '../../utils/watermarkCleanEngine.js';
+import { kleinCleanTitle } from '../../utils/watermarkCleanEngine.js';
 import {
   MAX_WATERMARK_REGIONS,
   buildWatermarkReviewState,
@@ -752,7 +752,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             <button type="button" aria-pressed={kleinSelected} onClick={() => setMethod('klein')}
               disabled={working || useCrop || !kleinReady}
               title={kleinReady
-                ? KLEIN_CLEAN_TITLE
+                ? kleinCleanTitle(caps)
                 : (kleinReason
                   || 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).')}
               className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${kleinSelected

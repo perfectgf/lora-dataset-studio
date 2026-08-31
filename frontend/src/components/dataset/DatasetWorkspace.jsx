@@ -18,6 +18,7 @@ import { faceAnalysisState, faceAnalysisLabel } from './faceScoringGate.js';
 import DatasetGrid from './DatasetGrid';
 import { datasetBusyReason } from './datasetBusyReason.js';
 import KleinModelSetting from '../shared/KleinModelSetting';
+import KleinCleanOptions from '../shared/KleinCleanOptions';
 import KleinCompareDialog from '../shared/KleinCompareDialog';
 import SmallImageRescueReview from './SmallImageRescueReview';
 import CaptionToolsBar from './CaptionToolsBar';
@@ -27,7 +28,7 @@ import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
 import { recaptionConfirmation } from './captionCategory';
 import { defaultEditEngine } from './referenceEdit';
 import { localEngineUnavailableReason, hasComfyui } from '../../utils/localEngineReason.js';
-import { KLEIN_CLEAN_TITLE } from '../../utils/watermarkCleanEngine.js';
+import { kleinCleanTitle } from '../../utils/watermarkCleanEngine.js';
 import { captionEnginesSummary, CAPTION_ENGINE_WHY } from '../../utils/captionEngines.js';
 // …and the per-image half of the same question, for the captions listed in full here.
 import { captionOriginInfo } from '../../utils/captionOrigin.js';
@@ -1632,7 +1633,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <button type="button" aria-pressed={watermarkMethod === 'klein'}
                       onClick={() => setWatermarkMethod('klein')} disabled={ds.busy || !caps.watermark_klein}
                       title={caps.watermark_klein
-                        ? KLEIN_CLEAN_TITLE
+                        ? kleinCleanTitle(caps)
                         : (localEngineUnavailableReason('klein', caps)
                           || 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).')}
                       className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkMethod === 'klein'
@@ -1697,6 +1698,17 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         </button>
                       )}
                     </div>
+                  )}
+                  {/* WHAT the clean will actually do, and the three dials that change
+                      it: the prompt Klein is sent, the size the photo travels at, and
+                      whether the file keeps its dimensions. Stored, so the bank panel
+                      reads the same values — the shared feature rule (CLAUDE.md)
+                      applied to the dials, not just to the pass. `refreshCaps` re-reads
+                      the resolved values so the engine tooltip above quotes the prompt
+                      that was just typed. */}
+                  {watermarkMethod === 'klein' && (
+                    <KleinCleanOptions caps={caps} disabled={ds.busy} className="basis-full"
+                      onChanged={() => refreshCaps(true, { background: true })} />
                   )}
                   {/* Allow auto-crop: the SAME persisted preference as Settings ▸ Watermark
                       inpainting (write-through). Off → a border mark is repainted (LaMa/
