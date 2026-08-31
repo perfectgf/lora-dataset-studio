@@ -83,9 +83,11 @@ import {
   fullTransformerUnavailableReason,
   hfCloudTokenReadiness,
   isFullTransformerEligible,
+  isFullTransformerRun,
   normalizeTrainingMode,
 } from '../../utils/trainingMode.js';
 import CloudLaunchDialog from './CloudLaunchDialog';
+import CloudStopDialog from '../shared/CloudStopDialog';
 import {
   CUSTOM_BASE_SENTINEL, DEFAULT_CUSTOM_FAMILIES, DenseBasePicker,
   FullTransformerAdvancedRecipe, FullTransformerArtifactNotice,
@@ -1544,8 +1546,23 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // only (never server state): defaults to the newest, snaps back when the
   // selected run leaves the active list.
   const [selectedCloudRunId, setSelectedCloudRunId] = useState(null);
+  const [cloudStopTarget, setCloudStopTarget] = useState(null);
   const cloudActiveHere = cloudActivesHere.find((a) => a.run_id === selectedCloudRunId)
     || cloudActivesHere[cloudActivesHere.length - 1] || null;
+  // Same dialog the Runs hub uses: stopping from THIS panel used to skip the
+  // "Do not rent this machine again" tick, which is the option you want when
+  // a pod is stuck on boot and you are watching it here rather than on Runs.
+  const doStopCloud = async (run, { banHost = false } = {}) => {
+    if (!run) return;
+    setCloudStopTarget(null);
+    const d = await postJson('/api/dataset/train/cloud/stop',
+      banHost ? { run_id: run.run_id, ban_host: true } : { run_id: run.run_id });
+    // Never leave a stop unanswered: a pod that could not be terminated keeps
+    // billing, and the message names the instance.
+    const m = stopOutcomeMessage(d);
+    if (m.level === 'error') toast.error(m.text, 20000);
+    else toast.info(m.text, m.level === 'warn' ? 12000 : undefined);
+  };
   const cloudLastHere = cloudStatus.last
     && cloudStatus.last.dataset_id === ds.currentId
     && (!cloudStatus.last.train_type || cloudStatus.last.train_type === trainType)
@@ -1925,16 +1942,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               View in Runs ↗
             </Link>
             <button type="button" className="px-2 py-0.5 rounded bg-red-600/80 text-white text-[0.6875rem] font-semibold"
-              onClick={async () => {
-                if (normalizeTrainingMode(cloudActiveHere.training_mode) === TRAINING_MODE_FULL_TRANSFORMER
-                    && !window.confirm('Stop this full-model training run?\n\nAI Toolkit uploads the full model to Hugging Face only after a clean finish. The latest checkpoint may be permanently lost if it has not been uploaded yet, even if an older checkpoint is already on the Hub.')) return;
-                const d = await postJson('/api/dataset/train/cloud/stop', { run_id: cloudActiveHere.run_id });
-                // Never leave a stop unanswered: a pod that could not be
-                // terminated keeps billing, and the message names the instance.
-                const m = stopOutcomeMessage(d);
-                if (m.level === 'error') toast.error(m.text, 20000);
-                else toast.info(m.text, m.level === 'warn' ? 12000 : undefined);
-              }}>
+              onClick={() => setCloudStopTarget(cloudActiveHere)}>
               Stop cloud run
             </button>
           </div>
@@ -3996,6 +4004,16 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           a={lineageNodeById(datasetGraph?.tree, ckptDiffIds[0])}
           b={lineageNodeById(datasetGraph?.tree, ckptDiffIds[1])}
           onClose={() => setCkptDiffIds([])} />
+      ), document.body)}
+
+      {/* Same dialog as the Runs hub, portaled for the same reason as Continue
+          above: a modal opened from Training must still be seen if the
+          workspace has switched section. */}
+      {createPortal((
+        <CloudStopDialog run={cloudStopTarget}
+          fullModel={!!cloudStopTarget && isFullTransformerRun(cloudStopTarget)}
+          onCancel={() => setCloudStopTarget(null)}
+          onConfirm={({ banHost }) => doStopCloud(cloudStopTarget, { banHost })} />
       ), document.body)}
 
     </div>

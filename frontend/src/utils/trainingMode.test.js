@@ -601,10 +601,25 @@ test('full run cards surface Hub status and suppress LoRA-only actions', () => {
   assert.match(stopDialog, /AI Toolkit uploads the full model to Hugging Face only when the run finishes cleanly/);
   assert.match(runsPage, /<CloudStopDialog run=\{stopTarget\}/);
   assert.match(runsPage, /fullModel=\{!!stopTarget && isFullTransformerRun\(stopTarget\)\}/);
+  // The dataset panel used a window.confirm that could not carry the ban tick;
+  // a full-model stop from there must go through the same dialog.
+  assert.match(panel, /<CloudStopDialog run=\{cloudStopTarget\}/);
+  assert.match(panel, /fullModel=\{!!cloudStopTarget && isFullTransformerRun\(cloudStopTarget\)\}/);
   assert.match(runsPage, /Verify Hugging Face delivery/);
   assert.match(runsPage, /Retry pod cleanup/);
   assert.match(runsPage, /\/api\/dataset\/train\/cloud\/recheck-delivery/);
   assert.match(runsPage, /Inspect Hugging Face repository \(delivery not verified\)/);
+});
+
+test('stopping a cloud run from either surface can ban the host', () => {
+  // The ban lived on the Runs hub only, so a pod stuck on boot — watched from
+  // the dataset training panel, next to "Stop cloud run" — could be killed
+  // without ever offering "Do not rent this machine again".
+  const banPost = /banHost \? \{ run_id: run\.run_id, ban_host: true \}/;
+  assert.match(panel, banPost);
+  assert.match(runsPage, banPost);
+  assert.match(panel, /setCloudStopTarget\(cloudActiveHere\)/);
+  assert.doesNotMatch(panel, /Stop this full-model training run/);
 });
 
 test('user-facing full-model recovery copy never falls back to dense terminology', () => {
