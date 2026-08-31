@@ -350,3 +350,94 @@ def prune_staged_inputs(input_dir, max_age_seconds=STAGED_INPUT_MAX_AGE_SECONDS,
         logger.info('comfy_fs: pruned %d staged input copies older than %d h',
                     removed, max_age_seconds // 3600)
     return removed
+
+
+# --- Claiming a just-written output ---------------------------------------
+# Completion linking used to `shutil.move` ComfyUI's PNG into the dataset dir.
+# Two Windows facts made that raise after the useful work was already done:
+#
+# 1. A rename cannot span volumes, so shutil falls back to copy + unlink.
+# 2. A file ComfyUI just flushed is often still held open (ComfyUI, AV, a
+#    preview). Unlink then raises WinError 32, the callback aborted, and the
+#    tile stayed pending even though dest already had the bytes.
+#
+# Dest present is success. Source unlink is best-effort with a short retry.
+# Module-level so tests can shrink the delay.
+_OUTPUT_LOCK_RETRIES = 4
+_OUTPUT_LOCK_RETRY_DELAY = 0.4  # seconds; ~1.2s extra only on a locked path
+
+
+def _is_sharing_violation(err: OSError | None) -> bool:
+    """The file is held open elsewhere: Windows sharing violation (32) / access
+    denied (5), or a POSIX permission error. Same rule as trash._is_sharing_violation."""
+    if err is None:
+        return False
+    if os.name == 'nt' and getattr(err, 'winerror', None) in (5, 32):
+        return True
+    return isinstance(err, PermissionError)
+
+
+def claim_output_file(src, dst) -> bool:
+    """Copy a just-written ComfyUI output into `dst`; delete `src` if we can.
+
+    Returns True when ``dst`` exists (including a leftover from a previous
+    attempt). Returns False when the file could not be copied — the caller
+    may then fetch over ComfyUI's ``/view`` API.
+    """
+    src = str(src or '')
+    dst = str(dst or '')
+    if not dst:
+        return False
+    parent = os.path.dirname(dst)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    if os.path.isfile(dst) and not os.path.exists(src):
+        return True
+    if not src or not os.path.exists(src):
+        return os.path.isfile(dst)
+
+    copied = os.path.isfile(dst)
+    last_err: OSError | None = None
+    tmp = None
+    for attempt in range(_OUTPUT_LOCK_RETRIES):
+        try:
+            tmp = f'{dst}.part-{uuid.uuid4().hex[:8]}'
+            shutil.copy2(src, tmp)
+            os.replace(tmp, dst)
+            copied = True
+            tmp = None
+            break
+        except OSError as exc:
+            last_err = exc
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                tmp = None
+            if _is_sharing_violation(exc) and attempt < _OUTPUT_LOCK_RETRIES - 1:
+                time.sleep(_OUTPUT_LOCK_RETRY_DELAY)
+                continue
+            break
+
+    if not copied:
+        if last_err is not None:
+            logger.warning('comfy_fs: could not copy output %s -> %s: %s',
+                           safe_path(src), safe_path(dst), last_err)
+        return False
+
+    for attempt in range(_OUTPUT_LOCK_RETRIES):
+        try:
+            os.unlink(src)
+            break
+        except FileNotFoundError:
+            break
+        except OSError as exc:
+            if _is_sharing_violation(exc) and attempt < _OUTPUT_LOCK_RETRIES - 1:
+                time.sleep(_OUTPUT_LOCK_RETRY_DELAY)
+                continue
+            logger.info('comfy_fs: left ComfyUI output in place (locked): %s',
+                        safe_path(src))
+            break
+    return True

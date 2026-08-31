@@ -109,6 +109,45 @@ def test_link_completed_dataset_image_moves_file(app, tmp_path):
         assert os.path.exists(os.path.join(svc._dataset_dir(ds.id), 'out.png'))
 
 
+def test_link_completed_dataset_image_done_when_comfy_source_stays_locked(app, tmp_path, monkeypatch):
+    """WinError 32 on unlink must still leave the dataset file in place."""
+    from app import config as cfg
+    from app.services import face_dataset_service as svc
+    from app.models import FaceDatasetImage
+    from app.config import LOCAL_USER
+    from app.utils import comfy_fs
+
+    monkeypatch.setattr(comfy_fs, '_OUTPUT_LOCK_RETRY_DELAY', 0)
+
+    def locked_unlink(path):
+        if os.path.basename(path) == 'locked.png':
+            err = PermissionError(32, 'used by another process')
+            err.winerror = 32
+            raise err
+        return os.unlink(path)
+
+    monkeypatch.setattr(comfy_fs.os, 'unlink', locked_unlink)
+
+    with app.app_context():
+        base = _configure_comfy_dirs(tmp_path, cfg)
+        ds = svc.create_dataset(LOCAL_USER, 'Lock', 'lock')
+        img = FaceDatasetImage(dataset_id=ds.id, source='generated', status='pending',
+                               job_id='job-locked', klein_model='k.safetensors')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        out_dir = base / 'output'
+        (out_dir / 'locked.png').write_bytes(_png())
+
+        svc.link_completed_dataset_image('job-locked', 'locked.png')
+
+        refreshed = svc.db.session.get(FaceDatasetImage, img.id)
+        assert refreshed.status == 'pending'  # dataset link does not flip status
+        assert refreshed.filename == 'locked.png'
+        assert (out_dir / 'locked.png').exists()
+        assert os.path.exists(os.path.join(svc._dataset_dir(ds.id), 'locked.png'))
+
+
 def test_fetch_output_image_bytes_builds_view_url_and_returns_content(app, monkeypatch):
     """The /view fetch must target ComfyUI's api_address with filename + subfolder
     + type=output, return the raw bytes on 200, and swallow errors into None."""

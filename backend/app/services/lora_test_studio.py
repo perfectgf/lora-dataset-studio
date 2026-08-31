@@ -48,7 +48,6 @@ import math
 import os
 import random
 import re
-import shutil
 import uuid
 
 from .. import config as cfg
@@ -3890,16 +3889,17 @@ def link_completed_test_image(job_id, filename, failed=False, reason=None):
         img.filename = filename
         img.status = 'done'
         # Bring the completed file into the per-dataset dir (served by
-        # /api/dataset/<id>/img/<filename>, cleaned with the dataset). Prefer a
-        # local disk move from ComfyUI's output dir; if the file isn't there —
-        # ComfyUI was pointed at a custom output path, or none is configured —
+        # /api/dataset/<id>/img/<filename>, cleaned with the dataset). Copy from
+        # ComfyUI's output dir (a cross-volume path or a just-written lock
+        # cannot shutil.move); dest present is enough even if the source stays.
+        # If the file isn't on disk — custom output path, or none configured —
         # fetch it over the /view API instead (path-independent). See GH #2.
+        from ..utils import comfy_fs
         dst = os.path.join(fds._dataset_dir(img.dataset_id), filename)
         out_dir = _comfy_output_dir()
         src = os.path.join(out_dir, filename) if out_dir else None
-        if src and os.path.exists(src):
-            shutil.move(src, dst)
-        elif not os.path.exists(dst):
+        claimed = comfy_fs.claim_output_file(src, dst) if src else os.path.isfile(dst)
+        if not claimed:
             from ..utils.comfyui import fetch_output_image_bytes
             data = fetch_output_image_bytes(filename)
             if data:
