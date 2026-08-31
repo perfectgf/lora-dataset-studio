@@ -54,6 +54,7 @@ function backendActions() {
     ...pyDictKeys(installer, '_KREA_DOWNLOADS'),
     ...pyDictKeys(installer, '_SEEDVR2_DOWNLOADS'),
     ...pyDictKeys(installer, '_CAMERA_DOWNLOADS'),
+    ...pyDictKeys(installer, '_H3_DOWNLOADS'),
     ...pyDictKeys(installer, '_NODE_PACKS'),
   ]
   return new Set([...literal, ...downloads])

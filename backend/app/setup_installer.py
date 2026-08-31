@@ -284,8 +284,58 @@ _CAMERA_DOWNLOADS = {
 # Every streamed model download, whatever engine it belongs to. The worker,
 # destination resolution, disk precondition and extra_model_paths de-duplication
 # are engine-agnostic; only the catalog entries differ.
+# MiniMax H3 - the Video Test Studio's engine. Four required files, 39.5 GB
+# measured on disk, all from Comfy-Org's own conversion (verified against the
+# hub's file list: not gated, and these exact paths). They land in ComfyUI's
+# standard subfolders, which are also the paths the repository uses - so the
+# training lane's WEIGHT_FOOTPRINTS and these entries name the same four files
+# and cannot drift into two different opinions of what H3 needs.
+#
+# `min_free_gb` is the file's own size plus room to write it, not the lane's
+# total: each action is downloaded on its own, and a machine that can take three
+# of them should be told about the fourth rather than refused up front.
+_H3_DOWNLOADS = {
+    'h3_base': {
+        'url': 'https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors',
+        'dest': ('diffusion_models', 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'),
+        'min_free_gb': 24, 'gated': False, 'min_bytes': 8 * 1024 ** 3,
+        'license_url': 'https://huggingface.co/Comfy-Org/MiniMax-H3',
+    },
+    'h3_text_encoder': {
+        'url': 'https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
+        'dest': ('text_encoders', 'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'),
+        'min_free_gb': 19, 'gated': False, 'min_bytes': 6 * 1024 ** 3,
+        'license_url': 'https://huggingface.co/Comfy-Org/MiniMax-H3',
+    },
+    'h3_video_vae': {
+        'url': 'https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_video_vae_fp16.safetensors',
+        'dest': ('vae', 'minimax_h3_video_vae_fp16.safetensors'),
+        'min_free_gb': 8, 'gated': False, 'min_bytes': 2 * 1024 ** 3,
+        'license_url': 'https://huggingface.co/Comfy-Org/MiniMax-H3',
+    },
+    # Small, and not optional despite it: H3 emits video and audio in ONE latent,
+    # so the graph decodes both. Without this the render stops at the decode.
+    'h3_audio_vae': {
+        'url': 'https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/vae/minimax_h3_audio_vae_fp32.safetensors',
+        'dest': ('vae', 'minimax_h3_audio_vae_fp32.safetensors'),
+        'min_free_gb': 3, 'gated': False, 'min_bytes': 128 * 1024 ** 2,
+        'license_url': 'https://huggingface.co/Comfy-Org/MiniMax-H3',
+    },
+    # The 4-step distillation LoRA (larryvrh, apache-2.0, not gated - checked on
+    # the hub). Optional in the sense that the lane runs without it, at twenty
+    # steps instead of six: the difference between a clip in minutes and a clip
+    # in tens of minutes, which is why the checkbox defaults on wherever it CAN
+    # run.
+    'h3_turbo_lora': {
+        'url': 'https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/main/minimax_h3_turbo_v4_step600_ema.safetensors',
+        'dest': ('loras', 'minimax_h3_turbo_v4_step600_ema.safetensors'),
+        'min_free_gb': 3, 'gated': False, 'min_bytes': 128 * 1024 ** 2,
+        'license_url': 'https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora',
+    },
+}
+
 _MODEL_DOWNLOADS = {**_KLEIN_DOWNLOADS, **_KREA_DOWNLOADS, **_SEEDVR2_DOWNLOADS,
-                    **_CAMERA_DOWNLOADS}
+                    **_CAMERA_DOWNLOADS, **_H3_DOWNLOADS}
 
 # Custom-node packs the app can install itself. The first git-cloned
 # dependencies this app installs at all, so the rules are written down rather
@@ -325,6 +375,23 @@ _NODE_PACKS = {
         'folder': 'LanPaint',
     },
 }
+
+# WHY THE VIDEO STUDIO'S NODE PACKS ARE NOT HERE (maintainer's call, 2026-08-31)
+# --------------------------------------------------------------------------
+# "Downloading models is fine, but we do not take responsibility for breaking a
+# ComfyUI install." A weight is an inert file in a models folder: worst case it
+# is unused. A custom node is CODE that ComfyUI imports at startup, and one bad
+# import takes the whole server down for every other lane the user has — a cost
+# they did not agree to when they clicked a button in this app.
+#
+# So the three optional packs of the video lane (MiniMax-H3-Turbo,
+# H3-Optimizations, MMH3-UltimateUpscale) and SageAttention (ComfyUI-KJNodes)
+# are NAMED and LINKED by the studio, and installed by the user on the ComfyUI
+# side, through ComfyUI-Manager or a clone. `video_test_studio.OPTION_NODE_PACKS`
+# holds those links; nothing here fetches them.
+#
+# The two packs above (krea/lanpaint) predate that rule and keep their buttons —
+# what changed is the direction, not a retrofit of somebody's working install.
 
 # Node packs the app SHIPS (backend/comfy_nodes/<folder>), installed by COPY into
 # the user's ComfyUI instead of fetched from a remote. See

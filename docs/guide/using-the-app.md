@@ -3452,6 +3452,25 @@ them tells you whether it learned the thing you wanted, so the **Video** tab of
 the Test Studio renders a clip with it — the same MiniMax H3 pipeline the app
 uses everywhere else, driven from one panel.
 
+**What it needs, once.** The engine is MiniMax H3 and its four required files
+are about **39.5 GB** — Setup ▸ **🎬 Video Test Studio** downloads them into
+ComfyUI's own folders. A plain clip needs *nothing else*: no custom node, no
+add-on, deliberately, so that a fresh install can render something the moment
+the weights land. The optional 4-step **turbo LoRA** is downloaded there too
+(0.7 GB, and it is the difference between a clip in minutes and one in tens of
+minutes).
+
+The three accelerator options — turbo, sparse attention and the latent upscale —
+need ComfyUI **custom node packs**, and the app does not install those: it names
+each pack, links it and gives you its ComfyUI-Manager search term, and you add
+it on the ComfyUI side. A weight is an inert file in a folder; a custom node is
+code your ComfyUI imports at startup, and one bad import takes the whole server
+down for every other thing you use it for. That is not a risk this app takes on
+your behalf. An option whose pack is absent is shown greyed out with the pack
+named, never as a button that fails. Two more files — the latent upscaler's
+model and the third-party 10Eros base — are yours to place by hand if you want
+them; the Setup card says where.
+
 **Pick the LoRA, then say what moves.** A checkpoint that came out of a training
 run is not visible to ComfyUI until it is copied into its `loras` folder; the
 picker does that for you the first time you select one (a 300 MB copy, once).

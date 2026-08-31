@@ -85,7 +85,7 @@ export const WHATS_NEW = [
   {
     id: '2026-08-31-video-test-studio',
     date: '2026-08-31',
-    title: 'Play your video LoRA back, without leaving the app',
+    title: 'Play your video LoRA back, without leaving the app (beta)',
     blurb:
       'Training a video LoRA gave you a file and a loss curve, and judging it '
       + 'meant wiring a graph in ComfyUI by hand. The Test Studio now has a '
@@ -96,7 +96,11 @@ export const WHATS_NEW = [
       + 'minutes instead of tens of minutes, sparse attention and the latent '
       + 'upscale trade a little fidelity for speed, and every clip keeps the '
       + 'settings that made it so Reuse can rerun the same seed with one dial '
-      + 'moved.',
+      + 'moved. New here? Setup ▸ 🎬 Video Test Studio downloads the engine '
+      + '(about 39.5 GB); the clip itself needs no ComfyUI add-on at all, and '
+      + 'the three optional accelerators are named and linked for you to '
+      + 'install on the ComfyUI side. Marked beta while the first clips come '
+      + 'back from real machines.',
     to: '/studio?lane=video',
   },
   {

@@ -55,6 +55,13 @@ export default function VideoTestStudio() {
     apiFetch(optionsUrl()).then((d) => {
       setOptions(d);
       if (d?.frame_default) setOpts((o) => ({ ...o, frames: d.frame_default }));
+      // Turbo defaults ON, but only where it CAN run: on a ComfyUI without the
+      // pack it would send a launch that is refused before anything happens,
+      // which is a poor first click. `available === null` (probe unreachable)
+      // keeps the default — an unknown is not a no.
+      if (d?.options_available?.turbo?.available === false) {
+        setOpts((o) => ({ ...o, turbo: false }));
+      }
       if (d?.megapixels?.default) {
         setOpts((o) => ({ ...o, megapixels: d.megapixels.default }));
       }
@@ -156,9 +163,29 @@ export default function VideoTestStudio() {
           <HelpBadge topic="page-video-studio" />
         </h2>
         <span className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[0.6875rem] font-semibold text-amber-200">
-          MiniMax H3
+          MiniMax H3 · beta
         </span>
       </header>
+
+      {/* The one banner that has to come BEFORE everything else: on a machine
+          without the weights, every control below is a promise the lane cannot
+          keep. It names the missing files by what they do and points at the one
+          screen that installs them. */}
+      {options && options.ready === false && (
+        <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm">
+          <p className="font-semibold text-amber-200">This lane is not installed yet</p>
+          <p className="mt-1 text-content-muted">
+            {(options.missing_weights || []).filter((m) => m.required).length} required
+            file(s) are missing — about 39.5 GB in total. Install them from the
+            Setup screen, under 🎬 Video Test Studio.
+          </p>
+          <ul className="mt-1 list-disc pl-5 text-[0.6875rem] text-content-subtle">
+            {(options.missing_weights || []).filter((m) => m.required).map((m) => (
+              <li key={m.filename}>{m.what} — <code className="break-all">{m.filename}</code></li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <VideoLoraPicker value={lora.lora} onChange={setLora}
         strength={strength} onStrength={setStrength} />

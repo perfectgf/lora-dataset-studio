@@ -259,7 +259,7 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
                    frames=None, megapixels=MP_DEFAULT, aspect='auto',
                    fps=None, lora=None, lora_strength=1.0, turbo=False,
                    eros=False, eros_on_disk=False, sparse='',
-                   latent_upscale=False, source_ratio=None,
+                   latent_upscale=False, source_ratio=None, sage=True,
                    filename_prefix='lds_video_test') -> dict:
     """One MiniMax H3 clip, as a ComfyUI graph.
 
@@ -271,6 +271,12 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
     `source_ratio` (width/height of the picked image) only matters when the
     latent upscale is armed and there is an image to measure; without it the
     upscale keeps the node's own target size.
+
+    `sage=False` takes SageAttention out. It is a speed patch from a pack the
+    installer deliberately does not fetch (it declares pip dependencies, and
+    this app never pip-installs a third-party requirements file into someone
+    else's environment), so the graph has to be able to do without it — the
+    caller passes what the target ComfyUI actually registers.
     """
     wf = load_base_workflow()
     notes = []
@@ -292,6 +298,12 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
     if seed is None or (isinstance(seed, int) and seed < 0):
         seed = random.randint(0, 999_999_999_999_999)
     wf[N_NOISE]['inputs']['noise_seed'] = int(seed)
+
+    # Before any graft: everything below reads "the chain", and Sage is part of
+    # it or is not.
+    if not sage:
+        _drop_sage(wf)
+        notes.append('sage: absent from this ComfyUI — running without it')
 
     if str(mode or 'i2v').lower() == 't2v':
         _make_t2v(wf, megapixels=megapixels, aspect=aspect)
@@ -348,6 +360,55 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
             'steps': wf[N_SCHEDULER]['inputs']['steps']}
 
 
+def _model_readers(wf, ref, *, skip=()):
+    """Every node whose `model` input reads `ref`."""
+    return [nid for nid, node in wf.items()
+            if nid not in skip and (node.get('inputs') or {}).get('model') == ref]
+
+
+def _insert_into_chain(wf, node_id, node, head):
+    """Put a patch node between `head` and everyone who was reading `head`.
+
+    Written once, because getting it wrong is silent in a specific way: the
+    guider path and the BasicScheduler both read the model, and patching only
+    the one you were thinking about leaves the sigmas computed from an unpatched
+    model while the sampling runs on the patched one. The graph is valid, the job
+    is green, and the clip is mush.
+
+    Naming the readers instead of listing them by id is also what lets Sage be
+    optional — with or without it in the graph, "everyone downstream" is the same
+    sentence.
+    """
+    readers = _model_readers(wf, head, skip=(node_id,))
+    wf[node_id] = node
+    for nid in readers:
+        wf[nid]['inputs']['model'] = [node_id, 0]
+
+
+def _drop_sage(wf):
+    """Take SageAttention out of the chain, and out of the graph.
+
+    Two callers, one behaviour. It goes when the target ComfyUI does not have
+    the node at all (KJNodes is a pack, and one that pulls pip dependencies —
+    the base graph must not need it), and it goes when sparse attention is armed
+    (H3-Optimizations >= 0.2.16 refuses to compose with an attention override it
+    does not own: it abandons the sparse path, keeps Sage, and logs a warning —
+    no error, no red job, the mode simply renders dense).
+
+    Removed rather than left unconsumed: an unread node costs nothing to EXECUTE,
+    but a node whose class this install does not register is a validation risk
+    for no benefit. Its readers move onto its own upstream, so nothing else in
+    the chain notices.
+    """
+    if N_SAGE not in wf:
+        return
+    upstream = (wf[N_SAGE].get('inputs') or {}).get('model')
+    if upstream is not None:
+        for nid in _model_readers(wf, [N_SAGE, 0], skip=(N_SAGE,)):
+            wf[nid]['inputs']['model'] = upstream
+    wf.pop(N_SAGE, None)
+
+
 def _make_t2v(wf, *, megapixels, aspect):
     """Text-to-video: unplug the image branch.
 
@@ -378,14 +439,12 @@ def _graft_turbo(wf):
     while the sampling runs on the patched one — a graph that runs, and renders
     mush.
     """
-    wf[N_TURBO_LORA] = {
+    _insert_into_chain(wf, N_TURBO_LORA, {
         'class_type': 'MiniMaxH3TurboLoRA',
         'inputs': {'model': [N_UNET, 0], 'lora_name': TURBO_LORA,
                    'strength': 1.0, 'low_vram': False},
-    }
+    }, [N_UNET, 0])
     wf[N_TURBO_SAMPLER] = {'class_type': 'MiniMaxH3TurboSampler', 'inputs': {}}
-    wf[N_SAGE]['inputs']['model'] = [N_TURBO_LORA, 0]
-    wf[N_SCHEDULER]['inputs']['model'] = [N_TURBO_LORA, 0]
     wf[N_SAMPLER]['inputs']['sampler'] = [N_TURBO_SAMPLER, 0]
     wf[N_SCHEDULER]['inputs']['steps'] = TURBO_STEPS
 
@@ -413,13 +472,11 @@ def _graft_test_lora(wf, lora_name, strength):
         force = 1.0
     # Beyond ±2 a rank 8-16 LoRA destroys the shot before it expresses anything.
     force = max(-2.0, min(2.0, force))
-    wf[N_TEST_LORA] = {
+    _insert_into_chain(wf, N_TEST_LORA, {
         'class_type': 'LoraLoaderModelOnly',
         'inputs': {'model': head, 'lora_name': lora_name,
                    'strength_model': force},
-    }
-    wf[N_SAGE]['inputs']['model'] = [N_TEST_LORA, 0]
-    wf[N_SCHEDULER]['inputs']['model'] = [N_TEST_LORA, 0]
+    }, head)
     return force
 
 
@@ -453,15 +510,8 @@ def _graft_sparse(wf, mode, *, upscale_armed):
         ticked it. It is never the default.
     """
     settings = SPARSE_PRESETS[mode]
-    if N_SAGE in wf:
-        upstream = wf[N_SAGE]['inputs'].get('model')
-        if upstream is not None:
-            for nid, node in wf.items():
-                if nid == N_SAGE:
-                    continue
-                if (node.get('inputs') or {}).get('model') == [N_SAGE, 0]:
-                    node['inputs']['model'] = upstream
-    head = wf[N_GUIDER]['inputs'].get('model', [N_SAGE, 0])
+    _drop_sage(wf)
+    head = wf[N_GUIDER]['inputs']['model']
     wf[N_SPARSE] = {
         'class_type': 'H3SparseAttentionAdvanced',
         'inputs': {'model': head, 'backend': SPARSE_BACKEND, **settings},
@@ -487,7 +537,7 @@ def _graft_latent_upscale(wf, *, megapixels, source_ratio=None):
     split stays, because it carries clip LENGTH, not picture content.
     """
     model = ([N_SPARSE, 0] if N_SPARSE in wf
-             else wf[N_GUIDER]['inputs'].get('model', [N_SAGE, 0]))
+             else wf[N_GUIDER]['inputs']['model'])
     conditioning = wf[N_GUIDER]['inputs'].get('conditioning', [N_COND, 0])
 
     target_w, target_h = 1280, 704          # the node's own defaults
@@ -693,12 +743,30 @@ def eros_on_disk() -> bool:
 def preflight(workflow):
     """Refuse a run whose graph this install cannot execute.
 
-    Delegates to the image studio's asset scanner: same loader table, same
-    /object_info comparison, same fail-OPEN on a probe that cannot be reached.
-    Raising the studio's own exception type means the existing 409 handler
-    renders this lane's missing weights and node packs with no new plumbing.
+    TWO checks, because the shared scanner cannot see all of this lane.
+
+    It knows the loaders in `_STUDIO_MODEL_LOADERS` — UNET, CLIP, VAE, LoRA —
+    and it compares the graph's node classes against /object_info. What it
+    cannot know is the latent upscaler: that weight is read by a THIRD-PARTY
+    loader, from `models/latent_upscale_models/`, a folder ComfyUI itself does
+    not define. A run armed with the upscale and missing that file passes every
+    shared check and then dies mid-job, which is the failure this whole preflight
+    exists to prevent. So it is checked here, by name, first.
+
+    Raising the studio's own exception type means the existing structured 409
+    renders this lane's gaps with no new plumbing on either side.
     """
     from . import lora_test_studio as lts
+    if N_UPSCALE_PARAMS in workflow:
+        wanted = (workflow[N_UPSCALE_PARAMS].get('inputs') or {}).get('model_name')
+        if wanted and not _weight_present(('latent_upscale_models',), wanted):
+            raise lts.StudioAssetsMissing(
+                'h3video',
+                [{'path': f'models/latent_upscale_models/{wanted}',
+                  'kind': 'latent upscaler',
+                  'hint': 'the latent upscale needs this file; place it in that '
+                          'folder, or turn the option off'}],
+                [])
     lts.preflight_family('h3video', [workflow])
 
 
@@ -732,13 +800,19 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     from ..job_queue import queue_manager
     from ..models import VideoTestClip
 
+    # ONE /object_info read for the whole launch, and it decides two things:
+    # whether SageAttention goes into the graph at all, and (through the
+    # preflight below) whether an armed option's nodes are there. Reading it
+    # twice would let a ComfyUI that restarts between the two answer differently
+    # for the same clip.
+    classes = registered_classes()
     built = build_workflow(
         prompt=prompt, mode=mode, image=image, seed=seed, steps=steps,
         frames=frames, megapixels=megapixels, aspect=aspect, lora=lora,
         lora_strength=lora_strength, turbo=turbo, eros=eros,
         eros_on_disk=eros_on_disk() if eros else False, sparse=sparse,
         latent_upscale=latent_upscale, source_ratio=source_ratio,
-        filename_prefix=new_prefix(user_id))
+        sage=sage_available(classes), filename_prefix=new_prefix(user_id))
     if not skip_preflight:
         preflight(built['workflow'])
 
@@ -834,3 +908,205 @@ def _bring_clip_home(filename):
                            'nothing — the clip stays with ComfyUI', filename)
     except OSError:
         logger.exception('video studio: could not bring %s home', filename)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# What a machine needs before this lane can render anything — and what it is
+# still missing right now.
+#
+# The Setup screen turns each key below into a button, so these names are not
+# labels: they are `setup_installer.INSTALL_ACTIONS` entries. A name that does
+# not exist there is a dead end by construction, which a contract test catches.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# (setup action, ComfyUI subfolders it may live in, filename, why it is needed).
+# REQUIRED first: a message built from this list reads worst-first.
+REQUIRED_WEIGHTS = (
+    ('h3_base', ('diffusion_models', 'unet'), BASE_OFFICIAL,
+     'the model itself'),
+    ('h3_text_encoder', ('text_encoders', 'clip'),
+     'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors', 'the prompt encoder'),
+    ('h3_video_vae', ('vae',), 'minimax_h3_video_vae_fp16.safetensors',
+     'the picture decoder'),
+    ('h3_audio_vae', ('vae',), 'minimax_h3_audio_vae_fp32.safetensors',
+     'the sound decoder'),
+)
+
+# Optional weights: each one belongs to ONE checkbox, and its absence disables
+# that checkbox rather than the lane.
+OPTIONAL_WEIGHTS = (
+    ('h3_turbo_lora', ('loras',), TURBO_LORA, 'turbo'),
+    # ⚠️ No setup action for this one, on purpose — see UNFETCHABLE below.
+    (None, ('latent_upscale_models',), UPSCALE_MODEL, 'latent_upscale'),
+    # Nor for the third-party base: it is somebody else's finetune, it is
+    # 20 GB, and nothing in the app needs it. Present on disk, the box works.
+    (None, ('diffusion_models', 'unet'), BASE_EROS, 'eros'),
+)
+
+# The weights the app will NOT fetch for you, and why — stated here rather than
+# discovered as a silent gap:
+#   * the latent upscaler has no authoritative home. The node's own README names
+#     the FOLDER it reads and no download; the copies on the model hub are
+#     community re-uploads whose provenance cannot be checked. Shipping an
+#     installer button that pulls an unverifiable 0.6 GB file into somebody
+#     else's ComfyUI is not a thing this app should do, so the preflight names
+#     the folder instead and the checkbox says the file is missing.
+#   * the 10Eros base is a third-party finetune, opt-in by design.
+UNFETCHABLE = {
+    UPSCALE_MODEL: 'models/latent_upscale_models/',
+    BASE_EROS: 'models/diffusion_models/',
+}
+
+# Custom-node packs, per option. The BASE graph is deliberately absent from this
+# table: it runs on a stock ComfyUI, which is what lets a new user render their
+# first clip with nothing but the weights.
+#
+# SageAttention is absent too, and that is the same decision seen from the other
+# side: it is a speed patch, its pack declares pip dependencies, and this app
+# never pip-installs a third-party requirements file — so it is used when the
+# target ComfyUI already has it and skipped when it does not.
+# WHY THESE ARE LINKS AND NOT BUTTONS (maintainer's call, 2026-08-31)
+# "Downloading models is fine, but we do not take responsibility for breaking a
+# ComfyUI install." A weight is an inert file; a custom node is code ComfyUI
+# imports at startup, and one bad import takes the server down for every other
+# lane. So the app names the pack, links it, and lets the user install it on the
+# ComfyUI side — where they can see what they are adding.
+OPTION_NODE_PACKS = {
+    'turbo': {
+        'pack': 'ComfyUI-MiniMax-H3-Turbo',
+        'url': 'https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo',
+        'search': 'MiniMax H3 Turbo',
+        'classes': ('MiniMaxH3TurboLoRA', 'MiniMaxH3TurboSampler'),
+    },
+    'sparse': {
+        'pack': 'H3-Optimizations',
+        'url': 'https://github.com/Zironic/H3-Optimizations',
+        'search': 'H3 Optimizations',
+        'classes': ('H3SparseAttentionAdvanced',),
+    },
+    'latent_upscale': {
+        'pack': 'Comfyui-MMH3-UltimateUpscale',
+        'url': 'https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale',
+        'search': 'MMH3 Ultimate Upscale',
+        'classes': ('MMH3UltimateUpscale', 'MMH3LatentUpscaleWithModelParams',
+                    'MMH3TemporalSplitParams'),
+    },
+}
+
+# SageAttention. Not an option and not a checkbox: a speed patch the graph keeps
+# when the target ComfyUI has it and drops when it does not. Linked for the same
+# reason as the three above, and installed the same way — by the user.
+SAGE_CLASS = 'PathchSageAttentionKJ'
+SAGE_PACK = {
+    'pack': 'ComfyUI-KJNodes',
+    'url': 'https://github.com/kijai/ComfyUI-KJNodes',
+    'search': 'KJNodes',
+}
+
+
+def _weight_present(subfolders, filename) -> bool:
+    """Is this file under any of ComfyUI's roots for those subfolders?
+
+    Case-insensitively, and across EVERY root (the yaml's extra paths included),
+    like the loader that will be handed the name — a weight deployed into an
+    extra_model_paths root is present, whatever the app would have chosen.
+    """
+    from . import comfy_model_paths
+    for sub in subfolders:
+        try:
+            roots = comfy_model_paths.search_roots(sub)
+        except Exception:
+            roots = []
+        for root in roots:
+            if os.path.isfile(os.path.join(str(root), filename)):
+                return True
+            try:
+                names = {n.lower() for n in os.listdir(str(root))}
+            except OSError:
+                continue
+            if filename.lower() in names:
+                return True
+    return False
+
+
+def missing_weights() -> list[dict]:
+    """Every weight this lane wants and cannot find, required ones first.
+
+    Each entry carries what the Setup screen needs to act (`action`, or None
+    when the app will not fetch it and `place_in` says where to put it by hand)
+    and what a human needs to decide (`what` — 'the prompt encoder' beats
+    'qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors').
+    """
+    out = []
+    for action, subs, filename, what in REQUIRED_WEIGHTS:
+        if not _weight_present(subs, filename):
+            out.append({'action': action, 'filename': filename, 'what': what,
+                        'required': True, 'place_in': f'models/{subs[0]}/'})
+    for action, subs, filename, what in OPTIONAL_WEIGHTS:
+        if not _weight_present(subs, filename):
+            out.append({'action': action, 'filename': filename,
+                        'what': what, 'required': False,
+                        'place_in': UNFETCHABLE.get(filename, f'models/{subs[0]}/')})
+    return out
+
+
+def registered_classes():
+    """The class set the target ComfyUI actually registers, or None.
+
+    None means the probe could not be made — never an empty set: an unreachable
+    /object_info would otherwise read as "this install has no nodes at all" and
+    grey out every option on a machine that has them.
+    """
+    from ..utils.comfyui import fetch_object_info_classes
+    try:
+        return fetch_object_info_classes()
+    except Exception:
+        return None
+
+
+def option_availability(classes=None) -> dict:
+    """{option: {available, pack, url, search, nodes}} — what each checkbox needs.
+
+    `available` is None when /object_info could not be read: the UI keeps
+    offering the option, because a probe that could not run is not a verdict.
+    Same fail-open rule as the preflight.
+
+    `pack`/`url`/`search` travel with every entry, available or not, so the panel
+    can say WHICH pack to install without a second table to keep in step.
+    """
+    if classes is None:
+        classes = registered_classes()
+    out = {}
+    for option, spec in OPTION_NODE_PACKS.items():
+        row = {'pack': spec['pack'], 'url': spec['url'], 'search': spec['search']}
+        if classes is None:
+            out[option] = {**row, 'available': None, 'nodes': []}
+            continue
+        gone = [c for c in spec['classes'] if c not in classes]
+        out[option] = {**row, 'available': not gone, 'nodes': gone}
+    return out
+
+
+def sage_available(classes=None) -> bool:
+    """Whether to keep the SageAttention patch in the graph.
+
+    Fails CLOSED, unlike everything else here: when /object_info cannot be read
+    we build WITHOUT Sage. A graph missing a speed patch renders correctly and a
+    little slower; a graph naming a node the install does not have is refused
+    outright. The asymmetry is the whole reason this one is not `is not None`.
+    """
+    if classes is None:
+        classes = registered_classes()
+    return bool(classes) and SAGE_CLASS in classes
+
+
+def studio_ready(missing=None) -> bool:
+    """Can a clip be rendered right now, with the default options off?
+
+    THE verdict — capabilities, the options route and the enqueue preflight all
+    ask this one function, so no surface can decide readiness from a different
+    subset of the gaps.
+    """
+    if missing is None:
+        missing = missing_weights()
+    return not any(m['required'] for m in missing)

@@ -68,7 +68,20 @@ def video_studio_options():
     the checkbox can be offered as unavailable rather than silently ignored.
     """
     profile = vts._profile()
+    # ONE probe for the whole payload: which node classes this ComfyUI
+    # registers decides both the per-option availability and whether Sage will
+    # be in the graph. Asking twice could answer differently in the same reply.
+    classes = vts.registered_classes()
+    missing = vts.missing_weights()
     return jsonify({
+        # What this machine is still missing, and what Setup can do about it.
+        # `action` is a setup_installer action name, so the Setup screen turns
+        # each row into its own button; None means the app will not fetch that
+        # file and `place_in` says where to put it by hand.
+        'missing_weights': missing,
+        'ready': vts.studio_ready(missing),
+        'options_available': vts.option_availability(classes),
+        'sage': vts.sage_available(classes),
         'frame_choices': list(profile.get('frame_choices') or ()),
         # The catalogue's own default is a TRAINING clip length (39 frames,
         # 1.6 s). Publishing it here would open the studio on a clip too short

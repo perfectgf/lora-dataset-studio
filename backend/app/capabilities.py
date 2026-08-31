@@ -2003,6 +2003,19 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
     # surface reads, so the picker and the Setup card cannot disagree about
     # whether a view can be rendered.
     camera_missing = _qch.camera_missing_assets()
+    # The Video Test Studio, on the same terms as the camera lane: a list of
+    # setup_installer action names the Setup screen turns into buttons, and ONE
+    # readiness verdict every surface reads.
+    #
+    # Two things are deliberately different here. The list carries dicts, not
+    # bare action names, because two of this lane's files have NO action — the
+    # latent upscaler has no verifiable source and the third-party base is
+    # opt-in — and a machine that is missing them must be told where to put them
+    # rather than shown a button that cannot exist. And readiness counts the
+    # REQUIRED weights only: the options degrade one checkbox each, never the
+    # lane.
+    from .services import video_test_studio as _vts
+    _vstudio_missing = _vts.missing_weights()
     return {
         'reachable': comfy['ok'],
         # WHY it isn't reachable, when it isn't: 'ok' | 'slow' | 'unreachable'
@@ -2099,6 +2112,22 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         # The speed LoRA missing does NOT make the lane un-ready: it renders at
         # 20 steps instead of 4. Only the four REQUIRED assets gate it.
         'camera_ready': _qch.camera_ready(camera_missing),
+        'video_studio_missing': _vstudio_missing,
+        'video_studio_ready': _vts.studio_ready(_vstudio_missing),
+        # Per-option node availability: {option: {available, action, nodes}}.
+        # `available: null` means /object_info could not be read — the panel
+        # keeps offering the option, because a probe that could not run is not
+        # a verdict. Costs nothing extra: the class set is already fetched here
+        # for the other engines.
+        'video_studio_options': (_vts.option_availability()
+                                 if comfy['ok'] else {}),
+        # SageAttention is not an option and has no checkbox — it is a speed
+        # patch the graph keeps when present and drops when absent. The pack is
+        # published here so the install card can link it rather than leave a
+        # user wondering why their clips are slower than the notes say.
+        'video_studio_sage': {**_vts.SAGE_PACK,
+                              'present': _vts.sage_available()
+                              if comfy['ok'] else None},
         # Klein assets PRESENT on disk but not real, loadable weights:
         # [{asset, filename, verdict, blocking, reason}]. Distinct from
         # klein_missing (the file exists, it just can't load) — drives the Setup

@@ -38,6 +38,23 @@ function Toggle({ checked, onChange, icon: Icon, label, hint, disabled, disabled
    survive where there is no icon — the clip summary lines under the history. */
 export default function VideoOptionsPanel({ options, value, onChange }) {
   const set = (patch) => onChange({ ...value, ...patch });
+  /* What this ComfyUI can actually run. `available === false` is a verdict (the
+     pack is absent); `null` or missing is "could not ask", and an option is
+     offered as usual there — a probe that did not run must not read as a no.
+     The sentence names the SETUP screen rather than a GitHub URL: the app
+     installs these three packs itself. */
+  const avail = options?.options_available || {};
+  const off = (k) => avail[k]?.available === false;
+  /* Names the PACK, because that is what the user has to go and get: this app
+     downloads model files but does not install nodes into somebody's ComfyUI.
+     The ComfyUI-Manager search term is included — it is how most people will
+     actually install it. */
+  const need = (k) => {
+    const a = avail[k];
+    return a?.pack
+      ? `Needs the ${a.pack} node pack in ComfyUI (ComfyUI-Manager: “${a.search}”), then a restart.`
+      : 'Needs a ComfyUI node pack that is not installed.';
+  };
   const frames = options?.frame_choices?.length ? options.frame_choices : [39, 56, 73, 107];
   const fps = options?.fps || 24;
   const mp = options?.megapixels || { min: 0.1, max: 2, default: 0.3 };
@@ -49,29 +66,34 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
       <h2 className="text-sm font-semibold text-content">Options</h2>
 
       <div className="grid gap-1.5 sm:grid-cols-2">
-        <Toggle checked={value.turbo} onChange={(v) => set({ turbo: v })}
+        <Toggle checked={value.turbo && !off('turbo')} onChange={(v) => set({ turbo: v })}
           icon={Zap} label={`Turbo (${options?.turbo_steps || 6}-step)`}
+          disabled={off('turbo')} disabledHint={need('turbo')}
           hint="A distillation LoRA and its double-clock sampler: minutes instead of tens of minutes. A different model, not just a faster one." />
         <Toggle checked={value.eros} onChange={(v) => set({ eros: v })}
           icon={Flame} label="10Eros base"
           disabled={options && !options.eros_available}
           disabledHint="Not on this machine — the official base is used."
           hint="A third-party finetune in place of the official base. It brings its own faces, so it works against an identity test." />
-        <Toggle checked={value.latentUpscale} onChange={(v) => set({ latentUpscale: v })}
+        <Toggle checked={value.latentUpscale && !off('latent_upscale')}
+          onChange={(v) => set({ latentUpscale: v })}
           icon={Maximize2} label="Latent upscale ×2"
+          disabled={off('latent_upscale')} disabledHint={need('latent_upscale')}
           hint="Enlarges before anything is decoded, so the audio passes through untouched. This is the pass that costs the minutes." />
-        <label className="flex flex-col gap-1 rounded-lg border border-border px-2 py-1.5">
+        <label className={`flex flex-col gap-1 rounded-lg border border-border px-2 py-1.5 ${
+          off('sparse') ? 'opacity-60' : ''}`}>
           <span className="flex items-center gap-1 text-sm text-content">
             <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />Sparse attention
           </span>
-          <select value={value.sparse} onChange={(e) => set({ sparse: e.target.value })}
+          <select value={off('sparse') ? '' : value.sparse} disabled={off('sparse')}
+            onChange={(e) => set({ sparse: e.target.value })}
             className="w-full rounded-md border border-border bg-app px-2 py-1 text-xs text-content min-h-10 lg:min-h-0">
             {SPARSE_CHOICES.map((c) => (
               <option key={c.value || 'off'} value={c.value}>{c.label}</option>
             ))}
           </select>
           <span className="text-[0.6875rem] text-content-subtle">
-            {SPARSE_CHOICES.find((c) => c.value === value.sparse)?.hint}
+            {off('sparse') ? need('sparse') : SPARSE_CHOICES.find((c) => c.value === value.sparse)?.hint}
           </span>
         </label>
       </div>

@@ -236,7 +236,7 @@ def test_sparse_excises_sage_from_the_chain():
     renders dense. Naming an explicit backend does not protect."""
     wf = build(turbo=True, sparse='default')['workflow']
     assert readers_of(wf, vts.N_SAGE) == [], 'nobody may still read Sage'
-    assert vts.N_SAGE in wf, 'Sage stays in the graph, simply unconsumed'
+    assert vts.N_SAGE not in wf, 'Sage leaves the graph, not just the chain'
     assert wf[vts.N_SPARSE]['inputs']['backend'] == vts.SPARSE_BACKEND
 
 
@@ -265,6 +265,40 @@ def test_with_the_upscale_the_base_stays_dense():
 def test_max_is_the_one_level_that_accelerates_the_base_too():
     wf = build(turbo=True, sparse='max', latent_upscale=True)['workflow']
     assert wf[vts.N_GUIDER]['inputs']['model'] == [vts.N_SPARSE, 0]
+
+
+def test_the_base_graph_runs_on_a_ComfyUI_with_no_pack_at_all():
+    """The point of `sage=False`: SageAttention comes from a pack that also pulls
+    pip dependencies, and the installer never pip-installs a third-party
+    requirements file. A plain clip therefore has to be possible without it —
+    otherwise a new user with 40 GB of correct weights still cannot render one
+    frame, and nothing on screen would say why."""
+    wf = build(sage=False)['workflow']
+    assert vts.N_SAGE not in wf
+    third_party = {'PathchSageAttentionKJ', 'MiniMaxH3TurboLoRA',
+                   'MiniMaxH3TurboSampler', 'H3SparseAttentionAdvanced',
+                   'MMH3UltimateUpscale', 'MMH3LatentUpscaleWithModelParams',
+                   'MMH3TemporalSplitParams'}
+    used = {n['class_type'] for n in wf.values()}
+    assert used & third_party == set(), used & third_party
+    # And it is still a complete graph: the sampler reads a model that comes
+    # from the UNET, and both decoders still read the sampler.
+    assert model_chain(wf, wf[vts.N_GUIDER]['inputs']['model'])[-1] == vts.N_UNET
+    assert wf[vts.N_DECODE_VIDEO]['inputs']['samples'] == [vts.N_SAMPLER, 0]
+
+
+def test_without_sage_every_option_still_chains_correctly():
+    """Dropping a node from the middle of a chain is where an off-by-one lives."""
+    for turbo in (False, True):
+        for sparse in ('', 'default'):
+            wf = build(sage=False, turbo=turbo, sparse=sparse,
+                       lora='h3/lds/x.safetensors')['workflow']
+            chain = model_chain(wf, wf[vts.N_GUIDER]['inputs']['model'])
+            assert vts.N_TEST_LORA in chain, (turbo, sparse, chain)
+            assert chain[-1] == vts.N_UNET, chain
+            # the scheduler must be on the same patched model as the guider path
+            sched = model_chain(wf, wf[vts.N_SCHEDULER]['inputs']['model'])
+            assert vts.N_TEST_LORA in sched, (turbo, sparse, sched)
 
 
 # --- the latent upscale -----------------------------------------------------
