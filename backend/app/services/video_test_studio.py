@@ -170,6 +170,14 @@ _FRAME_MOD, _FRAME_OFFSET = 17, 5
 # at 8.7 s for a reason that has nothing to do with the studio.
 FRAMES_MIN, FRAMES_MAX = 22, 362
 
+# And the default is the STUDIO's, not the catalogue's. The catalogue's
+# `frame_default` is 39 because that is how long a TRAINING clip should be; the
+# same preset carries 107 on its preview line, and reading the wrong one of those
+# two numbers has already cost this project a wrong default once. A test clip
+# wants enough motion to judge (39 frames is 1.6 s — barely a gesture) without
+# paying the ~2.7x per-step cost of 107, so it sits between them.
+FRAMES_DEFAULT = 56
+
 # Resolution, in megapixels at node 119. The ceiling is the MODEL's, not a
 # card's: the sweet spot for faces sits near 1.0 MP and the machine that runs
 # the job decides what it can hold.
@@ -224,7 +232,7 @@ def snap_frames(requested) -> int:
     try:
         want = int(requested)
     except (TypeError, ValueError):
-        want = _profile().get('frame_default') or 56
+        want = FRAMES_DEFAULT
     snapped = round((want - _FRAME_OFFSET) / _FRAME_MOD) * _FRAME_MOD + _FRAME_OFFSET
     return max(FRAMES_MIN, min(FRAMES_MAX, int(snapped)))
 
@@ -267,8 +275,7 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
     wf = load_base_workflow()
     notes = []
 
-    frames = snap_frames(frames if frames is not None
-                         else _profile().get('frame_default'))
+    frames = snap_frames(FRAMES_DEFAULT if frames is None else frames)
     megapixels = clamp_megapixels(megapixels)
     sparse = normalise_sparse(sparse)
 

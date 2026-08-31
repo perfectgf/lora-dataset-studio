@@ -70,7 +70,12 @@ def video_studio_options():
     profile = vts._profile()
     return jsonify({
         'frame_choices': list(profile.get('frame_choices') or ()),
-        'frame_default': profile.get('frame_default'),
+        # The catalogue's own default is a TRAINING clip length (39 frames,
+        # 1.6 s). Publishing it here would open the studio on a clip too short
+        # to judge motion in, so the generation default is the studio's own and
+        # the training one is published beside it rather than in its place.
+        'frame_default': vts.FRAMES_DEFAULT,
+        'training_frame_default': profile.get('frame_default'),
         'fps': profile.get('fps'),
         'frames_min': vts.FRAMES_MIN, 'frames_max': vts.FRAMES_MAX,
         'megapixels': {'min': vts.MP_MIN, 'max': vts.MP_MAX,

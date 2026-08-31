@@ -112,20 +112,31 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap gap-1">
+          {/* flex-1, not a left-parked group: three chips against a 976 px row
+              read as a panel that forgot its content (the responsive probe
+              measures exactly that, and flagged this row at 25 %). */}
+          <div className="flex w-full gap-1">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button key={id} type="button" onClick={() => setTab(id)}
-                className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
+                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
                   tab === id ? 'border-accent bg-accent/10 text-content' : 'border-border text-content-muted'}`}>
                 <Icon aria-hidden="true" className="h-3.5 w-3.5" />{label}
               </button>
             ))}
           </div>
 
+          {/* The ink spans the whole dropzone rather than huddling in the
+              middle: a centred icon plus a centred sentence measured 2 % of the
+              row, which the probe reads as an empty box — correctly. */}
           {tab === 'upload' && (
-            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted hover:border-accent/60">
-              <Upload aria-hidden="true" className="h-4 w-4" />
-              {busy ? 'Preparing…' : 'Choose an image, or drop one here'}
+            <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted hover:border-accent/60">
+              <Upload aria-hidden="true" className="h-4 w-4 shrink-0" />
+              <span className="flex-1">
+                {busy ? 'Preparing…' : 'Drop an image here, or choose one from this machine'}
+              </span>
+              <span className="shrink-0 rounded-md border border-border px-2 py-1">
+                {busy ? '…' : 'Browse'}
+              </span>
               <input type="file" accept="image/*" className="hidden"
                 onChange={(e) => onFile(e.target.files?.[0])} />
             </label>

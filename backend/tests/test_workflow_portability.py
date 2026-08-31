@@ -88,6 +88,12 @@ CORE_CLIP_TYPES = frozenset({
     'pixart', 'cosmos', 'lumina2', 'wan', 'hidream', 'chroma', 'ace', 'omnigen2',
     'qwen_image', 'hunyuan_image', 'flux2', 'ovis', 'longcat_image', 'cogvideox',
     'lens', 'pixeldit', 'ideogram4', 'boogu', 'krea2',
+    # MiniMax H3's text encoder. Core, and recent: read off the installed
+    # ComfyUI's own CLIPLoader enum (nodes.py) rather than assumed, in the same
+    # release that added comfy_extras/nodes_minimax_h3.py. An older install
+    # simply does not offer it — a /object_info gap the studio preflight
+    # reports, not a pack anybody can install.
+    'minimax',
 })
 
 # UNETLoader / CLIPLoader `weight_dtype` and `device`.
@@ -120,6 +126,12 @@ DECLARED_THIRD_PARTY_NODES = {
     # checked by _run_klein_mask_job before it queues anything, and installable
     # from Setup's "LanPaint sampler" row.
     'LanPaint_KSampler': 'LanPaint',
+    # SageAttention, in the Video Test Studio's H3 graph. Gated by that lane's
+    # preflight, which reuses lora_test_studio's /object_info comparison and
+    # names the pack through STUDIO_NODE_PACKS.
+    # Note it is spelled "Pathc", not "Patch": that typo is the class name the
+    # pack actually registers, and matching it is what makes the check work.
+    'PathchSageAttentionKJ': 'ComfyUI-KJNodes',
 }
 
 # The Klein lane is the one that broke, and the one the app leans on hardest
@@ -242,4 +254,12 @@ VANILLA_NODE_ALLOWLIST = frozenset({
     # /object_info gap the preflight reports, not a missing pack to install.
     'CFGNorm', 'FluxKontextImageScale', 'FluxKontextMultiReferenceLatentMethod',
     'ModelSamplingAuraFlow', 'TextEncodeQwenImageEditPlus',
+    # 🎬 The Video Test Studio's four. Core as well, and located in the
+    # installed ComfyUI's own source rather than assumed:
+    #   MiniMaxH3ImageToVideo  comfy_extras/nodes_minimax_h3.py
+    #   VAEDecodeAudio         comfy_extras/nodes_audio.py
+    #   CreateVideo, SaveVideo comfy_extras/nodes_video.py
+    # Same caveat as the camera five: recent, so an old ComfyUI lacks them, and
+    # that shows up as a preflight gap rather than as a pack to install.
+    'MiniMaxH3ImageToVideo', 'VAEDecodeAudio', 'CreateVideo', 'SaveVideo',
 })

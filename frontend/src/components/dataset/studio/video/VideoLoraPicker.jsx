@@ -120,11 +120,13 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
         </>
       )}
 
+      {/* No <code> spans in this sentence: they split one full-width paragraph
+          into three small islands of ink, which measures — and reads — as an
+          empty panel. */}
       {!loading && !trained.length && !deployed.length && (
         <p className="text-xs text-content-subtle">
           No video LoRA yet — train one from a video training set, or drop a
-          <code className="mx-1">.safetensors</code> into ComfyUI’s
-          <code className="mx-1">models/loras/h3</code> folder.
+          .safetensors file into ComfyUI’s models/loras/h3 folder.
         </p>
       )}
 

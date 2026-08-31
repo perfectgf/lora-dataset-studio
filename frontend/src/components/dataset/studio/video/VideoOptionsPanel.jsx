@@ -33,6 +33,9 @@ function Toggle({ checked, onChange, icon: Icon, label, hint, disabled, disabled
   );
 }
 
+/* Labels carry no emoji: each toggle already renders its lucide glyph, and a
+   screenshot of the first build showed both at once on every row. The emoji
+   survive where there is no icon — the clip summary lines under the history. */
 export default function VideoOptionsPanel({ options, value, onChange }) {
   const set = (patch) => onChange({ ...value, ...patch });
   const frames = options?.frame_choices?.length ? options.frame_choices : [39, 56, 73, 107];
@@ -47,15 +50,15 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
 
       <div className="grid gap-1.5 sm:grid-cols-2">
         <Toggle checked={value.turbo} onChange={(v) => set({ turbo: v })}
-          icon={Zap} label={`⚡ Turbo (${options?.turbo_steps || 6}-step)`}
+          icon={Zap} label={`Turbo (${options?.turbo_steps || 6}-step)`}
           hint="A distillation LoRA and its double-clock sampler: minutes instead of tens of minutes. A different model, not just a faster one." />
         <Toggle checked={value.eros} onChange={(v) => set({ eros: v })}
-          icon={Flame} label="🔥 10Eros base"
+          icon={Flame} label="10Eros base"
           disabled={options && !options.eros_available}
           disabledHint="Not on this machine — the official base is used."
           hint="A third-party finetune in place of the official base. It brings its own faces, so it works against an identity test." />
         <Toggle checked={value.latentUpscale} onChange={(v) => set({ latentUpscale: v })}
-          icon={Maximize2} label="🔬 Latent upscale ×2"
+          icon={Maximize2} label="Latent upscale ×2"
           hint="Enlarges before anything is decoded, so the audio passes through untouched. This is the pass that costs the minutes." />
         <label className="flex flex-col gap-1 rounded-lg border border-border px-2 py-1.5">
           <span className="flex items-center gap-1 text-sm text-content">

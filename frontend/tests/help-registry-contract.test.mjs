@@ -58,6 +58,14 @@ const routeValid = (route) => {
     const params = new URLSearchParams(qs)
     return SETUP_DEEP_LINK_STEPS.includes(params.get('step'))
   }
+  // The Test Studio holds two lanes on one screen (images / video) and reads
+  // ?lane= on mount, so a topic about the video one has to be able to open it.
+  // The values are listed rather than accepted wholesale: a typo would land on
+  // the image lane silently, which is exactly the class of dead link this test
+  // exists to catch.
+  if (path === '/studio') {
+    return ['image', 'video'].includes(new URLSearchParams(qs).get('lane'))
+  }
   if (path !== '/datasets') return false
   const params = new URLSearchParams(qs)
   const section = params.get('section')

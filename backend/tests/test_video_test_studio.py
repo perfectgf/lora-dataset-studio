@@ -85,6 +85,18 @@ def test_generation_reaches_past_the_training_catalogue():
     assert vts.snap_frames(300) > max(video_targets.frame_choices(vts.TARGET_KEY))
 
 
+def test_the_generation_default_is_NOT_the_training_one():
+    """The catalogue's `frame_default` answers "how long should a TRAINING clip
+    be" (39 frames, 1.6 s at 24 fps). The same ai-toolkit preset carries 107 on
+    its preview line, and reading the wrong one of those two numbers has cost
+    this project a wrong default before. A studio that opened on 1.6 s would
+    show barely a gesture."""
+    training_default = video_targets.get(vts.TARGET_KEY)['frame_default']
+    assert vts.FRAMES_DEFAULT != training_default
+    assert vts.build_workflow(prompt='p', image='a.png')['frames'] == vts.FRAMES_DEFAULT
+    assert video_targets.is_legal_frames(vts.TARGET_KEY, vts.FRAMES_DEFAULT)
+
+
 def test_megapixels_are_clamped_to_the_models_range():
     assert vts.clamp_megapixels(99) == vts.MP_MAX
     assert vts.clamp_megapixels(-1) == vts.MP_MIN
