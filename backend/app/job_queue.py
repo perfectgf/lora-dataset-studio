@@ -170,6 +170,23 @@ def _dispatch_auto_resolved_cancellation(job_id) -> None:
         job = ImageGenerationQueue.query.filter_by(
             job_id=str(job_id), status='cancelled').first()
         if job is not None:
+            # SAY WHY, once, for every lane's card. Without this the linked row
+            # falls back to its own "generation failed — see the ComfyUI error"
+            # default and sends the user hunting for an error that was never
+            # logged: nothing failed in the graph, the prompt DISAPPEARED when
+            # ComfyUI restarted. Observed on a real clip (2026-08-31): a video
+            # rendering when the app was updated came back as a failure blaming
+            # a ComfyUI error, on a run whose graph was fine.
+            #
+            # Written on the job rather than passed down, because every
+            # completion branch already reads `job.error_message` — one sentence
+            # reaches the Test Studio grid, the video clips and the dataset
+            # images without any of them learning about this path.
+            if job.error_message in (None, '', 'generation failed'):
+                job.error_message = (
+                    'ComfyUI restarted while this was rendering, so the job was '
+                    'lost — nothing failed in the graph. Launch it again.')
+                db.session.commit()
             _dispatch_completion(job, None, True)
     except Exception:
         logger.exception(
