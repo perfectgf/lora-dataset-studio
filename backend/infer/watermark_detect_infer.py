@@ -101,7 +101,17 @@ LOCATE_BOX_THRESHOLD = 0.25
 # wall-to-wall guard and zeroed the scan; at 0.35 the same sweep returned every
 # true mark with coverage 0.23.
 LOCATE_TILE_THRESHOLD = 0.35
-TILE_OVERLAP = 0.12
+# Grown per side so a mark cut by a seam still lands whole in one window.
+# 0.20, not the original 0.12, and not more. Swept in BOTH directions on the
+# ground-truth bench (57 marks stamped in known positions over 3 base images),
+# every other setting held at what this file ships:
+#     0.12  48/57 found, precision 74%, tiled photo 17 zones
+#     0.20  46/57 found, precision 92%, tiled photo 14 zones   <- here
+#     0.25  47/57 found, precision 76%, tiled photo 11 zones
+# Going narrower buys two marks for fifteen false zones; going wider loses the
+# tiled photo three of its zones AND precision. 0.20 is the top of that curve,
+# not a direction followed until it stopped helping.
+TILE_OVERLAP = 0.20
 # Second, WIDER prompt used as a validator: a box is kept only when the two
 # phrasings agree on the spot (strict consensus). Ground-truth bench, 12
 # stamped scenarios over 3 real photos: base prompt alone at these scales is
@@ -262,17 +272,41 @@ class _Locator:
 # tiled with "Watermark stock photo" was flagged with a single small box.
 # The honest verdict is "detected, no usable position" — the same unlocated
 # lane the parent already routes to 🔍 Review with its own explanation.
-WALL_TO_WALL_COVERAGE = 0.40
+#
+# 0.50, raised from 0.40 when _raw_coverage stopped double-counting: the two
+# numbers are not comparable, because the old one saturated. Measured on the
+# 15-image bench under the union, the frame-sized "text overlay" claims this
+# guard exists for union to 0.70 and above, the genuinely tiled photo to 0.99,
+# while photos carrying one or two isolated marks land at 0.41..0.50. 0.50 is
+# in that gap, and the gap is what the number is for: left at 0.40 the guard
+# goes on blanking the corner-logo scenarios (0 of 3 located instead of 1, for
+# a headline precision of 100% bought by reporting nothing), and at 0.60 it
+# stops catching claims it should catch. The reported precision is LOWER here
+# than at 0.40 (92% vs 100%) and that is the trade being made on purpose: a
+# guard that hides every zone of every one-mark photo scores perfectly and
+# helps nobody.
+WALL_TO_WALL_COVERAGE = 0.50
 
 
 def _raw_coverage(boxes, size):
-    """Fraction of the frame the raw boxes claim, cap-free. Clamped per box and
-    summed (tiles barely overlap); bounded to 1.0 so a pathological pile of
-    frame-sized boxes cannot report 700% of an image."""
+    """Fraction of the frame the raw boxes claim, cap-free — the UNION of the
+    boxes, not the sum of their areas.
+
+    It used to be the sum, with the comment "tiles barely overlap". That was
+    true of a single full-frame pass and stopped being true the day the sweep
+    grew to fourteen windows times two prompts: the same box gets found in
+    every window that contains it, and the sum double-counts every copy. On
+    the 15 measured images the summed figure reads 1.00 on ELEVEN of them —
+    including a photo carrying one small corner logo whose boxes really union
+    to 0.27. A metric that saturates carries no information, and the guard
+    below then reduced to "any flagged image with fewer than three located
+    zones reports nothing", which is how ordinary one-mark and two-mark photos
+    came back from the scan with no box at all. The union spreads the same 15
+    images over 0.13..0.99."""
     width, height = size
     if not width or not height:
         return 0.0
-    total = 0.0
+    rects = []
     for box in boxes:
         try:
             x1, y1, x2, y2 = (float(v) for v in box[:4])
@@ -280,7 +314,32 @@ def _raw_coverage(boxes, size):
             continue
         x1, x2 = sorted((max(0.0, x1 / width), min(1.0, x2 / width)))
         y1, y2 = sorted((max(0.0, y1 / height), min(1.0, y2 / height)))
-        total += max(0.0, (x2 - x1) * (y2 - y1))
+        if x2 > x1 and y2 > y1:
+            rects.append((x1, y1, x2, y2))
+    if not rects:
+        return 0.0
+    # Exact union by vertical strips: cut on every x edge, then merge the y
+    # spans of the rectangles that cross the strip. O(n^2) on a few dozen
+    # boxes, run once per image.
+    xs = sorted({v for r in rects for v in (r[0], r[2])})
+    total = 0.0
+    for left, right in zip(xs, xs[1:]):
+        if right <= left:
+            continue
+        spans = sorted((r[1], r[3]) for r in rects
+                       if r[0] <= left and r[2] >= right)
+        covered = top = bottom = 0.0
+        open_span = False
+        for y1, y2 in spans:
+            if not open_span or y1 > bottom:
+                if open_span:
+                    covered += bottom - top
+                top, bottom, open_span = y1, y2, True
+            elif y2 > bottom:
+                bottom = y2
+        if open_span:
+            covered += bottom - top
+        total += (right - left) * covered
     return min(1.0, total)
 
 
@@ -323,10 +382,22 @@ def _strict_consensus(base, validate):
 
 
 # A tile below this on its short side is an upscaled thumbnail, not a window —
-# DINO has nothing left to see into. 250px keeps every measured win: the
-# 1200x800 tiled stock photo owes 11 of its 12 zones to the 3x3 sweep
-# (800/3 = 267), and a 640px phone-sized image still earns its 2x2.
-TILE_MIN_SIDE = 250
+# DINO has nothing left to see into. 200px, lowered from 250, is the single
+# biggest recall win measured on this detector and it costs no precision: at
+# 250 an ordinary portrait-shaped photo (720px short side) got NO 3x3 sweep at
+# all, because 720/3 = 240 fell one notch under the floor. On the ground-truth
+# bench, everything else held at what this file ships:
+#     250  28/57 found, precision 86%
+#     200  46/57 found, precision 92%    <- here
+#     180  46/57 found, precision 92%    (nothing new becomes seeable)
+# Precision RISES with the deeper sweep: those 3x3 windows return marks, not
+# texture. 180 changes nothing, so the floor sits at the round number inside
+# that flat zone rather than at its edge.
+#
+# The two reference images are unaffected either way — 1365/3 and 800/3 clear
+# both floors — which is exactly why the shortfall hid: it only ever bit the
+# sizes nobody had a test image for.
+TILE_MIN_SIDE = 200
 
 
 def tile_plan(size):
@@ -334,7 +405,13 @@ def tile_plan(size):
 
     Every image gets the legacy full-frame pass at the legacy floor, so a
     small image behaves byte-for-byte as before; each deeper grid joins only
-    while its tiles keep TILE_MIN_SIDE on the short side."""
+    while its tiles keep TILE_MIN_SIDE on the short side.
+
+    It stops at 3x3, and that IS measured, not an oversight: adding a 4x4 pass
+    finds the tiled photo three more zones (14 -> 17) and changes the ground
+    truth not at all (46/57 either way), but it puts a box on the seven-logo
+    photo that is not on a logo — the one thing this detector must not do,
+    because that box is what ✂ crop and 🧽 inpaint act on."""
     short = min(size[0] or 0, size[1] or 0)
     plan = [(1, LOCATE_BOX_THRESHOLD)]
     for grid_n in (2, 3):
@@ -382,20 +459,76 @@ def _normalise_boxes(boxes, size):
     return out
 
 
+# --- what counts as "the same mark", for merging -----------------------------
+#
+# Two boxes are the same mark when one is largely INSIDE the other (the phrase
+# list produces near-identical boxes over one watermark, and the validator's
+# box hugs it tighter than the base one), measured against the SMALLER of the
+# two so nesting reads as agreement rather than as a big box swallowing a
+# small one. 0.20 measures identically on the whole bench, so 0.30 is inside a
+# flat zone; 0.50 starts fusing neighbours again and costs 24 points of
+# precision (92% -> 68%), which is the ceiling this has to stay under.
+SAME_MARK_OVERLAP = 0.30
+# ...or when the two together are still small enough to BE one mark. A tile
+# seam cuts a logo into an icon half and a caption half that barely clip each
+# other; their union is still logo-sized. 0.04 of the frame is not a new
+# number — it is the top of the population MAX_REGION_AREA was measured from
+# (74 boxes at or under 0.041, every one an actual mark). Swept 0.02..0.08 on
+# the bench: at 0.02 the seven-logo photo reports TEN boxes instead of seven
+# (three logos split into glyph + caption), at 0.08 the tiled photo drops a
+# zone (14 -> 13), and 0.025..0.06 are identical on every image. This sits in
+# the middle of that flat zone, not on an edge.
+ONE_MARK_MAX_AREA = 0.04
+
+
+def _area(b):
+    return max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+
+
+def _same_mark(a, b) -> bool:
+    """Do these two boxes describe ONE mark? Not merely "do they touch".
+
+    THIS is what made a tiled watermark under-report. The old test was bare
+    overlap, and each merge GREW the surviving box, which then reached the next
+    neighbour: on a stock photo tiled with a repeated line of text, 91 boxes
+    the sweep had correctly found collapsed into 10 blobs, of which the per-box
+    area cap then threw away 4 — so detecting MORE marks reported FEWER zones,
+    and deepening the sweep made the picture worse instead of better.
+
+    Measured: the tiled photo reported 12 zones before this whole pass and
+    reports 14 now; swap this rule back to bare overlap with everything else
+    left as it ships and it falls to 9, taking 3 ground-truth marks with it.
+    The seven-logo photo reports exactly seven whole boxes either way, which is
+    the constraint that ruled out every stricter merge rule tried here — they
+    all split a logo into its glyph and its caption."""
+    if not _overlaps(a, b):
+        return False
+    smaller = min(_area(a), _area(b))
+    inter = ((min(a[2], b[2]) - max(a[0], b[0]))
+             * (min(a[3], b[3]) - max(a[1], b[1])))
+    if smaller > 0 and inter / smaller >= SAME_MARK_OVERLAP:
+        return True
+    union = ((max(a[2], b[2]) - min(a[0], b[0]))
+             * (max(a[3], b[3]) - min(a[1], b[1])))
+    return union <= ONE_MARK_MAX_AREA
+
+
 def _merge_boxes(boxes):
-    """Union overlapping boxes, biggest first.
+    """Union boxes that describe the same mark, biggest first.
 
     A phrase list of three produces three near-identical boxes over the SAME
     mark, and handing all three to the mask editor would show the user three
     stacked rectangles for one watermark and make the inpaint repaint the region
-    three times. Overlap is the right merge test here (not proximity): two marks
-    in two different corners must stay two zones, because a single box spanning
-    them would cover the subject between them."""
+    three times. But bare overlap is NOT the right test (see _same_mark): two
+    marks in two different corners must stay two zones, because a single box
+    spanning them would cover the subject between them — and on a repeated mark
+    the same argument applies to every neighbouring pair, which bare overlap
+    fused into one blob."""
     merged = []
     for box in sorted(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]),
                       reverse=True):
         for existing in merged:
-            if _overlaps(existing, box):
+            if _same_mark(existing, box):
                 existing[0] = min(existing[0], box[0])
                 existing[1] = min(existing[1], box[1])
                 existing[2] = max(existing[2], box[2])
