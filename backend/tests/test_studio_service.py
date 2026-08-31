@@ -940,6 +940,48 @@ def test_link_completed_test_image_moves_file_into_dataset_dir(app, tmp_path):
         assert os.path.exists(os.path.join(svc._dataset_dir(ds.id), 'out.png'))
 
 
+def test_link_completed_test_image_done_when_comfy_source_stays_locked(app, tmp_path, monkeypatch):
+    """WinError 32 on the ComfyUI original must not leave the tile pending."""
+    from app.services import lora_test_studio as lts, face_dataset_service as svc
+    from app.models import LoraTestImage
+    from app.config import LOCAL_USER
+    from app import config
+    from app.utils import comfy_fs
+    import os
+
+    monkeypatch.setattr(comfy_fs, '_OUTPUT_LOCK_RETRY_DELAY', 0)
+    src_name = 'locked.png'
+
+    def locked_unlink(path):
+        if os.path.basename(path) == src_name:
+            err = PermissionError(32, 'used by another process')
+            err.winerror = 32
+            raise err
+        return os.unlink(path)
+
+    monkeypatch.setattr(comfy_fs.os, 'unlink', locked_unlink)
+
+    with app.app_context():
+        base = tmp_path / 'Comfy'
+        (base / 'output').mkdir(parents=True)
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        ds = svc.create_dataset(LOCAL_USER, 'Locked', 'locktrig')
+        img = LoraTestImage(dataset_id=ds.id, checkpoint='z image\\lora_locktrig_000001000.safetensors',
+                            strength=1.0, status='pending', job_id='job-locked')
+        svc.db.session.add(img)
+        svc.db.session.commit()
+
+        (base / 'output' / src_name).write_bytes(b'fake-png')
+
+        lts.link_completed_test_image('job-locked', src_name, failed=False)
+
+        refreshed = svc.db.session.get(LoraTestImage, img.id)
+        assert refreshed.status == 'done'
+        assert refreshed.filename == src_name
+        assert (base / 'output' / src_name).exists()
+        assert os.path.exists(os.path.join(svc._dataset_dir(ds.id), src_name))
+
+
 def test_build_cell_workflow_zimage_loads_real_json_and_injects_lora(app):
     """Exercises the real copied ZImage_bigLove_ZT3_optimal.json workflow file
     (no ComfyUI contact): the checkpoint under test must show up as an injected

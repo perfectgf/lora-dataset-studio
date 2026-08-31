@@ -12498,11 +12498,10 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
             dst = os.path.join(_dataset_dir(img.dataset_id), filename)
             logger.warning(f"dataset link: name collision, storing as {filename}")
         img.filename = filename
-        if src and os.path.exists(src):
-            shutil.move(src, dst)          # file where we expected it on disk
-        elif os.path.exists(dst):
-            pass                           # already brought in (retry / dup completion)
-        else:
+        from ..utils import comfy_fs
+        claimed = (comfy_fs.claim_output_file(src, dst) if src
+                   else os.path.isfile(dst))
+        if not claimed:
             # The file isn't on disk where we look — ComfyUI was pointed at a
             # custom output path, or none is configured. Fetch it over the /view
             # API instead (path-independent, like other ComfyUI front-ends). #2
