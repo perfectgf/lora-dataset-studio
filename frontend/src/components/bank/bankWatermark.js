@@ -160,10 +160,15 @@ function binNote(n) {
     + 'the window.';
 }
 
-/** Level 3 — inpaint. `method` is the engine toggle: 'lama' (or 'auto') repaints
- * small off-centre marks and leaves marks ON the subject flagged; 'klein' also
- * repaints those. An engine that isn't installed disables the button with the
- * install path spelled out — never a silent failure mid-pass. */
+/** Level 3 — repaint. `method` is the engine toggle: 'lama' (or 'auto') repaints
+ * small off-centre marks and leaves marks ON the subject flagged; 'klein' erases the
+ * detected zones and hands the WHOLE photo to Flux.2 with the instruction to remove the
+ * marks, which reaches those too — generatively, so it also clears what the scan missed
+ * (a tiled mark) and can leave standing a mark nobody detected. It re-renders everything
+ * else with them; utils/watermarkCleanEngine says all of that on screen, with the
+ * measurements behind it.
+ * An engine that isn't installed disables the button with the install path spelled
+ * out — never a silent failure mid-pass. */
 export function inpaintLevelState(levels, {
   live = false, method = 'auto', lamaReady = false, kleinReady = false,
   kleinReason = null, binWaiting = 0,

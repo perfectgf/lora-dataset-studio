@@ -27,6 +27,7 @@ import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
 import { recaptionConfirmation } from './captionCategory';
 import { defaultEditEngine } from './referenceEdit';
 import { localEngineUnavailableReason, hasComfyui } from '../../utils/localEngineReason.js';
+import { KLEIN_CLEAN_TITLE } from '../../utils/watermarkCleanEngine.js';
 import { captionEnginesSummary, CAPTION_ENGINE_WHY } from '../../utils/captionEngines.js';
 // …and the per-image half of the same question, for the captions listed in full here.
 import { captionOriginInfo } from '../../utils/captionOrigin.js';
@@ -1610,10 +1611,15 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 <HelpBadge topic="action-watermark-clean" />
                 {watermarkDetected > 0 && (
                   <>
-                  {/* Inpaint engine: LaMa (fast, non-generative) vs Klein (masked
-                      Flux.2 inpaint — better on complex texture AND makes on-subject
-                      marks actionable, but GPU + slower). Klein is greyed until ComfyUI
-                      + the Klein models are ready (caps.watermark_klein). */}
+                  {/* Clean engine: LaMa (fast, non-generative, repaints the marked
+                      zones only) vs Klein (Flux.2 re-renders the WHOLE photo with the
+                      instruction to remove the marks — reaches what a box cannot, at
+                      the price of a regenerated image and with no guarantee on a
+                      distinct logo; GPU + slower). The sentence is shared
+                      with the bank panel and the review lightbox (utils/
+                      watermarkCleanEngine) because all three offer the same engine.
+                      Klein is greyed until ComfyUI + the Klein models are ready
+                      (caps.watermark_klein). */}
                   <div role="group" aria-label="Watermark inpaint method"
                     className="flex items-center rounded-lg border border-border bg-surface p-0.5 text-xs">
                     <button type="button" aria-pressed={watermarkMethod === 'lama'}
@@ -1626,7 +1632,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     <button type="button" aria-pressed={watermarkMethod === 'klein'}
                       onClick={() => setWatermarkMethod('klein')} disabled={ds.busy || !caps.watermark_klein}
                       title={caps.watermark_klein
-                        ? 'Klein: masked Flux.2 inpaint (crop-and-stitch). Better on skin/fabric/busy backgrounds and can clean marks ON the subject. Uses the GPU via ComfyUI — slower.'
+                        ? KLEIN_CLEAN_TITLE
                         : (localEngineUnavailableReason('klein', caps)
                           || 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).')}
                       className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${watermarkMethod === 'klein'
@@ -1711,8 +1717,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                     disabled={ds.busy || savingAllowCrop || cleanTargetCount === 0}
                     title={watermarkMethod === 'klein'
                       ? (allowAutoCrop
-                        ? 'Removes them with masked Flux.2 Klein inpaint: border marks are cropped, every other mark (off-center AND on-subject) is repainted then composited back — only the mark changes'
-                        : 'Auto-crop off: EVERY mark (border included) is repainted with masked Flux.2 Klein inpaint then composited back — only the mark changes')
+                        ? 'Removes them with Flux.2 Klein: border marks are cropped, and every image still marked (off-center AND on-subject) has its zones erased then the whole photo re-rendered with the instruction to remove the watermarks — check the result, a mark nobody detected can survive'
+                        : 'Auto-crop off: EVERY marked image (border included) has its zones erased then the whole photo re-rendered by Flux.2 Klein with the instruction to remove the watermarks — check the result, a mark nobody detected can survive')
                       : caps.watermark_inpaint
                       ? (allowAutoCrop
                         ? 'Removes them: border marks are cropped, small off-center marks are inpainted (LaMa), on-subject marks are flagged for manual review'

@@ -203,10 +203,10 @@ A logo or URL left in the dataset can become something the LoRA learns. The work
 
 1. A local vision pass proposes watermark boxes but deletes nothing.
 2. Review each flag. Move/resize the proposed zone or draw several missing zones.
-3. Choose a model-free border crop or an inpaint lane: LaMa for speed, Klein for a refined local result.
+3. Choose a model-free border crop or a repaint engine: LaMa for speed, Klein when a mark sits on the subject or covers the frame.
 4. Keep or reject the result. **Restore original** returns to the sibling `.orig` backup so another mask or engine can be tried.
 
-The Klein lane pre-fills with LaMa, refines through ComfyUI, then composites the edited area back in pixel space. Everything outside the mask stays untouched.
+The two engines make different promises. **LaMa** repaints only the zones and composites them back in pixel space, so everything outside them stays untouched. **Klein** erases the detected zones on the photo, then hands the whole frame to Flux.2 through ComfyUI with the instruction to remove the watermarks and writes back the render it gets: the erasing stops the model handing your mark back, and the whole-photo pass also reaches marks a box cannot — tiled across the frame, or where the detector drew the zone in the wrong place. It is generative, so it re-renders everything, and a mark nobody detected can survive. Step 4 is not optional on this engine — it is how you decide whether the trade was worth it on that photo.
 
 <p align="center">
   <img src="../screenshots/watermark/watermark-review.png" alt="Watermark review lightbox with an editable detection box" width="820">

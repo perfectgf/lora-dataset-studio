@@ -33,6 +33,9 @@ import KleinCompareDialog from '../shared/KleinCompareDialog'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useToast } from '../common/Toast'
 import {
+  CLEAN_ENGINES_BLURB, KLEIN_CLEAN_SHORT, KLEIN_CLEAN_TITLE,
+} from '../../utils/watermarkCleanEngine.js'
+import {
   cropLevelState, findLevelState, hasCleanedImages, inpaintLevelState,
   levelCounts, maskNote, progressSummary, rescanNote, sourceNote,
   textLevelState,
@@ -234,7 +237,7 @@ export default function BankWatermarkPanel({
           blurb="Cuts the border strip holding the mark. No model, no GPU, and no invented pixel — try this one first."
           onRun={() => setCleanOpen('watermark_crop')} />
         <LevelCard index={3} title="Repaint what's left" state={inpaint}
-          blurb="Repaints the marks a crop can't remove. LaMa is fast; Klein is slower but also clears marks on the subject."
+          blurb={`Repaints the marks a crop can't remove. ${CLEAN_ENGINES_BLURB}`}
           onRun={() => setCleanOpen('watermark_inpaint')} />
       </div>
 
@@ -276,7 +279,7 @@ export default function BankWatermarkPanel({
           <button type="button" aria-pressed={method === 'klein'} onClick={() => setMethod('klein')}
             disabled={!caps.watermark_klein}
             title={caps.watermark_klein
-              ? 'Klein: masked Flux.2 inpaint through ComfyUI. Slower, and the only engine that clears a mark ON the subject.'
+              ? KLEIN_CLEAN_TITLE
               : (kleinReason || 'Klein inpainting needs ComfyUI running + the Klein models (Setup ▸ ComfyUI).')}
             className={`rounded-md px-2.5 py-1 font-semibold disabled:opacity-40 ${method === 'klein'
               ? 'bg-amber-500/25 text-amber-100' : 'text-content-subtle hover:text-content'}`}>
@@ -424,7 +427,7 @@ export default function BankWatermarkPanel({
               Engine: <span className="font-semibold text-content">
                 {method === 'klein' ? 'Klein' : 'LaMa'}
               </span>{method === 'klein'
-                ? ' — slower, and the only one that clears a mark ON the subject.'
+                ? KLEIN_CLEAN_SHORT
                 : ' — fast; a mark on the subject stays flagged instead of being smeared.'}
               {target !== 'all' && (
                 <>

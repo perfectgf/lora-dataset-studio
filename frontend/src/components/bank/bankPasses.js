@@ -331,8 +331,10 @@ export const BANK_PASSES = {
     verb: 'Repaint',
     endpoint: 'watermark/inpaint',
     what: 'Repaints the marks a crop cannot remove, on every image still flagged. '
-      + 'LaMa is fast and invents little; Klein is slower and also clears a mark '
-      + 'sitting ON the subject.',
+      + 'LaMa is fast, invents little and only touches the marked zones; Klein '
+      + 'erases those zones and re-renders the WHOLE photo with the instruction to '
+      + 'remove the marks, which also clears what the scan missed — a tiled mark, '
+      + 'or one sitting ON the subject.',
     scopes: true,
     selection: true,
     redo: null,
@@ -362,6 +364,12 @@ export const BANK_PASSES = {
       'With LaMa, a mark ON the subject is left flagged rather than smeared — '
         + 'switch the engine to Klein for those. An emptied mask repaints nothing, '
         + 'on purpose.',
+      'Klein re-renders the ENTIRE photo (its zones are erased, then it is shown the '
+        + 'whole frame and told to remove the watermarks), so details shift outside '
+        + 'the marks too — that is the price of also reaching a tiled mark, or one the '
+        + 'scan never found. It is not a guarantee either: a mark nobody detected can '
+        + 'survive. Look at the result before promoting; ↩ Undo cleaning throws the '
+        + 're-render away like any other.',
     ],
     binCost: 'each rejected image costs a full repaint, the slowest step of the funnel',
   },

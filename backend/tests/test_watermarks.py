@@ -1846,10 +1846,15 @@ def test_clean_auto_method_never_calls_klein(app, monkeypatch):
 
 def test_klein_clean_disk_equals_display_equals_export_and_keeps_dimensions(
         client, app, monkeypatch):
-    """LOCK the 'display ≠ download' grief: after a real Klein multi-zone clean the dataset
-    file must keep the ORIGINAL dimensions (never the ~1MP upscaled crop), and the display
-    URL, the disk file and the export ZIP must all carry the SAME full-frame composite — no
-    crop / full-render leaks into any serving path."""
+    """LOCK the 'display ≠ download' grief: after a real Klein clean the dataset file must
+    keep the ORIGINAL dimensions (never the size the frame travelled at), and the display
+    URL, the disk file and the export ZIP must all carry the SAME pixels — no scaled render
+    leaks into one serving path and not another.
+
+    Since 2026-08-31 the clean re-renders the WHOLE photo, so the second assertion is the
+    reverse of what it used to be: the global shift now HAS to land everywhere. What is
+    still pinned is that it lands identically on all three surfaces, at the file's own size,
+    and that ↩ Restore brings the original bytes back."""
     import io
     import zipfile
     import numpy as np
@@ -1858,12 +1863,10 @@ def test_klein_clean_disk_equals_display_equals_export_and_keeps_dimensions(
     from app.services import watermark_klein as wk
     from app.models import FaceDatasetImage
 
-    # Deterministic Klein round-trip: prefill passes the crop through; the "render" brightens
-    # the WHOLE crop by +60 — so a composite bypass would show up as a +60 shift over the
-    # entire frame (and, when the crop clamps to the image, a wrong upscaled size).
+    # Deterministic Klein round-trip: the "render" brightens what it is handed by +60 — so
+    # the whole frame must come back brighter, at the original dimensions.
     monkeypatch.setattr(routes, '_klein_clean_preflight', lambda: None)   # skip node/model 409
     monkeypatch.setattr(wk, 'is_available', lambda: True)
-    monkeypatch.setattr(wk, '_prefill_region', lambda scaled, boxes, device='cpu': (scaled, None))
 
     def _fake_klein(user_id, crop_img, *, seed, timeout=None, **_kw):
         arr = np.asarray(crop_img.convert('RGB')).astype('int16') + 60
@@ -1890,11 +1893,11 @@ def test_klein_clean_disk_equals_display_equals_export_and_keeps_dimensions(
         disk_bytes = open(path, 'rb').read()
         cleaned = np.asarray(Image.open(io.BytesIO(disk_bytes)).convert('RGB'))
 
-    # (1) dimensions preserved — NOT the upscaled Klein crop
+    # (1) dimensions preserved — NOT the (stride-snapped, capped) size it travelled at
     assert cleaned.shape == orig.shape == (640, 900, 3)
-    # (2) the composite was NOT bypassed: a full-render leak would shift the WHOLE frame by
-    #     ~+60; only the two small zones may move, so the global mean barely changes.
-    assert abs(float(cleaned.mean()) - float(orig.mean())) < 10
+    # (2) the whole photo really was re-rendered: the +60 render lands across the frame,
+    #     not on two small zones. This is the 2026-08-31 lane, asserted rather than feared.
+    assert float(cleaned.mean()) - float(orig.mean()) > 40
     # (3) the display URL serves EXACTLY the on-disk bytes
     disp = client.get(f'/api/dataset/{ds_id}/img/{filename}')
     assert disp.status_code == 200 and disp.data == disk_bytes
@@ -2148,9 +2151,14 @@ def test_prefill_uses_lama_worker_when_available(monkeypatch):
     assert seen['bboxes'] == [[0.25, 0.25, 0.5, 0.5]]
 
 
-def test_inpaint_klein_harmonizes_the_drifted_patch_into_the_neighbourhood(monkeypatch, tmp_path):
-    """End-to-end with prefill + Klein mocked: the real compositor must harmonize a drifted
-    Klein patch to the surrounding tone (no square) instead of pasting the raw drift."""
+def test_klein_prompted_box_repair_harmonizes_the_drifted_patch_into_the_neighbourhood(
+        monkeypatch, tmp_path):
+    """End-to-end with prefill + Klein mocked: on the ✦ PROMPTED box lane the real
+    compositor must still harmonize a drifted Klein patch to the surrounding tone (no
+    visible square) instead of pasting the raw drift.
+
+    The free prompt is what selects that lane — the 🧽 clean (no prompt) re-renders the
+    whole photo and has no seam to correct."""
     import numpy as np
     from app.services import watermark_klein as wk
     monkeypatch.setattr(wk, 'is_available', lambda: True)
@@ -2166,16 +2174,20 @@ def test_inpaint_klein_harmonizes_the_drifted_patch_into_the_neighbourhood(monke
         return Image.fromarray(np.clip(arr, 0, 255).astype('uint8'), 'RGB'), None
     monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
 
-    ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]], seed=1)
+    ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]], seed=1,
+                                         prompt='remove the necklace')
 
     assert ok and err is None
     out = np.asarray(Image.open(img).convert('RGB'))
     centre = out[int(0.45 * 512), int(0.45 * 512), 0]
     assert abs(int(centre) - 120) <= 3        # +40 drift removed → matches the wall, not 160
+    assert int(out[10, 10, 0]) == 120         # far corner untouched: the box lane's promise
 
 
-def test_inpaint_klein_aborts_before_gpu_when_prefill_unavailable(app, monkeypatch, tmp_path):
-    """A failed prefill must short-circuit — never enqueue a doomed Klein job."""
+def test_klein_prompted_box_repair_aborts_before_gpu_when_prefill_unavailable(
+        app, monkeypatch, tmp_path):
+    """A failed prefill must short-circuit the ✦ box lane — never enqueue a doomed Klein
+    job. (The 🧽 clean has no prefill to fail; see its own test below.)"""
     from app.services import watermark_klein as wk
     monkeypatch.setattr(wk, 'is_available', lambda: True)
     monkeypatch.setattr(wk, '_prefill_region',
@@ -2186,8 +2198,301 @@ def test_inpaint_klein_aborts_before_gpu_when_prefill_unavailable(app, monkeypat
     img = tmp_path / 'wm.webp'
     Image.new('RGB', (512, 512), (30, 30, 30)).save(img, 'WEBP')
     with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]],
+                                             prompt='remove the necklace')
+    assert ok is False and err == {'kind': 'unavailable', 'detail': 'no engine'}
+
+
+# --- Klein CLEAN: the whole photo, "remove watermark", 4 steps (2026-08-31) -------
+# The maintainer's reversal: the cleaning lane stopped cropping around the detected
+# boxes and now hands Klein the entire photo with a three-word instruction. These pin
+# the recipe, the sizes, the honest failures — and the fact that the ✦ prompted box
+# repair did NOT follow it into the full frame.
+
+def _four_corner_photo(w, h):
+    """A photo with four DIFFERENT corners, so 'the whole frame was sent' is provable
+    rather than assumed: any crop loses at least one of them."""
+    import numpy as np
+    arr = np.full((h, w, 3), 120, dtype='uint8')
+    arr[:h // 2, :w // 2] = (200, 40, 40)
+    arr[:h // 2, w // 2:] = (40, 200, 40)
+    arr[h // 2:, :w // 2] = (40, 40, 200)
+    arr[h // 2:, w // 2:] = (220, 220, 40)
+    return Image.fromarray(arr, 'RGB')
+
+
+def test_clean_hands_klein_the_whole_photo_with_its_zones_erased(app, monkeypatch,
+                                                                tmp_path):
+    """What Klein is handed by the 🧽 clean is the ENTIRE photo — not a crop around a
+    box — with the detected zones already erased ON that whole frame. Both halves of the
+    2026-08-31 recipe, at the seam that reaches ComfyUI."""
+    import numpy as np
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    erased = {}
+
+    def _fake_prefill(frame, boxes, device='cpu'):
+        # the prefill sees the WHOLE frame, and boxes normalized against it
+        erased['frame_size'] = frame.size
+        erased['boxes'] = [list(b) for b in boxes]
+        return frame, None
+    monkeypatch.setattr(wk, '_prefill_region', _fake_prefill)
+
+    img = tmp_path / 'wm.webp'
+    _four_corner_photo(640, 480).save(img, 'WEBP', lossless=True)
+    sent = {}
+
+    def _fake_klein(user_id, frame, *, seed, timeout=None, **kw):
+        sent['size'] = frame.size
+        sent['corners'] = [frame.convert('RGB').getpixel(p) for p in
+                           ((5, 5), (frame.width - 5, 5),
+                            (5, frame.height - 5), (frame.width - 5, frame.height - 5))]
+        sent['kw'] = kw
+        return frame, None
+    monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
+
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]], seed=3)
+
+    assert ok and err is None
+    # the zones were erased on the FULL frame, not on a crop, and grown by the margin
+    assert erased['frame_size'] == (640, 480)
+    x1, y1, x2, y2 = erased['boxes'][0]
+    assert x1 == pytest.approx((0.4 * 640 - wk.KLEIN_MASK_EXPAND_PX) / 640)
+    assert x2 == pytest.approx((0.5 * 640 + wk.KLEIN_MASK_EXPAND_PX) / 640)
+    assert y1 == pytest.approx((0.4 * 480 - wk.KLEIN_MASK_EXPAND_PX) / 480)
+    assert y2 == pytest.approx((0.5 * 480 + wk.KLEIN_MASK_EXPAND_PX) / 480)
+    # the whole frame reaches Klein: all four corners are in it — a crop around the
+    # [0.4..0.5] box would carry one colour, not four
+    assert sent['size'] == wk._mask_frame_size(640, 480) == (640, 480)
+    assert sent['corners'] == [(200, 40, 40), (40, 200, 40), (40, 40, 200), (220, 220, 40)]
+    # the recipe travels with it
+    assert sent['kw']['prompt'] == wk.KLEIN_CLEAN_PROMPT == 'remove watermark'
+    assert sent['kw']['steps'] == wk.KLEIN_CLEAN_STEPS == 4
+    assert sent['kw']['denoise'] == wk.KLEIN_DENOISE == 1.0
+    # and the file kept its own dimensions
+    with Image.open(img) as out:
+        assert out.size == (640, 480)
+        assert np.asarray(out.convert('RGB'))[5, 5].tolist() == [200, 40, 40]
+
+
+def test_clean_erases_the_zones_before_klein_can_reinvent_them(app, monkeypatch, tmp_path):
+    """The ORDER is the whole point, so it is asserted as an order.
+
+    Run naked, Klein does not delete a logo it can still see in its own reference — it
+    redraws it somewhere plausible (measured: a round logo came back as a moon in the
+    sky, three runs, three seeds, and the detector scores that image 0 zones so nothing
+    downstream catches it). Erasing the zones from the frame FIRST is what kills that,
+    and the pass still cleans what the detector missed. If a refactor ever runs the job
+    before the erase, or drops the erase, this fails."""
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    order = []
+    monkeypatch.setattr(wk, '_prefill_region',
+                        lambda frame, boxes, device='cpu': (order.append('erase'), (frame, None))[1])
+    monkeypatch.setattr(wk, '_run_klein_job',
+                        lambda user_id, frame, **kw: (order.append('klein'), (frame, None))[1])
+    img = tmp_path / 'wm.webp'
+    _four_corner_photo(320, 240).save(img, 'WEBP', lossless=True)
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.1, 0.1, 0.3, 0.3]])
+    assert ok and err is None
+    assert order == ['erase', 'klein']
+
+
+def test_clean_surfaces_the_prefill_failure_instead_of_painting_moons(app, monkeypatch,
+                                                                     tmp_path):
+    """No erase engine installed → 'unavailable', and the GPU is never asked.
+
+    Degrading to the naked pass would be worse than skipping the row: it renders a photo
+    that LOOKS cleaned, reports success, and the detector agrees with it — the silent
+    corruption above. 'unavailable' is the kind the callers count as `skipped` with an
+    "install the ML extras" nudge, which is actionable."""
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_prefill_region',
+                        lambda *a, **k: (None, {'kind': 'unavailable', 'detail': 'no engine'}))
+    monkeypatch.setattr(wk, '_run_klein_job', lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError('must not render without the zones erased')))
+    img = tmp_path / 'wm.webp'
+    _four_corner_photo(160, 128).save(img, 'WEBP', lossless=True)
+    before = img.read_bytes()
+    with app.app_context():
         ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]])
     assert ok is False and err == {'kind': 'unavailable', 'detail': 'no engine'}
+    assert img.read_bytes() == before
+
+
+def test_klein_clean_wires_the_recipe_into_the_shipped_graph(app, monkeypatch, tmp_path):
+    """The same recipe one level deeper — in the JSON that reaches ComfyUI. Node 6 carries
+    the three-word prompt, node 77 the 4 euler steps at cfg 1 / denoise 1.0, and node 52
+    names a staged file that IS the whole photo (read while it is still on disk, from
+    inside the wait)."""
+    from app.services import watermark_klein as wk
+    from app.services import klein_edit_helper as keh
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk, '_comfy_output_dir', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda selected=None: 'klein\\unet.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda: 'flux2-vae.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda: 'qwen_3_8b_fp8mixed.safetensors')
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: [])
+    captured, staged = {}, {}
+    monkeypatch.setattr(wk.queue_manager, 'add_job',
+                        lambda **kw: captured.update(kw) or kw['job_id'])
+
+    def _wait(job_id, timeout):
+        # the staged input still exists here: the service cleans it up after the wait
+        files = sorted(tmp_path.glob('wmklein_crop_*.png'))
+        assert len(files) == 1, f'expected one staged frame, got {files}'
+        staged['name'] = files[0].name
+        with Image.open(files[0]) as im:
+            staged['size'] = im.size
+            staged['corners'] = [im.convert('RGB').getpixel(p) for p in
+                                 ((5, 5), (im.width - 5, im.height - 5))]
+        return 'completed', 'wmklein_out.png', None
+    monkeypatch.setattr(wk, '_wait_for_job', _wait)
+    monkeypatch.setattr(wk, '_read_comfy_output', lambda filename: _img_bytes(size=(320, 240)))
+
+    img = tmp_path / 'wm.webp'
+    _four_corner_photo(320, 240).save(img, 'WEBP', lossless=True)
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.1, 0.1, 0.2, 0.2]], seed=11)
+
+    assert ok and err is None
+    wf = captured['workflow_data']
+    assert wf['6']['inputs']['text'] == 'remove watermark'
+    assert captured['prompt'] == 'remove watermark'         # what the job list shows
+    assert captured['metadata'] == {'model_name': 'watermark_klein'}
+    assert wf['77']['inputs']['steps'] == 4
+    assert wf['77']['inputs']['sampler_name'] == 'euler'
+    assert wf['77']['inputs']['cfg'] == 1
+    assert wf['77']['inputs']['denoise'] == 1.0
+    assert wf['77']['inputs']['seed'] == 11
+    assert wf['77']['inputs']['latent_image'] == ['53', 0]   # native edit, no noise mask
+    # node 52 loads the staged file, and that file is the WHOLE photo
+    assert wf['52']['inputs']['image'] == staged['name']
+    assert staged['size'] == (320, 240)
+    assert staged['corners'] == [(200, 40, 40), (220, 220, 40)]
+    assert not list(tmp_path.glob('wmklein_crop_*'))          # cleaned up after the run
+
+
+def test_klein_clean_caps_a_big_photo_and_restores_its_original_dimensions(
+        app, monkeypatch, tmp_path):
+    """A photo above KLEIN_MASK_MAX_MP travels scaled down and stride-aligned, and comes
+    back at the file's OWN size — a clean must never reshape a dataset image."""
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    img = tmp_path / 'big.webp'
+    Image.new('RGB', (2400, 1600), (90, 110, 130)).save(img, 'WEBP', lossless=True)
+    sent = {}
+
+    def _fake_klein(user_id, frame, *, seed, timeout=None, **_kw):
+        sent['size'] = frame.size
+        return frame, None
+    monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
+
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]])
+
+    assert ok and err is None
+    w, h = sent['size']
+    assert w * h <= wk.KLEIN_MASK_MAX_MP * 1_000_000        # under the VRAM cap
+    assert w % wk.KLEIN_LATENT_MULT == 0 and h % wk.KLEIN_LATENT_MULT == 0
+    assert (w, h) != (2400, 1600)                            # it really was scaled
+    with Image.open(img) as out:
+        assert out.size == (2400, 1600)                      # ...and written back full size
+
+
+def test_klein_clean_reports_a_comfyui_failure_and_leaves_the_file_alone(
+        app, monkeypatch, tmp_path):
+    """The `(ok, error)` contract on the unhappy path: a job that never completes is a
+    'failed' with the reason ComfyUI gave, and the in-place file is not touched."""
+    from app.services import watermark_klein as wk
+    from app.services import klein_edit_helper as keh
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_comfy_input_dir', lambda: str(tmp_path))
+    monkeypatch.setattr(wk, '_comfy_output_dir', lambda: None)
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda selected=None: 'klein\\unet.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda: 'flux2-vae.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda: 'qwen_3_8b_fp8mixed.safetensors')
+    monkeypatch.setattr(keh, 'klein_missing_assets', lambda: [])
+    monkeypatch.setattr(wk.queue_manager, 'add_job', lambda **kw: kw['job_id'])
+    monkeypatch.setattr(wk, '_wait_for_job', lambda job_id, timeout: ('timeout', None, None))
+
+    img = tmp_path / 'wm.webp'
+    _four_corner_photo(160, 128).save(img, 'WEBP', lossless=True)
+    before = img.read_bytes()
+    with app.app_context():
+        ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]])
+
+    assert ok is False and err == {'kind': 'failed', 'detail': 'klein inpaint timeout'}
+    assert img.read_bytes() == before                        # nothing was overwritten
+    assert not list(tmp_path.glob('wmklein_crop_*'))          # and the input was collected
+
+
+def test_clean_refuses_when_klein_is_not_ready_and_when_no_box_is_given(
+        app, monkeypatch, tmp_path):
+    """The two short-circuits that must never reach the GPU: Klein not ready (kind
+    'unavailable', so the caller skips the row instead of failing it) and a call with no
+    usable box. `boxes` no longer decides WHERE anything is repainted, but it is still the
+    'there is a mark here' signal that put the image in the clean set."""
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, '_run_klein_job', lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError('must not reach the GPU')))
+    img = tmp_path / 'wm.webp'
+    _four_corner_photo(96, 96).save(img, 'WEBP', lossless=True)
+
+    monkeypatch.setattr(wk, 'is_available', lambda: False)
+    ok, err = wk.inpaint_watermark_klein('local', str(img), [[0.4, 0.4, 0.5, 0.5]])
+    assert ok is False and err['kind'] == 'unavailable'
+
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    for empty in ([], None, [[0.5, 0.5, 0.5, 0.5]]):
+        ok, err = wk.inpaint_watermark_klein('local', str(img), empty)
+        assert ok is False and err == {'kind': 'failed', 'detail': 'no valid watermark box'}
+
+
+def test_klein_free_prompt_keeps_the_byte_exact_box_lane_the_clean_left_behind(
+        app, monkeypatch, tmp_path):
+    """THE design decision of 2026-08-31, pinned: the same entry point serves two lanes,
+    and the caller's free prompt is the switch.
+
+    The 🧽 clean re-renders the whole photo. The ✦ Repair of a drawn box ("remove the
+    necklace") did NOT follow — its whole reason to exist is that every pixel outside the
+    box keeps its original bytes, which the UI promises in as many words. So: no prompt →
+    a full-frame job and a changed corner; a prompt → a crop, a prefill, and a corner that
+    is still byte-identical."""
+    import numpy as np
+    from app.services import watermark_klein as wk
+    monkeypatch.setattr(wk, 'is_available', lambda: True)
+    monkeypatch.setattr(wk, '_prefill_region',
+                        lambda scaled, boxes, device='cpu': (scaled, None))
+    seen = []
+
+    def _fake_klein(user_id, frame, *, seed, timeout=None, **_kw):
+        seen.append(frame.size)
+        arr = np.asarray(frame.convert('RGB')).astype('int16') + 50
+        return Image.fromarray(np.clip(arr, 0, 255).astype('uint8'), 'RGB'), None
+    monkeypatch.setattr(wk, '_run_klein_job', _fake_klein)
+
+    box = [[0.45, 0.45, 0.55, 0.55]]
+    clean_img = tmp_path / 'clean.webp'
+    repair_img = tmp_path / 'repair.webp'
+    for p in (clean_img, repair_img):
+        Image.new('RGB', (512, 512), (120, 120, 120)).save(p, 'WEBP', lossless=True)
+
+    with app.app_context():
+        assert wk.inpaint_watermark_klein('local', str(clean_img), box, seed=1) == (True, None)
+        assert wk.inpaint_watermark_klein('local', str(repair_img), box, seed=1,
+                                          prompt='remove the necklace') == (True, None)
+
+    cleaned = np.asarray(Image.open(clean_img).convert('RGB'))
+    repaired = np.asarray(Image.open(repair_img).convert('RGB'))
+    assert seen[0] == (512, 512)              # the clean sent the whole frame...
+    assert seen[1] != (512, 512)              # ...the repair sent a crop (upscaled to ~1MP)
+    assert int(cleaned[5, 5, 0]) != 120       # the clean re-rendered the corner too
+    assert int(repaired[5, 5, 0]) == 120      # the repair left it byte-identical
 
 
 # --- restore (undo a clean) -------------------------------------------------

@@ -1,14 +1,108 @@
-"""Watermark removal by PREFILL + Flux.2 Klein full-edit refine, crop-and-stitch — the
-V2 sister of watermark_lama.
+"""Watermark removal on Flux.2 Klein — the V2 sister of watermark_lama.
 
 Why a second method: LaMa (V1) is non-generative and perfect outside the mask, but on
 complex texture (skin / fabric / busy background) it smears — the "weird mask sections"
 grief — and it can't touch a mark that sits ON the subject (those stay 'review'). Klein
 reconstructs texture far better AND makes the on-subject case actionable.
 
-Architecture — PREFILL then REFINE (GPU-derived 2026-07-17, see below):
+TWO LANES BEHIND ONE ENTRY POINT. `inpaint_watermark_klein` is called both by the 🧽
+watermark clean and by the ✦ Repair of a hand-drawn BOX, and since 2026-08-31 they no
+longer do the same thing. The caller's free `prompt` is what separates them:
 
-  1. crop a padded square around the mark, upscale it to ~1 MP (the "magnifying glass" so
+  * NO prompt → the 🧽 WATERMARK CLEAN. The WHOLE photo goes to Klein with the single
+    instruction "remove watermark" and comes back entirely re-rendered (below).
+  * a prompt → the ✦ BOX REPAIR ("remove the necklace", "fix this hand"). Unchanged:
+    crop, prefill, refine, harmonize, paste back ONLY the box, so every pixel outside it
+    keeps its ORIGINAL bytes. That byte-exactness is what that lane is sold on in the UI
+    ("only the mark changes"), it is the one thing the ✦ Edit lane cannot do, so the
+    clean's move to full-frame deliberately did not drag it along.
+
+=== THE CLEAN: whole photo, 4 steps, "remove watermark" (maintainer, 2026-08-31) ======
+
+The recipe: the ENTIRE photo (scaled down to KLEIN_MASK_MAX_MP if it is bigger,
+dimensions snapped to KLEIN_LATENT_MULT, never magnified), its DETECTED ZONES ERASED
+first (LaMa / cv2 TELEA, KLEIN_MASK_EXPAND_PX of margin, on the full frame) →
+klein_inpaint.json, prompt `remove watermark`, steps 4, sampler euler, cfg 1, denoise
+1.0, random seed → the render resampled back to the file's ORIGINAL dimensions and
+written in place. No crop, no harmonization, no compositing. `boxes` no longer bounds
+the repaint — it says "there is a mark HERE, do not hand it back", and everything the
+detector missed is still cleaned by the pass itself.
+
+WHAT THAT COSTS AND BUYS, measured on the maintainer's two test images the evening the
+decision was taken (bench at 8 steps and the long reconstruction prompt, denoise 1.0):
+  * the wall-to-wall TILED watermark — watermark score 0.69 → 0.15, 12 zones → 0,
+    visually clean. The crop lane could never win this one: there was no "outside".
+  * the 7-LOGO image — 7 zones → 3, one ghost glyph (a logo re-rendered as a moon in the
+    sky), and the whole image re-rendered: mean deviation 37/255 on the pixels that
+    carried no mark at all.
+  * at denoise 0.4 and 0.7, on both images, NOTHING was removed. 1.0 is not a tunable
+    here either — for a different reason than the box lane's.
+
+Then re-measured on the SHIPPED recipe (4 steps, `remove watermark`, euler, cfg 1,
+denoise 1.0), scored by the SigLIP2 / Grounding-DINO detector rather than by eye —
+Klein 9B kv-fp8, same two images, before → after:
+  * the wall-to-wall TILED one (1200×800) — watermark score 0.687 → 0.161, zones
+    12 → 0, mean deviation 11/255 off the marks. Visually clean.
+  * the 7-LOGO one (1488×992 after the cap) — score 0.875 → 0.490, zones 7 → 4. Four
+    logos SURVIVE, partly as ghosts, and the whole photo is re-rendered (mean deviation
+    29/255 off the marks, sky colours moved).
+  * the denoise sweep, again: 0.4 and 0.7 remove nothing at all (7/7 and 9/12 zones
+    still standing, score unmoved). 1.0 is required on this graph, not preferred.
+THE GHOST-DISC FAILURE MODE, which is WHY the erase step exists. Run NAKED — the whole
+photo, no zones erased — Klein does not delete that logo. It REINTERPRETS it: the
+disc-with-a-mountain came back as a plausible MOON in the sky, twice in one pass (sky and
+horizon), 0.878 → 0.492 with 17/255 of drift off the marks. Three independent runs, three
+seeds, one of them straight through `_clean_full_frame` itself. A property of the recipe
+on that kind of mark, not bad luck.
+
+WORSE, AND THE REASON THIS IS IN CAPITALS: the detector scores that result at ZERO zones,
+because a moon in a sky is not a watermark to a watermark detector. The pass would then
+report 'cleaned' on a photo carrying two invented celestial bodies and nothing downstream
+would disagree. Any future automatic "did the clean work?" gate must compare against the
+SOURCE, never re-run the detector on the output.
+
+WHAT FIXED IT, and what did not:
+  * ERASE THE ZONES FIRST (TELEA on the full frame, margin, then the same pass) — no
+    moon, no logo, scene faithful, score 0.44, 0 zones, drift 18/255. Shipped.
+  * a naked pass with an explicit "do not add any moon…" prompt — no moons either, but
+    a washed-out photo at 50/255 of drift. Rejected.
+  * lowering the denoise — removes nothing at all (above). Not a lever.
+The July doctrine held: a mark still present in the reference is reproduced, so take it
+out of the reference. The full-frame pass keeps its whole point — it still clears what
+the detector MISSED, which is what wins the tiled case (that one needs no erasing: its
+mark has no "outside" to erase toward, and the naked pass already takes it to 0 zones).
+
+An earlier note here claimed "all seven logos gone, no ghost" on a naked run. Two things
+were wrong with it, and both are worth remembering: the FIRST measurement of that pair was
+taken on a file the maintainer had already cleaned an hour before (same name, 2048×1368
+instead of the original's 1365 — a bench input can change under you on a live instance),
+and the second was a single seed on a different build read from a downscaled contact
+sheet. One seed judged by eye does not establish the absence of anything.
+
+THE SHAPE OF THE RESULT, then, and it is what the UI has to say: erase-then-re-render
+clears the zones it was given AND what the detector missed, so it EXCELS on a repeated or
+tiled mark — the case a box can never frame. What can still survive is a distinct mark
+the detector never found, since nothing erased it from the reference. Look at the output;
+↩ Restore original is one click away.
+
+The trade is explicit and is the maintainer's call: the photo is REGENERATED, so the
+"every byte outside the mark is original" guarantee does not hold on this lane any more,
+and the removal is not guaranteed either — it is a generative pass, not a mask. What it
+buys is reach: a mark the detector could not box is now removable at all. ↩ Restore
+original (the preserved `.orig` sibling) is what a user who dislikes the re-render falls
+back to, and it is untouched.
+
+This REVERSES the July doctrine kept below. That doctrine was not wrong about what it
+measured — a masked, box-scoped Klein pass really does reproduce the mark as ghost
+glyphs without a prefill — it was answering a different question: how to repaint a BOX.
+Asked to clean a photo instead, the same model with a short instruction and the whole
+frame in view "works much better" (the maintainer's words, on their own images).
+
+=== THE BOX REPAIR: PREFILL then REFINE (GPU-derived 2026-07-17, unchanged) ===========
+
+This is the lane the crop / prefill / harmonize helpers below still serve:
+
+  1. crop a padded square around the box, upscale it to ~1 MP (the "magnifying glass" so
      a few-pixel mark in a 4K photo is big enough for the model to see);
   2. PREFILL the masked region of that crop — repaint the watermark away with the LaMa
      worker (fallback cv2 TELEA). The result is deliberately soft/blurry; that is fine,
@@ -23,7 +117,7 @@ Architecture — PREFILL then REFINE (GPU-derived 2026-07-17, see below):
      ORIGINAL bytes — that is THE preservation guarantee, and it holds no matter how far
      the model drifts across the (fully re-rendered) crop.
 
-WHY the prefill is mandatory (empirical, on a real photo):
+WHY the prefill is mandatory ON THAT LANE (empirical, on a real photo):
   * The masked-inpaint graph (SetLatentNoiseMask + DifferentialDiffusion, denoise 1.0)
     feeds the ORIGINAL crop as the ReferenceLatent. At cfg 1 (guidance-distilled Klein)
     the prompt barely counts against that reference — so the watermark, still visible in
@@ -33,6 +127,9 @@ WHY the prefill is mandatory (empirical, on a real photo):
     pre-filled crop as a FULL edit lets it regenerate genuine texture over the soft patch,
     which is exactly its improve-details core competency. A Klein pass WITHOUT a prefill is
     proven ineffective, so there is no skip-prefill path — prefill or fail.
+  * Read this as being about a BOX-SCOPED pass, which is all it was ever tested on. The
+    clean above sends no box at all, has no "outside" to protect and no reference to
+    poison, and is measured on its own terms.
 
 WHY harmonization is mandatory (measured on a real photo, GPU 2026-07-17):
   * The full-edit re-renders the ENTIRE crop, so Klein's output drifts globally in tone,
@@ -51,9 +148,10 @@ WHY harmonization is mandatory (measured on a real photo, GPU 2026-07-17):
     local ring) so a multi-mark crop spanning different lighting corrects each seam locally.
     The correction touches the PATCH only — the byte-exact preservation guarantee is intact.
 
-The ComfyUI round-trip goes through the shared queue_manager (serialized against training
-/ vision by the worker's own gating), then this module reads the finished crop back and
-does the composite locally. Same `(ok, error)` tuple contract as watermark_lama."""
+Every lane's ComfyUI round-trip goes through the shared queue_manager (serialized against
+training / vision by the worker's own gating); this module then reads the finished render
+back — and, on the two box lanes only, composites it locally. Same `(ok, error)` tuple
+contract as watermark_lama, on all of them."""
 from __future__ import annotations
 import io
 import logging
@@ -95,6 +193,13 @@ KLEIN_INPAINT_PROMPT = ('Reconstruct this photo as a clean, natural image: repla
                         'surrounding pixels. Keep the subject, pose, colours and composition '
                         'identical. No text, no logos, no watermarks.')
 
+# The CLEAN lane's prompt, and it is deliberately three words. The sentence above
+# describes a repair job to a model that is being shown a pre-filled patch; asked to
+# clean a whole photo, Klein answers the short instruction better than the long one
+# (maintainer, 2026-08-31 — see the module docstring for the numbers). Short also means
+# the queue row reads "remove watermark", which is what the user thinks they asked for.
+KLEIN_CLEAN_PROMPT = 'remove watermark'
+
 # Nodes this module rewires — fail loudly if the shipped workflow changes shape. Node 53
 # (VAEEncode of the pre-filled crop) is the latent for BOTH the ReferenceLatent and the
 # KSampler now (full-edit), so it is checked too even though its wiring is fixed in the JSON.
@@ -108,6 +213,9 @@ _REQUIRED_MASK_NODES = ('114', '10', '90', '52', '51', '6', '100', '53', '92',
                         '110', '105', '175', '102', '77', '8', '9')
 
 # --- Tunables (calibrated at the GPU smoke; the study left these open) ---------
+# Everything down to KLEIN_MASK_MAX_MP below belongs to the CROP lanes (the ✦ box
+# repair and the localized masked repair). The 🧽 clean uses none of it: it sends the
+# whole frame, so it has no crop to size, no mask to grow and no seam to harmonize.
 # Crop = a square this many times the mark's larger side, so the model gets real
 # surrounding context to reconstruct from. Everything outside the mask is discarded
 # by the composite, so generous context is cheap (only VRAM/time, bounded by the
@@ -136,6 +244,10 @@ KLEIN_MASK_STEPS = 4            # this graph is distilled harder than the crop o
 # Unpainted pixels are copied from the ORIGINAL either way, so the cap costs
 # detail only INSIDE the painted area, and only on images large enough to risk
 # an out-of-memory failure halfway through an in-place edit.
+# The 🧽 CLEAN sends whole frames too and shares this cap — with one difference
+# that has to be said out loud: it composites nothing back, so on a photo above
+# the cap the WHOLE image returns resampled (down to 2 MP, back up to its
+# original dimensions) rather than only the painted area.
 KLEIN_MASK_MAX_MP = 2.0
 # Grow the painted mask before the model sees it — BFL's own Erase (the closest
 # thing to an official reference for mask-driven Klein removal) recommends
@@ -163,6 +275,11 @@ KLEIN_DENOISE = 1.0            # full-edit refine: the crop's own latent is full
                                # crop back in, so 1.0 is required, not a tunable
 KLEIN_STEPS = 8               # Klein 9b is guidance-distilled (improve-skin edit uses 5); a
                               # couple more for cleaner reconstructed texture over the prefill
+KLEIN_CLEAN_STEPS = 4         # the CLEAN lane's own budget: a whole photo, not a 1 MP crop,
+                              # once per flagged image — and the maintainer's recipe says 4
+KLEIN_SAMPLER = 'euler'       # written into node 77 rather than trusted to the shipped JSON,
+KLEIN_CFG = 1.0               # so the recipe lives where the tests can read it. Both graphs
+                              # already carried these values; pinning them changes no render.
 KLEIN_TIMEOUT = 300           # per-image ComfyUI round-trip budget (seconds)
 
 _POLL_INTERVAL = 1.0
@@ -281,7 +398,8 @@ def _crop_boxes_norm(crop_box, W, H, boxes, *, expand_px=KLEIN_MASK_EXPAND_PX):
 def _mask_frame_size(w, h, *, max_mp=KLEIN_MASK_MAX_MP, mult=KLEIN_LATENT_MULT):
     """Size to send a FULL frame at: snap to the latent stride, scaling down
     first if it is larger than `max_mp`. Never magnifies — a small photo goes as
-    it is rather than being upsampled into detail the file does not have."""
+    it is rather than being upsampled into detail the file does not have.
+    Shared by the masked repair and the 🧽 clean: both send whole frames."""
     w, h = max(1, int(w)), max(1, int(h))
     mp = (w * h) / 1_000_000.0
     if max_mp and mp > max_mp:
@@ -505,11 +623,12 @@ def _wait_for_job(job_id, timeout):
 def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
                    denoise=KLEIN_DENOISE, timeout=KLEIN_TIMEOUT, klein_model=None,
                    prompt=None):
-    """Enqueue one full-edit refine job on the PRE-FILLED `crop_img` and return
-    (filled_crop_image, None) or (None, error). The crop must already be watermark-free —
-    it becomes the KSampler latent AND the ReferenceLatent (no SetLatentNoiseMask). Isolated
-    seam so tests can mock the GPU round-trip. Raises KleinModelsMissing if a required asset
-    vanished between preflight and here (so the route can 409 + auto-download).
+    """Enqueue one native full-edit job on `crop_img` and return (rendered_image, None) or
+    (None, error). Whatever is passed becomes the KSampler latent AND the ReferenceLatent
+    (no SetLatentNoiseMask) — a PRE-FILLED crop on the box-repair lane, the WHOLE photo on
+    the clean lane. Isolated seam so tests can mock the GPU round-trip. Raises
+    KleinModelsMissing if a required asset vanished between preflight and here (so the
+    route can 409 + auto-download).
 
     `klein_model`: the bare file name this pass must run on — the DATASET's stored
     pick when the images belong to one. None keeps the historical auto-resolution,
@@ -565,6 +684,10 @@ def _run_klein_job(user_id, crop_img, *, seed, steps=KLEIN_STEPS,
     workflow['77']['inputs']['seed'] = int(seed)
     workflow['77']['inputs']['steps'] = max(1, int(steps))
     workflow['77']['inputs']['denoise'] = float(denoise)
+    # Pinned from here, not read from the JSON: both lanes' recipes name a sampler and a
+    # cfg, and a hand-edit of the shipped graph would otherwise move them silently.
+    workflow['77']['inputs']['sampler_name'] = KLEIN_SAMPLER
+    workflow['77']['inputs']['cfg'] = KLEIN_CFG
     workflow['9']['inputs']['filename_prefix'] = f'wmklein_{uid}'
 
     job_id = str(uuid.uuid4())
@@ -960,13 +1083,27 @@ def compare_preview(user_id, image_path, boxes, *, klein_model, seed,
 def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cpu',
                             timeout=KLEIN_TIMEOUT,
                             klein_model=None, prompt=None) -> tuple[bool, dict | None]:
-    """Remove the watermark(s) at normalized `boxes` from `image_path` via PREFILL + Klein
-    full-edit refine + pixel-space composite, overwriting the file in place (WEBP q92, same
-    as LaMa; the caller preserves the .orig). Returns the `(ok, error)` tuple contract:
-    `error` is None on success, else {'kind', 'detail'} (kind 'unavailable' when Klein or the
-    prefill engine isn't ready, 'failed' otherwise). Preserves every pixel outside the
-    mask+feather. `device` selects the prefill LaMa device ('cpu' by default so the pending
-    ComfyUI GPU job runs alone; Klein itself always owns the GPU via ComfyUI).
+    """Klein, on `image_path`, in place — the 🧽 watermark CLEAN or the ✦ BOX repair.
+
+    ONE entry point, TWO lanes, and `prompt` is the switch (see the module docstring):
+
+    * `prompt` empty → the CLEAN. `boxes` are ERASED on the whole photo first (LaMa /
+      cv2 TELEA, no crop), then the WHOLE photo is re-rendered by Klein under the
+      instruction "remove watermark" (4 steps, euler, cfg 1, denoise 1.0). The zones no
+      longer bound the repaint — they keep Klein from re-inventing the mark it would
+      otherwise see in its own reference — and the pass still clears marks the detector
+      missed. The result is a new render of the entire frame at its original
+      dimensions: nothing is byte-preserved any more, ↩ Restore original is the way back.
+    * `prompt` given → the BOX repair: prefill, Klein refine of a padded crop, per-zone
+      seam harmonization, and a feathered paste of the `boxes` footprint only. Every
+      pixel outside it keeps its ORIGINAL bytes. Unchanged since 2026-07-17.
+
+    Returns the `(ok, error)` tuple contract: `error` is None on success, else
+    {'kind', 'detail'} — 'unavailable' when Klein or the prefill engine is not ready,
+    'failed' otherwise. The file is overwritten losslessly in its own format; the caller
+    is the one that preserved the `.orig` sibling.
+    `device` selects the prefill LaMa device on BOTH lanes ('cpu' by default so the
+    pending ComfyUI GPU job runs alone; Klein itself always owns the GPU via ComfyUI).
     `klein_model`: see _run_klein_job — the dataset's pick, or None (auto) when the
     caller has no dataset to inherit from."""
     if not is_available():
@@ -976,11 +1113,88 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
         original = Image.open(image_path).convert('RGB')
     except (OSError, ValueError) as e:
         return False, {'kind': 'failed', 'detail': f'unreadable image: {e}'}
-    W, H = original.size
     norm = _normalize_boxes(boxes)
     if not norm:
         return False, {'kind': 'failed', 'detail': 'no valid watermark box'}
+    if (prompt or '').strip():
+        return _repair_boxes_crop_and_stitch(user_id, image_path, original, norm, seed=seed,
+                                             device=device, timeout=timeout,
+                                             klein_model=klein_model, prompt=prompt)
+    return _clean_full_frame(user_id, image_path, original, norm, seed=seed, device=device,
+                             timeout=timeout, klein_model=klein_model)
 
+
+def _clean_full_frame(user_id, image_path, original, norm=None, *, seed=None,
+                      device='cpu', timeout=KLEIN_TIMEOUT,
+                      klein_model=None) -> tuple[bool, dict | None]:
+    """The 🧽 clean (maintainer's 2026-08-31 recipe): ERASE the detected zones on the
+    whole photo, hand that whole photo to Klein under "remove watermark", and write the
+    render back at the file's own size.
+
+    TWO STEPS, and the first one is not optional when zones are known. Without it, Klein
+    does not delete a logo it can see in its own reference — it REINTERPRETS it, and the
+    disc-with-a-mountain came back as a moon in the sky (measured, three runs, three
+    seeds; the detector scores that 0 zones and never catches it). Erasing the zones
+    first — TELEA/LaMa on the FULL frame, `KLEIN_MASK_EXPAND_PX` of margin, no crop and
+    no compositing — removed every ghost while the pass kept clearing what the detector
+    had MISSED. That is the July "poisoned reference" doctrine holding on this lane too,
+    and it is why the clean is not simply the naked recipe.
+
+    `norm` is the validated zone list. Empty/None is the DEGRADED case: the naked pass
+    still runs (it is what clears a tiled mark, which has no zones worth erasing) and
+    still removes marks, but the ghost-glyph risk above comes back with it. No caller
+    reaches that path today — every one of them derives boxes before calling.
+
+    The frame travels at KLEIN_MASK_MAX_MP at most, snapped to the latent stride and
+    never magnified (`_mask_frame_size`, shared with the masked lane) — a 24 MP photo is
+    not worth 12× the VRAM on a box that also runs ComfyUI and possibly a training run.
+    The margin is applied in SENT pixels, where the erasing actually happens. The render
+    comes back at that sent size and is resampled to the ORIGINAL dimensions, because a
+    clean must never change the shape of a dataset image."""
+    W, H = original.size
+    sent_size = _mask_frame_size(W, H)
+    frame = original if original.size == sent_size else original.resize(sent_size, Image.LANCZOS)
+
+    if norm:
+        # Boxes grown by the margin and re-normalized against the SENT frame — the
+        # crop helper does exactly this when the "crop" is the whole picture.
+        sw, sh = sent_size
+        erase = _crop_boxes_norm((0, 0, sw, sh), sw, sh, norm)
+        if erase:
+            # Same engine order as the box lane (LaMa, else cv2 TELEA, else abort with
+            # 'unavailable' so the caller skips the row and says "install the ML
+            # extras"). Aborting is deliberate: with no engine the naked pass would
+            # silently paint moons and report success.
+            frame, err = _prefill_region(frame, erase, device=device)
+            if err:
+                return False, err
+
+    seed = random.randint(0, 2 ** 63 - 1) if seed is None else int(seed)
+    rendered, err = _run_klein_job(user_id, frame, seed=seed, steps=KLEIN_CLEAN_STEPS,
+                                   denoise=KLEIN_DENOISE, timeout=timeout,
+                                   klein_model=klein_model, prompt=KLEIN_CLEAN_PROMPT)
+    if err:
+        return False, err
+    result = rendered if rendered.size == (W, H) else rendered.resize((W, H), Image.LANCZOS)
+    try:
+        image_encoding.save_edit(
+            result, image_path, image_encoding.format_for_path(image_path, original),
+            image_encoding.LOSSLESS)
+    except (OSError, ValueError) as e:
+        return False, {'kind': 'failed', 'detail': f'could not save cleaned image: {e}'}
+    return True, None
+
+
+def _repair_boxes_crop_and_stitch(user_id, image_path, original, norm, *, seed=None,
+                                  device='cpu', timeout=KLEIN_TIMEOUT, klein_model=None,
+                                  prompt=None) -> tuple[bool, dict | None]:
+    """The ✦ prompted BOX repair: prefill + Klein full-edit refine of a padded crop +
+    per-zone harmonization + feathered composite of the boxes' footprint only.
+
+    Every pixel outside that footprint keeps its ORIGINAL bytes — the promise this lane
+    is sold on, and the reason the 2026-08-31 move to full-frame cleaning stopped at the
+    clean. `norm` is already normalized/validated by the caller."""
+    W, H = original.size
     crop_box = _klein_crop_box(W, H, norm)
     cw, ch = crop_box[2] - crop_box[0], crop_box[3] - crop_box[1]
     crop_img = original.crop(crop_box)
@@ -1026,5 +1240,5 @@ def inpaint_watermark_klein(user_id, image_path, boxes, *, seed=None, device='cp
             result, image_path, image_encoding.format_for_path(image_path, original),
             image_encoding.LOSSLESS)
     except (OSError, ValueError) as e:
-        return False, {'kind': 'failed', 'detail': f'could not save cleaned image: {e}'}
+        return False, {'kind': 'failed', 'detail': f'could not save repaired image: {e}'}
     return True, None

@@ -1397,7 +1397,8 @@ def dataset_watermarks_clean(dataset_id):
     """Apply crop/inpaint/review routing to the 'detected' images. Crop uses PIL. The
     inpaint engine follows {method:'auto'|'lama'|'klein'} (default 'auto'): LaMa follows
     Settings > Captioning & quality (Auto/GPU/CPU) and pauses ComfyUI through the
-    exclusive vision window on a GPU pass; Klein does masked crop-and-stitch inpaint
+    exclusive vision window on a GPU pass; Klein erases the detected zones and then
+    re-renders the whole photo (one "remove watermark" edit of the entire frame)
     through the serialized ComfyUI queue (no vision window — that would deadlock the
     worker). Returns counts + the inpaint error. Optional {image_ids:[...]} scopes the
     pass to a subset (the review lightbox cleans one image at a time); omitted → every

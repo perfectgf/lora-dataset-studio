@@ -2222,10 +2222,31 @@ launch by hand** — cheapest and safest first:
    GPU, no invented pixel: it simply trims the band up to the mark, and only
    when the image stays big enough to train on. Anything it can't crop that way
    is left flagged, on purpose.
-2. **🧽 Inpaint** repaints what's left. **LaMa** (fast, non-generative) handles
-   small off-centre marks and leaves marks *on the subject* flagged; **Klein**
-   (slower, via ComfyUI) also clears those. Each engine says what to install
-   when it isn't ready, and the button stays off rather than failing mid-pass.
+2. **🧽 Inpaint** repaints what's left. **LaMa** (fast, non-generative) repaints
+   the marked zones and leaves marks *on the subject* flagged. **Klein** (slower,
+   via ComfyUI) works in two steps: the zones the scan found are **erased** on the
+   photo, and then the **whole photo** is re-rendered with the instruction to
+   remove the watermarks. The erasing is what stops the model handing the mark
+   back; the whole-photo pass is what also clears the marks the scan *missed* — a
+   mark tiled across the picture, one on the subject, one the detector boxed in
+   the wrong place. The price is an image whose every pixel is regenerated. Each
+   engine says what to install when it isn't ready, and the button stays off
+   rather than failing mid-pass.
+
+   **It is a generative pass, not a mask, so read the result.** Measured on the
+   shipped settings: a photo tiled wall-to-wall with a mark came back with all
+   twelve zones gone and looking clean — the case that was hopeless before,
+   because there was no unmarked area to copy from. A photo carrying seven
+   distinct logos came back with all seven gone. What can still survive is a mark
+   **nobody found**: nothing erased that one, so the model is free to keep it.
+
+   **Why the erasing matters, in one measured example.** Run without it, the same
+   photo came back with a round logo *redrawn* as a plausible **moon in the sky**
+   — the model reinterpreting a mark it could still see rather than deleting it.
+   A re-run of 🚩 Find watermarks sees nothing wrong with an image like that (a
+   moon is not a watermark), so it would stay marked *cleaned* and no later step
+   would catch it. Erasing the zones first removed every trace of that. It is
+   still worth a look at the picture.
 
 Each step shows how many images it still has to work on and how many it has
 already handled, so you can see where the funnel stands. **Your source files are
@@ -2404,8 +2425,14 @@ exists; use **↩ Undo cleaning** first.
 
 What the two cleaning steps then do with your mask:
 
-- **🧽 Inpaint repaints exactly the zones you drew** — all of them, including a
-  zone sitting on the subject, which is precisely what a hand mask is for.
+- **🧽 Inpaint acts on the zones you drew** — all of them, including a zone
+  sitting on the subject, which is precisely what a hand mask is for. **On
+  LaMa** they are exactly what gets repainted, and nothing else is touched. **On
+  Klein** they are erased from the photo first and then the whole picture is
+  re-rendered, so your zones decide what is guaranteed to go, while the pass also
+  clears marks you did not draw — and everything else is re-rendered with them.
+  Drawing zones therefore buys precision on LaMa, and on Klein it buys certainty
+  about the marks you pointed at.
 - **✂ Auto-crop skips a hand-masked image.** A crop can only cut one border
   band; it cannot express several zones or a mark on the subject, so cropping
   the old box would remove pixels you did not point at.

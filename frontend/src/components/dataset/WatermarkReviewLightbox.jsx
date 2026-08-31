@@ -28,6 +28,7 @@ import { requestHelpTip } from '../../help/helpTips';
 import KleinModelSetting from '../shared/KleinModelSetting';
 import { displayLabel } from '../../utils/labels';
 import { localEngineUnavailableReason } from '../../utils/localEngineReason.js';
+import { KLEIN_CLEAN_TITLE } from '../../utils/watermarkCleanEngine.js';
 import {
   MAX_WATERMARK_REGIONS,
   buildWatermarkReviewState,
@@ -42,7 +43,7 @@ const ROUTE_LABEL = {
   crop: { icon: '✂', text: 'Crop the watermarked border', cls: 'text-sky-300' },
   lama: { icon: Brush, text: 'Inpaint the mark (LaMa)', cls: 'text-emerald-300' },
   review: { icon: Eye, text: 'On the subject — needs manual review', cls: 'text-amber-300' },
-  klein: { icon: Palette, text: 'Masked Klein inpaint (crop-and-stitch)', cls: 'text-emerald-300' },
+  klein: { icon: Palette, text: 'Erase the zones, re-render the whole photo (Klein)', cls: 'text-emerald-300' },
 };
 
 // Per-image outcome after an action. Terminal ones leave the 'detected' set (badge
@@ -751,7 +752,7 @@ export default function WatermarkReviewLightbox({ datasetId, queue, caps, nonces
             <button type="button" aria-pressed={kleinSelected} onClick={() => setMethod('klein')}
               disabled={working || useCrop || !kleinReady}
               title={kleinReady
-                ? 'Klein: masked Flux.2 inpaint (crop-and-stitch). Cleans complex texture and marks ON the subject; only the mark changes.'
+                ? KLEIN_CLEAN_TITLE
                 : (kleinReason
                   || 'Klein inpaint needs ComfyUI running + the Klein models installed (Setup ▸ ComfyUI).')}
               className={`px-2.5 py-1 rounded-md font-semibold disabled:opacity-40 ${kleinSelected

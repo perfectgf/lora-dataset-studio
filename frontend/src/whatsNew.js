@@ -116,6 +116,24 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-08-31-klein-cleans-the-whole-photo',
+    date: '2026-08-31',
+    title: 'Klein now cleans watermarks it could never reach before',
+    blurb:
+      'Pick Klein on 🧽 Clean and it now erases the zones it found, then hands the '
+      + 'whole photo to the model with one instruction — remove the watermarks — '
+      + 'instead of repainting a crop around each box. So it clears the marks the '
+      + 'scan missed as well: a stock photo tiled with a logo, the case that used '
+      + 'to be hopeless because there was no clean area to copy from, comes back '
+      + 'clear, and so does a mark on the subject or one boxed in the wrong place. '
+      + 'The trade is that the picture is re-rendered rather than patched, so '
+      + 'details shift outside the marks too, and a mark nobody detected can '
+      + 'survive — look at the result, and ↩ Restore original brings your file '
+      + 'back. LaMa is unchanged, and so is ✦ Repair: a repair you aim at a drawn '
+      + 'box still leaves everything outside it untouched.',
+    to: '/datasets?section=curation&panel=watermarks',
+  },
+  {
     id: '2026-08-31-deep-zone-hunt',
     date: '2026-08-31',
     title: 'Watermark zones: the detector now finds the small and repeated marks',

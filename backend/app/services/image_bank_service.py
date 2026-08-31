@@ -9067,9 +9067,13 @@ def start_watermark_inpaint(app, user_id, bank_id, method='auto', target='all',
                             statuses=None, ids=None, klein_model=None):
     """Level 2 — repaint what is STILL flagged after the crop level.
     ``method``: 'auto'/'lama' (LaMa, non-generative, small off-centre marks; marks
-    on the subject stay flagged for manual review) or 'klein' (masked Flux.2 Klein
-    through ComfyUI, which also handles on-subject marks). RuntimeError (→ 503) on
-    a missing engine or a busy GPU, ValueError (→ 400) on a bad method / empty pool.
+    on the subject stay flagged for manual review) or 'klein' (the detected zones are
+    ERASED, then Flux.2 Klein is handed the WHOLE photo through ComfyUI with the
+    instruction to remove the watermarks — so it also reaches on-subject and tiled
+    marks the scan missed, generatively, and re-renders the rest of the frame with
+    them; a mark nothing detected can survive. Measurements in watermark_klein's
+    module docstring). RuntimeError (→ 503) on a missing engine or a busy GPU,
+    ValueError (→ 400) on a bad method / empty pool.
 
     ``statuses``/``ids`` narrow WHERE the repaint applies — the same two dials as
     every other pass, and the same intersection rule. This level REPAINTS PIXELS,

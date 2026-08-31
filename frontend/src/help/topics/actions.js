@@ -19,7 +19,7 @@ export const ACTION_TOPICS = [
     ['watermark', 'clean', 'find', 'lama', 'klein', 'crop', 'remove'],
     '/datasets?section=curation&panel=watermarks', 'settings-reference', 'captioning-quality',
     { trigger: 'watermark-batch-clean',
-      text: 'Clean has two engines — LaMa (fast) and Klein (quality) — and auto-crop can be turned off.' }),
+      text: 'Clean has two engines — LaMa repaints the marked zones, Klein re-renders the whole photo — and auto-crop can be turned off.' }),
   action('action-dataset-reject-flagged', 'Reject every flagged image at once',
     ['reject all', 'reject flagged', 'bulk reject', 'watermark', 'flagged', 'shortcut',
      'undo reject', 'bring back', 'rejected', 'false positive', 'stop watermark scan',

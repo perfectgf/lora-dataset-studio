@@ -10153,9 +10153,14 @@ def clean_watermarks(user_id, dataset_id, image_ids=None, device='cpu', method='
       - 'auto'/'lama' → LaMa (fast, non-generative) for small off-center marks; on-subject
         marks stay 'review'. Uses the resolved CPU/GPU `device`; GPU mode is protected by
         the route's exclusive window.
-      - 'klein' → masked Flux.2 Klein inpaint + pixel-space composite for the off-center
-        AND the on-subject marks (making 'review' actionable). Each image is one serialized
-        ComfyUI round-trip; `device` is irrelevant (ComfyUI owns the GPU).
+      - 'klein' → the stored boxes are ERASED on the photo, then Flux.2 Klein is handed
+        the WHOLE frame with the instruction to remove the watermarks, for the off-center
+        AND the on-subject marks (making 'review' actionable). The boxes no longer scope
+        the repaint — they keep Klein from re-inventing a mark it can see — and the frame
+        comes back re-rendered, so what the detector MISSED is cleaned too
+        (watermark_klein's module docstring carries the 2026-08-31 measurements). Each
+        image is one serialized ComfyUI round-trip; `device` picks the erase engine's
+        device only (ComfyUI owns the GPU for the render itself).
 
     LaMa absent (probe False) is NOT an error: LaMa-routed images are counted as
     `skipped` (crop still runs) so the UI can nudge "install the ML extras". Klein absent
@@ -10413,7 +10418,11 @@ def repair_image_region(user_id, dataset_id, image_id, boxes, prompt, *,
     TWO GEOMETRIES, ONE GESTURE. `boxes` alone keeps the crop-and-stitch lane:
     a square is cut around the box and magnified to ~1 MP, which is fast and
     bounds VRAM whatever the photo weighs — the right tool for a mark in a
-    corner. A painted `mask` instead sends the WHOLE frame with that mask, so
+    corner. It is the caller's free `text` that holds this lane there: an
+    `inpaint_watermark_klein` call with no prompt is the 🧽 CLEAN, which since
+    2026-08-31 re-renders the entire photo. A repair keeps its byte-exact
+    outside, which is the whole reason the button exists.
+    A painted `mask` instead sends the WHOLE frame with that mask, so
     Klein reconstructs a necklace or a pair of glasses while actually seeing the
     face they sit on. Same preserve/snapshot/promote safety either way; only the
     geometry handed to the model differs. (Masked lane contributed by OneCodingDude

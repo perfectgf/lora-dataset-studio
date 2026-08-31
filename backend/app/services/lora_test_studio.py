@@ -4007,7 +4007,9 @@ def repair_generated_image(user_id, image_id, boxes, prompt, *,
     fds.take_repair_snapshot(path)
     try:
         # A brush stroke goes through the full frame (Klein sees the whole
-        # picture); a drawn box keeps the cheaper crop-and-stitch lane.
+        # picture); a drawn box keeps the cheaper crop-and-stitch lane, which
+        # the free `text` is what selects — the same call with NO prompt is the
+        # 🧽 clean, and that one re-renders the entire photo (2026-08-31).
         if pil_mask is not None:
             ok, err = watermark_klein.inpaint_mask_klein(
                 user_id, staged, mask=pil_mask, seed=seed,
