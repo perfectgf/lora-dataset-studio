@@ -880,23 +880,29 @@ def link_completed_clip(job_id, filename, failed=False, reason=None):
 
 
 def _bring_clip_home(filename):
-    """Move the finished mp4 out of ComfyUI's output dir into the app's own.
+    """Bring the finished mp4 out of ComfyUI's output dir into the app's own.
 
-    Disk move first, HTTP `/view` fetch as the fallback: a ComfyUI pointed at a
+    Disk claim first, HTTP `/view` fetch as the fallback: a ComfyUI pointed at a
     custom output directory (`--output-directory`, the desktop app's setting)
     has a path this app cannot know, but its API serves the file regardless.
     A failure here is not fatal — the row keeps the filename and the clip is
     still readable from ComfyUI.
     """
     from . import lora_test_studio as lts
+    from ..utils import comfy_fs
     dst = os.path.join(str(clips_dir()), filename)
     if os.path.exists(dst):
         return
     out_dir = lts._comfy_output_dir()
     src = os.path.join(out_dir, filename) if out_dir else None
     try:
-        if src and os.path.exists(src):
-            shutil.move(src, dst)
+        # Same claim as the two image lanes: copy into place, treat dest-present
+        # as success, unlink the source only if it lets us. A mp4 ComfyUI has
+        # just flushed is the likeliest of our outputs to still be held open,
+        # and `shutil.move`'s copy+unlink fallback raised AFTER the bytes had
+        # landed — the half-claimed clip then satisfied the `dst` guard above
+        # for good, and the /view fallback below was skipped by the raise.
+        if src and comfy_fs.claim_output_file(src, dst):
             return
         from ..utils.comfyui import fetch_output_image_bytes
         data = fetch_output_image_bytes(filename)

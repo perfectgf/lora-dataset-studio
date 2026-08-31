@@ -154,6 +154,46 @@ def test_a_finished_job_lands_on_its_clip(app, monkeypatch):
         assert row.status == 'done' and row.filename == 'clip_00001.mp4'
 
 
+def test_a_clip_lands_even_when_comfyui_still_holds_the_mp4(app, tmp_path, monkeypatch):
+    """The claim brings the bytes home; the locked original is left behind.
+
+    `_bring_clip_home` used to `shutil.move`, whose copy+unlink fallback raises
+    AFTER the copy — on a freshly flushed mp4 that Windows still reports as in
+    use. The `except OSError` swallowed it, so the clip looked done while `dst`
+    held a half-written file that the early `os.path.exists(dst)` return then
+    accepted forever. A video is the biggest, slowest output this app claims,
+    so it is the one most likely to still be open.
+    """
+    import os
+    from app.services import lora_test_studio as lts
+    from app.services import video_test_studio as vts
+    from app.utils import comfy_fs
+
+    out_dir = tmp_path / 'output'
+    out_dir.mkdir()
+    (out_dir / 'held.mp4').write_bytes(b'MP4DATA')
+    clips = tmp_path / 'clips'
+    clips.mkdir()
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: clips)
+    monkeypatch.setattr(lts, '_comfy_output_dir', lambda: str(out_dir))
+    monkeypatch.setattr(comfy_fs, '_OUTPUT_LOCK_RETRY_DELAY', 0)
+
+    def locked_unlink(path):
+        if os.path.basename(path) == 'held.mp4':
+            err = PermissionError(32, 'used by another process')
+            err.winerror = 32
+            raise err
+        return os.unlink(path)
+
+    monkeypatch.setattr(comfy_fs.os, 'unlink', locked_unlink)
+
+    with app.app_context():
+        vts._bring_clip_home('held.mp4')
+
+    assert (clips / 'held.mp4').read_bytes() == b'MP4DATA'
+    assert (out_dir / 'held.mp4').exists()   # still ComfyUI's; ours is complete
+
+
 def test_a_failed_job_keeps_the_reason_comfyui_gave(app):
     from app.extensions import db
     from app.models import VideoTestClip
