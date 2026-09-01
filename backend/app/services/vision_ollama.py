@@ -132,6 +132,69 @@ def _admit_local_ollama(url, model, keep_alive=None) -> None:
             'The Vision GPU window expired before Ollama could start safely.')
 
 
+def describe_frames_ollama(frames, prompt, *,
+                           ollama_url: str | None = None,
+                           model: str | None = None,
+                           num_predict: int = 600,
+                           num_ctx: int = 8192,
+                           keep_alive: str | int = '5m',
+                           timeout: tuple[float, float] | float = (10, 300)) -> str:
+    """N frames of ONE shot -> a caption, or '' best-effort — the video door of
+    :func:`describe_image_ollama`.
+
+    One request, ``images`` carrying the whole sequence: verified on this
+    machine (2026-09-01 refutation bench) — qwen3-vl through Ollama 0.32 takes
+    16 frames in a single generate call and answers in full. Every frame passes
+    the same safety gate as a single image; an unreadable frame is DROPPED with
+    a log rather than sinking the shot, and no readable frame at all returns ''.
+
+    ``temperature`` is 0, unlike the image door's 0.3: these are training
+    captions, and a caption that changes between two identical runs makes every
+    A/B about the footage unreadable. ``keep_alive`` defaults to a batch-shaped
+    '5m' — a caption pass is never an isolated call — and the pass gives the
+    VRAM back via unload_vision_model() when it ends."""
+    b64s = []
+    for fb in frames:
+        prepared = _ensure_ollama_decodable(fb)
+        if prepared is None:
+            logger.warning('vision_ollama: a frame was unsafe or unreadable — dropped')
+            continue
+        b64s.append(base64.b64encode(prepared).decode('ascii'))
+    if not b64s:
+        return ''
+    try:
+        url = (ollama_url or _ollama_url()).rstrip('/')
+        model_name = model or get_vision_model()
+        payload = {
+            'model': model_name,
+            'prompt': prompt,
+            'images': b64s,
+            'stream': False,
+            'options': {'temperature': 0, 'num_ctx': int(num_ctx),
+                        'num_predict': int(num_predict)},
+            'keep_alive': keep_alive,
+        }
+        _admit_local_ollama(url, model_name, keep_alive=keep_alive)
+        resp = requests.post(f'{url}/api/generate', json=payload, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+        caption = (data.get('response') or '').strip()
+        if caption:
+            return caption
+        thinking = (data.get('thinking') or '').strip()
+        if thinking:
+            # The thinking-variant rescue describe_image_ollama documents: the
+            # answer is the tail of the trace when `response` came back empty.
+            parts = [p.strip() for p in thinking.split('\n\n') if p.strip()]
+            return parts[-1] if parts else thinking
+        return ''
+    except LocalOllamaFenceError:
+        raise
+    except Exception as e:  # noqa: BLE001 — best-effort, like the image door
+        logger.warning('vision_ollama: describe_frames failed: %s', e)
+        return ''
+
+
 def describe_image_ollama(image_bytes: bytes, prompt: str, *,
                           ollama_url: str | None = None,
                           model: str | None = None,

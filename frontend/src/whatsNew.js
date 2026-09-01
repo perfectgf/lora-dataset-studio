@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-captions-follow-what-you-installed',
+    date: '2026-09-01',
+    title: 'Video captions now run on what your machine has — Ollama and LM Studio included',
+    blurb:
+      'No torch Python? If Ollama or LM Studio is running, 🗣 Describe shots '
+      + 'captions through it — the same local server and vision model your image '
+      + 'passes already use — instead of showing a dead ✗. LDS\u2019s own '
+      + 'transformers worker stays the default when available (it feeds the '
+      + 'model real frame timestamps and measures captions in the encoder\u2019s '
+      + 'own tokens), the launch window says which engine will run, and every '
+      + 'caption records which engine wrote it.',
+  },
+  {
     id: '2026-09-01-captions-never-swap-the-scene',
     date: '2026-09-01',
     title: 'NSFW captions can no longer be quietly swapped for an invented scene',

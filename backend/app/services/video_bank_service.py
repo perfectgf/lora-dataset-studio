@@ -559,6 +559,24 @@ def shot_detect_info(bank: VideoBank) -> dict:
     }
 
 
+def _caption_runtime() -> dict:
+    """WHAT RUNS THE MODEL, stated up front on the polled payload. This app
+    drives Ollama, LM Studio and JoyCaption for image work, so "which engine is
+    this?" is a fair question with a wrong-guess cost — and since the backend
+    now follows what the machine HAS, the answer is the resolver's, cached, not
+    a hardcoded sentence."""
+    from . import video_caption
+    from ..capabilities import bank_scoring_gpu_available
+    resolved = video_caption.resolve_backend()
+    return {'engine': resolved['engine'], 'label': resolved['label'],
+            'backend': resolved['backend'], 'model': resolved['model'],
+            'available': resolved['available'], 'reason': resolved['reason'],
+            # 'gpu'/'cpu' is the pinned vocabulary of this payload; a local
+            # server's device is ITS business, so that side says nothing.
+            'device': (('gpu' if bank_scoring_gpu_available() else 'cpu')
+                       if resolved['backend'] == 'transformers' else None)}
+
+
 def caption_model_info() -> dict:
     """Which checkpoint will caption, and whether this machine already has it.
 
@@ -568,7 +586,6 @@ def caption_model_info() -> dict:
     edited by hand."""
     from . import video_caption
     model = video_caption.configured_model()
-    from ..capabilities import bank_scoring_gpu_available
     return {'model': model, 'cached': video_caption.model_is_cached(model),
             'is_default': model == video_caption.DEFAULT_MODEL,
             # The prompt style matters MORE than the checkpoint on real footage
@@ -584,8 +601,7 @@ def caption_model_info() -> dict:
             # Ollama that has nothing to do with it). Video captioning is LDS's
             # own local worker — Hugging Face Transformers in the inference
             # venv — and the device is the same answer start_caption will give.
-            'runtime': {'engine': 'transformers-local',
-                        'device': 'gpu' if bank_scoring_gpu_available() else 'cpu'}}
+            'runtime': _caption_runtime()}
 
 
 def _capability() -> dict:
@@ -2063,9 +2079,13 @@ def _camera_job(bank_id, rescan):
 
 
 def _caption_available():
-    """None when this install can caption, else the sentence saying why not."""
-    from .video_caption_worker import unavailable_reason
-    return unavailable_reason()
+    """None when this install can caption, else the sentence saying why not.
+
+    Asks the backend RESOLVER, not the transformers probe alone: a machine
+    without a torch Python but with Ollama or LM Studio running CAN caption,
+    and refusing it the old sentence was the lie this replaces."""
+    from . import video_caption
+    return video_caption.caption_unavailable_reason()
 
 
 def start_caption(app, user_id, bank_id, recaption=False, include_edited=False,
@@ -2112,16 +2132,25 @@ def _caption_job(bank_id, recaption, include_edited, use_gpu, style=None,
         model = video_caption.resolve_model(model_choice)
         chosen_style = (style if style in video_caption.CAPTION_STYLES
                         else video_caption.configured_style())
-        # WHICH model, in the line the user is already watching: two checkpoints
-        # do not write comparable captions, so "captioning shots" alone leaves a
-        # bank nobody can reason about after the setting changes.
-        detail = (f'captioning shots with {model} / {chosen_style} prompt '
-                  f'({"GPU" if use_gpu else "CPU"})')
-        # And whether it is even here yet. The download is allowed — blocking it
-        # would ship a model setting that cannot point anywhere new — but never
-        # in silence: a pass sitting at 0/470 while gigabytes cross someone's
-        # connection is indistinguishable from a hang.
-        notice = video_caption.download_notice(model)
+        backend = video_caption.resolve_backend()
+        # WHICH engine and model, in the line the user is already watching: two
+        # checkpoints do not write comparable captions, so "captioning shots"
+        # alone leaves a bank nobody can reason about after a setting changes.
+        if backend['backend'] == 'local_llm':
+            detail = (f'captioning shots through {backend["label"]} with '
+                      f'{backend["model"] or "its vision model"} / '
+                      f'{chosen_style} prompt')
+            # No HF download can happen on this path — the model lives on the
+            # user's own server — so no download notice either.
+            notice = ''
+        else:
+            detail = (f'captioning shots with {model} / {chosen_style} prompt '
+                      f'({"GPU" if use_gpu else "CPU"})')
+            # And whether it is even here yet. The download is allowed — blocking
+            # it would ship a model setting that cannot point anywhere new — but
+            # never in silence: a pass sitting at 0/470 while gigabytes cross
+            # someone's connection is indistinguishable from a hang.
+            notice = video_caption.download_notice(model)
         if notice:
             detail = f'{detail} — {notice}'
         bank_jobs.progress(job, done=0, total=total, detail=detail)

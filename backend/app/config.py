@@ -470,7 +470,13 @@ DEFAULTS = {
     #   in the Wan encoder's OWN tokens (it truncates past 512 in silence) rather
     #   than estimated from words. Empty = found in this machine's HF caches when
     #   an umT5 snapshot is there, else estimated and labelled as such.
-    'video_caption': {'model': '', 'style': '', 'tokenizer_dir': ''},
+    # backend: which ENGINE captions video — '' (auto: LDS's own transformers
+    #   worker when the Score interpreter can run it, else the local LLM the
+    #   user already operates), 'transformers', or 'local_llm'. Which local
+    #   server and which model are NOT new settings: local_llm.provider and the
+    #   provider's vision_model already say it for the image passes.
+    'video_caption': {'model': '', 'style': '', 'tokenizer_dir': '',
+                      'backend': ''},
     # Optional second semantic space for Image Bank. Its interpreter is recorded
     # separately so ✨ Score may borrow a user's CUDA Python without making the
     # SigLIP2 installer mutate that environment. Existing configs without this

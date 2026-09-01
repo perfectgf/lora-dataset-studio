@@ -59,13 +59,18 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
             guess is "it goes through Ollama" — and the wrong guess costs
             someone a wait on a server that has nothing to do with this pass. */}
         <p className="text-xs text-content-subtle">
-          Runs in LDS&rsquo;s own local captioning process (Hugging Face
-          Transformers{captionModel?.runtime?.device
-            ? `, on the ${captionModel.runtime.device.toUpperCase()}` : ''})
-          — not Ollama or LM&nbsp;Studio. Models download from Hugging Face.
+          {captionModel?.runtime?.backend === 'local_llm'
+            ? `Runs through ${captionModel.runtime.label} — the local server `
+              + 'this machine already operates — using its vision model'
+              + `${captionModel.runtime.model ? ` ${captionModel.runtime.model}` : ''}. `
+              + 'Change either in Settings → Local LLM.'
+            : 'Runs in LDS\u2019s own local captioning process (Hugging Face '
+              + `Transformers${captionModel?.runtime?.device
+                ? `, on the ${captionModel.runtime.device.toUpperCase()}` : ''}) `
+              + '\u2014 not Ollama or LM\u00a0Studio. Models download from Hugging Face.'}
         </p>
 
-        {models.length > 1 && (
+        {captionModel?.runtime?.backend !== 'local_llm' && models.length > 1 && (
           <fieldset>
             <legend className="text-sm font-medium text-content">Model</legend>
             <div className="mt-1 space-y-1.5">

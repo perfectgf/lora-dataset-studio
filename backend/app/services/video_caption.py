@@ -6,9 +6,16 @@ the promotion writes into a clip's `.txt` sidecar — which IS the training prom
 The CLIP pass (video_clip_search.py) already finds what a moment LOOKS like; no
 frame carries "turns and walks away", because that is a fact about time.
 
-⛔ NOT OLLAMA. It fails silently on video on this machine — an empty response,
-no error. See infer/video_caption_infer.py for the whole reasoning and for what
-was verified locally before any of this was written.
+WHICH ENGINE: what this machine HAS (resolve_backend). LDS's own transformers
+worker is the default — native frame timestamps, bf16, the umT5 token count —
+and when no interpreter here can run it, the pass runs through the local LLM
+the user already operates (Ollama or LM Studio, the same vision_llm waist and
+settings the image passes obey). History, dated: on 2026-08-04 Ollama returned
+EMPTY on multi-frame requests on this machine, which is why this lane was born
+transformers-only; remeasured 2026-09-01 (Ollama 0.32, qwen3-vl pulled since):
+16 frames in one call, full answers — the claim expired. The structural guard
+is what actually protects the bank and it applies to EVERY engine: an empty
+answer is stored as an error, never as a caption.
 
 FRAMES DECODED HERE, MODEL RUN THERE, exactly like the embedding pass: PyAV is
 in the Flask venv and torch is not. The frame extraction reuses that pass's own
@@ -124,6 +131,105 @@ def model_is_cached(model_id):
     except Exception:  # noqa: BLE001 — an unreadable cache is not an absent model
         return True
     return False
+
+
+# How long a backend resolution stays trusted. The bank payload carries the
+# runtime line on a 2 s poll; probing Ollama's HTTP port on every poll would
+# turn a status line into load.
+_BACKEND_TTL_S = 15.0
+_backend_cache = {'at': 0.0, 'value': None}
+
+
+def _ollama_reachable(url) -> tuple[bool, str]:
+    """(up, why-not). Own tiny probe on /api/version: capabilities.probe_ollama
+    calls an unconfigured url absent, while the driver itself defaults to
+    127.0.0.1:11434 — this must agree with the driver it speaks for."""
+    import requests
+    try:
+        resp = requests.get(f"{url.rstrip('/')}/api/version", timeout=(3, 5))
+        if resp.status_code < 500:
+            return True, ''
+        return False, f'Ollama answered HTTP {resp.status_code} at {url}'
+    except Exception as e:  # noqa: BLE001 — the reason IS the payload here
+        return False, f'Ollama is not reachable at {url} ({type(e).__name__})'
+
+
+def resolve_backend(fresh=False) -> dict:
+    """Which engine will write the captions, decided by what this machine HAS.
+
+    {'backend': 'transformers'|'local_llm', 'engine', 'label', 'model',
+     'record_id', 'available', 'reason'} — `record_id` is what caption_model
+    records, `reason` the user-facing sentence when nothing can run.
+
+    `video_caption.backend` forces a side ('transformers' | 'local_llm');
+    blank = auto: LDS's own worker when the ✨ Score interpreter can run it —
+    native timestamps and the real umT5 token count — else the local LLM the
+    user already operates. WHICH local server and WHICH model are not new
+    settings: local_llm.provider and the provider's vision_model already say
+    it for the image passes, and two dials for one fact is how they drift."""
+    import time as _time
+    if not fresh and _backend_cache['value'] is not None \
+            and _time.monotonic() - _backend_cache['at'] < _BACKEND_TTL_S:
+        return _backend_cache['value']
+
+    from .. import config as cfg
+
+    def _transformers():
+        from .video_caption_worker import unavailable_reason
+        reason = unavailable_reason()
+        model = configured_model()
+        return {'backend': 'transformers', 'engine': 'transformers-local',
+                'label': 'Transformers', 'model': model, 'record_id': model,
+                'available': reason is None, 'reason': reason}
+
+    def _local():
+        from . import vision_llm
+        prov = vision_llm.provider()
+        label = vision_llm.label(prov)
+        if prov == 'lmstudio':
+            from . import vision_lmstudio
+            model = vision_lmstudio.resolve_model(None)
+            ok = bool(model)
+            why = '' if ok else (f'LM Studio at {vision_lmstudio.base_url()} '
+                                 f'is not running or has no vision model.')
+        else:
+            url = cfg.get('ollama.url') or 'http://127.0.0.1:11434'
+            ok, why = _ollama_reachable(url)
+            from . import vision_ollama
+            model = vision_ollama.get_vision_model()
+        return {'backend': 'local_llm', 'engine': prov, 'label': label,
+                'model': model or '',
+                'record_id': f'{prov}:{model}' if model else prov,
+                'available': ok, 'reason': None if ok else why}
+
+    forced = (cfg.get('video_caption.backend') or '').strip().lower()
+    if forced == 'transformers':
+        chosen = _transformers()
+    elif forced == 'local_llm':
+        chosen = _local()
+    else:
+        chosen = _transformers()
+        if not chosen['available']:
+            alt = _local()
+            if alt['available']:
+                chosen = alt
+            else:
+                # Both absent: ONE sentence naming both, because "install a
+                # torch Python" is the wrong advice for someone who runs Ollama.
+                chosen = dict(chosen)
+                chosen['reason'] = (f"{chosen['reason']} No local LLM could "
+                                    f"step in either: {alt['reason']}")
+    _backend_cache['value'] = chosen
+    _backend_cache['at'] = _time.monotonic()
+    return chosen
+
+
+def caption_unavailable_reason():
+    """None when SOMETHING here can caption, else the sentence saying why not —
+    the start gate's question, so it probes fresh rather than trusting a poll's
+    cache."""
+    resolved = resolve_backend(fresh=True)
+    return None if resolved['available'] else resolved['reason']
 
 
 def umt5_tokenizer_dir():
@@ -553,7 +659,7 @@ def run_captions(bank_id, recaption=False, *, include_edited=False, on_clip=None
     `should_stop` is polled at each clip BOUNDARY — a graceful cancel, the same
     contract as the image lane's caption batch: what is done is kept, and the
     next run starts where this one stopped."""
-    from .video_caption_worker import CaptionWorker
+    from .video_caption_worker import CaptionWorker, LocalLlmCaptionWorker
     bank = db.session.get(VideoBank, bank_id)
     if bank is None:
         return {'captioned': 0, 'failed': 0, 'model': model or configured_model(),
@@ -568,8 +674,19 @@ def run_captions(bank_id, recaption=False, *, include_edited=False, on_clip=None
     scratch = tempfile.mkdtemp(prefix=f'lds-vcap-{bank_id}-')
     captioned = failed = 0
     try:
-        with CaptionWorker(use_gpu=use_gpu, model=model,
-                           tokenizer_dir=umt5_tokenizer_dir()) as worker:
+        backend = resolve_backend()
+        if backend['backend'] == 'local_llm':
+            # What the user installed writes the captions. caption_model gets
+            # the engine-prefixed id so a bank captioned across engines stays
+            # readable; no umT5 count arrives from an HTTP server, so the
+            # preflight estimates and labels it — exactly the C12-C fallback.
+            model = backend['record_id']
+            worker_cm = LocalLlmCaptionWorker(provider=backend['engine'],
+                                              model=backend['model'])
+        else:
+            worker_cm = CaptionWorker(use_gpu=use_gpu, model=model,
+                                      tokenizer_dir=umt5_tokenizer_dir())
+        with worker_cm as worker:
             for clip in rows:
                 if should_stop is not None and should_stop():
                     break

@@ -565,6 +565,73 @@ def _image_field(b64: str, data_uri: bool) -> str:
     return f'data:image/jpeg;base64,{b64}' if data_uri else b64
 
 
+def describe_frames(frames, prompt, *,
+                    url: str | None = None,
+                    model: str | None = None,
+                    num_predict: int = 600,
+                    timeout: tuple[float, float] | float = (10, 300)) -> str:
+    """N frames of one shot -> a caption, or '' best-effort — the video door of
+    :func:`describe_image`: one chat call, one image part per frame.
+
+    Each frame passes the same safety gate; an unreadable one is dropped with a
+    log rather than sinking the shot. temperature 0 on purpose — training
+    captions, not conversation — and the same data-URI/bare-b64 memory the
+    image door keeps."""
+    global _data_uri_ok
+    b64s = []
+    for fb in frames:
+        safe = vision_image.ensure_vision_safe_jpeg(fb, provider='vision_lmstudio')
+        if safe is None:
+            logger.warning('vision_lmstudio: a frame was unsafe or unreadable — dropped')
+            continue
+        b64s.append(base64.b64encode(safe).decode())
+    if not b64s:
+        return ''
+    endpoint = _suffix_free(url) if url else base_url()
+    target = resolve_model(model, url=endpoint)
+    if not target:
+        logger.warning('vision_lmstudio: describe_frames skipped: %s',
+                       _no_model_sentence(endpoint))
+        return ''
+    loaded_ok, load_detail = ensure_model_loaded(target, url=endpoint)
+    if not loaded_ok:
+        logger.warning('vision_lmstudio: describe_frames skipped: %s', load_detail)
+        return ''
+    order = [True, False] if _data_uri_ok is not False else [False, True]
+    if _data_uri_ok is True:
+        order = [True]
+    last_status, last_body = None, ''
+    for use_data_uri in order:
+        content = [{'type': 'text', 'text': prompt}] + [
+            {'type': 'image_url', 'image_url': {'url': _image_field(b, use_data_uri)}}
+            for b in b64s]
+        messages = [{'role': 'user', 'content': content}]
+        try:
+            _admit(endpoint, target)
+            resp = _chat(messages, model=target, max_tokens=num_predict,
+                         temperature=0, timeout=timeout, url=endpoint,
+                         as_json=False)
+        except LocalLmStudioFenceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - reported below
+            last_status, last_body = None, str(exc)
+            break
+        if getattr(resp, 'status_code', 0) < 400:
+            try:
+                answer = _answer(resp)
+            except Exception as exc:  # noqa: BLE001 - a proxy's HTML error page
+                last_status, last_body = resp.status_code, str(exc)
+                break
+            _data_uri_ok = use_data_uri
+            return answer
+        last_status, last_body = resp.status_code, resp.text or ''
+        if _INVALID_URL_MARKER not in last_body.lower():
+            break
+    logger.warning('vision_lmstudio: describe_frames failed: %s',
+                   failure_sentence(last_status, last_body))
+    return ''
+
+
 def describe_image(image_bytes: bytes, prompt: str, *,
                    url: str | None = None,
                    model: str | None = None,

@@ -4,13 +4,17 @@ The fourth model worker in this project and the first that reads TIME. ✨ Score
 embeds one image, the CLIP towers encode one image or one phrase; this one is
 handed a sequence of frames and asked what the movement is.
 
-⛔ WHY NOT OLLAMA, pinned here because it is the mistake available for free.
-Ollama fails SILENTLY on video on this machine: the request returns an EMPTY
-response with no error, the fence swallowing everything (`text generate skipped`
-in its logs). A captioner that returns "" and reports success fills a bank with
-empty sidecars — and an empty sidecar is not a neutral default, ai-toolkit trains
-it as an empty prompt and says nothing. So this lane talks to transformers
-directly, where a failure is an exception.
+WHY THIS LANE IS TRANSFORMERS (dated, because the first reason expired):
+on 2026-08-04 Ollama returned EMPTY on multi-frame requests on this machine —
+no error, `text generate skipped` in its logs — and an empty caption stored as
+success fills a bank with empty sidecars ai-toolkit trains as empty prompts.
+Remeasured 2026-09-01 (Ollama 0.32, qwen3-vl): full answers, 16 frames per
+call — so the app now ALSO captions through the user's local LLM when this
+worker's interpreter is missing (see video_caption.resolve_backend). This
+worker stays the default because it holds what an HTTP server cannot offer:
+real per-frame timestamps (VideoMetadata below), bf16 weights, and the umT5
+token count. The structural guard is engine-independent: an empty generation
+is reported as an error, never as a caption.
 
 VERIFIED ON THIS MACHINE BEFORE THIS FILE EXISTED — the video lane's absolute
 rule, no unverified model claim:

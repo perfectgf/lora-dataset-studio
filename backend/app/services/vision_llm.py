@@ -119,6 +119,24 @@ def describe_image(image_bytes: bytes, prompt: str, **kw) -> str:
     return vision_ollama.describe_image_ollama(image_bytes, prompt, **kw)
 
 
+def describe_frames(frames, prompt, **kw) -> str:
+    """A SEQUENCE of frames of one shot + prompt -> text, whichever provider.
+
+    The video captioner's call. Same waist as describe_image so the provider
+    setting keeps meaning one thing; both drivers drop unreadable frames and
+    answer '' best-effort."""
+    if provider() == LMSTUDIO:
+        from . import vision_lmstudio
+        return vision_lmstudio.describe_frames(
+            frames, prompt,
+            url=kw.get('url') or kw.get('ollama_url'),
+            model=kw.get('model'),
+            num_predict=kw.get('num_predict', 600),
+            timeout=kw.get('timeout', (10, 300)))
+    from . import vision_ollama
+    return vision_ollama.describe_frames_ollama(frames, prompt, **kw)
+
+
 def generate_text(prompt: str, **kw) -> str:
     """Text -> text, through whichever provider is configured."""
     if provider() == LMSTUDIO:

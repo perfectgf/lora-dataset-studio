@@ -198,6 +198,93 @@ class CaptionWorker:
         return str(data.get('caption') or '')
 
 
+def frames_time_preamble(n_frames, span_s) -> str:
+    """One sentence telling the model WHEN each frame sits in the shot, or ''.
+
+    The transformers worker hands real VideoMetadata to the processor; an HTTP
+    vision server has no such channel, so time rides in words. Measured
+    (refutation bench, 2026-09-01): textual stamps are accepted and change
+    nothing else — while with NO timing the model reads N stills and every
+    judgement of speed and duration is a guess."""
+    try:
+        n = int(n_frames)
+        span = float(span_s or 0)
+    except (TypeError, ValueError):
+        return ''
+    if n < 2 or span <= 0:
+        return ''
+    stamps = ', '.join(f'{span * i / (n - 1):.1f}s' for i in range(n))
+    return (f'The {n} frames are sampled evenly across a {span:.1f}-second '
+            f'shot, at {stamps}. ')
+
+
+class LocalLlmCaptionWorker:
+    """CaptionWorker's contract, served by the local LLM the user already runs.
+
+    Same seam, same rules: ``caption() -> str``, '' for a per-shot refusal
+    (logged, absorbed by the pass as caption_state='error'), and the historic
+    empty-response failure guarded the same way — an empty answer is never
+    stored as a caption. ``last_tokens`` stays None: there is no umT5 tokenizer
+    behind an HTTP server, so the export preflight falls back to its labelled
+    estimate, exactly as designed.
+
+    The engine and model come from the settings the image passes already obey
+    (local_llm.provider, ollama.vision_model / lmstudio.vision_model) — which
+    server and which tag are ONE fact each, said once."""
+
+    def __init__(self, *, provider=None, model=None):
+        from . import vision_llm
+        self.provider = (provider or vision_llm.provider()).strip().lower()
+        self.label = vision_llm.label(self.provider)
+        self.model = (model or '').strip() or None
+        # What caption_model records: engine-prefixed, so a bank captioned
+        # across engines stays readable row by row.
+        self.loaded_model = (f'{self.provider}:{self.model}' if self.model
+                             else self.provider)
+        self.device = self.label
+        self.token_counter = None
+        self.last_tokens = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        """Give the server's VRAM back, like the image batches do after a run."""
+        try:
+            from . import vision_llm
+            vision_llm.unload_vision_model()
+        except Exception:  # noqa: BLE001 — a failed unload must not fail the pass
+            pass
+
+    def caption(self, frame_paths, prompt, span_s=None):
+        from . import vision_llm
+        frames = []
+        for p in frame_paths:
+            try:
+                with open(p, 'rb') as fh:
+                    frames.append(fh.read())
+            except OSError as e:
+                logger.warning('caption: frame unreadable (%s): %s', p, e)
+        if not frames:
+            self.last_tokens = None
+            return ''
+        full_prompt = frames_time_preamble(len(frames), span_s) + str(prompt)
+        text = str(vision_llm.describe_frames(
+            frames, full_prompt, num_predict=600, keep_alive='5m') or '').strip()
+        self.last_tokens = None
+        if not text:
+            # The reason was already logged by the driver; this line is the one
+            # a caption_state='error' row leads back to.
+            logger.warning('caption worker refused a shot: %s returned an '
+                           'empty caption', self.label)
+            return ''
+        return text
+
+
 def _kill(proc):
     try:
         proc.kill()

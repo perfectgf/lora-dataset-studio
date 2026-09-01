@@ -6,12 +6,13 @@ about time, and no single frame carries it. Captions are the other half of the
 question the user actually asked, and they are also what the trainer reads — a
 promoted clip's `.txt` sidecar is its prompt.
 
-WHY NOT OLLAMA, pinned here because it is the expensive mistake available: Ollama
-fails SILENTLY on video on this machine — an empty response, no error, the fence
-swallowing everything (grep `text generate skipped` in its logs). A captioner
-that returns "" for every clip and reports success would fill a bank with empty
-sidecars, which is exactly the failure ai-toolkit turns into an untrained prompt
-with no message. So this lane runs transformers directly.
+THE ENGINE STORY, dated: on 2026-08-04 Ollama returned EMPTY on video frames
+on this machine (no error, `text generate skipped` in its logs), so this lane
+was born transformers-only. Remeasured 2026-09-01: that claim expired, and the
+pass now falls back to the user's local LLM (Ollama / LM Studio) when no
+interpreter here can run transformers — see test_video_caption_backend. What
+never moved is the structural guard these tests pin: an empty answer is stored
+as an error, never as a caption, whichever engine produced it.
 
 WHAT WAS VERIFIED ON THIS MACHINE BEFORE A LINE WAS WRITTEN (the video lane's
 absolute rule — no unverified model claim):
