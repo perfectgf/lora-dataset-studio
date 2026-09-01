@@ -153,6 +153,38 @@ def video_studio_clip_vfi(clip_id):
     return jsonify({'ok': True, **out})
 
 
+@bp.post('/motion/suggest')
+def video_studio_motion_suggest():
+    """✨ Propose the movement, by looking at the staged start frame.
+
+    A PROPOSAL and the wording says so: the model sees a still, so it can read
+    who is there and how they are posed, never what happens next. The user
+    edits it like any other text.
+    """
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True,
+                        'prompt': vmp.suggest_from_frame(data.get('image'))})
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+
+
+@bp.post('/motion/enhance')
+def video_studio_motion_enhance():
+    """✨ The same intent, with more of the detail a sampler can use.
+
+    Never destructive: a model that answers nothing usable gives the original
+    back rather than emptying a field somebody typed into.
+    """
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify({'ok': True, 'prompt': vmp.enhance(data.get('prompt'))})
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+
+
 @bp.post('/lora/import')
 def video_studio_lora_import():
     """Bring a LoRA the user already has into the picker.
@@ -368,6 +400,17 @@ def video_studio_generate():
         return blocked
     data = request.get_json(silent=True) or {}
     prompt = str(data.get('prompt') or '').strip()
+    # ✨ Enrich at launch. Done HERE, before the graph is built, so the clip row
+    # records the prompt that actually ran — a card naming a prompt the sampler
+    # never read would be the one lie this screen cannot afford. A failed
+    # enrichment keeps the original rather than refusing the launch: the user
+    # asked for a clip, not for an essay.
+    if data.get('enhance') and prompt:
+        from ..services import video_motion_prompt as vmp
+        try:
+            prompt = vmp.enhance(prompt)
+        except (ValueError, TypeError) as exc:
+            logger.info('video studio: launch enrichment skipped: %s', exc)
     mode = 't2v' if str(data.get('mode') or 'i2v').lower() == 't2v' else 'i2v'
     image = data.get('image')
     if mode == 'i2v' and not image:

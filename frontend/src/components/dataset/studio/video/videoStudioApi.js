@@ -22,6 +22,12 @@ export const loraImportUrl = () => '/api/video-studio/lora/import';
 
 /** ↗ Smooth a finished clip — RIFE interpolation, as a new clip. */
 export const clipVfiUrl = (id) => `/api/video-studio/clip/${id}/vfi`;
+
+/** ✨ The Motion field's two helpers: propose from the start frame, or enrich
+ * what is already written. Both answer with a prompt the user can still edit —
+ * neither is a launch. */
+export const motionSuggestUrl = () => '/api/video-studio/motion/suggest';
+export const motionEnhanceUrl = () => '/api/video-studio/motion/enhance';
 export const sourceUrl = () => `${VIDEO_STUDIO_BASE}/source`;
 export const generateUrl = () => `${VIDEO_STUDIO_BASE}/generate`;
 export const clipsUrl = (limit = 24) => `${VIDEO_STUDIO_BASE}/clips?limit=${limit}`;
@@ -81,6 +87,9 @@ export function buildGeneratePayload(state) {
     body.seed = Number(s.seed);
   }
   if (s.steps) body.steps = Number(s.steps);
+  // ✨ Enrich at launch: the SERVER rewrites the motion and records what ran,
+  // so a clip never claims a prompt that is not the one it was made from.
+  if (s.enhance) body.enhance = true;
   if (s.turbo) body.turbo = true;
   if (s.eros) body.eros = true;
   if (s.sparse) body.sparse = s.sparse;

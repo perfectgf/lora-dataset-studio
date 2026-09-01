@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-motion-auto-and-enrich',
+    date: '2026-09-01',
+    title: 'The Motion field writes itself, and can be enriched',
+    blurb:
+      '✨ Auto reads your start frame and proposes the movement; ✨ Enrich '
+      + 'rewrites what you wrote with more of the detail a sampler can use — '
+      + 'both leave the text yours to edit. And a toggle enriches at launch, '
+      + 'recording on the clip the prompt that actually ran. All three go '
+      + 'through the local model you already run for the image passes.',
+  },
+  {
     id: '2026-09-01-bank-improve-carries-the-dials',
     date: '2026-09-01',
     title: 'The bank’s ✨ improve shows the dials it obeys, instead of naming them',

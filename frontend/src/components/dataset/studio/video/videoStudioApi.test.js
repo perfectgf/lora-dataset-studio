@@ -117,3 +117,12 @@ test('the length list falls back rather than inventing lengths', () => {
   assert.ok(fallback.length > 0)
   assert.ok(fallback.every((f) => f % 17 === 5 || [39, 56].includes(f)))
 })
+
+test('the launch carries the enrich flag only when it is asked for', () => {
+  // ✨ Enrich at launch is done SERVER-side so the clip records what actually
+  // ran; the payload's job is only to say whether it was asked for.
+  const on = buildGeneratePayload({ mode: 't2v', prompt: 'she turns', enhance: true })
+  assert.equal(on.enhance, true)
+  const off = buildGeneratePayload({ mode: 't2v', prompt: 'she turns' })
+  assert.equal('enhance' in off, false)
+})

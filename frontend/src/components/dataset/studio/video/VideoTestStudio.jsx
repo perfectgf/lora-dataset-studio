@@ -38,7 +38,7 @@ import VideoSourcePicker from './VideoSourcePicker';
 import { shortLoraName } from './videoLoraGroups';
 import {
   buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
-  isRunning, optionsUrl, clipVfiUrl,
+  isRunning, optionsUrl, clipVfiUrl, motionEnhanceUrl, motionSuggestUrl,
 } from './videoStudioApi';
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
@@ -124,7 +124,7 @@ export default function VideoTestStudio() {
   const generate = async () => {
     setBusy(true);
     try {
-      const body = buildGeneratePayload({
+      const body = buildGeneratePayload({ enhance: enhanceOn,
         mode, prompt, image: source.image, ratio: source.ratio, aspect,
         lora: lora.lora, loraStrength: strength, runId: lora.runId,
         datasetId: lora.datasetId, ...opts,
@@ -164,6 +164,11 @@ export default function VideoTestStudio() {
   // the new card simply appears and renders. `vfiBusy` only guards the double
   // click between the POST and that first poll.
   const [vfiBusy, setVfiBusy] = useState(null);
+  // ✨ The Motion helpers. `motionBusy` names WHICH one is running so the two
+  // buttons cannot both spin, and the enhancer toggle is a per-run choice —
+  // remembered nowhere, because it changes what the sampler reads.
+  const [motionBusy, setMotionBusy] = useState(null);
+  const [enhanceOn, setEnhanceOn] = useState(false);
   const smooth = async (clip) => {
     setVfiBusy(clip.id);
     try {
@@ -174,6 +179,38 @@ export default function VideoTestStudio() {
       toast.error(e?.message || 'That clip could not be smoothed.');
     } finally {
       setVfiBusy(null);
+    }
+  };
+
+  /* ✨ Propose the movement from the staged start frame. A PROPOSAL: the model
+     sees a still, so it can read who is there and how they are posed, never
+     what happens next — the button says "Auto", the note says where it came
+     from, and the text stays editable like anything typed by hand. */
+  const autoMotion = async () => {
+    if (!source.image) { toast.warning('Pick a start frame first.'); return; }
+    setMotionBusy('auto');
+    try {
+      const r = await postJson(motionSuggestUrl(), { image: source.image });
+      if (r?.prompt) setPrompt(r.prompt);
+    } catch (e) {
+      toast.error(e?.message || 'The motion could not be written.');
+    } finally {
+      setMotionBusy(null);
+    }
+  };
+
+  /* ✨ Enrich what is already there. Never destructive: the server returns the
+     original when it has nothing better, so a click can cost time and never
+     the sentence somebody wrote. */
+  const enhanceMotion = async () => {
+    setMotionBusy('enhance');
+    try {
+      const r = await postJson(motionEnhanceUrl(), { prompt });
+      if (r?.prompt) setPrompt(r.prompt);
+    } catch (e) {
+      toast.error(e?.message || 'The motion could not be enriched.');
+    } finally {
+      setMotionBusy(null);
     }
   };
 
@@ -292,13 +329,50 @@ export default function VideoTestStudio() {
           </div>
 
           <label id="vs-motion" className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-3 scroll-mt-16">
-            <span className="text-sm font-semibold text-content">Motion</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-semibold text-content">Motion</span>
+              {/* ✨ Auto writes it from the start frame; ✨ Enrich rewrites what
+                  is there. Both put their answer in the field and stop — the
+                  render is still the user's click, and the text is still
+                  theirs to edit. Auto needs a frame; without one it says so
+                  rather than proposing a movement for no picture. */}
+              <button type="button" onClick={autoMotion}
+                disabled={!!motionBusy || mode === 't2v' || !source.image}
+                title={mode === 't2v'
+                  ? 'Auto reads the start frame — switch to “From an image” to use it'
+                  : (source.image ? 'Write the movement from the start frame'
+                    : 'Pick a start frame first')}
+                className="ml-auto min-h-10 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:text-content disabled:opacity-40 lg:min-h-0">
+                {motionBusy === 'auto' ? '…' : '✨ Auto'}
+              </button>
+              <button type="button" onClick={enhanceMotion}
+                disabled={!!motionBusy || !prompt.trim()}
+                title="Rewrite what is written with more of the detail a sampler can use"
+                className="min-h-10 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:text-content disabled:opacity-40 lg:min-h-0">
+                {motionBusy === 'enhance' ? '…' : '✨ Enrich'}
+              </button>
+            </span>
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
               placeholder="What happens in the shot — she turns her head and smiles, the camera pushes in slowly…"
               className="w-full resize-y rounded-lg border border-border bg-app px-2.5 py-2 text-sm text-content" />
             <span className="text-[0.6875rem] text-content-subtle">
               Describe the movement, not the picture: the start frame already says
               what the scene looks like.
+            </span>
+            {/* The toggle enriches AT LAUNCH — what runs is what the clip
+                records, so a card always names the prompt that really made it.
+                Off by default: it changes what the sampler reads. */}
+            <span className="flex items-start gap-2 rounded-lg border border-border bg-surface-raised px-2 py-1.5 text-[0.6875rem] text-content-muted">
+              <input type="checkbox" checked={enhanceOn} className="mt-0.5"
+                onChange={(e) => setEnhanceOn(e.target.checked)} />
+              <span className="min-w-0">
+                <span className="font-semibold text-content">✨ Enrich at launch</span>
+                <span className="block">
+                  Rewrites the motion with more detail when you press Generate,
+                  and the clip records what actually ran — your field is left as
+                  you typed it.
+                </span>
+              </span>
             </span>
           </label>
         </div>
