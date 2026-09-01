@@ -13,6 +13,7 @@ local LLM the user already operates, through the SAME vision_llm waist and the
 SAME settings as the image passes. No new which-server or which-model dial.
 """
 import json
+from pathlib import Path
 
 import pytest
 
@@ -41,8 +42,8 @@ def test_auto_prefers_the_transformers_worker_when_it_can_run(app, monkeypatch):
     _no_cache(monkeypatch)
     monkeypatch.setattr(vcw, 'unavailable_reason', lambda: None)
     calls = []
-    monkeypatch.setattr(vc, '_ollama_reachable',
-                        lambda url: calls.append(url) or (True, ''))
+    monkeypatch.setattr(vc, '_local_llm_ready',
+                        lambda prov: calls.append(prov) or (True, 'm', ''))
     with app.app_context():
         resolved = vc.resolve_backend(fresh=True)
     assert resolved['backend'] == 'transformers'
@@ -55,10 +56,9 @@ def test_auto_prefers_the_transformers_worker_when_it_can_run(app, monkeypatch):
 def test_auto_falls_back_to_the_local_llm_and_says_which(app, monkeypatch):
     _no_cache(monkeypatch)
     monkeypatch.setattr(vcw, 'unavailable_reason', lambda: 'no torch here')
-    monkeypatch.setattr(vc, '_ollama_reachable', lambda url: (True, ''))
-    from app.services import vision_ollama
-    monkeypatch.setattr(vision_ollama, 'get_vision_model',
-                        lambda: 'qwen3-vl:4b-instruct')
+    # The gate is the app's standard probe: server answering AND model pulled.
+    monkeypatch.setattr(vc, '_local_llm_ready',
+                        lambda prov: (True, 'qwen3-vl:4b-instruct', ''))
     with app.app_context():
         resolved = vc.resolve_backend(fresh=True)
     assert resolved['backend'] == 'local_llm'
@@ -71,14 +71,14 @@ def test_auto_falls_back_to_the_local_llm_and_says_which(app, monkeypatch):
 def test_when_nothing_can_run_the_reason_names_both_absences(app, monkeypatch):
     _no_cache(monkeypatch)
     monkeypatch.setattr(vcw, 'unavailable_reason', lambda: 'no torch here.')
-    monkeypatch.setattr(vc, '_ollama_reachable',
-                        lambda url: (False, 'Ollama is not reachable at x'))
+    monkeypatch.setattr(vc, '_local_llm_ready',
+                        lambda prov: (False, '', 'ollama unreachable: x'))
     with app.app_context():
         resolved = vc.resolve_backend(fresh=True)
         reason = vc.caption_unavailable_reason()
     assert resolved['available'] is False
     # "Install a torch Python" alone is the wrong advice for an Ollama user.
-    assert 'no torch here' in reason and 'Ollama is not reachable' in reason
+    assert 'no torch here' in reason and 'ollama unreachable' in reason
 
 
 def test_forcing_transformers_never_touches_the_network(app, monkeypatch):
@@ -86,9 +86,9 @@ def test_forcing_transformers_never_touches_the_network(app, monkeypatch):
     _cfg(monkeypatch, {'video_caption.backend': 'transformers'})
     monkeypatch.setattr(vcw, 'unavailable_reason', lambda: 'no torch here')
 
-    def boom(url):
+    def boom(prov):
         raise AssertionError('probed the network for a forced side')
-    monkeypatch.setattr(vc, '_ollama_reachable', boom)
+    monkeypatch.setattr(vc, '_local_llm_ready', boom)
     with app.app_context():
         resolved = vc.resolve_backend(fresh=True)
     assert resolved['backend'] == 'transformers'
@@ -98,21 +98,21 @@ def test_forcing_transformers_never_touches_the_network(app, monkeypatch):
 def test_forcing_local_llm_reports_its_own_absence(app, monkeypatch):
     _no_cache(monkeypatch)
     _cfg(monkeypatch, {'video_caption.backend': 'local_llm'})
-    monkeypatch.setattr(vc, '_ollama_reachable', lambda url: (False, 'down.'))
+    monkeypatch.setattr(vc, '_local_llm_ready', lambda prov: (False, '', 'down.'))
     with app.app_context():
         resolved = vc.resolve_backend(fresh=True)
     assert resolved['backend'] == 'local_llm'
     assert resolved['available'] is False
-    assert resolved['reason'] == 'down.'
+    # The provider label leads the sentence, so "down." names WHOSE absence.
+    assert resolved['reason'] == 'Ollama: down.'
 
 
 def test_the_lmstudio_provider_resolves_through_its_own_driver(app, monkeypatch):
     _no_cache(monkeypatch)
     _cfg(monkeypatch, {'video_caption.backend': 'local_llm',
                        'local_llm.provider': 'lmstudio'})
-    from app.services import vision_lmstudio
-    monkeypatch.setattr(vision_lmstudio, 'resolve_model',
-                        lambda preferred=None, **kw: 'qwen3-vl-8b')
+    monkeypatch.setattr(vc, '_local_llm_ready',
+                        lambda prov: (True, 'qwen3-vl-8b', ''))
     with app.app_context():
         resolved = vc.resolve_backend(fresh=True)
     assert resolved['engine'] == 'lmstudio'
@@ -194,9 +194,14 @@ def test_the_local_worker_prepends_time_and_refuses_empty_out_loud(
     def fake(frames, prompt, **kw):
         seen['frames'] = len(frames)
         seen['prompt'] = prompt
+        seen['kw'] = kw
         return ''
     monkeypatch.setattr(vision_llm, 'describe_frames', fake)
-    monkeypatch.setattr(vision_llm, 'unload_vision_model', lambda **kw: True)
+    # The worker gates every frame itself before building the time preamble
+    # (finding 9); the gate is not under test here, so it passes bytes through.
+    from app.services import vision_image
+    monkeypatch.setattr(vision_image, 'ensure_vision_safe_jpeg',
+                        lambda b, provider=None: b)
     p1, p2 = tmp_path / 'a.jpg', tmp_path / 'b.jpg'
     p1.write_bytes(b'x')
     p2.write_bytes(b'y')
@@ -209,8 +214,35 @@ def test_the_local_worker_prepends_time_and_refuses_empty_out_loud(
     assert seen['frames'] == 2
     assert seen['prompt'].startswith('The 2 frames')
     assert seen['prompt'].endswith('PROMPT')
+    # This run's engine and model ride on EVERY request (finding 7): without
+    # them the waist re-reads the config per shot mid-pass.
+    assert seen['kw'].get('provider') == 'ollama'
+    assert seen['kw'].get('model') == 'm'
+    # Read timeout matches the transformers lane's ceiling (finding 9).
+    assert seen['kw'].get('timeout') == (10, vcw.CAPTION_TIMEOUT)
     # The Ollama failure mode of 2026-08-04, guarded on every engine, out loud.
     assert 'caption worker refused a shot' in caplog.text
+
+
+def test_the_worker_refuses_a_shot_whose_frames_mostly_died(app, tmp_path, monkeypatch, caplog):
+    """Finding 9: the drivers drop unsafe frames in silence, and a preamble
+    built on the pre-drop count hands the model a FALSE time grid. The worker
+    now gates frames itself — and one surviving frame is a still, not a shot."""
+    from app.services import vision_image, vision_llm
+    calls = []
+    monkeypatch.setattr(vision_llm, 'describe_frames',
+                        lambda frames, prompt, **kw: calls.append(1) or 'text')
+    monkeypatch.setattr(vision_image, 'ensure_vision_safe_jpeg',
+                        lambda b, provider=None: b if b == b'good' else None)
+    good, bad = tmp_path / 'g.jpg', tmp_path / 'b.jpg'
+    good.write_bytes(b'good')
+    bad.write_bytes(b'bad')
+    with app.app_context():
+        worker = vcw.LocalLlmCaptionWorker(provider='ollama', model='m')
+        with caplog.at_level('WARNING'):
+            out = worker.caption([str(good), str(bad)], 'P', span_s=4.0)
+    assert out == '' and calls == []
+    assert 'only 1 of 2 frames' in caplog.text
 
 
 def test_the_local_worker_records_an_engine_prefixed_id(app):
@@ -335,3 +367,51 @@ def test_the_resolver_result_is_cached_for_the_polls(app, monkeypatch):
     with pytest.raises(TypeError):
         # Guard against a silent signature change: fresh is keyword-friendly.
         vc.resolve_backend(True, True)
+
+def test_the_local_gate_is_the_apps_standard_probe_not_a_ping():
+    """The first cut pinged /api/version and declared available a server whose
+    model was never pulled — and an LM Studio that was OFF, because
+    resolve_model returns the configured id without a network call. Pinned to
+    the standard probes so the gate says the truth before the click."""
+    src = Path(vc.__file__).read_text(encoding='utf-8')
+    assert 'probe_ollama_model' in src
+    assert 'probe_lmstudio_model' in src
+    assert 'def _ollama_reachable' not in src   # the home-grown ping is gone
+
+
+def test_run_captions_surfaces_a_failure_streak_while_it_happens(app, monkeypatch):
+    """A dead engine fails every clip the same way; the image lane surfaces the
+    streak in the job line (_FENCE_STREAK_WARN) and the video lane does the
+    same — the user watching the bar can stop instead of paying for a pass
+    that writes nothing but error rows."""
+    from app.extensions import db
+    from app.models import VideoClip
+
+    class _Fake:
+        def __init__(self, **kw):
+            self.last_tokens = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+    monkeypatch.setattr(vc, 'resolve_backend', lambda fresh=False: {
+        'backend': 'local_llm', 'engine': 'ollama', 'label': 'Ollama',
+        'model': 'm', 'record_id': 'ollama:m', 'available': True, 'reason': None})
+    monkeypatch.setattr(vcw, 'LocalLlmCaptionWorker', _Fake)
+    monkeypatch.setattr(vc, '_write_caption_frames',
+                        lambda src, times, dest, stem: [f'{dest}/{stem}_0.jpg'])
+    monkeypatch.setattr(vc, '_caption_frames', lambda paths, prompt, **kw: '')
+    bank_id = _bank_with_one_clip(app)
+    with app.app_context():
+        for _ in range(vc.FAIL_STREAK_WARN - 1):
+            src_id = VideoClip.query.filter_by(bank_id=bank_id).first().source_id
+            db.session.add(VideoClip(bank_id=bank_id, source_id=src_id,
+                                     start_s=0.0, end_s=5.0))
+        db.session.commit()
+        details = []
+        out = vc.run_captions(bank_id, on_detail=details.append)
+        assert out['failed'] == vc.FAIL_STREAK_WARN
+        assert details, 'the streak must be surfaced while it happens'
+        assert 'in a row' in details[0] and 'stop the pass' in details[0]

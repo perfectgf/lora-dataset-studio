@@ -10,7 +10,6 @@ Three facts this pins, each measured before it was written:
   served INSTEAD of a paragraph cut mid-sentence.
 """
 import json
-import math
 from pathlib import Path
 
 from app.services import video_caption as vc
@@ -22,8 +21,14 @@ WORKER = Path(__file__).resolve().parents[1] / 'app' / 'services' / 'video_capti
 PARA = 'A woman in a red dress walks to the window and turns into the light.'
 TAILED = (PARA + '\n---\nSubject: a woman in a red dress\nMotion: walks to the window and turns\n'
           'Setting: a bright apartment\nStyle: soft daylight\nShort: a woman walks to a bright window')
-FIELDS = json.dumps({'subject': 'a woman', 'motion': 'walks', 'setting': 'a room',
-                     'style': 'soft light', 'short': 'a woman walks in a room'})
+# Complete AND substantial: the serving floor requires all four served fields
+# and at least twenty words between them (a tail the generation cap cut would
+# fail one or the other).
+FIELDS = json.dumps({'subject': 'a young woman in a long red dress',
+                     'motion': 'walks slowly toward the tall window and turns',
+                     'setting': 'a bright, sparsely furnished apartment',
+                     'style': 'soft morning daylight, warm palette',
+                     'short': 'a woman walks to a bright window'})
 
 
 # --- the prompt asks for the tail, after the paragraph -------------------------------
@@ -138,13 +143,17 @@ def test_tokenizer_discovery_reads_the_declared_caches_and_returns_none_when_abs
 # --- the sidecar plan -----------------------------------------------------------------
 
 def test_plan_sidecar_serves_the_paragraph_when_it_fits_the_window():
-    from app.services.video_bank_service import SIDECAR_TOKEN_RESERVE, plan_sidecar
+    from app.services.video_bank_service import (
+        SIDECAR_TOKEN_RESERVE, plan_sidecar, trigger_token_bound,
+    )
     plan = plan_sidecar('mychar', 'a woman walks in soft light', None,
                         fields_json=FIELDS, caption_tokens=200, token_budget=512)
     assert plan['text'] == 'mychar, a woman walks in soft light'
     assert plan['served_short'] is False
     assert plan['measured'] is True
-    assert plan['tokens'] == 200 + SIDECAR_TOKEN_RESERVE
+    # Lines reserve + THIS trigger at its byte ceiling — a flat reserve was
+    # breached by an invented five-word trigger measuring 42 tokens alone.
+    assert plan['tokens'] == 200 + SIDECAR_TOKEN_RESERVE + trigger_token_bound('mychar')
 
 
 def test_plan_sidecar_serves_the_short_form_where_the_encoder_would_cut():
@@ -154,7 +163,10 @@ def test_plan_sidecar_serves_the_short_form_where_the_encoder_would_cut():
     assert plan['served_short'] is True
     # Subject, motion, setting, style — the model's own words, as sentences; the
     # trigger still leads, exactly once.
-    assert plan['text'] == 'mychar, a woman. walks. a room. soft light.'
+    assert plan['text'] == ('mychar, a young woman in a long red dress. '
+                            'walks slowly toward the tall window and turns. '
+                            'a bright, sparsely furnished apartment. '
+                            'soft morning daylight, warm palette.')
     # The short form was not measured by the pass: its count is the estimate.
     assert plan['measured'] is False
 
@@ -176,12 +188,38 @@ def test_plan_sidecar_never_cuts_and_never_invents_a_window():
     assert plan_sidecar('', '', None, token_budget=512)['tokens'] == 0
 
 
-def test_the_estimate_rounds_up_from_the_measured_ratio():
+def test_the_estimate_holds_against_what_refuted_it():
+    """Not a tautology against the constant — the numbers the refutation
+    measured (2026-09-01). 1.4/word undercounts a quarter of single captions
+    but held 0/984 real + 0/1600 synthetic against the 512 window (the ratio
+    falls with length); CJK was its structural blind spot: a ~540-token ZH
+    caption estimated at 42 and cut in silence."""
     from app.services.video_bank_service import TOKENS_PER_WORD, estimate_tokens
-    # 1.36 tokens per word measured over 48 captions; the estimate must not undershoot it.
-    assert TOKENS_PER_WORD >= 1.36
-    assert estimate_tokens('one two three') == math.ceil(3 * TOKENS_PER_WORD)
+    assert TOKENS_PER_WORD >= 1.36          # the measured mean floor
+    assert estimate_tokens('one two three') == 5
     assert estimate_tokens('') == 0 and estimate_tokens(None) == 0
+    # A spaceless CJK caption is one "word" to split(); the char term answers.
+    zh = '一名年轻女子穿着红色连衣裙走向窗户' * 10          # 170 chars, no spaces
+    assert estimate_tokens(zh) >= 170
+    # Mixed text errs toward over — the survivable direction.
+    assert estimate_tokens('a woman 女子') >= estimate_tokens('a woman woman')
+
+
+def test_the_trigger_is_bounded_at_the_byte_ceiling_not_guessed_from_words():
+    """'zylphraxian_cinematic_style_v3' is two words and sixteen real tokens;
+    five invented words measured 42 — word-based estimates fail exactly on the
+    strings triggers are made of. One token per input byte is the ceiling
+    sentencepiece cannot exceed, so the bound is provable, and its overshoot
+    on a friendly trigger only tightens the budget check."""
+    from app.services.video_bank_service import plan_sidecar, trigger_token_bound
+    assert trigger_token_bound('zylphraxian_cinematic_style_v3') >= 16
+    assert trigger_token_bound('') == 0 and trigger_token_bound(None) == 0
+    # The refuter's breach, replayed against the fix: a 45-byte invented
+    # trigger + a 450-token caption must now read over a 512 window.
+    plan = plan_sidecar('zylphraxian glombular vexicated brumthic quorvalent',
+                        ' '.join(['word'] * 300), None,
+                        caption_tokens=450, token_budget=512)
+    assert plan['tokens'] > 512
 
 
 # --- the published window, and only the published one --------------------------------
@@ -219,3 +257,67 @@ def test_the_parent_hands_over_the_tokenizer_and_keeps_the_last_count():
     # A refusal resets the count: a stale number must never be stored on the next clip.
     refusal = src.index('caption worker refused a shot')
     assert 'self.last_tokens = None' in src[refusal:refusal + 400]
+
+def test_a_human_edit_sheds_every_machine_derived_column(app, monkeypatch):
+    """set_caption already refused to credit a checkpoint for human words; the
+    same honesty owes the fields and the token count. Stale ones would serve
+    the OLD caption's facets — and, past the budget, its short form INSTEAD of
+    the human's words in the exported .txt."""
+    from app.models import VideoClip
+    monkeypatch.setattr(vc, '_write_caption_frames',
+                        lambda src, times, dest, stem: [f'{dest}/{stem}_0.jpg'])
+    monkeypatch.setattr(vc, '_caption_frames', lambda paths, prompt, **kw: TAILED)
+    monkeypatch.setattr(vcw, 'CaptionWorker', _FakeWorker)
+    monkeypatch.setattr(vc, 'umt5_tokenizer_dir', lambda: '/m/t')
+    bank_id = _bank_with_one_clip(app)
+    with app.app_context():
+        vc.run_captions(bank_id)
+        clip = VideoClip.query.filter_by(bank_id=bank_id).one()
+        assert clip.caption_fields and clip.caption_tokens == 187
+        row = vc.set_caption('local', bank_id, clip.id, 'My own words.')
+        assert row is not None
+        clip = VideoClip.query.filter_by(bank_id=bank_id).one()
+        assert clip.caption == 'My own words.'
+        assert clip.caption_state == 'edited'
+        assert clip.caption_fields is None
+        assert clip.caption_tokens is None
+
+def test_a_tail_cut_by_the_generation_cap_never_becomes_the_caption():
+    """Review finding 5, the concrete scenario: the model writes 400 words,
+    `---`, `Subject: a woman in a red dre` — cut at the cap. The parse
+    (rightly) returns that one label; without a floor the exported .txt became
+    `mychar, a woman in a red dre.` and the paragraph was silently thrown
+    away. The floor refuses the stump: the paragraph ships WHOLE, stays
+    counted over the window, and the plan says the tail was incomplete."""
+    from app.services.video_bank_service import plan_sidecar
+    stump = json.dumps({'subject': 'a woman in a red dre', 'motion': None,
+                        'setting': None, 'style': None, 'short': None})
+    long_para = ' '.join(['word'] * 400)
+    plan = plan_sidecar('mychar', long_para, None, fields_json=stump,
+                        caption_tokens=560, token_budget=512)
+    assert plan['served_short'] is False
+    assert plan['tail_incomplete'] is True
+    assert plan['text'] == f'mychar, {long_para}'
+    assert plan['tokens'] > 512
+
+
+def test_a_complete_but_skeletal_tail_is_refused_too():
+    """Four labels of one word each pass the completeness check and still
+    cannot stand in for a 400-word paragraph — the length floor (twenty
+    words, what the prompt asks of `short` alone) refuses them."""
+    from app.services.video_bank_service import plan_sidecar
+    thin = json.dumps({'subject': 'woman', 'motion': 'walks', 'setting': 'room',
+                       'style': 'soft', 'short': 'x'})
+    plan = plan_sidecar('', ' '.join(['word'] * 400), None, fields_json=thin,
+                        caption_tokens=560, token_budget=512)
+    assert plan['served_short'] is False and plan['tail_incomplete'] is True
+
+
+def test_the_local_worker_leaves_the_tail_generation_headroom():
+    """The paragraph and the tail compete for one cap and the tail is written
+    last — 600 was exactly enough to cut it on a chatty model. Pinned with its
+    reason so a tidy-up cannot quietly shave it back."""
+    src = WORKER.read_text(encoding='utf-8')
+    assert 'num_predict=800' in src
+    assert 'written LAST' in src
+

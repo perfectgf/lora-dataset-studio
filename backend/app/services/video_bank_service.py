@@ -2102,12 +2102,19 @@ def start_caption(app, user_id, bank_id, recaption=False, include_edited=False,
     whenever the card is usable — and is refused outright while a training run
     owns it, rather than competing with it."""
     from ..capabilities import bank_scoring_gpu_available
+    from . import video_caption
     _require_free_bank(user_id, bank_id)
     reason = _caption_available()
     if reason:
         raise RuntimeError(reason)
     use_gpu = bank_scoring_gpu_available()
-    if use_gpu:
+    # A local-LLM pass drives the SAME GPU through Ollama/LM Studio while
+    # `use_gpu` (the Score interpreter's CUDA probe) reads False on exactly the
+    # machines that route there. Without this, a multi-hour caption pass ran
+    # beside a training run with no refusal and no exclusive window — while the
+    # image lane takes the window unconditionally around its Ollama passes.
+    local_llm = video_caption.resolve_backend()['backend'] == 'local_llm'
+    if use_gpu or local_llm:
         busy = _gpu_busy_reason()
         if busy:
             raise RuntimeError(busy)
@@ -2154,13 +2161,23 @@ def _caption_job(bank_id, recaption, include_edited, use_gpu, style=None,
         if notice:
             detail = f'{detail} — {notice}'
         bank_jobs.progress(job, done=0, total=total, detail=detail)
-        window = (gpu_exclusive_vision_window(flag_ttl=3600) if use_gpu
+        # The window also wraps a local-LLM run: it is the same card, whatever
+        # answers the Score interpreter's CUDA probe (see start_caption).
+        window = (gpu_exclusive_vision_window(flag_ttl=3600)
+                  if (use_gpu or backend['backend'] == 'local_llm')
                   else nullcontext())
         with window:
             out = video_caption.run_captions(
                 bank_id, recaption, include_edited=include_edited,
                 use_gpu=use_gpu, model=model, style=chosen_style,
+                backend=backend,
                 on_clip=lambda: bank_jobs.bump(job),
+                # The failure streak, surfaced WHILE it happens (the image
+                # lane's _FENCE_STREAK_WARN doctrine): a dead server fails
+                # every clip the same way, and the user watching the bar must
+                # be able to stop instead of paying for a pass that writes
+                # nothing but error rows.
+                on_detail=lambda msg: bank_jobs.progress(job, detail=msg),
                 should_stop=lambda: bank_jobs.cancelled(job))
         detail = (f'done — {out["captioned"]} shot(s) captioned by '
                   f'{out["model"]} ({out["style"]} prompt)')
@@ -2525,6 +2542,10 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
         'over_token_budget': (sum(1 for t in token_counts if t > token_budget)
                               if token_budget else 0),
         'served_short': sum(1 for p in plans if p['served_short']),
+        # Over the window WITH a tail the floor refused (cut mid-write, or too
+        # thin): these ship whole and stay in over_token_budget — this counter
+        # keeps them distinguishable from healthy substitutions.
+        'short_blocked': sum(1 for p in plans if p.get('tail_incomplete')),
         'tokens_measured': sum(1 for p in plans if p['measured']),
     }
     if not clip_ids:
@@ -2748,22 +2769,62 @@ _NEAR_SILENCE_RATIO = 0.98
 
 
 # --- C12-C: tokens, where the word counts are only a proxy ---------------------------
-# Measured with umT5's own tokenizer over 48 captions from the shipped prompt
-# (three prompt/frame arms, 2026-09-01): 1.35-1.36 tokens per word, tight. The
-# estimate rounds UP so a caption the estimate clears really clears.
+# Measured with umT5's own tokenizer, twice: 48 bench captions (1.35-1.36 per
+# word) and, adversarially, the 984 captions of a live bank (mean 1.371,
+# p95 1.536, max 1.79 — refutation run, 2026-09-01). So 1.4 does NOT round up
+# per caption (it undercounts 26% of them); what it IS is safe against the
+# 512-token window for this prompt's English, because the ratio FALLS with
+# length (1.40 at 25-50 words → 1.33 at 75-100) and none of 984 real + 1600
+# synthetic captions crossed the window undetected. The structural blind spot
+# was CJK — str.split() saw 42 tokens where umT5 saw 540 — which is what the
+# character term in estimate_tokens() exists for.
 TOKENS_PER_WORD = 1.4
-# What this project appends to a caption — the trigger, `Camera: …`, `Audio: …` —
-# never exceeds this many tokens (the longest camera phrase is ten words). A
-# CEILING, not a measurement: the encoder window is checked against the caption's
-# count PLUS this, so a sidecar that clears the check fits.
-SIDECAR_TOKEN_RESERVE = 40
+# Han, kana, hangul and fullwidth forms: umT5 spends roughly one to two tokens
+# PER CHARACTER there (the refutation's ZH caption measured ~1.8/char), and
+# spaces are no word boundary at all. Counted on top of the word term — the
+# slight double-count on mixed text errs, deliberately, toward "over budget".
+CJK_TOKENS_PER_CHAR = 2.0
+# What the measured lines append: the worst camera phrase costs 19 umT5 tokens
+# ("pan right, pan down, zoom out, rolling camera, handheld shot"), the audio
+# line 6 (today no budgeted profile keeps audio, but a future one must not
+# starve), one more for the join. The TRIGGER is no longer in here: it is an
+# arbitrary user string, and a 5-word invented one measured 42 tokens on its
+# own — no flat reserve survives that. plan_sidecar bounds it per sidecar at
+# sentencepiece's provable ceiling instead (one token per input byte).
+SIDECAR_TOKEN_RESERVE = 26
+
+
+_CJK_CHARS = re.compile(r'[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff'
+                        r'\uac00-\ud7af\uff00-\uffef]')
 
 
 def estimate_tokens(text) -> int:
-    """umT5 tokens a text costs, from its words, rounded up — the fallback for a
-    caption the pass could not measure (no tokenizer on this machine)."""
-    words = len(str(text or '').split())
-    return int(math.ceil(words * TOKENS_PER_WORD)) if words else 0
+    """umT5 tokens a text costs, estimated — the fallback for a caption the
+    pass could not measure (no tokenizer on this machine, or a human edit).
+
+    Words × 1.4 for spaced scripts, plus a per-character term for CJK — where
+    str.split() is blind and the refutation measured a 540-token caption
+    estimated at 42, waved through a 512 window that then cut 68 tokens in
+    silence. Mixed text double-counts a little; that error points at "over
+    budget", which is the survivable direction."""
+    t = str(text or '')
+    words = len(t.split())
+    cjk = len(_CJK_CHARS.findall(t))
+    if not words and not cjk:
+        return 0
+    return int(math.ceil(words * TOKENS_PER_WORD + cjk * CJK_TOKENS_PER_CHAR))
+
+
+def trigger_token_bound(trigger) -> int:
+    """An upper bound on what the trigger costs the encoder, in tokens.
+
+    A trigger is an arbitrary rare string — the exact distribution word-based
+    estimates fail on ('zylphraxian_cinematic_style_v3' is 2 words and 16
+    tokens; five invented words measured 42). The one ceiling sentencepiece
+    cannot exceed is ONE TOKEN PER INPUT BYTE (byte fallback), so that is the
+    bound: provable, and the overshoot on a friendly trigger only makes the
+    budget check stricter — the survivable direction again."""
+    return len(str(trigger or '').strip().encode('utf-8'))
 
 
 def _fields_dict(raw):
@@ -2798,15 +2859,37 @@ def plan_sidecar(trigger, caption, metrics_json, keeps_audio=False, *,
     body = (caption or '').strip()
     measured = isinstance(caption_tokens, int) and caption_tokens >= 0
     count = caption_tokens if measured else estimate_tokens(body)
+    # The lines' measured reserve plus THIS sidecar's trigger at its provable
+    # ceiling — a flat number was refuted by a five-word invented trigger that
+    # cost 42 tokens on its own.
+    overhead = SIDECAR_TOKEN_RESERVE + trigger_token_bound(trigger)
     served_short = False
-    if token_budget and body and count + SIDECAR_TOKEN_RESERVE > int(token_budget):
-        short = caption_fields.fields_to_prose(_fields_dict(fields_json))
-        if short:
+    tail_incomplete = False
+    if token_budget and body and count + overhead > int(token_budget):
+        fields = _fields_dict(fields_json)
+        short = caption_fields.fields_to_prose(fields)
+        # THE FLOOR (review finding, 2026-09-01). The tail is written LAST, so
+        # the caption long enough to need the short form is exactly the one
+        # whose tail the generation cap was most likely to cut — and the parse
+        # is (rightly) tolerant enough to return a single mutilated label. Serve
+        # the short form only when the model demonstrably FINISHED writing it:
+        # all four served fields present, at least twenty words between them
+        # (the prompt asks for 12-20 in `short` alone). Below the floor the
+        # paragraph ships WHOLE and stays counted over the window — the
+        # preflight then says "N past the encoder window" instead of hiding an
+        # amputation behind one more `served_short`.
+        complete = bool(fields) and all(
+            (fields.get(k) or '').strip()
+            for k in ('subject', 'motion', 'setting', 'style'))
+        if complete and short and len(short.split()) >= 20:
             body, served_short = short, True
             count, measured = estimate_tokens(short), False
+        elif fields is not None:
+            tail_incomplete = True
     text = compose_sidecar_text(trigger, body, metrics_json, keeps_audio=keeps_audio)
     return {'text': text, 'served_short': served_short,
-            'tokens': (count + SIDECAR_TOKEN_RESERVE) if text else 0,
+            'tail_incomplete': tail_incomplete,
+            'tokens': (count + overhead) if text else 0,
             'measured': measured}
 
 
@@ -3036,9 +3119,25 @@ def set_dataset_clip_caption(user_id, dataset_id, clip_id, caption) -> dict | No
     db.session.commit()
     clip_path = os.path.join(ds.output_dir, row.filename)
     written = True
+    # COMPOSED, never pasted (refutation finding, 2026-09-01): the promote-time
+    # export writes trigger + caption + the MEASURED Camera:/Audio: lines
+    # through plan_sidecar, and this edit path used to bypass it — editing one
+    # caption silently deleted those lines from the .txt, and every budget rule
+    # with them. The source clip still holds the measurements; a clip whose
+    # bank was deleted since loses them (the composition is then shorter —
+    # stated by what it holds, never invented). The human's words carry no
+    # machine fields and no measured count, so the estimate path speaks.
+    src = (db.session.get(VideoClip, row.source_clip_id)
+           if row.source_clip_id else None)
+    profile = video_targets.get(ds.target_profile) or {}
     try:
         video_clip_export.write_sidecar(
-            clip_path, _with_trigger(ds.trigger_word, row.caption))
+            clip_path,
+            plan_sidecar(ds.trigger_word, row.caption,
+                         src.metrics_json if src else None,
+                         keeps_audio=bool(profile.get('audio')),
+                         fields_json=None, caption_tokens=None,
+                         token_budget=profile.get('caption_token_budget'))['text'])
     except OSError as e:
         written = False
         logger.warning('video dataset %s: could not write sidecar: %s', ds.id, e)

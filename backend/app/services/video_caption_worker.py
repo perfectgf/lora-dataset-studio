@@ -253,28 +253,69 @@ class LocalLlmCaptionWorker:
         return False
 
     def close(self):
-        """Give the server's VRAM back, like the image batches do after a run."""
+        """Give the server's VRAM back, like the image batches do after a run.
+
+        Scoped to OUR provider and OUR model: the bare call released every
+        tracked model on the server, which took a concurrent image pass's
+        checkpoint with it (review finding 8). The provider is the one pinned
+        at construction — a config flip mid-pass must not reroute the unload."""
         try:
-            from . import vision_llm
-            vision_llm.unload_vision_model()
+            if self.provider == 'lmstudio':
+                from . import vision_lmstudio
+                vision_lmstudio.unload_vision_model(model=self.model)
+            else:
+                from . import vision_ollama
+                vision_ollama.unload_vision_model(model=self.model)
         except Exception:  # noqa: BLE001 — a failed unload must not fail the pass
             pass
 
     def caption(self, frame_paths, prompt, span_s=None):
-        from . import vision_llm
+        from . import vision_image, vision_llm
         frames = []
         for p in frame_paths:
             try:
                 with open(p, 'rb') as fh:
-                    frames.append(fh.read())
+                    raw = fh.read()
             except OSError as e:
                 logger.warning('caption: frame unreadable (%s): %s', p, e)
-        if not frames:
+                continue
+            # The drivers' safety gate, applied HERE first: they drop a frame
+            # that fails it in silence, and a time preamble built on the
+            # pre-drop count then hands the model a FALSE grid — worse than no
+            # preamble at all (review finding 9). Gated up front, the preamble
+            # counts exactly what the model will see; the drivers re-gate the
+            # already-safe JPEGs at negligible cost.
+            safe = vision_image.ensure_vision_safe_jpeg(
+                raw, provider='video_caption')
+            if safe is None:
+                logger.warning('caption: frame dropped as unsafe/unreadable (%s)', p)
+                continue
+            frames.append(safe)
+        # One surviving frame is a still, not a shot — captioning it as a video
+        # would describe motion nobody saw. Refused out loud, like every engine
+        # refusal on this seam.
+        if len(frames) < 2:
+            logger.warning('caption worker refused a shot: only %d of %d frames '
+                           'were readable', len(frames), len(frame_paths))
             self.last_tokens = None
             return ''
         full_prompt = frames_time_preamble(len(frames), span_s) + str(prompt)
+        # 800, not 600: the paragraph and the labelled tail compete for one
+        # generation cap and the tail is written LAST — at 600 a chatty model
+        # hits the cap inside the tail, and a mutilated tail is what the
+        # export's short-form floor exists to refuse (review finding,
+        # 2026-09-01). A model that finishes early stops at its EOS; headroom
+        # costs nothing.
+        # provider= and model= pin THIS run's engine on every request: without
+        # them the waist re-reads the config per shot, and half a bank could be
+        # captioned by whatever the user loaded mid-pass while every row still
+        # claimed the gate's model (review finding 7). The read timeout matches
+        # the transformers lane's CAPTION_TIMEOUT — this lane runs on the
+        # least-equipped machines, and 300 s cut off honest CPU-offload shots.
         text = str(vision_llm.describe_frames(
-            frames, full_prompt, num_predict=600, keep_alive='5m') or '').strip()
+            frames, full_prompt, provider=self.provider, model=self.model,
+            num_predict=800, keep_alive='5m',
+            timeout=(10, CAPTION_TIMEOUT)) or '').strip()
         self.last_tokens = None
         if not text:
             # The reason was already logged by the driver; this line is the one

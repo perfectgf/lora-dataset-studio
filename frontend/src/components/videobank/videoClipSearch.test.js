@@ -256,6 +256,13 @@ test('overTokenBudgetWarning fires only past a PUBLISHED window, and says the wo
   assert.match(note, /2 prompt\(s\)/)
   assert.match(note, /512-token/)
   assert.match(note, /540 tokens/)
+  // Stumps are told apart from healthy substitutions (review finding 5).
+  const withStumps = overTokenBudgetWarning({
+    over_token_budget: 3, caption_token_budget: 512, caption_tokens_max: 600,
+    short_blocked: 2,
+  })
+  assert.match(withStumps, /2 of them wrote an unfinished short form/)
+  assert.doesNotMatch(note, /unfinished short form/)
 })
 
 test('servedShortNote says how many prompts went out in their short form, and which lines', () => {

@@ -281,9 +281,14 @@ export function overTokenBudgetWarning(composition) {
   const over = Number(composition?.over_token_budget) || 0
   const budget = Number(composition?.caption_token_budget) || 0
   if (over <= 0 || budget <= 0) return ''
+  const blocked = Number(composition?.short_blocked) || 0
   return `${over} prompt(s) still run past this model's ${budget}-token encoder window `
     + `(longest: up to ${composition?.caption_tokens_max} tokens) — the encoder drops `
     + 'the tail without saying so. Shorten those captions, or accept the cut.'
+    + (blocked > 0
+      ? ` ${blocked} of them wrote an unfinished short form (cut by the `
+        + 'generation cap), so their full paragraph ships instead.'
+      : '')
 }
 
 /** How many prompts the export wrote in their SHORT form — the caption's own

@@ -124,8 +124,11 @@ def describe_frames(frames, prompt, **kw) -> str:
 
     The video captioner's call. Same waist as describe_image so the provider
     setting keeps meaning one thing; both drivers drop unreadable frames and
-    answer '' best-effort."""
-    if provider() == LMSTUDIO:
+    answer '' best-effort. ``provider=`` overrides the configured one for the
+    length of a call: a caption pass pins the engine it resolved at its gate,
+    so a config flip mid-pass cannot reroute shot 241 (review finding 7)."""
+    prov = (kw.pop('provider', None) or provider())
+    if prov == LMSTUDIO:
         from . import vision_lmstudio
         return vision_lmstudio.describe_frames(
             frames, prompt,

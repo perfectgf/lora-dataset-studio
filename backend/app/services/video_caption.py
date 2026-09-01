@@ -72,6 +72,14 @@ EDGE_MARGIN_S = 0.25
 COMMIT_EVERY = 1
 
 
+
+# How many shots in a row may fail before the pass says so ON SCREEN instead of
+# at the end — the image lane's _FENCE_STREAK_WARN doctrine, same number, same
+# reasoning: five appears within a minute of a real outage (a dead local LLM, a
+# blocked GPU fence, a vanished worker) and a couple of unlucky shots never
+# trip it. The pass keeps running — a re-run finishes the failed rows — but the
+# person watching the bar can stop it and fix the engine first.
+FAIL_STREAK_WARN = 5
 # The checkpoint that shipped with this pass, and the value the setting falls
 # back to. Named here rather than only in the worker because the parent has to
 # answer "which model will run" WITHOUT starting one — for the job line, for the
@@ -140,18 +148,27 @@ _BACKEND_TTL_S = 15.0
 _backend_cache = {'at': 0.0, 'value': None}
 
 
-def _ollama_reachable(url) -> tuple[bool, str]:
-    """(up, why-not). Own tiny probe on /api/version: capabilities.probe_ollama
-    calls an unconfigured url absent, while the driver itself defaults to
-    127.0.0.1:11434 — this must agree with the driver it speaks for."""
-    import requests
-    try:
-        resp = requests.get(f"{url.rstrip('/')}/api/version", timeout=(3, 5))
-        if resp.status_code < 500:
-            return True, ''
-        return False, f'Ollama answered HTTP {resp.status_code} at {url}'
-    except Exception as e:  # noqa: BLE001 — the reason IS the payload here
-        return False, f'Ollama is not reachable at {url} ({type(e).__name__})'
+def _local_llm_ready(provider) -> tuple[bool, str, str]:
+    """(ok, model, why-not) for the configured local LLM provider.
+
+    The app's STANDARD gates, not a home-grown ping: probe_ollama_model checks
+    the server answers AND the vision model is pulled; probe_lmstudio_model
+    checks the server answers AND the model is loadable. The first cut of this
+    only pinged /api/version — which declared "available" a server whose model
+    was never pulled, and (worse, LM Studio) a server that was OFF whenever a
+    model id was configured, because resolve_model returns the setting without
+    a network call. Every clip of such a pass fails; the gate exists to say so
+    BEFORE the click (review finding, 2026-09-01)."""
+    from .. import capabilities
+    if provider == 'lmstudio':
+        from . import vision_lmstudio
+        model = vision_lmstudio.get_vision_model()
+        probe = capabilities.probe_lmstudio_model()
+        return bool(probe.get('ok')), model, probe.get('detail') or ''
+    from . import vision_ollama
+    model = vision_ollama.get_vision_model()
+    probe = capabilities.probe_ollama_model(model=model)
+    return bool(probe.get('ok')), model, probe.get('detail') or ''
 
 
 def resolve_backend(fresh=False) -> dict:
@@ -186,21 +203,12 @@ def resolve_backend(fresh=False) -> dict:
         from . import vision_llm
         prov = vision_llm.provider()
         label = vision_llm.label(prov)
-        if prov == 'lmstudio':
-            from . import vision_lmstudio
-            model = vision_lmstudio.resolve_model(None)
-            ok = bool(model)
-            why = '' if ok else (f'LM Studio at {vision_lmstudio.base_url()} '
-                                 f'is not running or has no vision model.')
-        else:
-            url = cfg.get('ollama.url') or 'http://127.0.0.1:11434'
-            ok, why = _ollama_reachable(url)
-            from . import vision_ollama
-            model = vision_ollama.get_vision_model()
+        ok, model, why = _local_llm_ready(prov)
         return {'backend': 'local_llm', 'engine': prov, 'label': label,
                 'model': model or '',
                 'record_id': f'{prov}:{model}' if model else prov,
-                'available': ok, 'reason': None if ok else why}
+                'available': ok,
+                'reason': None if ok else f'{label}: {why}'}
 
     forced = (cfg.get('video_caption.backend') or '').strip().lower()
     if forced == 'transformers':
@@ -219,8 +227,9 @@ def resolve_backend(fresh=False) -> dict:
                 chosen = dict(chosen)
                 chosen['reason'] = (f"{chosen['reason']} No local LLM could "
                                     f"step in either: {alt['reason']}")
-    _backend_cache['value'] = chosen
-    _backend_cache['at'] = _time.monotonic()
+    # One update call, both keys: two separate assignments let a concurrent
+    # reader pair a value with the other write's timestamp (review finding 6).
+    _backend_cache.update({'value': chosen, 'at': _time.monotonic()})
     return chosen
 
 
@@ -619,6 +628,9 @@ def caption_one(bank, clip, *, worker, scratch, relpaths, model=None,
             caption = clean_caption(prose)
             # Measured by the worker in umT5 tokens when it has the tokenizer
             # (None otherwise — the preflight then estimates, and says so).
+            # Counted on the prose BEFORE clean_caption strips a preamble, so
+            # the stored count can only OVERSTATE the served text — a false
+            # "over the window" at worst, never a missed overrun.
             tokens = getattr(worker, 'last_tokens', None)
     except Exception as e:  # noqa: BLE001 — one shot never sinks the pass
         logger.warning('caption: clip %s failed: %s', clip.id, e)
@@ -653,7 +665,8 @@ def caption_one(bank, clip, *, worker, scratch, relpaths, model=None,
 
 
 def run_captions(bank_id, recaption=False, *, include_edited=False, on_clip=None,
-                 should_stop=None, use_gpu=False, model=None, style=None):
+                 on_detail=None, should_stop=None, use_gpu=False, model=None,
+                 style=None, backend=None):
     """Caption every shot of a bank that has none yet.
 
     `should_stop` is polled at each clip BOUNDARY — a graceful cancel, the same
@@ -674,7 +687,11 @@ def run_captions(bank_id, recaption=False, *, include_edited=False, on_clip=None
     scratch = tempfile.mkdtemp(prefix=f'lds-vcap-{bank_id}-')
     captioned = failed = 0
     try:
-        backend = resolve_backend()
+        # The job resolves ONCE and hands the dict down: between the job line
+        # and this point sits a count query that can outlive the cache TTL, and
+        # a re-resolve here could build a different engine than the line just
+        # announced (review finding 6).
+        backend = backend or resolve_backend()
         if backend['backend'] == 'local_llm':
             # What the user installed writes the captions. caption_model gets
             # the engine-prefixed id so a bank captioned across engines stays
@@ -686,13 +703,24 @@ def run_captions(bank_id, recaption=False, *, include_edited=False, on_clip=None
         else:
             worker_cm = CaptionWorker(use_gpu=use_gpu, model=model,
                                       tokenizer_dir=umt5_tokenizer_dir())
+        fail_streak = 0
         with worker_cm as worker:
             for clip in rows:
                 if should_stop is not None and should_stop():
                     break
-                if caption_one(bank, clip, worker=worker, scratch=scratch,
-                               relpaths=relpaths, model=model,
-                               style=style) == 'ok':
+                outcome = caption_one(bank, clip, worker=worker, scratch=scratch,
+                                      relpaths=relpaths, model=model,
+                                      style=style)
+                if outcome == 'ok':
+                    fail_streak = 0
+                else:
+                    fail_streak += 1
+                    if fail_streak >= FAIL_STREAK_WARN and on_detail is not None:
+                        on_detail(f'captioning — {fail_streak} shots in a row '
+                                  f'failed ({model}). They stay uncaptioned and '
+                                  'a re-run finishes them — stop the pass if you '
+                                  'want to look at the engine first.')
+                if outcome == 'ok':
                     captioned += 1
                 else:
                     failed += 1
@@ -724,5 +752,12 @@ def set_caption(user_id, bank_id, clip_id, text):
     # A human wrote it, so neither a checkpoint nor a prompt style is credited.
     clip.caption_model = None
     clip.caption_style = None
+    # And nothing the MACHINE derived survives either: stale fields would serve
+    # the OLD caption's facets (and, past the budget, its short form INSTEAD of
+    # the human's words at export), and a stale measured count would make the
+    # preflight's tokens_measured a lie about a deleted text. The estimate path
+    # takes over, and says so (review finding, 2026-09-01).
+    clip.caption_fields = None
+    clip.caption_tokens = None
     db.session.commit()
     return _clip_row_for(bank_id, clip)

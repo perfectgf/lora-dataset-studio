@@ -82,11 +82,17 @@ _TARGETS = {
         # "recommended" sizes would dress a guess as a measurement.
         'recommended_sizes': (),
         'audio': None,
-        # umT5's window. Wan's own configs pin `text_len = 512` for every 2.x
-        # model (shared_config.py) and the encoder truncates past it IN SILENCE.
-        # A TOKEN budget, distinct from the rewriter's word caps: words warn,
-        # tokens decide what a sidecar can carry (C12-C). Published, so carried;
-        # profiles whose encoder window nobody published carry none.
+        # umT5's window — 512, verified where it could be (refutation run,
+        # 2026-09-01): diffusers' pipeline_wan carries max_sequence_length=512
+        # and tokenizes with truncation=True, silently — that is the cut this
+        # budget guards against — and ComfyUI's six Wan classes default
+        # text_len=512 (its own text encoder PADS to 512 rather than cutting).
+        # What no one here has read is the TRAINER's encode path (ai-toolkit's
+        # install is partial on this machine) — the number is right on every
+        # readable source, its worst consumer is assumed. A TOKEN budget,
+        # distinct from the rewriter's word caps: words warn, tokens decide
+        # what a sidecar can carry (C12-C). Profiles whose encoder window
+        # nobody published carry none.
         'caption_token_budget': 512,
         'caption_style': 'freeform',
         'dataset_layout': 'flat',
