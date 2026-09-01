@@ -138,6 +138,8 @@ def video_studio_source():
       * an UPLOAD (multipart `image`) — the general case;
       * a BANK image (`bank_id` + `image_id`) — animating the very portrait the
         LoRA was trained from;
+      * an image from the app's own GALLERY (`gallery_image_id`) — the picture
+        someone just generated, animated without a round trip through disk;
       * the FIRST FRAME of a dataset clip (`dataset_id` + `filename`) — the
         honest baseline, since that frame is material the LoRA actually saw.
 
@@ -207,7 +209,25 @@ def _resolve_source(req):
     if data.get('dataset_id') and data.get('filename'):
         return _dataset_clip_frame(int(data['dataset_id']), data['filename']), True
 
-    raise ValueError('attach an image, or name a bank image or a dataset clip')
+    if data.get('gallery_image_id'):
+        # An image the app itself generated — the Gallery feed's own row id.
+        # Served at full size from the dataset folder it lives in, exactly as
+        # /api/dataset/<id>/img/<name> serves it, so what gets animated is the
+        # picture the user is looking at rather than a thumbnail of it.
+        from ..extensions import db
+        from ..models import LoraTestImage
+        from ..services.dataset_storage import dataset_path
+        row = db.session.get(LoraTestImage, int(data['gallery_image_id']))
+        if row is None or not row.filename or not row.dataset_id:
+            raise ValueError('that generated image is not in the gallery any more')
+        path = os.path.join(str(dataset_path(int(row.dataset_id))),
+                            os.path.basename(str(row.filename)))
+        if not os.path.isfile(path):
+            raise ValueError('that generated image is no longer on disk')
+        return path, False
+
+    raise ValueError('attach an image, or name a bank image, a dataset clip or '
+                     'a gallery image')
 
 
 def _dataset_clip_frame(dataset_id, filename):

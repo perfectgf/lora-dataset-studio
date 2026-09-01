@@ -1,21 +1,24 @@
 /**
  * The first frame — where the clip starts from, or nothing at all.
  *
- * Three ways in, because a video LoRA gets judged against three different kinds
+ * Four ways in, because a video LoRA gets judged against four different kinds
  * of picture and exporting to disk first would be busywork:
  *
  *   • a file from the machine — the general case;
  *   • an image from the Bank — animating the very portrait the LoRA was
  *     trained from;
+ *   • an image from the GALLERY — what this app just generated, which is where
+ *     the picture someone wants to animate usually already is (asked for from
+ *     live use: it was the one source that sent people back through disk);
  *   • the first frame of a clip in a video training set — the honest baseline,
  *     since that frame is material the LoRA actually saw.
  *
- * All three end at the same server route, which stages the picture into
+ * All four end at the same server route, which stages the picture into
  * ComfyUI's input folder with EXIF stripped. The component never holds a path
  * from the user's disk: what comes back is the staged NAME the graph will use.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Image as ImageIcon, Upload, Film, Type } from 'lucide-react';
+import { Image as ImageIcon, Upload, Film, Type, Sparkles } from 'lucide-react';
 import { apiFetch, postJson, postForm } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
 import { sourceUrl } from './videoStudioApi';
@@ -23,8 +26,14 @@ import { sourceUrl } from './videoStudioApi';
 const TABS = [
   { id: 'upload', label: 'Upload', icon: Upload },
   { id: 'bank', label: 'Bank', icon: ImageIcon },
+  { id: 'gallery', label: 'Gallery', icon: Sparkles },
   { id: 'clip', label: 'Dataset clip', icon: Film },
 ];
+
+/* One page of the feed. The Gallery page itself pages on a cursor; this is a
+   picker, not a browser — enough to reach what was just made, and the newest
+   are first. */
+const GALLERY_PAGE = 60;
 
 export default function VideoSourcePicker({ mode, onMode, image, preview, onPicked, aspect, onAspect }) {
   const toast = useToast();
@@ -35,6 +44,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
   const [datasets, setDatasets] = useState([]);
   const [datasetId, setDatasetId] = useState(null);
   const [clips, setClips] = useState([]);
+  const [gallery, setGallery] = useState([]);
   const [busy, setBusy] = useState(false);
 
   /* Lists are fetched when their tab is opened, never on mount: a bank walk is
@@ -48,6 +58,11 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
     apiFetch('/api/video-datasets').then((d) => setDatasets(d.datasets || []))
       .catch(() => setDatasets([]));
   }, [tab, datasets.length]);
+  useEffect(() => {
+    if (tab !== 'gallery' || gallery.length) return;
+    apiFetch(`/api/gallery/images?limit=${GALLERY_PAGE}`)
+      .then((d) => setGallery(d.images || [])).catch(() => setGallery([]));
+  }, [tab, gallery.length]);
   useEffect(() => {
     if (!bankId) return;
     apiFetch(`/api/bank/${bankId}/images?limit=60`)
@@ -164,6 +179,35 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {tab === 'gallery' && (
+            <div className="flex flex-col gap-1.5">
+              {gallery.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted">
+                  Nothing generated yet — images made in the Studio or on a
+                  checkpoint show up here, newest first.
+                </p>
+              ) : (
+                <div className="grid max-h-56 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
+                  {gallery.map((g) => (
+                    <button key={g.id} type="button"
+                      title={g.prompt || 'Generated image'}
+                      onClick={() => stage(async () => ({
+                        ...(await postJson(sourceUrl(), { gallery_image_id: g.id })),
+                        preview: g.url,
+                      }))}
+                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent">
+                      <img src={g.url} alt="" loading="lazy"
+                        className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-[0.6875rem] text-content-subtle">
+                Animates the picture at full size, not its thumbnail.
+              </p>
             </div>
           )}
 

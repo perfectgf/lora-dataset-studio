@@ -97,6 +97,17 @@ export const WHATS_NEW = [
     to: '/canvas',
   },
   {
+    id: '2026-09-01-start-frame-from-the-gallery',
+    date: '2026-09-01',
+    title: 'Animate an image straight from the Gallery',
+    blurb:
+      'The Video Test Studio’s start frame took an upload, a Bank image or '
+      + 'a dataset clip — but not the picture this app had just generated, which '
+      + 'meant exporting it to disk to feed it back in. The Gallery is now a '
+      + 'fourth source: pick any generated image and it is staged at full size.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-01-video-prep-in-one-button',
     date: '2026-09-01',
     title: '▶ Run everything now really runs everything',
