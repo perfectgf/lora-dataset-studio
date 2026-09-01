@@ -94,6 +94,13 @@ test('the polls that fire on a timer are marked background', () => {
       /apiFetch\(`\/api\/bank\/\$\{bankId\}\/activity`, \{ background: true \}\)/],
     ['components/bank/BankWorkspace.jsx', /refreshPayload\(\{ background: true \}\)/],
     ['hooks/useTrainingActivity.js', /'\/api\/train\/activity', \{ background: true \}/],
+    // The Gallery's own heartbeat: it watches the shared queue so the feed
+    // can slip a finished render in without a page reload. Both calls are on
+    // a timer — the queue reading every 6 s, and the head re-read it triggers
+    // — and a page left open for minutes is exactly where an unmarked poll
+    // would stack 'Connection lost' banners during a server blink.
+    ['pages/GalleryPage.jsx', /apiFetch\('\/api\/system\/queue', \{ background: true \}\)/],
+    ['pages/GalleryPage.jsx', /apiFetch\(galleryFeedUrl\(asked\), \{ background: true \}\)/],
     ['components/settings/MaintenanceSection.jsx', /background: true/],
     // The ChatGPT device-code poll. It used to live inside EnginesSection; it
     // moved out whole when the Setup wizard started offering the same login, so
