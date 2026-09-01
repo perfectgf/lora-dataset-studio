@@ -501,6 +501,18 @@ export const PAGE_TOPICS = [
      'how long will this take', 'estimated time', 'duration', 'at your current pace',
      'this run will queue', 'confirmation before a long run', 'seconds per image'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // 📚 La bande d'historique et sa fenêtre sont UN composant, monté par le Studio
+  // de test ET par « Generate from the board » : un seul sujet d'aide pour les deux.
+  action('studio-saved-prompts', '📚 Saved prompts: find one again among hundreds',
+    ['studio', 'test studio', 'canvas', 'generate from the board', 'prompt', 'prompts',
+     'saved prompts', 'recent prompts', 'prompt history', 'browse prompts',
+     'search prompts', 'find a prompt', 'find my prompt', 'search my prompts',
+     'too many prompts', 'long list of prompts', 'where are my old prompts',
+     'reuse a prompt', 'reload a prompt', 'use prompt', 'copy a prompt',
+     'delete a prompt', 'remove a prompt', 'thumbnail too small', 'preview too small',
+     'cannot see the thumbnails', 'browse all prompts', 'never run', 'no image yet',
+     'full prompt', 'show the whole prompt', 'expand the prompt'],
+    '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // 🌐 Un seul composant (bouton + navigateur) monté par les TROIS surfaces de
   // génération — Studio du dataset, comparaison multi-LoRA, « Generate from the
   // board » : un seul sujet d'aide pour les trois.

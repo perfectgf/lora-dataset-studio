@@ -94,6 +94,22 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-09-01-saved-prompts-browser',
+    date: '2026-09-01',
+    title: 'Your saved prompts, big enough to recognise and searchable',
+    blurb:
+      'The list of prompts you have launched a test with was a wall of 32-pixel '
+      + 'thumbnails showing the first thirty characters — and test prompts run '
+      + 'to hundreds of characters that all start the same way, so most cards '
+      + 'read alike and the picture that told them apart was too small to see. '
+      + 'The strip now keeps the last few at a size you can actually read, and '
+      + '📚 Browse all opens the whole history: search it by any words you '
+      + 'remember, read each prompt in full, tick them for a batch, delete the '
+      + 'ones you are done with. Same panel on the dataset Test Studio and on '
+      + '“Generate from the board”.',
+    to: '/studio',
+  },
+  {
     id: '2026-09-01-improve-panel-lora-strengths',
     date: '2026-09-01',
     title: 'Tune a preset’s LoRAs from the picture they apply to',
