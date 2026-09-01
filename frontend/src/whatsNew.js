@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-studio-steps-dial',
+    date: '2026-09-01',
+    title: 'The sampling steps are a dial now, not a decision made for you',
+    blurb:
+      'The Video Test Studio ran 6 steps with Turbo and 20 without, and nothing '
+      + 'on screen let you move that — the one number that plainly trades time '
+      + 'for fidelity. There is now a Sampling steps slider (4 to 40) that says '
+      + 'what auto resolves to, and an explicit count wins over Turbo’s own. '
+      + '↻ Reuse replays the count a clip really ran.',
+  },
+  {
     id: '2026-09-01-canvas-lanes-move-and-resize',
     date: '2026-09-01',
     title: 'Move a dataset’s block on the Canvas, and give it the room it needs',

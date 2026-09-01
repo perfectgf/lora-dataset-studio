@@ -75,3 +75,20 @@ test('running is one predicate', () => {
   assert.equal(isRunning({ status: 'done' }), false);
   assert.equal(isRunning(null), false);
 });
+
+// --- the sampling steps, once they became reachable (2026-09-01) --------------
+
+test('an explicit step count travels; auto sends nothing at all', () => {
+  // The server has always accepted `steps` and always let it win over turbo's
+  // own six — the panel simply never offered the dial, so the one number that
+  // trades time for fidelity was the one nobody could turn.
+  const withSteps = buildGeneratePayload({
+    mode: 't2v', prompt: 'a street', turbo: true, steps: 12,
+  })
+  assert.equal(withSteps.steps, 12)
+  assert.equal(withSteps.turbo, true)
+  // Auto is the ABSENCE of the key: the server then applies the count for the
+  // mode in force, and nothing here claims a choice nobody made.
+  const auto = buildGeneratePayload({ mode: 't2v', prompt: 'a street', turbo: true, steps: '' })
+  assert.equal('steps' in auto, false)
+})

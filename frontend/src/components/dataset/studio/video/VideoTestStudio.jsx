@@ -46,6 +46,10 @@ import {
    rather than slow. It is a checkbox, and the panel says what it changes. */
 const DEFAULT_OPTIONS = {
   turbo: true, eros: false, sparse: '', latentUpscale: false,
+  // '' = auto: the server's own count for the mode in force (turbo 6, dense
+  // 20). Kept empty rather than pre-filled so a run reads "auto" until someone
+  // decides otherwise — a number in the box would claim a choice nobody made.
+  steps: '',
   frames: 56, megapixels: 0.3, seed: '',
 };
 
@@ -163,6 +167,10 @@ export default function VideoTestStudio() {
       turbo: !!clip.turbo, eros: !!clip.eros, sparse: clip.sparse || '',
       latentUpscale: !!clip.latent_upscale, frames: clip.frames || opts.frames,
       megapixels: clip.megapixels || opts.megapixels,
+      // Reuse replays the count the clip ACTUALLY ran, never "auto" — the
+      // whole point of ↻ Reuse is that the second run is the first one with
+      // one dial moved.
+      steps: clip.steps || '',
       seed: clip.seed ?? '',
     });
     if (clip.lora) {
@@ -192,6 +200,10 @@ export default function VideoTestStudio() {
     opts.eros ? '10Eros' : null,
     opts.sparse ? `sparse ${opts.sparse}` : null,
     opts.latentUpscale ? 'upscale ×2' : null,
+    // Only when it was CHOSEN: "auto" belongs in the dial's own label, and a
+    // readback that always claimed a step count would make the automatic case
+    // look like a decision somebody made.
+    opts.steps ? `${opts.steps} steps` : null,
   ].filter(Boolean).join(' · ');
 
   const generateButton = (

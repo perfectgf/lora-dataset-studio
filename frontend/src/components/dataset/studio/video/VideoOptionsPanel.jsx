@@ -61,6 +61,14 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
   const frames = options?.frame_choices?.length ? options.frame_choices : [39, 56, 73, 107];
   const fps = options?.fps || 24;
   const mp = options?.megapixels || { min: 0.1, max: 2, default: 0.3 };
+  /* What "auto" resolves to, from the server's own constants rather than a
+     second copy of them here: turbo grafts a distillation LoRA with its own
+     six-step schedule, dense sampling runs twenty. An explicit count wins over
+     both — including over turbo's — which is why the panel must show WHICH
+     number is in force rather than implying the checkbox decides. */
+  const autoSteps = value.turbo
+    ? (options?.turbo_steps || 6) : (options?.default_steps || 20);
+  const steps = value.steps ? Number(value.steps) : autoSteps;
   const seconds = clipSeconds(value.frames, fps);
   const sparseHint = off('sparse')
     ? need('sparse')
@@ -115,6 +123,39 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
           </p>
         )}
       </div>
+
+      {/* Steps — the plainest time-for-fidelity dial there is, and the only
+          one that was decided for you. It sits with the render options rather
+          than with the shot because it is what turbo overrides, and turning it
+          is how you find out whether turbo's six are enough for YOUR motion. */}
+      <label className="flex flex-col gap-1 border-t border-border pt-3 text-xs text-content-muted">
+        <span className="flex items-baseline justify-between gap-2">
+          Sampling steps
+          <span className="flex items-baseline gap-2">
+            <span className="tabular-nums text-content">
+              {value.steps ? steps : `auto · ${autoSteps}`}
+            </span>
+            {value.steps ? (
+              <button type="button" onClick={() => set({ steps: '' })}
+                className="rounded-md border border-border px-1.5 py-0.5 text-[0.625rem] text-content-muted hover:text-content">
+                Auto
+              </button>
+            ) : null}
+          </span>
+        </span>
+        <input type="range" min="4" max="40" step="1" value={steps}
+          onChange={(e) => set({ steps: Number(e.target.value) })}
+          className="mt-1 accent-accent" />
+        <span className="text-[0.6875rem] leading-snug text-content-subtle">
+          {value.turbo
+            ? 'Turbo\u2019s distillation is trained for 6 — going far above it '
+              + 'costs minutes without buying detail, and below 4 it ghosts on '
+              + 'fast motion. An explicit count wins over turbo\u2019s own.'
+            : 'Dense sampling: more steps, more time, diminishing returns past '
+              + 'about 30. This is the dial to move when a clip looks mushy '
+              + 'rather than wrong.'}
+        </span>
+      </label>
 
       <div className="flex flex-col gap-1.5 border-t border-border pt-3">
         <h3 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">Shot</h3>
