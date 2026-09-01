@@ -45,6 +45,8 @@ def _clip_dict(clip):
         # and Generate stays blocked — every dial restored except the one that
         # decides whether the button works at all.
         'source_image': clip.source_image,
+        # ↗ The clip this one was smoothed from, so the card can say so.
+        'vfi_of': getattr(clip, 'vfi_of', None),
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
@@ -131,6 +133,24 @@ def video_studio_deploy():
         return jsonify({'ok': False,
                         'error': f'Could not copy the checkpoint into ComfyUI: {exc}'}), 500
     return jsonify({'ok': True, 'filename': name})
+
+
+@bp.post('/clip/<int:clip_id>/vfi')
+def video_studio_clip_vfi(clip_id):
+    """↗ Smooth a finished clip — RIFE frame interpolation, as a new clip.
+
+    The same recipe the maintainer's image generator uses (rife49, x2, ensemble)
+    so a clip smoothed here is the clip smoothed there. A new row, never an edit
+    of the original: the studio exists to compare, and overwriting the thing
+    being compared would end that.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        out = vts.interpolate_clip(LOCAL_USER, clip_id,
+                                   multiplier=data.get('multiplier'))
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    return jsonify({'ok': True, **out})
 
 
 @bp.post('/lora/import')

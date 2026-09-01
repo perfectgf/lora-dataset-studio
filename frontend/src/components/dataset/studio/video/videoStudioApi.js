@@ -19,6 +19,9 @@ export const deployUrl = () => `${VIDEO_STUDIO_BASE}/deploy`;
 
 /** Where a LoRA the user already has is brought into the picker. */
 export const loraImportUrl = () => '/api/video-studio/lora/import';
+
+/** ↗ Smooth a finished clip — RIFE interpolation, as a new clip. */
+export const clipVfiUrl = (id) => `/api/video-studio/clip/${id}/vfi`;
 export const sourceUrl = () => `${VIDEO_STUDIO_BASE}/source`;
 export const generateUrl = () => `${VIDEO_STUDIO_BASE}/generate`;
 export const clipsUrl = (limit = 24) => `${VIDEO_STUDIO_BASE}/clips?limit=${limit}`;

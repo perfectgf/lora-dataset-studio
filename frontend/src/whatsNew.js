@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-studio-smooth-vfi',
+    date: '2026-09-01',
+    title: 'Smooth a test clip to twice its frame rate',
+    blurb:
+      'Every finished clip gains a ↗ Smooth button: RIFE frame interpolation, '
+      + 'the same recipe the image generator runs (rife49, ×2, ensemble), so a '
+      + 'clip smoothed here is the clip smoothed there. It makes a NEW clip at '
+      + 'double the rate and the same duration — the original stays, because '
+      + 'comparing the two is the point.',
+  },
+  {
     id: '2026-09-01-reuse-brings-the-start-frame-back',
     date: '2026-09-01',
     title: '↻ Reuse gives the start frame back, and any LoRA can be imported',

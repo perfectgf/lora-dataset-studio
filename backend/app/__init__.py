@@ -219,6 +219,7 @@ _SCHEMA_ADDITIONS = (
     ('video_dataset', 'trigger_word', 'VARCHAR(100)'),
     ('video_clip', 'caption_fields', 'TEXT'),
     ('video_clip', 'caption_tokens', 'INTEGER'),
+    ('video_test_clip', 'vfi_of', 'INTEGER'),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),

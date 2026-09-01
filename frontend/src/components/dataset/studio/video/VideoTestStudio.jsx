@@ -38,7 +38,7 @@ import VideoSourcePicker from './VideoSourcePicker';
 import { shortLoraName } from './videoLoraGroups';
 import {
   buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
-  isRunning, optionsUrl,
+  isRunning, optionsUrl, clipVfiUrl,
 } from './videoStudioApi';
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
@@ -160,6 +160,23 @@ export default function VideoTestStudio() {
   /* Reuse loads a past clip's settings back into the panel — including its
      SEED, which is the whole point: changing one dial on the same seed is the
      only comparison that says anything about the dial. */
+  // ↗ Smoothing. A queued job like any other — the clip list already polls, so
+  // the new card simply appears and renders. `vfiBusy` only guards the double
+  // click between the POST and that first poll.
+  const [vfiBusy, setVfiBusy] = useState(null);
+  const smooth = async (clip) => {
+    setVfiBusy(clip.id);
+    try {
+      await postJson(clipVfiUrl(clip.id), {});
+      toast.info?.('Smoothing queued — the new clip appears below when it is done.');
+      await refreshClips();
+    } catch (e) {
+      toast.error(e?.message || 'That clip could not be smoothed.');
+    } finally {
+      setVfiBusy(null);
+    }
+  };
+
   const reuse = (clip) => {
     setPrompt(clip.prompt || '');
     setMode(clip.mode === 't2v' ? 't2v' : 'i2v');
@@ -306,7 +323,7 @@ export default function VideoTestStudio() {
         <h2 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">
           Clips — newest first
         </h2>
-        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} />
+        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={smooth} vfiBusy={vfiBusy} />
       </section>
 
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
