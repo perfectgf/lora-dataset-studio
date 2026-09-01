@@ -282,18 +282,37 @@ function NavBar() {
         </NavLink>
         {/* Desktop: workspaces on the left, utilities grouped into icon menus
             on the right (Guide/Help under ?, Setup/Settings under ⚙). */}
-        {/* The workspace row is its own flex-wrap box, not a run of direct nav
-            children. Measured at 768 px, the row is saturated to the PIXEL with
-            the five workspaces it has today: as direct children they cannot
-            wrap, so the smallest growth — one more link, one longer label —
-            widened the header past the viewport and the whole PAGE scrolled
-            sideways, which is the one thing a layout must never do. Wrapping
-            keeps any overflow inside this box (a taller header) instead of
-            widening the document, and unlike `overflow-x-auto` here it cannot
-            clip the ? / ⚙ popovers, which live in the sibling below. Above lg
-            everything fits on one line, so a normal desktop is unchanged. */}
-        <nav className="hidden md:flex flex-1 min-w-0 items-center gap-1" aria-label="Main navigation">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+        {/* WHICH BOX YIELDS. Two things share this bar and they cannot both
+            fit: the workspace links (598 px with the Beta chips) and the
+            utility cluster (192 px folded, 484 px once the 📊 machine load is
+            unfolded). The bar itself is `max-w-5xl`, so it is 1024 px wide on a
+            1024-px laptop AND on a 1920-px monitor — the width never grows and
+            neither does the budget. 598 + 484 = 1082 > 1024: on every desktop
+            there IS a shortfall, and the only question is which box absorbs it.
+
+            It used to be the workspace row, because that row was the flex-wrap
+            box and the cluster was `shrink-0`. So the app's own navigation was
+            the thing that shattered: measured on the Runs page with the load
+            readout unfolded, six links broke into FOUR ragged lines and the
+            header grew to 135 px (246 px at 768). The links are the identity of
+            the app; a status line is not.
+
+            So the wrap moved OUT one level. `nav` wraps, and the workspace box
+            takes `basis-auto` — its content width now counts in the wrapping
+            decision, which makes the utility cluster the item that drops to a
+            second, right-aligned row. The links keep one clean line.
+
+            The inner flex-wrap STAYS, and it is still the thing that protects
+            the document: at 768 px the row is saturated to the pixel, and as
+            direct nav children the links could not wrap, so the smallest growth
+            — one more link, one longer label — widened the header past the
+            viewport and the whole PAGE scrolled sideways, which is the one
+            thing a layout must never do. The ladder is now: the cluster yields
+            first, the links wrap only if they alone overflow, the document
+            never widens. And unlike `overflow-x-auto` here, none of it clips
+            the ? / ⚙ popovers, which live in that cluster. */}
+        <nav className="hidden md:flex flex-1 min-w-0 flex-wrap items-center gap-x-1 gap-y-1.5" aria-label="Main navigation">
+          <div className="flex min-w-0 shrink grow basis-auto flex-wrap items-center gap-1">
             {workspaceLinks}
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1">
