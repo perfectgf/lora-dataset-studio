@@ -500,8 +500,31 @@ def test_the_pipeline_outcome_survives_the_night(app, tmp_path, seams):
         svc.start_pipeline(app, LOCAL_USER, bank_id)
 
         report = svc.bank_payload(LOCAL_USER, bank_id)['pipeline_report']
-        assert [s['step'] for s in report['steps']] == list(svc.PIPELINE_STEPS)
+        # Asking for nothing runs the three this chain has always run — the
+        # extra passes are per-run choices the launch window ticks, never a
+        # silent widening of an existing caller's request.
+        assert [s['step'] for s in report['steps']] == list(svc.PIPELINE_DEFAULT_STEPS)
         assert all(s['status'] == 'done' for s in report['steps'])
+
+
+def test_the_pipeline_can_chain_the_preparation_passes_it_offers(app, tmp_path, seams):
+    """▶ Run everything used to stop after thumbnails while its own tooltip
+    promised 'measure, embeddings and the rest' — so a fresh bank still cost
+    four to nine clicks after the button that claimed to do it all. Every
+    offered step now has a runner, in the order their inputs demand."""
+    with app.app_context():
+        bank_id, _ = _bank(app, tmp_path, ('a.mp4',))
+        # Every offered step is runnable — a step in the list with no runner
+        # would fail at the worst moment, three passes into a night run.
+        assert set(svc.PIPELINE_STEPS) <= set(svc._STEP_RUNNERS)
+        # Order is the one the inputs demand, whatever order they arrive in.
+        assert svc._sanitize_steps(['camera', 'probe', 'embed']) == [
+            'probe', 'embed', 'camera']
+        # 🗣 Describe stays out: its wording belongs to its own window.
+        assert 'caption' not in svc.PIPELINE_STEPS
+        # And the GPU-hungry ones are named rather than inferred, so adding a
+        # runner cannot silently skip the training-run refusal.
+        assert set(svc._GPU_PIPELINE_STEPS) <= set(svc.PIPELINE_STEPS)
 
 
 # --- deletion ------------------------------------------------------------------

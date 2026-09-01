@@ -325,7 +325,7 @@ def summarise(frames, fps, audio=UNMEASURED):
 # the app at all. A cut that exists only in this file is not a feature.
 # Anything added here must gain a row in videoMetricsFilter.thresholdFields()
 # and a label in FLAG_LABELS; a test pins the two lists against each other.
-THRESHOLD_KEYS = ('min_duration_s', 'motion_floor', 'motion_ceiling',
+THRESHOLD_KEYS = ('min_duration_s', 'max_duration_s', 'motion_floor', 'motion_ceiling',
                   'luma_floor', 'freeze_max', 'sharpness_floor',
                   'first_frame_floor', 'silence_max', 'audio_floor',
                   'watermark_max', 'aesthetic_floor',
@@ -366,6 +366,16 @@ def verdicts(scores, thresholds, duration_s=None):
         # worth their triage time. Collapsing them would suggest that lowering
         # this field buys a clip its way into a dataset. It does not.
         flags.add('brief')
+
+    # And its ceiling, the other half of the same question. A shot far longer
+    # than the clip length a target ingests is not a defect — it is footage the
+    # export will TRUNCATE (it takes the first N frames), so the rest never
+    # trains. Flagged, never rejected: the user decides whether to cut it by
+    # hand, slice it at export, or let the tail go.
+    max_duration = thresholds.get('max_duration_s')
+    if (duration_s is not None and max_duration is not None
+            and duration_s > max_duration):
+        flags.add('lengthy')
 
     motion = scores.get('motion_mean')
     floor = thresholds.get('motion_floor')

@@ -8,6 +8,7 @@ import {
   promoteScopeLabel,
   insetProblem, insetHint, insetOutcome,
   capProblem, capHint, capBalanceNote,
+  lengthSuggestion, lengthSuggestionNote,
 } from './videoTargetChoice.js'
 
 // Verbatim shapes of GET /api/video/targets — kept as fixtures rather than
@@ -314,3 +315,45 @@ test('the dataset scale note tells a novice where their clip count sits', () => 
   assert.ok(datasetScaleNote(300).text.includes('curation'))
 })
 
+
+// --- what a clip length costs, from the shots actually kept (2026-09-01) ------------
+
+test('lengthSuggestion counts how many kept shots survive each length', () => {
+  // 24 fps: 39 frames = 1.583s, 209 frames = 8.667s.
+  const spans = [2, 3, 4, 5, 9, 10]
+  const options = [{ frames: 39 }, { frames: 107 }, { frames: 209 }]
+  const s = lengthSuggestion(spans, options, 24)
+  assert.equal(s.total, 6)
+  // Every shot clears 39 frames; only the two long ones clear 209.
+  assert.equal(s.rows.find((r) => r.frames === 39).fits, 6)
+  assert.equal(s.rows.find((r) => r.frames === 209).fits, 2)
+  // The LONGEST length that still keeps 80% — 107 frames (4.42s) keeps 3/6, so
+  // the answer here is 39.
+  assert.equal(s.frames, 39)
+})
+
+test('lengthSuggestion prefers the longest length that still keeps most shots', () => {
+  const spans = [9, 9.5, 10, 11, 12]
+  const s = lengthSuggestion(spans, [{ frames: 39 }, { frames: 209 }], 24)
+  assert.equal(s.frames, 209)          // all five clear 8.67s
+  assert.equal(s.share, 1)
+})
+
+test('lengthSuggestion says nothing rather than something wrong', () => {
+  assert.equal(lengthSuggestion([], [{ frames: 39 }], 24), null)
+  assert.equal(lengthSuggestion([1, 2], [], 24), null)
+  assert.equal(lengthSuggestion([1, 2], [{ frames: 39 }], 0), null)
+  assert.equal(lengthSuggestion(null, null, null), null)
+})
+
+test('the note compares the CURRENT choice with the suggestion', () => {
+  const s = lengthSuggestion([9, 9.5, 10, 11, 12], [{ frames: 39 }, { frames: 209 }], 24)
+  // Same choice as the suggestion: one sentence, no comparison.
+  assert.match(lengthSuggestionNote(s, 209), /209 frames/)
+  assert.doesNotMatch(lengthSuggestionNote(s, 209), /your 209/)
+  // A different choice: what it costs, next to it.
+  const note = lengthSuggestionNote(s, 39)
+  assert.match(note, /your 39 frames/)
+  assert.match(note, /100%/)
+  assert.equal(lengthSuggestionNote(null, 39), '')
+})

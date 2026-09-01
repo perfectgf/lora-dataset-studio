@@ -29,6 +29,7 @@ import VideoClipGrid from './VideoClipGrid'
 import VideoClipLightbox from './VideoClipLightbox'
 import VideoFilterRail from './VideoFilterRail'
 import VideoPassesPanel from './VideoPassesPanel'
+import RunEverythingDialog from './RunEverythingDialog'
 import { matchLine } from './videoClipSearch'
 import { filterByFlag, flagChips, flagFilterNote } from './videoMetricsFilter'
 import { cameraChips, filterByCamera } from './videoCameraMotion'
@@ -112,6 +113,8 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   const [railIsColumnNow, setRailIsColumnNow] = useState(() => railIsColumn(viewportWidth()))
   const [railOpen, setRailOpen] = useState(() => loadRailOpen(viewportWidth()))
   const [passesOpen, setPassesOpen] = useState(false)
+  // ▶ The pipeline's launch window: which preparation passes the chain runs.
+  const [runningAll, setRunningAll] = useState(false)
   const passesAutoOpened = useRef(false)
   useEffect(() => {
     const onResize = () => setRailIsColumnNow(railIsColumn(window.innerWidth))
@@ -650,10 +653,10 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
             {passesButtonLabel(busy)}
           </button>
           <span className="inline-flex items-center gap-1">
-            <button type="button" onClick={() => startPass('pipeline')}
+            <button type="button" onClick={() => setRunningAll(true)}
               disabled={busy || !!passBlockedBy(capability, 'pipeline')}
               title={passBlockedBy(capability, 'pipeline')?.why
-                || 'Scan files, find shots and make thumbnails in one go — the lane’s first three steps. The other passes run from the ⚙ panel.'}
+                || 'Chain the preparation passes — scan, find shots, thumbnails, and whichever of measure, embeddings, duplicates and camera you tick. Start it and walk away.'}
               className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-gray-950 shadow disabled:opacity-50">
               ▶ {PASS_LABELS.pipeline}
             </button>
@@ -863,6 +866,15 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
           keepCount={counts.keep || 0} selectedIds={selected}
           onClose={() => setPromoting(false)}
           onDone={() => { setSelected([]); loadBank(false) }} />
+      )}
+
+      {runningAll && (
+        <RunEverythingDialog capability={capability}
+          onClose={() => setRunningAll(false)}
+          onLaunch={async (steps) => {
+            await startPass('pipeline', { steps })
+            setRunningAll(false)
+          }} />
       )}
 
       {describing && (

@@ -638,6 +638,19 @@ def video_bank_metrics_dry_run(bank_id):
     return jsonify(svc.metrics_dry_run(LOCAL_USER, bank_id, thresholds))
 
 
+@bp.get('/video-bank/<int:bank_id>/kept-spans')
+def video_bank_kept_spans(bank_id):
+    """The lengths of the kept clips — what the Promote window reads ONCE to
+    say what each clip length would cost. `?ids=1,2,3` narrows it to a
+    selection, like the promotion it describes."""
+    raw = (request.args.get('ids') or '').strip()
+    ids = [int(x) for x in raw.split(',') if x.strip().isdigit()] if raw else None
+    out = svc.kept_spans(LOCAL_USER, bank_id, ids=ids)
+    if out is None:
+        return jsonify({'error': 'unknown bank'}), 404
+    return jsonify(out)
+
+
 @bp.post('/video-bank/<int:bank_id>/pipeline')
 def video_bank_pipeline(bank_id):
     """Probe → detect → thumbnails, chained. Body {steps?: [...]} (canonical order
@@ -690,7 +703,8 @@ def video_bank_promote(bank_id):
                                 frames=data.get('frames'), size=size,
                                 max_per_source=data.get('max_per_source'),
                                 edge_inset_s=data.get('edge_inset_s'),
-                                trigger_word=data.get('trigger_word'))
+                                trigger_word=data.get('trigger_word'),
+                                slice_long=bool(data.get('slice_long')))
     except bank_jobs.BankJobBusy as e:
         return _busy(e)
     except ValueError as e:

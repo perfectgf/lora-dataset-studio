@@ -295,6 +295,16 @@ export function overTokenBudgetWarning(composition) {
  * Subject / Motion / Setting / Style lines — because the paragraph would not
  * fit the encoder window. Said, so a sidecar shorter than its caption is no
  * mystery. */
+/** What slicing ADDED, said after the build like every other composition fact.
+ * Silent when the option was off — a zero here would advertise a feature by
+ * reporting that it did nothing. */
+export function sliceGainNote(composition) {
+  const extra = Number(composition?.slice_extra_clips) || 0
+  if (extra <= 0) return ''
+  return `${extra} extra clip(s) came from slicing long shots — each carries its `
+    + 'shot’s caption, so check the ones whose action changes mid-shot.'
+}
+
 export function servedShortNote(composition) {
   const n = Number(composition?.served_short) || 0
   if (n <= 0) return ''

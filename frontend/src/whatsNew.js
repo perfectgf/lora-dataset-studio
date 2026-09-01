@@ -83,6 +83,48 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-prep-in-one-button',
+    date: '2026-09-01',
+    title: '▶ Run everything now really runs everything',
+    blurb:
+      'The chain stopped after thumbnails while its own tooltip promised more. '
+      + 'It now offers every preparation pass — measure, embeddings, duplicates '
+      + 'and camera — in a launch window where you tick what you want, in the '
+      + 'order each one needs the previous. Describe shots stays its own button: '
+      + 'its wording changes what the captions say.',
+  },
+  {
+    id: '2026-09-01-slice-long-shots',
+    date: '2026-09-01',
+    title: 'Long shots can give several training clips instead of one',
+    blurb:
+      'A 15-second shot built at 209 frames used to train on its first 8.7 '
+      + 'seconds and the rest was never used. Tick “Slice shots longer than one '
+      + 'clip” when building a set and it gives whole clips end to end instead — '
+      + 'up to 8 per shot. Each slice carries its shot’s caption, so the window '
+      + 'says it plainly.',
+  },
+  {
+    id: '2026-09-01-max-shot-length-cut',
+    date: '2026-09-01',
+    title: 'A maximum shot length, next to the minimum',
+    blurb:
+      'The Quality cuts had a floor and no ceiling, so the shots your target '
+      + 'will truncate were invisible. Set a maximum and they are flagged '
+      + '“Longer than a clip” — filter them, cut them by hand, or slice them at '
+      + 'build time. It flags and sorts; it never rejects anything.',
+  },
+  {
+    id: '2026-09-01-clip-length-suggestion',
+    date: '2026-09-01',
+    title: 'The clip-length picker tells you what each length costs',
+    blurb:
+      'Building a set now says how long your kept shots actually run and how '
+      + 'many of them each length keeps whole — “141 frames keeps 87% of them”. '
+      + 'It never changes your choice, it just stops the default from being a '
+      + 'guess.',
+  },
+  {
     id: '2026-09-01-recut-keeps-what-did-not-move',
     date: '2026-09-01',
     title: 'Changing the shot threshold no longer throws away your triage',

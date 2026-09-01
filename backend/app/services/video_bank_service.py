@@ -71,7 +71,22 @@ BANK_MAX_FILES = 5000
 # Canonical order. Detection needs the probe's fps and duration; thumbnails need
 # the bounds detection produced. Running them out of order is not a preference,
 # it is a pass that finds nothing to do.
-PIPELINE_STEPS = ('probe', 'detect', 'thumbs')
+# Every pass the pipeline can chain, in the order their inputs demand: probe
+# reads the files, detect needs the probe, thumbs need the shots, measure and
+# embed need the shots, dedup reuses the vectors embed cached (running it first
+# finds nothing and says so honestly, which reads like a bug), camera consumes
+# nothing and produces nothing anyone else needs.
+#
+# 🗣 Describe is deliberately NOT here: its wording choice belongs at the moment
+# of the click (see DescribeShotsDialog), and folding it into a walk-away chain
+# would caption a whole bank with whatever the default happened to be.
+PIPELINE_STEPS = ('probe', 'detect', 'thumbs', 'measure', 'embed', 'dedup',
+                  'camera')
+
+# What `steps=None` means — the three the chain has always run. The extras are
+# per-run choices the launch window ticks, never a silent widening of an
+# existing caller's request.
+PIPELINE_DEFAULT_STEPS = ('probe', 'detect', 'thumbs')
 
 TRIAGE_STATUSES = ('pending', 'keep', 'reject')
 
@@ -2300,30 +2315,60 @@ def _thumbs_job(bank_id, rethumb):
 
 def _sanitize_steps(steps):
     if not steps:
-        return list(PIPELINE_STEPS)
+        return list(PIPELINE_DEFAULT_STEPS)
     wanted = {s for s in steps if s in PIPELINE_STEPS}
     return [s for s in PIPELINE_STEPS if s in wanted]      # canonical order
 
 
+# The steps that will want the card. Named rather than inferred so adding a
+# runner cannot silently skip the refusal above.
+_GPU_PIPELINE_STEPS = ('embed', 'camera')
+
+
 def start_pipeline(app, user_id, bank_id, steps=None):
-    """Probe → detect → thumbnails, chained, with a report that survives the night.
+    """The preparation passes, chained, with a report that survives the night.
 
     The passes are also individually reachable, but chaining them is what a user
     actually wants on a fresh bank: each one's input is the previous one's output,
     and running them by hand in the wrong order finds nothing to do and says so in
-    a way that reads like a bug."""
+    a way that reads like a bug.
+
+    `steps` picks which — omitted means the three this chain has always run
+    (PIPELINE_DEFAULT_STEPS). The launch window offers the rest, minus 🗣
+    Describe, whose wording belongs to its own window."""
     _require_free_bank(user_id, bank_id)
     wanted = _sanitize_steps(steps)
     if not wanted:
         raise ValueError('no pipeline steps selected')
+    # The same courtesy refusal the GPU passes make on their own: a chain that
+    # will take the card must not start while a training run owns it. Checked
+    # once, here, rather than three steps in — a pipeline that dies mid-way has
+    # already spent the cheap steps.
+    if any(step in _GPU_PIPELINE_STEPS for step in wanted):
+        busy = _gpu_busy_reason()
+        if busy:
+            raise RuntimeError(busy)
     return bank_jobs.start(app, job_key(bank_id), 'pipeline',
                            _pipeline_job(user_id, bank_id, wanted))
 
 
+def _pipeline_embed_job(bank_id):
+    from ..capabilities import bank_scoring_gpu_available
+    return _embed_job(bank_id, False, bank_scoring_gpu_available())
+
+
+# Each entry builds the SAME job the standalone button builds — the chain adds
+# no second implementation of any pass, so a fix to one is a fix to both. The
+# GPU-hungry ones take the exclusive vision window themselves, inside their own
+# job, exactly as they do when launched alone.
 _STEP_RUNNERS = {
     'probe': lambda bank_id: _probe_job(bank_id, False),
     'detect': lambda bank_id: _detect_job(bank_id, False),
     'thumbs': lambda bank_id: _thumbs_job(bank_id, False),
+    'measure': lambda bank_id: _measure_job(bank_id, False),
+    'embed': _pipeline_embed_job,
+    'dedup': lambda bank_id: _dedup_job(bank_id, None),
+    'camera': lambda bank_id: _camera_job(bank_id, False),
 }
 
 
@@ -2492,9 +2537,17 @@ def _resolve_edge_inset(value):
     return inset
 
 
+# How many clips ONE shot may contribute when long shots are sliced. A single
+# forty-minute take would otherwise become the whole dataset on its own —
+# `top_source_share` already warns about that at the source level, and this is
+# the same guard one level down. Eight is generous: at the longest H3 clip
+# length that is seventy seconds of one shot.
+MAX_SLICES_PER_CLIP = 8
+
+
 def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
                   frames=None, size=None, max_per_source=None,
-                  edge_inset_s=None, trigger_word=None):
+                  edge_inset_s=None, trigger_word=None, slice_long=False):
     """Encode the KEPT clips into a new video dataset.
 
     Everything that can be refused is refused HERE, synchronously, before a single
@@ -2551,6 +2604,17 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
                     and not video_clip_export.fits_frames(span - 2 * inset, frames,
                                                           profile['fps'])):
                 would_drop += 1
+    # What SLICING would add, counted before the encode like every other limit
+    # here: a shot long enough for several clips yields them all instead of its
+    # first N frames. Zero when the option is off, so the line only appears for
+    # someone who asked for it.
+    extra_slices = 0
+    if slice_long and profile.get('fps'):
+        for clip in rows:
+            n = len(video_clip_export.slice_spans(
+                clip.start_s, clip.end_s, frames, profile['fps'],
+                inset_s=inset, limit=MAX_SLICES_PER_CLIP))
+            extra_slices += max(0, n - 1)
     # An empty sidecar trains as an EMPTY PROMPT and ai-toolkit says nothing about
     # it, so how many clips are about to ship without one is a limit that has to
     # be visible BEFORE the encode rather than discovered in a training run.
@@ -2591,6 +2655,9 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
         # Clips the INSET removes — not clips that were never long enough. Those
         # keep their own count, because only the first is fixed by lowering it.
         'inset_would_drop': would_drop,
+        # Clips the slicing would ADD (never the total): the number that says
+        # what the option is worth on THIS bank.
+        'slice_extra_clips': extra_slices,
         'caption_word_budget': budget,
         'caption_words_max': max(word_counts) if word_counts else 0,
         'over_caption_budget': (sum(1 for w in word_counts if w > budget)
@@ -2657,7 +2724,7 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
 
 
 def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
-                 edge_inset_s=0.0, trigger_word=None):
+                 edge_inset_s=0.0, trigger_word=None, slice_long=False):
     """One ffmpeg per kept clip, straight into a FLAT folder.
 
     NOT ONE SUBFOLDER, EVER. ai-toolkit's dataset scan is os.walk — recursive —
@@ -2699,7 +2766,7 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
         token_budget = profile_now.get('caption_token_budget')
 
         index = 0
-        encoded = too_short = failed = dropped_by_inset = 0
+        encoded = too_short = failed = dropped_by_inset = sliced = 0
         for clip_id in clip_ids:
             if bank_jobs.cancelled(job):
                 break
@@ -2712,22 +2779,35 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
                 failed += 1
                 bank_jobs.bump(job)
                 continue
-            # The filename index advances only on a clip that LANDED, so the folder
-            # is contiguous: trainers walk it in filename order and a gap reads as
-            # a dataset someone edited by hand.
-            candidate = index + 1
-            dst = out_dir / video_clip_export.clip_filename(candidate)
             # Both bounds pulled inwards: a shot boundary is where a cut just
             # happened, so the frames around BOTH ends are disproportionately
             # dissolves and fades. Zero by default — see _resolve_edge_inset.
             start_s = clip.start_s + edge_inset_s
             end_s = clip.end_s - edge_inset_s
-            try:
+            # SLICING (opt-in): a shot long enough for several clips yields them
+            # all, end to end, instead of its first N frames. The inset is
+            # already in the bounds above and is NOT re-applied per slice — the
+            # joins between slices are not shot boundaries. Off, the shot is one
+            # span exactly as before, so nothing about the default path moved.
+            spans = ([(a, b) for a, b in video_clip_export.slice_spans(
+                start_s, end_s, frames, profile_fps,
+                limit=MAX_SLICES_PER_CLIP)]
+                if (slice_long and profile_fps) else [(start_s, end_s)])
+            if not spans:
+                spans = [(start_s, end_s)]      # let the encoder speak the refusal
+            landed_any = False
+            for span_start, span_end in spans:
+              # The filename index advances only on a clip that LANDED, so the
+              # folder is contiguous: trainers walk it in filename order and a
+              # gap reads as a dataset someone edited by hand.
+              candidate = index + 1
+              dst = out_dir / video_clip_export.clip_filename(candidate)
+              try:
                 args = video_clip_export.command_for_profile(
                     ffmpeg=ffmpeg, src=src, dst=str(dst),
-                    start_s=start_s, end_s=end_s,
+                    start_s=span_start, end_s=span_end,
                     profile_key=profile_key, frames=frames, size=size)
-            except video_clip_export.ClipTooShort:
+              except video_clip_export.ClipTooShort:
                 # Loud, and it leaves NOTHING behind: a short clip encoded anyway
                 # is a file ai-toolkit trains as repeated stills without a word.
                 #
@@ -2742,22 +2822,19 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
                     dropped_by_inset += 1
                 else:
                     too_short += 1
-                bank_jobs.bump(job)
-                continue
-            except ValueError as e:
+                break                       # a shorter later slice cannot fit either
+              except ValueError as e:
                 failed += 1
                 logger.warning('video promote: %s', e)
-                bank_jobs.bump(job)
-                continue
-            code, err = _run_ffmpeg(args)
-            if code != 0 or not dst.exists():
+                break
+              code, err = _run_ffmpeg(args)
+              if code != 0 or not dst.exists():
                 failed += 1
                 logger.warning('video promote: ffmpeg exited %s: %s', code, err)
                 try:
                     dst.unlink()            # never leave a half file in a dataset
                 except OSError:
                     pass
-                bank_jobs.bump(job)
                 continue
             # THE SIDECAR IS THE PROMPT. Written for every clip that lands, with
             # the caption when there is one — and still written, empty, when
@@ -2765,23 +2842,30 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
             # future on a missing one, and diffusion-pipe drops the clip. An
             # EMPTY sidecar is not neutral either, it trains as an empty prompt
             # in silence, which is what the pre-flight count exists to surface.
-            video_clip_export.write_sidecar(
-                str(dst), plan_sidecar(trigger_word, clip.caption, clip.metrics_json,
-                                       keeps_audio=keeps_audio,
-                                       fields_json=clip.caption_fields,
-                                       caption_tokens=clip.caption_tokens,
-                                       token_budget=token_budget)['text'])
-            index = candidate
-            encoded += 1
-            db.session.add(VideoDatasetClip(
-                dataset_id=dataset_id, filename=dst.name, caption=clip.caption,
-                source_bank_id=bank_id, source_clip_id=clip.id,
-                src_relpath=relpath, start_s=clip.start_s, end_s=clip.end_s))
-            clip.promoted_dataset_id = dataset_id
-            db.session.commit()
+              video_clip_export.write_sidecar(
+                  str(dst), plan_sidecar(trigger_word, clip.caption, clip.metrics_json,
+                                         keeps_audio=keeps_audio,
+                                         fields_json=clip.caption_fields,
+                                         caption_tokens=clip.caption_tokens,
+                                         token_budget=token_budget)['text'])
+              index = candidate
+              encoded += 1
+              if landed_any:
+                  sliced += 1               # every slice past the first is new footage
+              landed_any = True
+              # The row carries THIS slice's bounds, not the shot's: they are
+              # what the file holds, and what a later edit or re-encode reads.
+              db.session.add(VideoDatasetClip(
+                  dataset_id=dataset_id, filename=dst.name, caption=clip.caption,
+                  source_bank_id=bank_id, source_clip_id=clip.id,
+                  src_relpath=relpath, start_s=span_start, end_s=span_end))
+              clip.promoted_dataset_id = dataset_id
+              db.session.commit()
             bank_jobs.bump(job)
 
         detail = f'done — {encoded} clips encoded'
+        if sliced:
+            detail += f' ({sliced} from slicing long shots)'
         if too_short:
             detail += f', {too_short} too short for {frames} frames'
         if dropped_by_inset:
@@ -2793,7 +2877,7 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
         if failed:
             detail += f', {failed} failed'
         bank_jobs.progress(job, detail=detail)
-        return {'encoded': encoded, 'too_short': too_short,
+        return {'encoded': encoded, 'too_short': too_short, 'sliced': sliced,
                 'dropped_by_inset': dropped_by_inset, 'failed': failed}
     return run
 
@@ -3140,6 +3224,26 @@ def create_stills_dataset_from_face_dataset(user_id, face_dataset_id,
         raise ValueError('that image dataset exported no images — nothing to train on')
     return {'id': dataset.id, 'name': dataset.name, 'clips': copied,
             'output_dir': dataset.output_dir}
+
+
+def kept_spans(user_id, bank_id, ids=None) -> dict | None:
+    """How long the clips a promotion would encode actually are.
+
+    Read once when the Promote window opens — never on the bank's 2 s poll: it
+    is a question about a decision being made, not a live statistic. Returns the
+    spans themselves (a few thousand floats at most) so the client can answer
+    "how many of these survive length L" for every length its target offers,
+    without a round trip per option.
+
+    `ids` narrows it to a selection, exactly like the promotion it describes."""
+    if get_bank(user_id, bank_id) is None:
+        return None
+    q = (db.session.query(VideoClip.start_s, VideoClip.end_s)
+         .filter(VideoClip.bank_id == bank_id, VideoClip.status == 'keep'))
+    if ids:
+        q = q.filter(VideoClip.id.in_([int(i) for i in ids]))
+    spans = sorted(round(float(b) - float(a), 3) for a, b in q.all())
+    return {'spans': spans, 'count': len(spans)}
 
 
 def list_video_datasets(user_id) -> list:

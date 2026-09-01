@@ -198,7 +198,7 @@ export function promoteProblem({ name, target, frames }) {
  * as a resize and anything else as "keep the source's size", so sending a lone
  * width would silently be ignored. */
 export function promotePayload({ name, targetKey, frames, size, ids, edgeInsetS,
-                                 maxPerSource, triggerWord }) {
+                                 maxPerSource, triggerWord, sliceLong }) {
   const body = {
     name: (name || '').trim(),
     target_profile: targetKey,
@@ -223,6 +223,9 @@ export function promotePayload({ name, targetKey, frames, size, ids, edgeInsetS,
   // the server treats absence and empty the same on purpose.
   const trig = (triggerWord || '').trim()
   if (trig) body.trigger_word = trig
+  // Omitted unless asked for: the default has always been "one clip per shot",
+  // and a key that is always present invites a later default flip.
+  if (sliceLong) body.slice_long = true
   return body
 }
 
@@ -338,4 +341,53 @@ export function promoteScopeLabel(selectedCount, keepCount) {
     return `${selectedCount} selected clip${selectedCount === 1 ? '' : 's'}`
   }
   return `all ${keepCount} kept clip${keepCount === 1 ? '' : 's'}`
+}
+
+/** What each clip length COSTS, in the only currency that matters here: how
+ * many of the shots you kept survive it whole.
+ *
+ * The picker's default is the catalogue's, not your footage's — 39 frames
+ * (1.6 s) on H3 while the same list offers 209 (8.7 s) — and nothing said which
+ * one your bank could actually feed. A shot shorter than the chosen length is
+ * refused at encode; a longer one is TRUNCATED to it. So this counts the fits
+ * and names the longest option that still keeps most of them.
+ *
+ * It never changes the selection. Auto-picking would move the cost of a cloud
+ * training run without anyone asking — the same reason no threshold in this
+ * lane auto-applies. Returns null when there is nothing honest to say.
+ */
+export function lengthSuggestion(spans, options, fps, { keepShare = 0.8 } = {}) {
+  const list = (spans || []).filter((s) => Number.isFinite(s) && s > 0)
+  const rate = Number(fps) || 0
+  if (!list.length || !rate || !(options || []).length) return null
+  const rows = options
+    .map((o) => Number(o?.frames))
+    .filter((f) => Number.isFinite(f) && f > 0)
+    .sort((a, b) => a - b)
+    .map((frames) => {
+      const seconds = (frames - 1) / rate
+      const fits = list.filter((s) => s + 1e-6 >= seconds).length
+      return { frames, seconds, fits, share: fits / list.length }
+    })
+  if (!rows.length) return null
+  // The longest length that still keeps `keepShare` of them — longest, because
+  // a longer clip carries more of the motion the model is being taught.
+  const best = [...rows].reverse().find((r) => r.share >= keepShare) || rows[0]
+  const sorted = [...list].sort((a, b) => a - b)
+  const median = sorted[Math.floor(sorted.length / 2)]
+  return { ...best, median, total: list.length, rows }
+}
+
+/** That suggestion as the sentence shown under the picker. */
+export function lengthSuggestionNote(suggestion, chosenFrames) {
+  if (!suggestion) return ''
+  const pct = Math.round(suggestion.share * 100)
+  const head = `Your ${suggestion.total} kept shot(s) run ${suggestion.median.toFixed(1)}s `
+    + `at the median. ${suggestion.frames} frames (${suggestion.seconds.toFixed(1)}s) `
+    + `keeps ${pct}% of them whole`
+  const chosen = (suggestion.rows || []).find((r) => r.frames === Number(chosenFrames))
+  if (!chosen || chosen.frames === suggestion.frames) return `${head}.`
+  // What the CURRENT choice costs, next to it — the comparison is the point.
+  return `${head}; your ${chosen.frames} frames (${chosen.seconds.toFixed(1)}s) `
+    + `keeps ${Math.round(chosen.share * 100)}%.`
 }
