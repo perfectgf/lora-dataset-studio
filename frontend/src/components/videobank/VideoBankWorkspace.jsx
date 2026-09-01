@@ -651,7 +651,7 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
             <button type="button" onClick={() => startPass('pipeline')}
               disabled={busy || !!passBlockedBy(capability, 'pipeline')}
               title={passBlockedBy(capability, 'pipeline')?.why
-                || 'Run the whole lane in one go — probe, find shots, thumbnails, measure, embeddings and the rest. Start it and walk away.'}
+                || 'Scan files, find shots and make thumbnails in one go — the lane’s first three steps. The other passes run from the ⚙ panel.'}
               className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-gray-950 shadow disabled:opacity-50">
               ▶ {PASS_LABELS.pipeline}
             </button>
