@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-captions-never-swap-the-scene',
+    date: '2026-09-01',
+    title: 'NSFW captions can no longer be quietly swapped for an invented scene',
+    blurb:
+      'A measured failure, not a theory: asked politely, caption models do not '
+      + 'soften explicit footage — they replace it with a harmless invented one. '
+      + 'The Plain wording now forbids sanitizing, softening or replacing the '
+      + 'scene outright, and the standard wording gains the neutral half: '
+      + 'describe the scene that is shown, never a substitute for it.',
+  },
+  {
     id: '2026-09-01-video-captions-fit-the-encoder',
     date: '2026-09-01',
     title: 'Video captions that fit the model — measured in its own tokens',

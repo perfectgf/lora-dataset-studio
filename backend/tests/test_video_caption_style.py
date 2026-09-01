@@ -68,6 +68,11 @@ def test_the_plain_style_grants_permission_and_names_the_hiding_words():
     assert 'never euphemize' in prompt
     assert 'intimate' in prompt and 'sensual' in prompt
     assert 'body parts' in prompt
+    # The third measured failure (2026-08-07 bench): asked politely, a model
+    # does not soften the scene — it swaps it for an invented harmless one.
+    assert 'never sanitize' in prompt
+    assert 'replace the scene' in prompt
+    assert 'nsfw' in prompt and 'authorized' in prompt
 
 
 def test_the_standard_style_says_none_of_that():
@@ -77,6 +82,11 @@ def test_the_standard_style_says_none_of_that():
 
     assert 'euphemize' not in prompt
     assert 'body parts' not in prompt
+    assert 'nsfw' not in prompt
+    # It DOES carry the content-neutral half of the same lesson: the scene that
+    # is shown, never a substitute — hallucinated subjects are a dataset defect
+    # on any footage (measured: a woman invented in place of a man, 2026-09-01).
+    assert 'never a substitute' in prompt
 
 
 def test_an_unknown_style_falls_back_to_the_default_rather_than_failing(app):

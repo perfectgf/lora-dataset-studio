@@ -240,7 +240,8 @@ _PROMPT = (
     'setting and what surrounds the action, and the look and mood of the '
     'footage (light, palette, texture). Describe only what is clearly '
     'visible: an invented detail is far more damaging than a missing one, so '
-    'leave out anything you cannot actually see. Do not describe the camera '
+    'leave out anything you cannot actually see, and describe the scene that '
+    'is actually shown, never a substitute for it. Do not describe the camera '
     'work and do not mention sound — both are recorded separately. Do not '
     'begin with "This video shows" or any similar preamble, do not list '
     'objects as an inventory, and do not mention the frames or the video '
@@ -265,7 +266,13 @@ _PROMPT = (
 #
 # TWO CLAUSES CARRY THE DIFFERENCE and both are pinned by tests: name what is
 # visible and what occurs, and do NOT substitute the two words the measurement
-# caught it hiding behind. A later tidy-up of this wording would quietly restore
+# caught it hiding behind. A THIRD came from the 2026-08-07 image bench (vault):
+# asked politely, an abliterated checkpoint does not euphemize — it REPLACES the
+# whole scene with an invented harmless one, stably across calls. Forbidding the
+# euphemism does not forbid that, so the permission prompt says both; the
+# standard prompt carries the content-neutral half (describe the scene shown,
+# never a substitute), which is also what the 2026-09-01 arbitration caught the
+# base model doing on ordinary footage (a woman invented in place of a man). A later tidy-up of this wording would quietly restore
 # the euphemism, which is a dataset defect rather than a style regression: a
 # caption that talks around its footage teaches the trained model to look away,
 # and the output reads perfectly well either way.
@@ -277,10 +284,12 @@ _PROMPT_PLAIN = (
     'what it touches or passes. As the paragraph unfolds, weave in who or what '
     'the subject is (appearance, clothing, distinguishing details), the '
     'setting and what surrounds the action, and the look and mood of the '
-    'footage (light, palette, texture). When nudity or sexual content is '
+    'footage (light, palette, texture). This may be ADULT (NSFW) footage and '
+    'describing it is authorized. When nudity or sexual content is '
     'present, name it plainly and specifically — state what body parts are '
     'visible and what acts occur; never euphemize, never write "intimate" or '
-    '"sensual" in place of what is actually shown. Describe only what is '
+    '"sensual" in place of what is actually shown, and never sanitize, '
+    'soften or replace the scene with a different one. Describe only what is '
     'clearly visible: an invented detail is far more damaging than a missing '
     'one, so leave out anything you cannot actually see. Do not describe the '
     'camera work and do not mention sound — both are recorded separately. Do '
