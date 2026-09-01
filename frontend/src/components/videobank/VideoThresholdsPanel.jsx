@@ -56,7 +56,7 @@ export default function VideoThresholdsPanel({ bankId, saved, totalClips, onAppl
 
   return (
     <details className="rounded-lg border border-border bg-surface">
-      <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-content">
+      <summary className="min-h-10 lg:min-h-0 cursor-pointer px-3 py-2 text-sm font-semibold text-content">
         🎚 Quality cuts
       </summary>
       <div className="space-y-3 border-t border-border p-3">
@@ -85,11 +85,11 @@ export default function VideoThresholdsPanel({ bankId, saved, totalClips, onAppl
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={dryRun} disabled={working}
-            className="rounded-md border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-content hover:bg-surface disabled:opacity-40">
+            className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-xs font-semibold text-content hover:bg-surface disabled:opacity-40">
             👁 Preview what these cuts would flag
           </button>
           <button type="button" onClick={apply} disabled={working}
-            className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-40">
+            className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-40">
             Apply cuts
           </button>
         </div>

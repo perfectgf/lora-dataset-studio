@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-bank-wears-the-bank-shell',
+    date: '2026-09-01',
+    title: 'The video bank now looks and works like the image bank',
+    blurb:
+      'Same shell, same gestures: filters live in a rail beside the shot grid '
+      + '(a drawer on a phone), the analysis passes open on demand from the ⚙ '
+      + 'button, the two decisive actions — ▶ run the pipeline and 🎬 build a '
+      + 'training set — sit in the top bar next to the same stats strip, and '
+      + 'every chip and button is the one the image bank already taught you. '
+      + 'Nothing moved in what the passes do — only where you reach them.',
+  },
+  {
     id: '2026-09-01-video-captions-follow-what-you-installed',
     date: '2026-09-01',
     title: 'Video captions now run on what your machine has — Ollama and LM Studio included',

@@ -6,7 +6,7 @@ import { canRecut } from './videoShotCuts'
 
 // The per-file actions share one look: they are peers, and a difference in
 // weight between them would read as a difference in consequence.
-const ACTION = 'rounded border border-border bg-surface-raised px-1.5 py-0.5 '
+const ACTION = 'min-h-10 lg:min-h-0 rounded border border-border bg-surface-raised px-1.5 py-0.5 '
   + 'text-[0.625rem] font-semibold text-content-muted hover:bg-surface'
 
 const TONE = {
@@ -65,7 +65,7 @@ export default function VideoSourceList({
               <button type="button" onClick={() => onFilter(active ? null : s.id)}
                 aria-pressed={active}
                 title={active ? 'Show every shot again' : `Show only the shots from ${s.relpath}`}
-                className="min-w-0 flex-1 truncate text-left font-mono text-xs text-content hover:underline">
+                className="min-h-10 lg:min-h-0 min-w-0 flex-1 truncate text-left font-mono text-xs text-content hover:underline">
                 {s.relpath}
               </button>
               <span className={`shrink-0 rounded px-1.5 py-0.5 text-[0.625rem] font-semibold ${TONE[state.tone]}`}

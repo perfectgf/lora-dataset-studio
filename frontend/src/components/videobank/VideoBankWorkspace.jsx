@@ -9,12 +9,12 @@ import {
 import { retouchToast } from './videoClipEdit'
 import { passBlockedBy } from './videoCapability'
 import {
-  countsSummary, countsProblems, activityLine, activityPercent, isBusy,
+  countsProblems, activityLine, activityPercent, isBusy,
   resumeSafetyNote,
   announcement, nextStep, passLabel, PASS_LABELS,
 } from './videoBankStatus'
 import {
-  STATUS_FILTERS, statusFilterCount, toggleSelection, selectRange,
+  statusFilterCount, toggleSelection, selectRange,
   triagePayload, triageAllPayload, triageAllConfirmation, emptyGridMessage,
   hasMore,
 } from './videoTriage'
@@ -25,22 +25,21 @@ import {
   loadBurstPrefs, saveBurstPrefs,
 } from './videoBurstTriage'
 import VideoBurstBar from './VideoBurstBar'
-import VideoCapabilityStrip from './VideoCapabilityStrip'
-import VideoShotCutsPanel from './VideoShotCutsPanel'
-import VideoThresholdsPanel from './VideoThresholdsPanel'
-import VideoSourceList from './VideoSourceList'
 import VideoClipGrid from './VideoClipGrid'
 import VideoClipLightbox from './VideoClipLightbox'
-import VideoClipSearchBox from './VideoClipSearchBox'
+import VideoFilterRail from './VideoFilterRail'
+import VideoPassesPanel from './VideoPassesPanel'
 import { matchLine } from './videoClipSearch'
 import { filterByFlag, flagChips, flagFilterNote } from './videoMetricsFilter'
-import {
-  cameraChips, filterByCamera, CAMERA_HINTS, CAMERA_FACET_NOTE,
-} from './videoCameraMotion'
+import { cameraChips, filterByCamera } from './videoCameraMotion'
 import PromoteVideoDialog from './PromoteVideoDialog'
 import DescribeShotsDialog from './DescribeShotsDialog'
 import { GuideInfoDot } from '../common/GuideSectionModal'
 import { VIDEO_PASS_TOPICS } from './videoPassTopics'
+import { Stat } from '../bank/BankAtoms.jsx'
+import {
+  loadRailOpen, passesButtonLabel, railIsColumn, saveRailOpen,
+} from '../bank/bankLayout.js'
 
 const PAGE = 120
 const POLL_MS = 2000
@@ -106,6 +105,23 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   const [cursorId, setCursorId] = useState(null)
   const [undoStack, setUndoStack] = useState([])
   const [helpOpen, setHelpOpen] = useState(false)
+  // ── The Encre shell, shared with the image lane. bankLayout.js makes every
+  // decision (when the rail is a column, the persisted preference, what the ⚙
+  // button says) so the two lanes cannot drift apart on it again.
+  const viewportWidth = () => (typeof window === 'undefined' ? undefined : window.innerWidth)
+  const [railIsColumnNow, setRailIsColumnNow] = useState(() => railIsColumn(viewportWidth()))
+  const [railOpen, setRailOpen] = useState(() => loadRailOpen(viewportWidth()))
+  const [passesOpen, setPassesOpen] = useState(false)
+  const passesAutoOpened = useRef(false)
+  useEffect(() => {
+    const onResize = () => setRailIsColumnNow(railIsColumn(window.innerWidth))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const setRail = (open) => {
+    setRailOpen(open)
+    if (railIsColumn(viewportWidth())) saveRailOpen(open)
+  }
   // Decisions typed but not yet acknowledged by the server. A ref and not state
   // because a burst run mutates it faster than React re-renders, and the count
   // that the bar shows is derived from it after every step.
@@ -199,6 +215,14 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
     ? Object.fromEntries((search.results || []).map((r) => [r.clip_id, matchLine(r)]))
     : null
   const counts = bank?.counts || {}
+  // An empty bank's next move lives in the passes panel, so it starts open —
+  // once, on arrival; the image lane makes the same call on its own panel.
+  useEffect(() => {
+    if (!bank || passesAutoOpened.current) return
+    passesAutoOpened.current = true
+    if (!(counts.clips > 0)) setPassesOpen(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bank])
   const capability = bank?.capability || null
   const busy = isBusy(activity)
   const step = nextStep(counts, capability, passBlockedBy)
@@ -571,106 +595,86 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <button type="button" onClick={onBack}
-          className="rounded-md border border-border bg-surface-raised px-2.5 py-1 text-sm text-content hover:bg-surface">
-          ← Banks
-        </button>
-        <h1 className="min-w-0 truncate text-lg font-bold text-content">🎬 {bank.name}</h1>
-        <HelpBadge topic="page-video-bank" />
-        <button type="button" onClick={rescan}
-          title="Re-walk the folder and inventory anything new"
-          className="ml-auto rounded-md border border-border bg-surface-raised px-2.5 py-1 text-xs font-semibold text-content hover:bg-surface">
-          ↻ Rescan folder
-        </button>
-      </div>
-      <p className="truncate font-mono text-xs text-content-subtle" title={bank.source_path}>
-        {bank.source_path}
-      </p>
-
-      <VideoCapabilityStrip capability={capability} />
-
-      <p className="text-sm text-content-muted">{countsSummary(counts)}</p>
-      {problems.map((p) => (
-        <p key={p} className="text-xs text-amber-300">⚠ {p}</p>
-      ))}
-
-      {/* What to do next, as ONE sentence. Four equal buttons and no order is
-          how a user runs detection before the probe, gets "0 shots" and a green
-          success, and concludes the app cannot read their files. */}
-      <div className="rounded-lg border border-border bg-surface p-3 text-sm">
-        <p className="text-content">{step.text}</p>
-        {step.blocked && (
-          <p className="mt-1 text-xs text-amber-300">⚠ {step.blocked.why}</p>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {/* ✂ and 🔖 sit AFTER embed on purpose: duplicates reuse the vectors
-            that pass caches, so running them before it is the one order that
-            produces an honest-looking empty answer. */}
-        {/* 🩻 sits last: it is the only pass here that needs the ENCODER rather
-            than the decoder, so on an install without ffmpeg it is the one grey
-            button in a row of working ones — and the tooltip says which binary
-            rather than "unavailable". */}
-        {/* 🤖 sits at the end because it is the slowest button in the row —
-            about 0.8 s per shot on the CPU, measured — and because it is the
-            only one whose result is a hedge rather than a measurement. */}
-        {/* 🎥 sits beside 🤖 rather than earlier because it consumes nothing
-            and produces no input for anything else — but it goes BEFORE it,
-            because it is the cheap one of the pair (0.07 s per second of source
-            against 0.8 s per shot) and a row is read left to right. */}
-        {['pipeline', 'probe', 'detect', 'thumbs', 'measure', 'embed',
-          'caption', 'dedup', 'watermark', 'safezone', 'defects',
-          'camera', 'aicheck'].map((pass) => {
-          const blocked = passBlockedBy(capability, pass)
-          const primary = pass === 'pipeline'
-          // 🔳 is the one pass that runs with HALF its dependencies: no OCR
-          // engine still measures the bands. So it is never disabled for that —
-          // the tooltip says what the run will and will not include instead,
-          // which is the difference between a working button and a dead one.
-          const partial = pass === 'safezone' && capability
-            && !capability.video_text
-          return (
-            // The ⓘ rides OUTSIDE the pass button (nested buttons are invalid
-            // HTML) but inside one non-wrapping group, so a wrap of the row can
-            // never strand an explanation next to the wrong button.
-            <span key={pass} className="inline-flex items-center gap-1">
-              <button type="button"
-                // 🗣 launches through its window: the wording question belongs at
-                // the moment of the click, not in a dropdown three screens down.
-                onClick={() => (pass === 'caption' ? setDescribing(true) : startPass(pass))}
-                disabled={busy || !!blocked}
-                title={blocked ? blocked.why
-                  : partial ? `Bands only — ${capability.video_text_detail
-                      || 'the burned-in text extra is not installed'}`
-                  : undefined}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
-                  primary
-                    ? 'bg-gradient-primary text-gray-950'
-                    : 'border border-border bg-surface-raised text-content hover:bg-surface'}`}>
-                {primary ? '▶ ' : ''}{PASS_LABELS[pass]}
-              </button>
-              <GuideInfoDot topic={VIDEO_PASS_TOPICS[pass]} label={PASS_LABELS[pass]} />
-            </span>
-          )
-        })}
-        <span className="inline-flex items-center gap-1">
-          <button type="button" onClick={() => setPromoting(true)}
-            disabled={busy || !counts.keep}
-            title={!counts.keep ? 'Keep some shots first' : undefined}
-            className="rounded-md border border-indigo-500/60 bg-indigo-500/15 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/25 disabled:opacity-40">
-            🎬 {PASS_LABELS.promote}
+      <header data-probe-chrome="header"
+        className="space-y-2 rounded-xl border border-border bg-surface p-3 [@media(max-height:500px)]:space-y-1 [@media(max-height:500px)]:p-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <button type="button" onClick={onBack}
+            className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-2.5 py-1 text-sm text-content hover:bg-surface">
+            ← Banks
           </button>
-          <GuideInfoDot topic={VIDEO_PASS_TOPICS.promote} label={PASS_LABELS.promote} />
-        </span>
-        {busy && (
-          <button type="button" onClick={cancel}
-            className="rounded-md border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/20">
-            ⏹ Stop
+          <h1 className="min-w-0 truncate text-lg font-bold text-content">🎬 {bank.name}</h1>
+          <HelpBadge topic="page-video-bank" />
+          <button type="button" onClick={rescan}
+            title="Re-walk the folder and inventory anything new"
+            className="min-h-10 lg:min-h-0 ml-auto rounded-md border border-border bg-surface-raised px-2.5 py-1 text-xs font-semibold text-content hover:bg-surface">
+            ↻ Rescan folder
           </button>
-        )}
-      </div>
+        </div>
+        {/* The path is desktop reading — on a phone it was a quarter of the
+            fold saying what the title already names. */}
+        <p className="hidden truncate font-mono text-xs text-content-subtle lg:block" title={bank.source_path}>
+          {bank.source_path}
+        </p>
+        {problems.map((p) => (
+          <p key={p} className="text-xs text-amber-300">⚠ {p}</p>
+        ))}
+        {/* The strip a bank is read by — the same Stat atom and the same order
+            of concern as the image lane: what exists, then how triage stands. */}
+        <div className="flex flex-nowrap items-baseline gap-x-4 gap-y-1 overflow-x-auto border-t border-border pt-2 text-sm sm:flex-wrap sm:overflow-visible [@media(max-height:500px)]:hidden">
+          <Stat label="files" value={counts.sources || 0} />
+          <Stat label="shots" value={counts.clips || 0} />
+          <Stat label="to triage" value={statusFilterCount(counts, 'pending')} />
+          <Stat label="kept" value={statusFilterCount(counts, 'keep')} tone="emerald" />
+          <Stat label="rejected" value={statusFilterCount(counts, 'reject')} tone="rose" />
+        </div>
+        {/* The decisive actions. ⚙ Passes opens the analysis panel; ▶ and 🎬
+            are the two that change what leaves this bank — top-bar residents,
+            like the image lane's Launch all and Promote. */}
+        <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto border-t border-border pt-2 sm:flex-wrap sm:overflow-visible [@media(max-height:500px)]:border-t-0 [@media(max-height:500px)]:pt-0">
+          {/* ☰ exists only where the rail cannot sit beside the grid — there it
+              is the ONLY way back to the filters, so it is a real button and
+              never a CSS-hidden one. */}
+          {!railIsColumnNow && (
+            <button type="button" onClick={() => setRail(true)}
+              aria-expanded={railOpen} aria-controls="video-filter-rail"
+              className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface">
+              ☰ Filters
+            </button>
+          )}
+          <button type="button" onClick={() => setPassesOpen((v) => !v)}
+            aria-expanded={passesOpen} aria-controls="video-passes-panel"
+            title="Open the analysis passes — probe, find shots, thumbnails, measure, embeddings, captions, duplicates, watermarks, safe zones, defects, camera and AI check."
+            className="min-h-10 lg:min-h-0 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface">
+            {passesButtonLabel(busy)}
+          </button>
+          <span className="inline-flex items-center gap-1">
+            <button type="button" onClick={() => startPass('pipeline')}
+              disabled={busy || !!passBlockedBy(capability, 'pipeline')}
+              title={passBlockedBy(capability, 'pipeline')?.why
+                || 'Run the whole lane in one go — probe, find shots, thumbnails, measure, embeddings and the rest. Start it and walk away.'}
+              className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-gray-950 shadow disabled:opacity-50">
+              ▶ {PASS_LABELS.pipeline}
+            </button>
+            <GuideInfoDot topic={VIDEO_PASS_TOPICS.pipeline} label={PASS_LABELS.pipeline} />
+          </span>
+          <span className="ml-auto" />
+          <span className="inline-flex items-center gap-1">
+            <button type="button" onClick={() => setPromoting(true)}
+              disabled={busy || !counts.keep}
+              title={!counts.keep ? 'Keep some shots first' : undefined}
+              className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
+              🎬 {PASS_LABELS.promote}
+            </button>
+            <GuideInfoDot topic={VIDEO_PASS_TOPICS.promote} label={PASS_LABELS.promote} />
+          </span>
+          {busy && (
+            <button type="button" onClick={cancel}
+              className="min-h-10 lg:min-h-0 rounded-md border border-rose-500/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-200 hover:bg-rose-500/20">
+              ⏹ Stop
+            </button>
+          )}
+        </div>
+      </header>
 
       {busy && (
         <div role="status" className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-2.5">
@@ -691,124 +695,57 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
         </div>
       )}
 
-      {/* The cuts panel sits between the passes and the grid: it only means
-          something once Measure has run, and it changes what the grid shows. */}
-      {/* Above the quality cuts on purpose: this panel decides which shots
-          EXIST, the other decides which of them get flagged. */}
-      {(counts.sources || 0) > 0 && (
-        <VideoShotCutsPanel bankId={bankId} shotDetect={bank?.shot_detect}
-          onChanged={() => { loadBank(false); loadClips(false) }} />
-      )}
-
-      {(counts.clips || 0) > 0 && (
-        <VideoThresholdsPanel bankId={bankId} saved={bank?.thresholds}
-          totalClips={counts.clips || 0} onApplied={() => loadBank(false)} />
-      )}
-
-      <details className="rounded-lg border border-border bg-surface">
-        <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-content">
-          Files ({counts.sources || 0})
-        </summary>
-        <div className="border-t border-border p-3">
-          <VideoSourceList sources={bank.sources || []} activeSourceId={sourceId}
-            onFilter={setSourceId} onCut={cutByHand}
-            onSingleShot={singleShot} onRecut={recutSource} />
+      {passesOpen && (
+        /* data-probe-reading: the panel is what you asked for when you pressed
+           ⚙, one tap puts it away, and nothing in it is used against the grid
+           behind it — the same charging rule as the image lane's panel. Plain
+           comment: this is an EXPRESSION position. */
+        <div id="video-passes-panel" data-probe-chrome="passes" data-probe-panel="passes" data-probe-reading>
+          <VideoPassesPanel bankId={bankId} bank={bank} counts={counts}
+            capability={capability} step={step} busy={busy}
+            startPass={startPass} onDescribe={() => setDescribing(true)}
+            onCutsChanged={() => { loadBank(false); loadClips(false) }} />
         </div>
-      </details>
-
-      {/* 🔎 Above the gallery, below the passes: it is a way of LOOKING at the
-          shots, not a pass — and what it changes is the grid underneath it. */}
-      {(counts.clips || 0) > 0 && (
-        <VideoClipSearchBox bankId={bankId} counts={counts} busy={busy}
-          result={search} searching={searching}
-          onRunPass={() => startPass('embed')}
-          onResult={(r, pending) => {
-            setSearching(!!pending)
-            if (!pending) { setSearch(r); setOpenIndex(null); setSelected([]) }
-          }}
-          captionModel={bank?.caption_model}
-          onClear={() => { setSearch(null); setOpenIndex(null) }} />
       )}
 
-      {/* --- the gallery ------------------------------------------------- */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {STATUS_FILTERS.map((f) => (
-          <button key={f.key} type="button" onClick={() => setStatus(f.key)}
-            aria-pressed={status === f.key}
-            className={`rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold transition-colors ${
-              status === f.key
-                ? 'border-primary/60 bg-primary/15 text-content'
-                : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
-            {f.label} ({statusFilterCount(counts, f.key)})
-          </button>
-        ))}
-        {sourceId && (
-          <button type="button" onClick={() => setSourceId(null)}
-            className="rounded-full border border-indigo-500/60 bg-indigo-500/15 px-2.5 py-1 text-[0.6875rem] font-semibold text-indigo-200">
-            one file only ✕
-          </button>
+      {/* ── The rail, beside the grid it filters ─────────────────────────
+          Below the column width it becomes a drawer OVER the grid instead of
+          squeezing it — bankLayout.js decides, for both lanes at once. */}
+      <div className={`grid gap-3 ${railOpen && railIsColumnNow
+        ? 'lg:grid-cols-[17rem_minmax(0,1fr)]' : 'grid-cols-1'}`}>
+        {railOpen && !railIsColumnNow && (
+          <div className="fixed inset-0 z-40 bg-black/60" onClick={() => setRail(false)} aria-hidden />
         )}
-      </div>
-
-      {/* ⚑ The verdicts, as chips you can act on. Every flag in this lane used
-          to be a badge you read one shot at a time — which is fine for "too much
-          motion" and useless for "you already have this shot", where the whole
-          point is rejecting the pile in one gesture. */}
-      {chips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[0.6875rem] font-semibold text-content-muted">⚑ Flagged:</span>
-          {chips.map((c) => (
-            <button key={c.flag} type="button"
-              onClick={() => setFlag((f) => (f === c.flag ? null : c.flag))}
-              aria-pressed={flag === c.flag}
-              className={`rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold transition-colors ${
-                flag === c.flag
-                  ? 'border-amber-400/70 bg-amber-500/20 text-amber-100'
-                  : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
-              {c.label} ({c.count})
-            </button>
-          ))}
-          {flag && (
-            <button type="button" onClick={() => setFlag(null)}
-              className="rounded-full border border-border bg-surface px-2.5 py-1 text-[0.6875rem] text-content-muted hover:bg-surface-raised">
-              show all ✕
-            </button>
-          )}
-        </div>
-      )}
-      {/* The counts cover the LOADED page, and a chip that read like a bank-wide
-          total would be a wrong number rather than a filter. */}
-      {flagNote && <p className="text-[0.6875rem] text-content-subtle">{flagNote}</p>}
-
-      {/* 🎥 The camera facet, deliberately its OWN row and not more amber chips.
-          These describe rather than accuse — the wobble one user filters out is
-          what the next user is filtering FOR — so they are neutral-coloured and
-          sit apart from the ⚑ row above. Chips marked ᐩ are this app's own
-          words rather than the trainer's. */}
-      {cameraOptions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[0.6875rem] font-semibold text-content-muted">🎥 Camera:</span>
-          {cameraOptions.map((c) => (
-            <button key={c.name} type="button"
-              title={CAMERA_HINTS[c.name] || ''}
-              onClick={() => setCamera((v) => (v === c.name ? null : c.name))}
-              aria-pressed={camera === c.name}
-              className={`rounded-full border px-2.5 py-1 text-[0.6875rem] font-semibold transition-colors ${
-                camera === c.name
-                  ? 'border-sky-400/70 bg-sky-500/20 text-sky-100'
-                  : 'border-border bg-surface text-content-muted hover:bg-surface-raised'}`}>
-              {c.label}{c.ours ? ' ᐩ' : ''} ({c.count})
-            </button>
-          ))}
-          {camera && (
-            <button type="button" onClick={() => setCamera(null)}
-              className="rounded-full border border-border bg-surface px-2.5 py-1 text-[0.6875rem] text-content-muted hover:bg-surface-raised">
-              show all ✕
-            </button>
-          )}
-          <span className="text-[0.6875rem] text-content-subtle">{CAMERA_FACET_NOTE}</span>
-        </div>
-      )}
+        {railOpen && (
+          /* Sticky only as a column: the rail is ~600 px and the gallery is
+             thousands — unpinned, it scrolls away after one screen and the
+             round trip this layout removes comes straight back. As a drawer it
+             is `fixed` already. Plain comment: EXPRESSION position. */
+          <div id="video-filter-rail"
+            className={railIsColumnNow
+              ? 'min-w-0 lg:sticky lg:top-[calc(var(--app-header-h)+0.75rem)] lg:max-h-[calc(100vh-var(--app-header-h)-1.5rem)] lg:overflow-y-auto lg:self-start'
+              : 'min-w-0'}>
+            <VideoFilterRail bankId={bankId} isDrawer={!railIsColumnNow}
+              onClose={() => setRail(false)}
+              counts={counts} status={status} setStatus={setStatus}
+              sourceId={sourceId} setSourceId={setSourceId}
+              sources={bank.sources || []}
+              chips={chips} flag={flag} setFlag={setFlag} flagNote={flagNote}
+              cameraOptions={cameraOptions} camera={camera} setCamera={setCamera}
+              busy={busy} search={search} searching={searching}
+              captionModel={bank?.caption_model}
+              onRunEmbed={() => startPass('embed')}
+              onSearchResult={(r, pending) => {
+                setSearching(!!pending)
+                if (!pending) { setSearch(r); setOpenIndex(null); setSelected([]) }
+              }}
+              onSearchClear={() => { setSearch(null); setOpenIndex(null) }}
+              thresholds={bank?.thresholds} totalClips={counts.clips || 0}
+              onThresholdsApplied={() => loadBank(false)}
+              onCut={cutByHand} onSingleShot={singleShot} onRecut={recutSource} />
+          </div>
+        )}
+        <div className="min-w-0 space-y-3">
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-content-muted">
@@ -895,6 +832,9 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
           </button>
         </div>
       )}
+
+        </div>
+      </div>
 
       {openClip && (
         <VideoClipLightbox bankId={bankId} clip={openClip}

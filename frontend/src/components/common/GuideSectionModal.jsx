@@ -92,7 +92,7 @@ export function GuideInfoDot({ topic, label }) {
       <button type="button" onClick={() => setOpen(true)}
         aria-label={`What does ${label || 'this'} do?`}
         title={`What does ${label || 'this'} do?`}
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center self-center rounded-full border border-border text-[10px] font-semibold leading-none text-content-subtle hover:border-indigo-400/50 hover:text-indigo-300">
+        className="inline-flex h-4 w-4 min-h-10 min-w-10 lg:min-h-0 lg:min-w-0 shrink-0 items-center justify-center self-center rounded-full border border-border text-[10px] font-semibold leading-none text-content-subtle hover:border-indigo-400/50 hover:text-indigo-300">
         i
       </button>
       {open && <GuideSectionModal topic={topic} onClose={() => setOpen(false)} />}
