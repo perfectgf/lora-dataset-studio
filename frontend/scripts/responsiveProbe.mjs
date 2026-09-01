@@ -300,6 +300,28 @@ const PAGES = {
         '[data-testid="lightbox-improve-klein"]'] },
     ],
   },
+  /* 🎬 One video training set's workspace. Needs an id, like the Studio above —
+     `npm run probe:responsive -- --url http://127.0.0.1:5173/#/video-dataset/1`
+     — and matches by longest prefix, so any id lands here.
+
+     The two states are the two densest things this page can put on a phone: the
+     Captions section stacks a textarea per clip under the caption tools (four
+     inputs and three buttons on one row), and the lightbox is a full-screen
+     layer with a player, a provenance line, four controls and an editor. */
+  '#/video-dataset': {
+    label: 'Video dataset',
+    states: [
+      { name: 'resting', open: [] },
+      { name: 'captions', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Captions")'] },
+      { name: 'lightbox', open: ['[aria-label^="Play "]:visible, [aria-label^="View "]:visible'] },
+      // The clip toolbar folds away on a ≤500 px fold and comes back from this
+      // button. Measuring only the folded state would report a page that had
+      // hidden its furniture rather than fitted it — this is where the search,
+      // the sort and the three filter chips are really charged for.
+      { name: 'clip-tools', open: ['button:has-text("Filter & sort")'] },
+    ],
+  },
+
   '#/dataset/studio': {
     label: 'Test Studio',
     states: [

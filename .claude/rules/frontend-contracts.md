@@ -37,6 +37,7 @@ cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/canvas
 cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/bank
 cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/datasets
 cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/dataset/studio/<id>
+cd frontend && npm run probe:responsive -- --url http://127.0.0.1:5173/#/video-dataset/<id>
 ```
 
 It renders the page at five REAL device sizes (360×800, 412×915, a phone held
@@ -67,8 +68,9 @@ label cut by its own box), **targets** (40 px below `lg`) and **overlap**.
   and the app's own localStorage keeps the workspace open for every state
   after. Rename those labels and the probe measures an empty list.
 - `canvasProbeMarkers.test.js`, `bankProbeMarkers.test.js`,
-  `datasetProbeMarkers.test.js` and `studioProbeMarkers.test.js` fail if a
-  marker, a prime selector or a threshold goes.
+  `datasetProbeMarkers.test.js`, `studioProbeMarkers.test.js` and
+  `videoDatasetProbeMarkers.test.js` fail if a marker, a prime selector or a
+  threshold goes.
 - A breach of the budget is fixed by taking something OUT of the panel, not by
   raising the number. A target under 40 px is fixed with `min-h-10 lg:min-h-0`
   (finger-sized below `lg`, unchanged on a desktop), not by exempting it.

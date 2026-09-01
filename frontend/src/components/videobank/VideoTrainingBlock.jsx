@@ -56,7 +56,7 @@ const PROVEN_TARGETS = new Set(['wan22_14b', 'minimax_h3', 'minimax_h3_ref2va'])
  * clock, and GPU offers are fetched on click, never on mount — a library page
  * with a dozen datasets must not fan out a vast.ai search per card.
  */
-export default function VideoTrainingBlock({ ds }) {
+export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
   const toast = useToast()
   // ONE dial set for both destinations. Prefilled with the server's
   // dataset-sized suggestion (steps scale with the clip count — measured, not
@@ -107,6 +107,12 @@ export default function VideoTrainingBlock({ ds }) {
     const t = setInterval(refreshCloud, 5000)
     return () => clearInterval(t)
   }, [run?.status, refreshCloud])
+
+  // Told, rather than guessed at from outside: this poll is the only thing that
+  // knows whether any run ever brought files back, and the workspace rail hangs
+  // its "Checkpoints" destination on the answer. Reported on the COUNT, so a
+  // caller passing an inline arrow does not re-fire it on every render.
+  useEffect(() => { onCheckpointGroups?.(groups.length) }, [groups.length, onCheckpointGroups])
 
   const fetchTiers = async () => {
     setTiersBusy(true)
@@ -360,6 +366,12 @@ export default function VideoTrainingBlock({ ds }) {
         </p>
       )}
 
+      {/* The anchor the workspace rail's "Checkpoints" destination scrolls to.
+          A wrapper rather than a section of its own: these files are rendered
+          from state only this component holds (the cloud poll above), and
+          splitting them out would mean two components polling one endpoint. */}
+      {groups.length > 0 && (
+      <div id="vds-training-checkpoints" className="flex flex-col gap-2">
       {groups.map((g) => (
         <div key={g.run_id} className="space-y-1">
           {/* Deliberately NOT a second copy of the run line above: that one says
@@ -402,6 +414,8 @@ export default function VideoTrainingBlock({ ds }) {
           </ul>
         </div>
       ))}
+      </div>
+      )}
     </section>
   )
 }

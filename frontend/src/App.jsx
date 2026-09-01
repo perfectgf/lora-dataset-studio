@@ -22,6 +22,7 @@ import { lazyPage } from './utils/lazyPage'
 const DatasetPage = lazyPage(() => import('./pages/DatasetPage'))
 const BankPage = lazyPage(() => import('./pages/BankPage'))
 const VideoBankPage = lazyPage(() => import('./pages/VideoBankPage'))
+const VideoDatasetPage = lazyPage(() => import('./pages/VideoDatasetPage'))
 const StudioPage = lazyPage(() => import('./pages/StudioPage'))
 const SettingsPage = lazyPage(() => import('./pages/SettingsPage'))
 const SetupPage = lazyPage(() => import('./pages/SetupPage'))
@@ -602,6 +603,13 @@ function AppInner() {
                 two kinds of material for one job — the lane switch lives on both
                 bank pages (components/videobank/BankLaneTabs). */}
             <Route path="/video-bank" element={<VideoBankPage />} />
+            {/* One video training set, worked on. NOT a nav item either — it is
+                reached from the library, exactly like an image dataset's
+                workspace, and for the same reason: a dataset is something you
+                open, not a place you go. Having an ADDRESS is the point (a
+                reload, a link, a back button all worked on the image side and
+                on none of this one). */}
+            <Route path="/video-dataset/:id" element={<VideoDatasetPage />} />
             <Route path="/guide" element={<GuidePage />} />
             <Route path="/guide/getting-help" element={<Navigate to="/help" replace />} />
             <Route path="/guide/:section" element={<GuidePage />} />

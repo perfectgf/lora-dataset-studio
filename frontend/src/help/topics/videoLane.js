@@ -22,6 +22,26 @@ export const VIDEO_LANE_TOPICS = [
       'video unavailable', 'video extra', 'which piece is missing'],
     guide: { chapter: 'using-the-app', anchor: 'the-video-bank-turn-a-folder-of-rushes-into-shots' },
     app: { route: '/video-bank' } },
+  // 🎬 One video training set's workspace. Its own PAGE topic rather than
+  // keywords on page-video-bank, because the two answer opposite questions: the
+  // bank is where you decide WHICH shots, this is where you work on what the
+  // encode produced. Someone whose set has three bad clips in it is not helped
+  // by shot-detection troubleshooting.
+  //
+  // `app.route` is the LIBRARY and not `/video-dataset/<id>`: the workspace
+  // needs an id nobody can put in a static registry, and the library is the one
+  // address that always exists and always leads here in one click.
+  { id: 'page-video-dataset', kind: 'page', title: 'A video training set (clips, captions, training)',
+    keywords: ['video dataset page', 'video dataset workspace', 'open a video dataset',
+      'work on a video dataset', 'my clips', 'watch my clips', 'play a promoted clip',
+      'clip grid', 'video grid', 'caption my clips', 'caption a clip', 'sidecar',
+      'txt next to the mp4', 'remove a clip', 'delete a clip', 'drop a clip',
+      'bad clip', 'three frames', 'wrong cut', 'clip too short', 'search my clips',
+      'filter clips', 'uncaptioned', 'no caption', 'find and replace captions',
+      'bulk captions', 'prefix', 'suffix', 'trigger word', 'references', 'ref2va',
+      'control images', 'identity images', 'where are my clips', 'output folder'],
+    guide: { chapter: 'using-the-app', anchor: 'work-on-a-video-training-set' },
+    app: { route: '/datasets' } },
   // 🎬 The Video tab of the Test Studio. Its own PAGE topic rather than keywords
   // on page-studio: the two lanes share a screen but nothing else — different
   // tables, different pipeline, one clip instead of a grid — and someone whose
@@ -301,6 +321,33 @@ export const VIDEO_LANE_TOPICS = [
      'watch a promoted clip', 'delete a video dataset', 're-cut', 'recut',
      'another length', 'library', 'where are my clips', 'output folder'],
     '/datasets', 'using-the-app', 'video-training-sets-and-the-two-things-to-check-before-you-cut-one'),
+  // The four sections of the video dataset workspace. One topic each, exactly
+  // like `workspace-*` on the image side — the ? badge in a section header has
+  // to resolve to something, and a section without one is a screen the Guide
+  // cannot answer a question about.
+  action('video-dataset-clips', 'The clips of a video dataset',
+    ['clips section', 'clip grid', 'watch a clip', 'play a clip', 'thumbnails',
+     'no video players', 'sixty players', 'lightbox', 'step through clips',
+     'filter clips', 'search clips', 'sort clips', 'file order', 'longest first',
+     'uncaptioned first', 'remove a clip', 'drop a clip', 'select clips',
+     'shift click', 'bulk remove', 'the bank keeps the shot'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-captions', 'Captions of a video dataset',
+    ['caption a clip', 'clip captions', 'sidecar', 'txt file', 'txt next to the mp4',
+     'caption not saved', 'sidecar failed', 'empty caption', 'trigger word alone',
+     'find and replace', 'whole word', 'prefix', 'suffix', 'bulk caption edit',
+     'repeated words', 'most repeated', 'caption leak', 'coverage'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-references', 'Identity references of a video dataset',
+    ['references', 'reference images', 'control images', 'ref2va', 'identity',
+     'attach references', 'replace references', 'launch refused', 'unconditioned',
+     'minimax h3 references', '1 to 4 images'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-training', 'Training section of a video dataset',
+    ['train section', 'launch training', 'steps', 'i2v', 'train on this pc',
+     'train in the cloud', 'checkpoints section', 'download the lora',
+     'both experts', 'high noise', 'low noise'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
   action('video-train-local', 'Train a video dataset on this machine',
     ['train this dataset', 'train video', 'video training', 'local training',
      'video lora', 'train a video lora', 'start training', 'stop training',

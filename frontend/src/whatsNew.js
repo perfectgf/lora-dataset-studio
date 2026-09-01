@@ -83,6 +83,31 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-dataset-workspace',
+    date: '2026-09-01',
+    title: 'Your video training sets finally have a screen of their own',
+    blurb:
+      'A video set used to be a card at the bottom of the library: a list of file '
+      + 'names, one caption box each, and nothing else. Opening one now opens a full '
+      + 'workspace — a grid of every clip with the rush and timecode it came from, a '
+      + 'player you can step through with the arrow keys, a search, and caption tools '
+      + 'that rewrite the .txt files in bulk. Same shape as an image dataset, because '
+      + 'it is the same job.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-01-remove-a-clip-from-a-video-set',
+    date: '2026-09-01',
+    title: 'Drop a bad clip without re-cutting the whole set',
+    blurb:
+      'The three-frame clip of somebody’s hand is only visible after the encode, and '
+      + 'until now the only way out was deleting the dataset and promoting it again. '
+      + 'Remove it from the set instead: its .mp4 and .txt go, and the bank keeps the '
+      + 'shot, its bounds and every decision — so you can re-cut and promote it again '
+      + 'with no triage to redo.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-01-video-prep-in-one-button',
     date: '2026-09-01',
     title: '▶ Run everything now really runs everything',
