@@ -177,6 +177,14 @@ export default function VideoTestStudio() {
       setLora({ lora: clip.lora, runId: clip.run_id, datasetId: clip.dataset_id });
       setStrength(clip.lora_strength ?? 1);
     }
+    // The start frame comes back too, or Reuse restores every dial except the
+    // one that decides whether Generate works: an image-to-video clip reused
+    // without its frame lands blocked on "Pick a start frame". The staged file
+    // is still in ComfyUI's input folder — the name is all the graph needs, and
+    // the server re-reads the shape from the file when it is not sent.
+    if (clip.mode !== 't2v' && clip.source_image) {
+      setSource({ image: clip.source_image, ratio: null, preview: null });
+    }
     toast.info?.('Settings loaded — change one thing and generate again.');
   };
 

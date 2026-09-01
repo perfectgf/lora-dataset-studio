@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-reuse-brings-the-start-frame-back',
+    date: '2026-09-01',
+    title: '↻ Reuse gives the start frame back, and any LoRA can be imported',
+    blurb:
+      'Reusing an image-to-video clip restored every dial — model, steps, '
+      + 'length, seed — and left the start frame empty, so Generate stayed '
+      + 'blocked. It comes back now. And the LoRA picker gained an import: give '
+      + 'it a path on this machine or choose the file, and it lands in '
+      + 'ComfyUI’s folder ready to test — no more moving files by hand.',
+  },
+  {
     id: '2026-09-01-video-studio-length-to-15s',
     date: '2026-09-01',
     title: 'Clips up to 15 seconds, on a slider instead of a 21-row list',

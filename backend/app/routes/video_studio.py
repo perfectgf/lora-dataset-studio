@@ -40,6 +40,11 @@ def _clip_dict(clip):
     return {
         'id': clip.id, 'status': clip.status, 'error': clip.error,
         'filename': clip.filename, 'prompt': clip.prompt, 'mode': clip.mode,
+        # The staged start frame, so ↻ Reuse can hand it back: without it a
+        # reused image-to-video clip lands in i2v mode with nothing to animate
+        # and Generate stays blocked — every dial restored except the one that
+        # decides whether the button works at all.
+        'source_image': clip.source_image,
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
@@ -126,6 +131,37 @@ def video_studio_deploy():
         return jsonify({'ok': False,
                         'error': f'Could not copy the checkpoint into ComfyUI: {exc}'}), 500
     return jsonify({'ok': True, 'filename': name})
+
+
+@bp.post('/lora/import')
+def video_studio_lora_import():
+    """Bring a LoRA the user already has into the picker.
+
+    Multipart `file`, or JSON `{path}` for a file on this machine — the second
+    is the one that matters for a 300 MB weight, since nothing crosses HTTP.
+    The picker listed only what this app trained and what was already in
+    ComfyUI's folder, so anything downloaded had to be moved there by hand with
+    the app open beside a file explorer.
+
+    400 for every refusal, because all of them are things the user can fix: the
+    wrong extension, an unusable name, a file that is not there, or a DIFFERENT
+    weight already under that name (never overwritten — that would silently
+    change what every clip made with that name meant).
+    """
+    upload = request.files.get('file')
+    data = request.get_json(silent=True) or {}
+    try:
+        out = vts.import_external_lora(
+            src_path=(str(data.get('path')).strip() if data.get('path') else None),
+            upload=upload,
+            filename=(upload.filename if upload is not None else None))
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    except OSError as exc:
+        logger.exception('video studio: lora import failed')
+        return jsonify({'ok': False,
+                        'error': f'Could not copy that LoRA into ComfyUI: {exc}'}), 500
+    return jsonify({'ok': True, **out})
 
 
 @bp.post('/source')
@@ -263,6 +299,27 @@ def _dataset_clip_frame(dataset_id, filename):
     raise ValueError('that clip has no decodable frame')
 
 
+def _staged_image_ratio(name):
+    """width / height of an ALREADY staged start frame, by its staged name.
+
+    The ratio travels with the pick; a caller replaying a past clip has only
+    the name. Reading it back costs one PIL open of a file this app wrote
+    itself, and returns None on anything unreadable — the same fine answer
+    _image_ratio gives, with the same single consumer.
+    """
+    safe = os.path.basename(str(name or ''))
+    if not safe:
+        return None
+    try:
+        from .. import config as cfg
+        folder = cfg.comfyui_dir('input')
+    except Exception:  # noqa: BLE001 — no input folder is "no ratio", not a 500
+        return None
+    if not folder:
+        return None
+    return _image_ratio(os.path.join(str(folder), safe))
+
+
 def _image_ratio(path):
     """width / height of the staged picture, or None when it cannot be read.
 
@@ -316,7 +373,13 @@ def video_studio_generate():
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
-            source_ratio=data.get('ratio'))
+            # The ratio only sizes the latent upscale, and a client that has
+            # the staged NAME but not the shape (↻ Reuse) would otherwise fall
+            # back to the node's landscape defaults — turning a reused portrait
+            # clip into a wide one on the upscale pass. Re-read here from the
+            # file itself, which is still where the staging put it.
+            source_ratio=(data.get('ratio')
+                          or (_staged_image_ratio(image) if mode == 'i2v' else None)))
     except lts.StudioAssetsMissing as exc:
         return _studio_missing_response(exc)
     except (ValueError, TypeError) as exc:

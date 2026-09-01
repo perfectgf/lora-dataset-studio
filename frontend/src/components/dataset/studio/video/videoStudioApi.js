@@ -16,6 +16,9 @@ export const VIDEO_STUDIO_BASE = '/api/video-studio';
 export const optionsUrl = () => `${VIDEO_STUDIO_BASE}/options`;
 export const lorasUrl = () => `${VIDEO_STUDIO_BASE}/loras`;
 export const deployUrl = () => `${VIDEO_STUDIO_BASE}/deploy`;
+
+/** Where a LoRA the user already has is brought into the picker. */
+export const loraImportUrl = () => '/api/video-studio/lora/import';
 export const sourceUrl = () => `${VIDEO_STUDIO_BASE}/source`;
 export const generateUrl = () => `${VIDEO_STUDIO_BASE}/generate`;
 export const clipsUrl = (limit = 24) => `${VIDEO_STUDIO_BASE}/clips?limit=${limit}`;

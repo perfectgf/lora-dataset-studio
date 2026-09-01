@@ -726,6 +726,74 @@ def deploy_checkpoint(run_id, filename) -> str:
     return os.path.join(LORA_SUBDIR, os.path.basename(src))
 
 
+# A LoRA is one safetensors file. The extension is not decoration here: it is
+# what ComfyUI's LoraLoader reads, and copying a .ckpt or a .pt into the folder
+# would put an entry in the picker that fails at generation time.
+LORA_EXT = '.safetensors'
+
+
+def import_external_lora(src_path=None, upload=None, filename=None) -> dict:
+    """Copy a LoRA the user already has into ComfyUI's folder, and name it.
+
+    Two ways in, because the two are different situations: a PATH (the file is
+    on this machine — nothing crosses HTTP, which matters at 300 MB) and an
+    UPLOAD (it is on the phone, or on the machine driving the browser).
+
+    Refuses rather than guesses:
+      * anything that is not a .safetensors — the loader reads nothing else,
+        and an entry that fails at generation time is worse than no entry;
+      * a name that could resolve outside the folder (traversal, drive letter,
+        rooted path) — the same sanitizer the canvas uses;
+      * a DIFFERENT file already sitting under that name. Overwriting it would
+        silently change what every clip generated with that name meant, and the
+        picker would keep showing one label for two different weights. Same
+        name AND same size is treated as already imported, so re-importing is
+        free — the idempotence deploy_checkpoint already applies.
+
+    Returns {'filename': 'h3/lds/<name>', 'label': <stem>, 'bytes': n,
+    'already': bool} — the LoraLoader-form name the graph will use.
+    """
+    from .lora_test_studio import _is_unsafe_external_lora_name
+    name = os.path.basename(str(filename or src_path or '')).strip()
+    if not name or _is_unsafe_external_lora_name(name):
+        raise ValueError('that file name cannot be used')
+    if not name.lower().endswith(LORA_EXT):
+        raise ValueError(f'a LoRA is a {LORA_EXT} file — this one is not, and '
+                         f'ComfyUI would not load it')
+    dest_dir = _loras_write_dir()
+    if not dest_dir:
+        raise ValueError('ComfyUI loras folder is not configured')
+    dst = os.path.join(dest_dir, name)
+
+    if src_path is not None:
+        src = os.path.abspath(str(src_path))
+        if not os.path.isfile(src):
+            raise ValueError('that file is not on this machine')
+        size = os.path.getsize(src)
+        if os.path.isfile(dst):
+            if os.path.getsize(dst) == size:
+                return {'filename': os.path.join(LORA_SUBDIR, name),
+                        'label': name[:-len(LORA_EXT)], 'bytes': size,
+                        'already': True}
+            raise ValueError(f'a different {name} is already in the folder — '
+                             f'rename yours, so the two stay tellable apart')
+        shutil.copy2(src, dst)
+    else:
+        if upload is None:
+            raise ValueError('attach a file, or give a path on this machine')
+        if os.path.isfile(dst):
+            # An upload has no size to compare before it is written, so the
+            # collision is refused outright rather than after 300 MB.
+            raise ValueError(f'{name} is already in the folder — rename yours, '
+                             f'or use the one that is there')
+        upload.save(dst)
+        size = os.path.getsize(dst)
+    logger.info('video studio: imported %s into %s', name, LORA_SUBDIR)
+    return {'filename': os.path.join(LORA_SUBDIR, name),
+            'label': name[:-len(LORA_EXT)],
+            'bytes': os.path.getsize(dst), 'already': False}
+
+
 def eros_on_disk() -> bool:
     """Is the 10Eros weight actually on THIS machine?
 

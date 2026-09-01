@@ -408,3 +408,24 @@ def test_the_refusal_names_every_way_in(client):
     body = r.get_json()['error'].lower()
     for word in ('image', 'bank', 'clip', 'gallery'):
         assert word in body
+
+
+def test_a_clip_publishes_the_start_frame_reuse_needs(app):
+    """↻ Reuse restored every dial of an image-to-video clip and left the start
+    frame empty, so Generate stayed blocked on 'Pick a start frame' — every
+    setting back except the one that decides whether the button works. The row
+    had stored the staged file all along; the payload never published it."""
+    from app.routes.video_studio import _clip_dict
+    from app.extensions import db
+    from app.models import VideoTestClip
+
+    with app.app_context():
+        clip = VideoTestClip(prompt='she turns', mode='i2v', status='done',
+                               source_image='lds_vstudio_abc123.png',
+                               frames=56, fps=24, steps=6, seed=7)
+        db.session.add(clip)
+        db.session.commit()
+        row = _clip_dict(clip)
+
+    assert row['source_image'] == 'lds_vstudio_abc123.png'
+    assert row['mode'] == 'i2v'
