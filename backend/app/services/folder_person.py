@@ -58,7 +58,7 @@ from sqlalchemy import func, or_
 
 from ..extensions import db
 from ..models import BankFolderPerson, BankFolderProbe, BankImage
-from . import bank_jobs
+from . import bank_jobs, face_models
 
 logger = logging.getLogger(__name__)
 
@@ -525,7 +525,7 @@ def _sample_job(bank_id, subfolder):
         cache_path = banks._bank_dir(bank_id) / 'folder_sample.npz'
         req = json.dumps({
             'images': paths,
-            'models_root': banks.cfg.get('face_scoring.models_root') or None,
+            'models_root': face_models.models_root(),
             'cache': str(cache_path),
             'cancel_file': str(cache_path) + '.cancel',
             'threshold': th['face_threshold'],
@@ -928,7 +928,7 @@ def _embed_round(job, bank_id, groups, *, allow_inference: bool):
     req = json.dumps({
         'images': [p for g in groups for p in g['images']],
         'groups': groups,
-        'models_root': banks.cfg.get('face_scoring.models_root') or None,
+        'models_root': face_models.models_root(),
         'cache': str(cache_path),
         'cancel_file': str(cache_path) + '.cancel',
         'threshold': th['face_threshold'],

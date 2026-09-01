@@ -59,7 +59,7 @@ from ..extensions import db
 from ..models import (BankDupDistinct, BankImage, FaceDataset, FaceDatasetImage,
                       ImageBank)
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
-               dataset_activity, image_encoding, path_guard, trash)
+               dataset_activity, face_models, image_encoding, path_guard, trash)
 # The scope vocabulary is a leaf (pass_scopes.py) so face_dataset_service never
 # imports this module; the three names stay readable as banks.* for every caller.
 from .pass_scopes import PASS_SCOPES, CAPTION_SCOPES, normalize_pass_statuses  # noqa: F401
@@ -6767,7 +6767,7 @@ def _faces_job(bank_id, angles_only=False, statuses=None, ids=None):
         cache_path = _face_cache_path(bank_id)
         payload = _json.dumps({
             'images': paths,
-            'models_root': cfg.get('face_scoring.models_root') or None,
+            'models_root': face_models.models_root(),
             'cache': str(cache_path),
             'cancel_file': str(cache_path) + '.cancel',
             'threshold': th['face_threshold'],

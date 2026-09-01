@@ -200,8 +200,11 @@ def test_score_dataset_faces_stdin_payload_includes_models_root(app, monkeypatch
     assert payload['models_root'] == 'C:/models/insightface'
 
 
-def test_score_dataset_faces_stdin_payload_models_root_none_when_unconfigured(app, monkeypatch):
-    from app.services import face_similarity as fsim
+def test_score_dataset_faces_stdin_payload_falls_back_to_the_managed_root(app, monkeypatch):
+    """Unconfigured is NOT "let insightface decide": it used to send None, which
+    sent the ~350 MB pack to ~/.insightface -- a folder no Docker stack mounts
+    (see test_face_models_root.py)."""
+    from app.services import face_models, face_similarity as fsim
 
     monkeypatch.setattr(fsim, 'is_available', lambda: True)
     captured = {}
@@ -221,8 +224,10 @@ def test_score_dataset_faces_stdin_payload_models_root_none_when_unconfigured(ap
             with open(img_path, 'wb') as fh:
                 fh.write(_png())
             fsim.score_dataset_faces(ref, [img_path])
+            expected = str(face_models.models_root())
     payload = json.loads(captured['input'])
-    assert payload['models_root'] is None
+    assert payload['models_root'] == expected
+    assert payload['models_root']          # never None — that was the Docker bug
 
 
 def test_score_dataset_faces_native_crash_returns_empty_not_exception(app, monkeypatch):

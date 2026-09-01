@@ -1426,7 +1426,7 @@ re-sorts every bank instantly, without rescanning.
 | Key | Default | Role |
 |---|---|---|
 | `face_scoring.python` | `''` | Interpreter for the InsightFace subprocess (empty = current interpreter). |
-| `face_scoring.models_root` | `''` | Where InsightFace weights are stored/downloaded. |
+| `face_scoring.models_root` | `''` | Where InsightFace weights are stored/downloaded. Empty means `data/models/insightface` — except on an install that already downloaded them to `~/.insightface`, which keeps using that folder. |
 | `face_scoring.device` | `'auto'` | Device for BOTH face passes — the Image bank's person grouping and a dataset's 🎭 Analyze faces. `auto` uses the GPU when the face interpreter exposes CUDA (needs `onnxruntime-gpu` installed in it) and falls back to CPU otherwise; `cpu` forces CPU (never touches the GPU); `cuda` requests the GPU but still falls back to CPU when unavailable. A GPU run is serialized through the GPU-exclusive window so it never competes with a training/scoring pass. |
 | `masks.python` | `''` | Interpreter for the rembg (person-mask) subprocess. |
 | `bank_scoring.text_search_idle_minutes` | `10` | How long the selected 🔤 **Find by text** encoder stays warm after its last query (capped at `120`). Set `0` to unload after every query. Text caches are separated by engine/model key. |
@@ -1545,7 +1545,7 @@ A flat cheat-sheet of the main `config.json` keys, for quick lookup or hand-edit
 | `cloud.quantize.export_budget_seconds` | Time budget for the conversion inside the pod (default `1800`). |
 | `cloud.full_transformer.fp8_export_budget_seconds` | Time budget for that conversion on the pod (default `1800`). Exceeding it abandons the export; the bf16 master is already delivered, so the run stays a success. |
 | `face_scoring.python` | Python interpreter used to run the InsightFace subprocess (empty = current interpreter). |
-| `face_scoring.models_root` | Directory where InsightFace model weights are stored/downloaded. |
+| `face_scoring.models_root` | Directory where InsightFace model weights are stored/downloaded. Empty resolves to `data/models/insightface`, so a Docker install keeps them on its mounted volume instead of re-downloading ~350 MB whenever the container is recreated. |
 | `face_scoring.green` | Similarity score threshold (0–1) above which an image is flagged "green" (strong match). |
 | `face_scoring.orange` | Similarity score threshold (0–1) above which an image is flagged "orange" (borderline match). |
 | `masks.python` | Python interpreter used to run the rembg subprocess (empty = current interpreter). |
