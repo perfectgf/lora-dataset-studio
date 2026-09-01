@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   isStillFile, clipDurationS, hasCaption, filterClipsByCaption, clipFilterCount,
   searchClips, sortClips, visibleClips, clipCounts, captionCoverageNote,
-  removeClipsConfirmation, CLIP_FILTERS, CLIP_SORTS,
+  removeClipsConfirmation, removeClipsReport, lightboxTargets, CLIP_FILTERS, CLIP_SORTS,
   normalizeClipFilter, normalizeClipSort,
 } from './videoDatasetClips.js'
 
@@ -160,5 +160,68 @@ test('the removal confirm names the count and promises the bank is untouched', (
   for (const text of [one, many]) {
     assert.match(text, /\.txt/)
     assert.match(text, /bank .* keeps every shot/)
+    // What makes it recoverable at all, and it is not the bank: the files go to
+    // the app's Trash rather than being unlinked.
+    assert.match(text, /Trash/)
   }
+})
+
+test('a STILLS set is not promised a bank it does not have', () => {
+  // Its rows are written straight from an image dataset, with no source_bank_id
+  // and no source_clip_id — "you can promote them again" would be a promise
+  // about something that does not exist.
+  const stills = removeClipsConfirmation(['clip_0001.png'], { fromBank: false })
+  assert.doesNotMatch(stills, /keeps every shot/,
+    'a stills set has no bank to keep anything')
+  assert.doesNotMatch(stills, /promote them again without/)
+  assert.match(stills, /no bank/)
+  assert.match(stills, /image dataset/)
+  assert.match(stills, /Trash/)
+})
+
+// ---- the player: two lists, and the reason they are two ----------------------
+
+test('the open clip survives leaving the filter — the player does not close on success', () => {
+  // The page's headline workflow: filter "No caption", open a clip, write one.
+  // The instant it is written the clip leaves the filter. Resolving the open
+  // clip against the filtered list closed the player at exactly that moment —
+  // measured in a real browser, and the whole reason these are two lists.
+  const items = [clip({ id: 1, caption: 'now captioned' }), clip({ id: 2 }), clip({ id: 3 })]
+  const shown = filterClipsByCaption(items, 'uncaptioned')      // ids 2 and 3
+  const t = lightboxTargets(items, shown, 1)
+  assert.equal(t.clip?.id, 1, 'the player must keep showing the clip just captioned')
+  assert.equal(t.index, -1)
+  // Both arrows dead: stepping would jump into a list this clip is not in.
+  assert.equal(t.prevId, null)
+  assert.equal(t.nextId, null)
+})
+
+test('stepping walks the FILTERED list, and stops at both ends', () => {
+  const items = [clip({ id: 1 }), clip({ id: 2 }), clip({ id: 3 }), clip({ id: 4 })]
+  const shown = [items[0], items[2]]                    // a filter kept 1 and 3
+  const first = lightboxTargets(items, shown, 1)
+  assert.deepEqual([first.prevId, first.nextId], [null, 3], 'next skips the filtered-out clip')
+  const last = lightboxTargets(items, shown, 3)
+  assert.deepEqual([last.prevId, last.nextId], [1, null])
+  // An id nobody holds is not a crash.
+  const none = lightboxTargets(items, shown, 99)
+  assert.deepEqual([none.clip, none.index, none.prevId, none.nextId], [null, -1, null, null])
+  assert.deepEqual(lightboxTargets(null, null, 1).clip, null)
+})
+
+test('the removal report stops saying "removed" about a file still in the folder', () => {
+  assert.equal(removeClipsReport({ removed: 3, files_kept: 0 }),
+    '3 clips removed — sent to the Trash.')
+  assert.equal(removeClipsReport({ removed: 1, files_kept: 0 }),
+    '1 clip removed — sent to the Trash.')
+  // The dangerous case: the row is gone from nothing, the file is still read by
+  // the trainer. It must NOT wear the success wording.
+  const partial = removeClipsReport({ removed: 2, files_kept: 1 })
+  assert.match(partial, /2 clips removed/)
+  assert.match(partial, /could not be moved/)
+  assert.match(partial, /the trainer reads the folder/)
+  const none = removeClipsReport({ removed: 0, files_kept: 2 })
+  assert.match(none, /Nothing was removed/)
+  assert.match(none, /2 files/)
+  assert.deepEqual(typeof removeClipsReport({}), 'string')
 })

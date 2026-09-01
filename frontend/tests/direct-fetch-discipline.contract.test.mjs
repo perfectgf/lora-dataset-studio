@@ -63,6 +63,50 @@ test('a raw fetch never mutates — every POST/PUT/DELETE/PATCH rides the shared
     'mutating requests owe the client its CSRF retry and error wording — use postJson/putJson/patchJson/del/postForm')
 })
 
+// Rule 3: a MULTIPART body carries the CSRF token, or it never reaches the view.
+//
+// This one was not theory. The video dataset's References section shipped with
+// `apiFetch(url, { method: 'POST', body: form })` — the only FormData in the app
+// that did not go through `postForm` — and CSRFProtect refused it with a 400 the
+// view never saw. The backend suite could not catch it (conftest builds the app
+// with WTF_CSRF_ENABLED=False, so every machine caller is unverified there), and
+// rules 1 and 2 above could not either: it was a client call, not a raw fetch,
+// and the client only adds the token for the helpers that build the body.
+//
+// Matched on the OPTIONS OBJECT rather than on a function name, so it holds for
+// apiFetch, fetchWithCsrfRetry and fetch alike.
+// Anchored on `method:` and not on `body:`, which is an ordinary key all over
+// this codebase (markdown blocks, framing labels, a settings form). A request
+// options object is the one place the two appear together.
+const mutatingOptions = (text) => {
+  const out = []
+  const re = /method:\s*['"`](POST|PUT|PATCH|DELETE)['"`]/g
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const from = Math.max(0, m.index - 300)
+    const context = text.slice(from, m.index + 300)
+    if (!/body:/.test(context)) continue                    // no payload at all
+    if (/body:\s*JSON\.stringify/.test(context)) continue    // postJson's shape
+    out.push({ line: text.slice(0, m.index).split('\n').length, context })
+  }
+  return out
+}
+
+test('a multipart body never travels without its CSRF token', () => {
+  const offenders = []
+  for (const [path, text] of SRC_FILES) {
+    if (rel(path) === 'api/fetchClient.js') continue      // postForm lives there
+    for (const call of mutatingOptions(text)) {
+      // Either the helper that attaches both, or the token attached by hand
+      // (DescribeImageModal does the second, correctly, and stays legal).
+      if (/postForm\s*\(/.test(call.context)) continue
+      if (/X-CSRFToken/.test(call.context)) continue
+      offenders.push(`${rel(path)}:${call.line}`)
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'a FormData POST without the CSRF token is refused with a 400 the view never sees — use postForm')
+})
+
 test('the set of files allowed to raw-fetch is closed', () => {
   // Each entry is a deliberate best-effort GET (or the client itself). Adding
   // a file here needs the same justification these carry at the call site.

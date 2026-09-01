@@ -154,11 +154,62 @@ export function captionCoverageNote(counts, triggerWord) {
 /** Confirmation for dropping clips out of the set. Names the count and says what
  * survives, because the answer ("the bank keeps every shot") is the whole reason
  * this is a safe thing to click. */
-export function removeClipsConfirmation(names) {
+export function removeClipsConfirmation(names, { fromBank = true } = {}) {
   const list = Array.isArray(names) ? names.filter(Boolean) : [];
   if (!list.length) return null;
   const head = list.length === 1
     ? `Remove “${list[0]}” from this dataset?`
     : `Remove ${list.length} clips from this dataset?`;
-  return `${head}\n\nThe encoded file and its .txt caption are deleted from the dataset folder. The bank they were cut from keeps every shot and every decision — you can promote them again without triaging anything.`;
+  // The reassuring half depends on where the clips came from. A STILLS set has
+  // no bank at all — its rows are written straight from an image dataset with no
+  // source_bank_id — so "the bank keeps every shot" would promise something that
+  // does not exist. Different behaviour must not wear the same wording.
+  const tail = fromBank
+    ? 'The bank they were cut from keeps every shot and every decision — you can promote them again without triaging anything.'
+    : 'This set was built from an image dataset, so there is no bank to promote them from again. The images are still in that dataset; the captions written here are not.';
+  return `${head}\n\nThe encoded file and its .txt caption go to the app’s Trash — recoverable from Settings until you empty it. ${tail}`;
+}
+
+/** What the player is showing, and what it steps through — TWO different lists,
+ * and the difference is the whole point.
+ *
+ * The clip is resolved against the FULL set; prev/next walk the FILTERED one.
+ * Resolving both against the filtered list looks tidier and breaks the page's
+ * own headline workflow: the filter it pushes hardest is “No caption”, the
+ * reason you open a clip is to give it one, and the instant you succeed the clip
+ * leaves the filter — so the player closed under the user's hands at the exact
+ * moment they finished. Measured in a real browser before it was pinned here.
+ *
+ * `index` is -1 for a clip that has left the filtered list, and BOTH arrows go
+ * dead there rather than jumping to the head of a list this clip is not in.
+ */
+export function lightboxTargets(items, shown, openId) {
+  const list = Array.isArray(items) ? items : [];
+  const walk = Array.isArray(shown) ? shown : [];
+  const index = walk.findIndex((c) => c.id === openId);
+  return {
+    clip: list.find((c) => c.id === openId) || null,
+    index,
+    prevId: index > 0 ? walk[index - 1].id : null,
+    nextId: index >= 0 && index < walk.length - 1 ? walk[index + 1].id : null,
+  };
+}
+
+/** What the toast says after a removal — and it stops saying “removed” about a
+ * clip whose FILE is still in the folder.
+ *
+ * `files_kept` is the server's answer for a file it could not move: an antivirus
+ * scan, an open player, or a training run reading this very folder. The row is
+ * kept with it, deliberately, because the folder IS the dataset and a row
+ * deleted without its file takes the clip out of the app while leaving it in the
+ * training set. Same register as the sidecar warning, which already settled this
+ * argument for captions. */
+export function removeClipsReport({ removed = 0, files_kept: kept = 0 } = {}) {
+  const n = `${removed} clip${removed === 1 ? '' : 's'}`;
+  if (!kept) return `${n} removed — sent to the Trash.`;
+  const k = `${kept} file${kept === 1 ? '' : 's'}`;
+  if (!removed) {
+    return `Nothing was removed: ${k} could not be moved — still open somewhere (a player, an antivirus scan, or a training run reading this folder). Those clips stay in the set.`;
+  }
+  return `${n} removed, but ${k} could not be moved and stay in the folder — the trainer reads the folder, so those clips are still in the set. Close whatever is holding them and try again.`;
 }

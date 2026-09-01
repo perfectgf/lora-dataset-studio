@@ -90,13 +90,24 @@ export function captionEditProgressLabel(done, total) {
 
 /** The tail report, and it names FAILURES rather than rounding them off: a
  * sidecar that could not be written is exactly the silent half-success this
- * whole lane is built to refuse. */
-export function captionEditReport({ changed = 0, failed = 0 } = {}) {
-  if (failed && !changed) {
-    return `No caption could be saved — ${failed} failed.`;
+ * whole lane is built to refuse.
+ *
+ * THREE outcomes, not two, and conflating them made the report say something
+ * false. The server commits the row BEFORE it tries the sidecar
+ * (set_dataset_clip_caption), so:
+ *   · `changed`       — row and .txt both hold the new text;
+ *   · `sidecarFailed` — the APP shows the new text, the .txt still has the old
+ *                       one, and the trainer reads the .txt. The dangerous one;
+ *   · `failed`        — the request threw, nothing moved anywhere.
+ * The old wording ("the failed ones still hold their previous text") was true of
+ * the third and a lie about the second. */
+export function captionEditReport({ changed = 0, sidecarFailed = 0, failed = 0 } = {}) {
+  const parts = [];
+  if (changed) parts.push(`${changed} caption${changed === 1 ? '' : 's'} rewritten, .txt files included`);
+  if (sidecarFailed) {
+    parts.push(`${sidecarFailed} saved in the app but their .txt could NOT be written — training will read the previous text for those`);
   }
-  if (failed) {
-    return `${changed} caption${changed === 1 ? '' : 's'} rewritten, ${failed} failed — the failed ones still hold their previous text.`;
-  }
-  return `${changed} caption${changed === 1 ? '' : 's'} rewritten, .txt files included.`;
+  if (failed) parts.push(`${failed} could not be saved at all and still hold their previous text`);
+  if (!parts.length) return 'Nothing was changed.';
+  return `${parts.join('; ')}.`;
 }

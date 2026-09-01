@@ -16,7 +16,7 @@ const boolStatus = (value) => (value ? PANEL_STATUS.AVAILABLE : PANEL_STATUS.UNA
 const AVAILABILITY = {
   always: () => PANEL_STATUS.AVAILABLE,
   hasSelection: (c) => boolStatus(c.selected > 0),
-  hasCaptions: (c) => boolStatus(c.captioned > 0),
+  hasClips: (c) => boolStatus(c.clips > 0),
   requiresReferences: (c) => boolStatus(c.requiresReferences),
   // Answered by VideoTrainingBlock's own cloud poll (onCheckpointGroups), not
   // guessed from the dataset row: a dataset that has never trained has no runs,

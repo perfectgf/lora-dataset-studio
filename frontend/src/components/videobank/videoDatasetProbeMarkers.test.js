@@ -69,6 +69,28 @@ test('the search input keeps basis-0 — without it the toolbar doubles', () => 
   assert.match(workspace, /type="search"[\s\S]{0,400}?grow basis-0/)
 })
 
+test('the per-clip Saving line RESERVES its space instead of inserting a row', () => {
+  // blur is a discrete event: React flushes the state update before the browser
+  // delivers the mouseup. A line appearing under the clip therefore pushed
+  // everything below it down MID-CLICK — measured at +15 px between mousedown
+  // and mouseup — and the click meant for a Caption tools button landed beside
+  // it. The height has to exist whether or not anything is being saved.
+  assert.match(workspace, /min-h-4 text-\[0\.625rem\] text-content-subtle/)
+  assert.match(workspace, /\{savingId === clip\.id \? 'Saving…' : ''\}/)
+  assert.ok(!/\{savingId === clip\.id && \(/.test(workspace),
+    'a conditionally INSERTED status line shifts the page under the pointer')
+})
+
+test('Escape saves the caption before it closes the player', () => {
+  // A focused element removed from the DOM never fires blur, and blur is what
+  // owns the save — so Escape used to drop the typed caption in silence while
+  // the screen went on showing it. Measured in a real browser.
+  assert.match(lightbox, /if \(e\.key === 'Escape'\) \{[\s\S]{0,900}?onSave\(\)\s*\n\s*onClose\(\)/,
+    'Escape must call onSave() BEFORE onClose(), or the caption is lost')
+  assert.match(lightbox, /\[onClose, onSave, onPrev, onNext, hasPrev, hasNext\]/,
+    'onSave has to be in the effect deps, or Escape saves a stale draft')
+})
+
 test('the identity line and the destinations rail cost nothing at rest on a phone', () => {
   // The header's target/frames/size line is desktop-only and gone on a short
   // fold: it was a third header row on a 360 px screen.

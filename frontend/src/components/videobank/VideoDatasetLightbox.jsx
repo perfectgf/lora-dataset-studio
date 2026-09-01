@@ -34,14 +34,24 @@ export default function VideoDatasetLightbox({
   // another clip and abandon the text mid-word.
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') {
+        // SAVE, then close. Closing unmounts the textarea, and a focused element
+        // removed from the DOM never fires blur — so the onBlur that owns the
+        // save was simply never called. Measured in a real browser: type, press
+        // Escape, and the caption is gone at the next reload while the screen
+        // still showed it. The hint under the box says "saved when you click
+        // away"; Escape has to be a way of clicking away, not a trapdoor.
+        onSave()
+        onClose()
+        return
+      }
       if (typing.current) return
       if (e.key === 'ArrowLeft' && hasPrev) onPrev()
       if (e.key === 'ArrowRight' && hasNext) onNext()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, onPrev, onNext, hasPrev, hasNext])
+  }, [onClose, onSave, onPrev, onNext, hasPrev, hasNext])
 
   if (!clip) return null
   const still = isStillFile(clip.filename)

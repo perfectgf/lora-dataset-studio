@@ -129,9 +129,29 @@ test('the progress line counts what is really being written', () => {
 })
 
 test('a failed sidecar is REPORTED, never rounded off into the success', () => {
-  assert.match(captionEditReport({ changed: 5, failed: 0 }), /5 captions rewritten/)
-  const partial = captionEditReport({ changed: 4, failed: 1 })
-  assert.match(partial, /4 captions rewritten, 1 failed/)
-  assert.match(partial, /previous text/)
-  assert.match(captionEditReport({ changed: 0, failed: 3 }), /No caption could be saved/)
+  assert.match(captionEditReport({ changed: 5 }), /5 captions rewritten/)
+  assert.match(captionEditReport({ changed: 5 }), /\.txt files included/)
+  assert.equal(captionEditReport({}), 'Nothing was changed.')
+})
+
+test('a request that threw and a sidecar that would not write are DIFFERENT news', () => {
+  // The server commits the row before it tries the sidecar, so the two outcomes
+  // are opposites: one left the app showing text the trainer will not read, the
+  // other moved nothing at all. Saying "still hold their previous text" about
+  // both was true of one and a lie about the other.
+  const sidecar = captionEditReport({ changed: 4, sidecarFailed: 1 })
+  assert.match(sidecar, /4 captions rewritten/)
+  assert.match(sidecar, /saved in the app but their \.txt could NOT be written/)
+  assert.match(sidecar, /training will read the previous text/)
+  assert.doesNotMatch(sidecar, /could not be saved at all/)
+
+  const threw = captionEditReport({ changed: 4, failed: 1 })
+  assert.match(threw, /1 could not be saved at all and still hold their previous text/)
+  assert.doesNotMatch(threw, /\.txt could NOT be written/)
+
+  // And all three at once still reads as three separate facts.
+  const both = captionEditReport({ changed: 2, sidecarFailed: 1, failed: 3 })
+  assert.match(both, /2 captions rewritten/)
+  assert.match(both, /1 saved in the app/)
+  assert.match(both, /3 could not be saved at all/)
 })

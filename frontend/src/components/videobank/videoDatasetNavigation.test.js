@@ -10,7 +10,7 @@ import {
 
 // A dataset with everything switched on, so a test can turn ONE thing off.
 const full = {
-  selected: 2, captioned: 5, requiresReferences: true, checkpointGroups: 1,
+  selected: 2, clips: 6, requiresReferences: true, checkpointGroups: 1,
 }
 const params = (qs) => new URLSearchParams(qs)
 
@@ -62,12 +62,16 @@ test('References is absent for a target that does not train on control images', 
 
 // ---- panels appear on the state they point at, not on hope -------------------
 
-test('Bulk actions appears only with a selection, Caption tools only with captions', () => {
+test('Bulk actions needs a selection; Caption tools needs clips, not captions', () => {
   assert.deepEqual(getVideoDatasetPanels('clips', full).map((p) => p.id), ['review', 'bulk'])
   assert.deepEqual(getVideoDatasetPanels('clips', { ...full, selected: 0 }).map((p) => p.id),
     ['review'])
   assert.deepEqual(getVideoDatasetPanels('captions', full).map((p) => p.id), ['list', 'tools'])
+  // Gated on CLIPS, not on captions: `prefix` is written for the silent ones, so
+  // an entirely uncaptioned set is exactly when the tools are wanted.
   assert.deepEqual(getVideoDatasetPanels('captions', { ...full, captioned: 0 }).map((p) => p.id),
+    ['list', 'tools'])
+  assert.deepEqual(getVideoDatasetPanels('captions', { ...full, clips: 0 }).map((p) => p.id),
     ['list'])
   assert.deepEqual(getVideoDatasetPanels('nope', full), [])
 })

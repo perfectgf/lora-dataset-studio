@@ -3327,6 +3327,25 @@ def remove_dataset_clips(user_id, dataset_id, clip_ids) -> dict | None:
     Missing files are not an error. A user who cleaned the output folder by hand
     still needs the row gone, and refusing on a file that is already absent would
     leave a dataset permanently claiming a clip nobody can play.
+
+    A LOCKED file is a different answer, and it is the one this used to get
+    wrong. The folder IS the dataset — every trainer reads the directory, not our
+    database — so a row deleted while its .mp4 stays on disk removes the clip
+    from the app and leaves it in the training set. Worse in the old order, which
+    deleted the .mp4 and the .txt independently: the .mp4 could survive while its
+    caption left, which is precisely the orphan write_sidecar exists to prevent
+    (a crash in musubi-tuner, a silent drop in diffusion-pipe). So the clip is
+    now ONE unit: the .mp4 goes first, the .txt is only touched once the .mp4
+    really left, and a clip whose file will not move keeps its row and is
+    reported in ``files_kept`` rather than counted as removed.
+
+    And the files go to the TRASH, not to os.remove. `trash.dispose` is the
+    app-wide answer to "the user asked for this file to go away" and both of this
+    function's twins already honour it — delete_video_dataset just below, and
+    face_dataset_service.delete_image on the image side. What is thrown away here
+    is not only an encode: the caption edited in the dataset's own Captions
+    section lives on that row and in that .txt, and promoting the shot again
+    brings back the BANK's caption, not the one just written.
     """
     ds = get_video_dataset(user_id, dataset_id)
     if ds is None:
@@ -3334,39 +3353,89 @@ def remove_dataset_clips(user_id, dataset_id, clip_ids) -> dict | None:
     ids = {int(i) for i in (clip_ids or []) if str(i).lstrip('-').isdigit()}
     if not ids:
         return {'removed': 0, 'clips': VideoDatasetClip.query.filter_by(
-            dataset_id=ds.id).count(), 'files_missing': 0}
+            dataset_id=ds.id).count(), 'files_missing': 0, 'files_kept': 0}
     rows = (VideoDatasetClip.query
             .filter(VideoDatasetClip.dataset_id == ds.id,
                     VideoDatasetClip.id.in_(ids)).all())
     missing = 0
+    kept = 0
+    removed = 0
     source_clip_ids = set()
     for row in rows:
         clip_path = os.path.join(ds.output_dir, row.filename)
-        for path in (clip_path, video_clip_export.sidecar_path(clip_path)):
-            try:
-                os.remove(path)
-            except FileNotFoundError:
+        try:
+            if _dispose_dataset_file(clip_path, ds.id) == 'missing':
                 missing += 1
-            except OSError as e:
-                logger.warning('video dataset %s: could not delete %s: %s',
-                               ds.id, path, e)
+        except OSError as e:
+            # Held open by an antivirus scan, a player, or a training run
+            # reading this very folder. Leave the clip whole and say so.
+            kept += 1
+            logger.warning('video dataset %s: %s stays on disk: %s',
+                           ds.id, row.filename, e)
+            continue
+        try:
+            if _dispose_dataset_file(
+                    video_clip_export.sidecar_path(clip_path), ds.id) == 'missing':
+                missing += 1
+        except OSError as e:
+            # The .mp4 is already gone, so a stranded .txt is inert — trainers
+            # pair by basename and never look at a caption with no media. Worth
+            # a line in the log, not worth keeping the row.
+            logger.warning('video dataset %s: sidecar of %s stays on disk: %s',
+                           ds.id, row.filename, e)
         if row.source_clip_id:
             source_clip_ids.add(row.source_clip_id)
         db.session.delete(row)
-    # Un-promote the shots these clips were cut from, and ONLY those: the filter
-    # names this dataset as well as the ids, so a bank clip promoted into another
-    # dataset that happens to share a rowid keeps its own mark.
+        removed += 1
+    # The rows have to be GONE from the session before the survivors are counted,
+    # or a deleted slice still answers the query below and nothing is ever
+    # un-promoted.
+    db.session.flush()
+    # Un-promote the shots these clips were cut from — and only the shots that
+    # have NO slice left in this dataset. `slice_long` gives one bank shot
+    # several rows sharing a source_clip_id, so un-promoting on the first removal
+    # was not merely a wrong badge: promoted_dataset_id IS NULL is the filter
+    # that lets a later re-cut DELETE the shot (_drop_clips_of), and the dataset
+    # would go on holding slices of a shot that no longer exists.
     if source_clip_ids:
-        (VideoClip.query
-         .filter(VideoClip.id.in_(source_clip_ids),
-                 VideoClip.promoted_dataset_id == ds.id)
-         .update({'promoted_dataset_id': None}, synchronize_session=False))
+        survivors = {r.source_clip_id for r in VideoDatasetClip.query
+                     .filter(VideoDatasetClip.dataset_id == ds.id,
+                             VideoDatasetClip.source_clip_id.in_(source_clip_ids))
+                     .all()}
+        orphaned = source_clip_ids - survivors
+        if orphaned:
+            # The second clause is not redundant with the first: source_clip_id
+            # is deliberately NOT a foreign key (the bank is a scratch container
+            # the user may delete, and SQLite reuses rowids), so a shot promoted
+            # into ANOTHER dataset that happens to share a rowid keeps its mark.
+            (VideoClip.query
+             .filter(VideoClip.id.in_(orphaned),
+                     VideoClip.promoted_dataset_id == ds.id)
+             .update({'promoted_dataset_id': None}, synchronize_session=False))
     db.session.commit()
     return {
-        'removed': len(rows),
+        'removed': removed,
         'clips': VideoDatasetClip.query.filter_by(dataset_id=ds.id).count(),
+        # Counted per FILE, not per clip: a clip whose .mp4 and .txt were both
+        # already gone counts 2. The caller only ever asks "was anything already
+        # missing", so the unit has never mattered — it is said here so nobody
+        # reads it as a clip count.
         'files_missing': missing,
+        'files_kept': kept,
     }
+
+
+def _dispose_dataset_file(path, dataset_id) -> str:
+    """Get one dataset file out of the folder. 'gone' | 'missing'.
+
+    Raises OSError when the file is THERE and will not move — the caller has to
+    tell those two apart, because one is bookkeeping and the other leaves a clip
+    in a training set the app claims it removed."""
+    from . import trash
+    if not os.path.exists(path):
+        return 'missing'
+    trash.dispose(path, context=f'video dataset {dataset_id} clip')
+    return 'gone'
 
 
 def delete_video_dataset(user_id, dataset_id) -> bool:

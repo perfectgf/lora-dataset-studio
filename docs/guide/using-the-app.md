@@ -3504,11 +3504,19 @@ order, length, or "uncaptioned first" — which is the working list when you are
 finishing a set. **File order is the default and it is the order the trainer
 reads the folder in.**
 
-**Removing a clip** deletes its `.mp4` and its `.txt` from the dataset folder,
-and nothing else: the bank keeps the shot, its bounds and every decision, so you
-can re-cut and promote it again with no triage to redo. It is the exit the
-promote dialog never had — you find the three-frame clip *after* the encode, in
-the set, not while triaging.
+**Removing a clip** sends its `.mp4` and its `.txt` to the app's Trash —
+recoverable from Settings until you empty it — and touches nothing else: the bank
+keeps the shot, its bounds and every decision, so you can re-cut and promote it
+again with no triage to redo. It is the exit the promote dialog never had: you
+find the three-frame clip *after* the encode, in the set, not while triaging.
+(A stills set built from an image dataset has no bank behind it, and the
+confirmation says so rather than promising one.)
+
+If a clip's file is **held open** — an antivirus scan, a player, or a training
+run reading this very folder — it is not removed at all, and the app says so
+instead of claiming success. That matters more than it sounds: the folder *is*
+the dataset, so a clip taken out of the app while its file stayed on disk would
+still be trained on.
 
 **Captions.** Every clip's caption is a `.txt` file sitting next to its `.mp4`,
 and that file is what the trainer opens — never the app's database. So every save
@@ -3525,7 +3533,14 @@ or add a suffix, which never invents a caption out of an empty one. Nothing is
 written until you have seen how many captions actually change; a prefix already
 present is not added twice. The most repeated words are listed underneath, because
 a term in every caption is a term the LoRA binds to your trigger whether you meant
-it or not.
+it or not. They are there from the start, on a set that has no caption at all —
+that is exactly when a prefix is worth running.
+
+Pressing `Esc` in the player **saves** what you typed before closing; it is a way
+of clicking away, not a way of throwing the text out. And if a caption reaches
+the database but its `.txt` cannot be written, the report says so in those words
+rather than calling it a failure — the app would be showing you text the training
+will not read.
 
 **References** appears only for a target that trains on control images (MiniMax
 H3 ref2va). Without them the trainer runs unconditioned and says nothing, so the

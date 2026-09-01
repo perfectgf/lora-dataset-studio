@@ -38,7 +38,11 @@ export const VIDEO_DATASET_SECTIONS = [
     description: 'Captions are what training reads each clip by. Every save here rewrites the .txt sitting next to the .mp4 — that file is what the trainer opens.',
     panels: [
       { id: 'list', title: 'Edit captions', targetId: 'vds-captions-list', when: 'always' },
-      { id: 'tools', title: 'Caption tools', targetId: 'vds-captions-tools', when: 'hasCaptions' },
+      // On CLIPS, not on captions. The prefix operation is written for the
+      // silent ones, so gating this on "something already has a caption"
+      // hid it from the one set it was designed for: a freshly promoted,
+      // entirely uncaptioned one.
+      { id: 'tools', title: 'Caption tools', targetId: 'vds-captions-tools', when: 'hasClips' },
     ] },
   // Only for a target that TRAINS on control images (MiniMax H3 ref2va). For
   // every other profile the section would be a permanently empty rail entry, so

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Clapperboard, Copy, Folder } from 'lucide-react'
 import { useSearchParams } from 'react-router'
-import { apiFetch, postJson } from '../../api/fetchClient'
+import { postForm, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import { captionFrequencyEntries } from '../dataset/captionCategory'
@@ -19,7 +19,7 @@ import {
 } from './videoDatasetNavigation'
 import {
   CLIP_FILTERS, CLIP_SORTS, captionCoverageNote, clipCounts, clipFilterCount,
-  hasCaption, removeClipsConfirmation, visibleClips,
+  hasCaption, lightboxTargets, removeClipsConfirmation, removeClipsReport, visibleClips,
 } from './videoDatasetClips'
 import {
   captionEditConfirmation, captionEditPlan, captionEditProgressLabel, captionEditReport,
@@ -76,7 +76,7 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
 
   const navContext = {
     selected: selected.length,
-    captioned: counts.captioned,
+    clips: counts.total,
     requiresReferences: !!ds.requires_references,
     checkpointGroups,
   }
@@ -126,12 +126,20 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
   }, [drafts, ds.id, refresh, toast])
 
   const removeClips = useCallback(async (ids) => {
-    const names = items.filter((c) => ids.includes(c.id)).map((c) => c.filename)
-    const text = removeClipsConfirmation(names)
+    const doomed = items.filter((c) => ids.includes(c.id))
+    // A stills set has no bank behind it at all (its rows are written straight
+    // from an image dataset, with no source_bank_id), so the promise that makes
+    // this a safe click is not true there and must not be printed there.
+    const text = removeClipsConfirmation(doomed.map((c) => c.filename),
+      { fromBank: doomed.some((c) => c.source_clip_id) })
     if (!text || !window.confirm(text)) return
     try {
       const d = await postJson(videoDatasetRemoveClipsUrl(ds.id), { ids })
-      toast.success(`${d.removed} clip${d.removed === 1 ? '' : 's'} removed — the bank keeps every shot.`)
+      // files_kept is the answer nobody expects: the row is still there because
+      // the FILE would not move, and the folder is what the trainer reads. A
+      // plain "removed" toast over that is the same lie as a caption saved
+      // without its sidecar — so it gets the same warning treatment.
+      toast[d.files_kept ? 'warning' : 'success'](removeClipsReport(d))
       setSelected((list) => list.filter((id) => !ids.includes(id)))
       setOpenId((id) => (ids.includes(id) ? null : id))
       await refresh()
@@ -151,26 +159,47 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
     if (!confirmText) { toast.info('Nothing to change — no caption matches.'); return }
     if (!window.confirm(confirmText)) return
     let changed = 0
+    let sidecarFailed = 0
     let failed = 0
+    const written = []
     setBulk({ done: 0, total: plan.length })
     for (const entry of plan) {
       try {
         const d = await postJson(videoDatasetClipCaptionUrl(ds.id, entry.id),
           { caption: entry.after })
+        // THREE outcomes, not two. The server commits the row BEFORE it writes
+        // the sidecar, so `sidecar_written: false` means "the app has the new
+        // text, the .txt still has the old one" — the opposite of a request that
+        // threw, where nothing moved at all. Counting them together made the
+        // report say "the failed ones still hold their previous text" about
+        // clips whose row had already changed.
+        written.push(entry.id)
         if (d.sidecar_written) changed += 1
-        else failed += 1
+        else sidecarFailed += 1
       } catch { failed += 1 }
       setBulk((b) => (b ? { ...b, done: b.done + 1 } : b))
     }
     setBulk(null)
-    const report = captionEditReport({ changed, failed })
-    if (failed) toast.warning(report)
+    // Drop the drafts of every clip this pass rewrote. Without it a draft left
+    // behind by an earlier edit keeps masking the server's value, and one click
+    // in and out of that box reposts the stale text — silently undoing the bulk
+    // rewrite on disk. Measured.
+    if (written.length) {
+      setDrafts((m) => {
+        const next = { ...m }
+        written.forEach((id) => delete next[id])
+        return next
+      })
+    }
+    const report = captionEditReport({ changed, sidecarFailed, failed })
+    if (failed || sidecarFailed) toast.warning(report)
     else toast.success(report)
     await refresh()
   }, [selected, items, ds.id, refresh, toast])
 
-  const openIndex = shown.findIndex((c) => c.id === openId)
-  const openClip = openIndex >= 0 ? shown[openIndex] : null
+  // Two lists, one rule, stated once in videoDatasetClips.lightboxTargets: the
+  // clip comes from the FULL set, the stepping comes from the filtered one.
+  const player = lightboxTargets(items, shown, openId)
 
   const toggle = (clip, event) => {
     if (event?.shiftKey && anchor.current != null) {
@@ -475,14 +504,27 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
                       aria-label={`Caption for ${clip.filename}`}
                       placeholder="Describe the clip — this is written to the .txt next to it."
                       className="mt-1 w-full rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content" />
-                    {savingId === clip.id && (
-                      <p className="text-[0.625rem] text-content-subtle">Saving…</p>
-                    )}
+                    {/* The space is RESERVED, not inserted. Blur is a discrete
+                        event, so React flushes this before the browser delivers
+                        the mouseup: a line appearing here pushed everything
+                        below down by its own height mid-click, and the click
+                        landed beside the Caption tools button it was aimed at
+                        (measured: +15 px between mousedown and mouseup). */}
+                    <p aria-live="polite"
+                      className="min-h-4 text-[0.625rem] text-content-subtle">
+                      {savingId === clip.id ? 'Saving…' : ''}
+                    </p>
                   </li>
                 ))}
               </ul>
             </div>
-            {counts.captioned > 0 && (
+            {/* Gated on CLIPS, not on captions. The prefix operation is
+                written for the silent ones ("a trigger-style prefix belongs
+                on the silent ones too"), so hiding the whole panel until
+                something already had a caption hid it from the one set it
+                was designed for: a freshly promoted, entirely uncaptioned
+                one. */}
+            {counts.total > 0 && (
               <CaptionTools id="vds-captions-tools" clips={items} selected={selected}
                 busy={bulk} onApply={applyCaptionOp} />
             )}
@@ -507,17 +549,18 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
         </div>
       </div>
 
-      {openClip && (
-        <VideoDatasetLightbox datasetId={ds.id} clip={openClip}
-          caption={draftOf(openClip)}
-          onCaptionChange={(text) => setDrafts((m) => ({ ...m, [openClip.id]: text }))}
-          onSave={() => saveCaption(openClip)}
-          saving={savingId === openClip.id}
+      {player.clip && (
+        <VideoDatasetLightbox datasetId={ds.id} clip={player.clip}
+          caption={draftOf(player.clip)}
+          onCaptionChange={(text) => setDrafts((m) => ({ ...m, [player.clip.id]: text }))}
+          onSave={() => saveCaption(player.clip)}
+          saving={savingId === player.clip.id}
           onClose={() => setOpenId(null)}
-          onPrev={() => setOpenId(shown[openIndex - 1]?.id ?? openId)}
-          onNext={() => setOpenId(shown[openIndex + 1]?.id ?? openId)}
+          onPrev={() => setOpenId(player.prevId ?? openId)}
+          onNext={() => setOpenId(player.nextId ?? openId)}
           onRemove={(clip) => removeClips([clip.id])}
-          hasPrev={openIndex > 0} hasNext={openIndex < shown.length - 1} />
+          hasPrev={player.prevId != null}
+          hasNext={player.nextId != null} />
       )}
     </div>
   )
@@ -670,7 +713,15 @@ function ReferenceAttach({ ds, onChanged }) {
     try {
       const form = new FormData()
       files.forEach((f) => form.append('files', f))
-      const r = await apiFetch(videoDatasetReferencesUrl(ds.id), { method: 'POST', body: form })
+      // postForm, NEVER a bare apiFetch with a FormData body. CSRFProtect is on
+      // for the whole app and exempts no blueprint, so a multipart POST without
+      // the token is refused with a 400 the view never sees — and the retry in
+      // fetchClient cannot rescue it either (it is keyed on an X-CSRFToken
+      // header that is not there), so the user reads "refresh the page" in a
+      // loop. Measured on a live app with WTF_CSRF_ENABLED=True: 400 text/html
+      // without the token, 404 application/json with it. The backend suite is
+      // blind to this — conftest builds the app with CSRF disabled.
+      const r = await postForm(videoDatasetReferencesUrl(ds.id), form)
       toast.success(`${r.references} reference(s) attached — every clip covered.`)
       await onChanged?.()
     } catch (e) {

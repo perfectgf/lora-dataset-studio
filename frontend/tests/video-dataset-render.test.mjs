@@ -211,16 +211,54 @@ test('an empty set explains where clips come from instead of showing an empty gr
   assert.match(html, /No clip in this dataset yet/)
 })
 
-test('the rail and the sections it points at both exist on the page', async () => {
+/** The rail's own markup, cut out of the page — never the whole document.
+ *
+ * The first version of the assertion below matched section titles anywhere in
+ * the html, and section HEADERS are rendered from the same list: it passed with
+ * ZERO rail entries, which is the one regression it existed to catch. So the nav
+ * is isolated first and the buttons are counted inside it. */
+const railOf = (html) => {
+  const start = html.indexOf('aria-label="Video dataset sections"')
+  assert.notEqual(start, -1, 'the section rail is not on the page at all')
+  const from = html.lastIndexOf('<nav', start)
+  return html.slice(from, html.indexOf('</nav>', start))
+}
+
+test('the rail really lists every visible section, and the anchors it points at exist', async () => {
   const { VIDEO_DATASET_SECTIONS } = await import(
     '../src/components/videobank/videoDatasetSections.js')
   const html = renderWorkspace({ ds: { ...DS, requires_references: true } })
-  // EXERCISED, not counted: every section's title and its first panel anchor
-  // are looked for in the markup that was really produced.
+  const rail = railOf(html)
   for (const section of VIDEO_DATASET_SECTIONS) {
-    assert.ok(html.includes(`>${section.title}<`) || html.includes(section.title),
-      `${section.id} has no rail entry on the page`)
+    assert.ok(rail.includes(`>${section.title}</span>`),
+      `${section.id} has no entry in the rail itself`)
     assert.ok(html.includes(`id="${section.panels[0].targetId}"`),
       `${section.id}: nothing on the page carries ${section.panels[0].targetId}`)
   }
+  // One button per section and not one more — a rail that duplicated its
+  // entries would satisfy every assertion above.
+  assert.equal((rail.match(/<button/g) || []).length, VIDEO_DATASET_SECTIONS.length)
+})
+
+test('a hidden section is absent from the RAIL, not merely from the page', () => {
+  // References is the one that comes and goes. Asserting on the page would pass
+  // on a rail that still offered a chip leading to an empty screen.
+  const rail = railOf(renderWorkspace())
+  assert.ok(!rail.includes('>References</span>'))
+  assert.ok(railOf(renderWorkspace({ ds: { ...DS, requires_references: true } }))
+    .includes('>References</span>'))
+})
+
+test('the caption tools are there for a set with NO caption at all', () => {
+  // The state they were written for: `prefix` reaches the silent clips, so
+  // gating the panel on "something already has a caption" hid it from a freshly
+  // promoted set — the only kind that needs a trigger added in bulk.
+  const silent = CLIPS.map((c) => ({ ...c, caption: null }))
+  const html = renderWorkspace({ ds: { ...DS, items: silent }, items: silent })
+  assert.ok(html.includes('id="vds-captions-tools"'),
+    'Caption tools must exist on an entirely uncaptioned set')
+  assert.match(html, /Add as prefix/)
+  // …and it is gone when there is genuinely nothing to work on.
+  const empty = renderWorkspace({ ds: { ...DS, items: [] }, items: [] })
+  assert.ok(!empty.includes('id="vds-captions-tools"'))
 })

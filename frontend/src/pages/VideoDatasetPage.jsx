@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 import { apiFetch } from '../api/fetchClient'
 import { videoDatasetUrl } from '../components/videobank/videoBankApi'
@@ -22,19 +22,41 @@ export default function VideoDatasetPage() {
   const [payload, setPayload] = useState(null)
   const [error, setError] = useState(null)
 
+  // `payload` is read inside `load` to decide whether a failure may take the
+  // screen; a ref keeps `load` (and therefore the effect below) from re-running
+  // on every payload change, which would refetch in a loop.
+  const hasPayload = useRef(false)
+
   const load = useCallback(async ({ background = false } = {}) => {
     try {
       setPayload(await apiFetch(videoDatasetUrl(id), { background }))
+      hasPayload.current = true
       setError(null)
     } catch (e) {
-      setError(e?.message || 'This video dataset could not be loaded.')
+      // A TRANSIENT failure must never take the workspace away. This function
+      // is also the refresh after every write, so a one-second network blip, a
+      // container restart or a locked SQLite used to replace the whole page
+      // with an error paragraph — losing the unsaved caption drafts of every
+      // other clip, the selection, the filter, the sort, the open section, and
+      // unmounting the training block while its run carried on server-side.
+      //
+      // The image lane settled this and wrote it down (useDataset.js: "Only an
+      // ACTIVE dataset's definitive 404 ejects back to the list. Transient
+      // errors and stale responses keep the current workspace"). This page
+      // claims to mirror that lane, so it owes the same rule.
+      const gone = e?.status === 404 || /not found/i.test(e?.message || '')
+      if (gone || !hasPayload.current) {
+        setError(e?.message || 'This video dataset could not be loaded.')
+      }
+      // Otherwise: keep what is on screen. apiFetch already stays silent in
+      // background mode and the app's own offline indicator says the rest.
     }
   }, [id])
 
   // The first load is foreground (it may fail, and the failure needs saying);
   // every refresh after a write is background, so a caption save does not flash
   // the global loading chrome over the grid.
-  useEffect(() => { load() }, [load])
+  useEffect(() => { hasPayload.current = false; load() }, [load])
   const refresh = useCallback(() => load({ background: true }), [load])
 
   const back = () => navigate('/datasets')
