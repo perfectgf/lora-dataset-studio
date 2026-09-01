@@ -150,6 +150,40 @@ def main() -> int:
                              duration=float(span_s),
                              frames_indices=list(range(n_frames)))
 
+    def _reconcile_video_grid(inputs):
+        """transformers >= 5: one `video_grid_thw` row PER TEMPORAL PATCH.
+
+        The Qwen3-VL chat template writes the video as several timestamped
+        spans — `<t s><|vision_start|>…<|vision_end|>` once per temporal
+        patch — while the processor still returns ONE grid row `[t, h, w]` for
+        the whole clip. transformers 4.57's rope indexing walked the spans and
+        reused that row; 5.x pulls one grid per span and dies on the second
+        with a bare `StopIteration` — every shot of a pass "failed" with no
+        reason anywhere (measured 2026-09-01: 1550 of 2450 shots, the first
+        pass run after ComfyUI's python carried transformers 5.3).
+
+        Expanding the row to `t` rows of `[1, h, w]` is exactly what the 5.x
+        indexer expects (verified: identical caption to the 4.57 path on the
+        same frames). Applied ONLY when the spans outnumber the rows, so an
+        interpreter whose processor already agrees with its model is left
+        alone — including 4.57, where the mismatch is handled internally."""
+        try:
+            grid = inputs.get('video_grid_thw')
+            ids = inputs.get('input_ids')
+            if grid is None or ids is None:
+                return inputs
+            start_id = processor.tokenizer.convert_tokens_to_ids('<|vision_start|>')
+            spans = int((ids == start_id).sum())
+            if grid.shape[0] >= spans or grid.shape[0] != 1:
+                return inputs
+            t, h, w = (int(v) for v in grid[0])
+            if t != spans:
+                return inputs
+            inputs['video_grid_thw'] = torch.tensor([[1, h, w]] * t, dtype=grid.dtype)
+        except Exception as e:  # noqa: BLE001 — a failed reconcile must not hide the real error
+            _log(f'[caption] grid reconcile skipped: {type(e).__name__}: {e}')
+        return inputs
+
     def _caption(frame_paths, prompt, span_s=None):
         images = [Image.open(p).convert('RGB') for p in frame_paths]
         try:
@@ -178,6 +212,7 @@ def main() -> int:
                      'falling back to default timestamps')
                 inputs = processor(text=[text], videos=[images],
                                    return_tensors='pt')
+            inputs = _reconcile_video_grid(inputs)
             inputs = inputs.to(device)
             with torch.no_grad():
                 out = model.generate(**inputs, max_new_tokens=max_new_tokens,

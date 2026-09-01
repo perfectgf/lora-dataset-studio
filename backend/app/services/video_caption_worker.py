@@ -14,9 +14,12 @@ work.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 import threading
+
+logger = logging.getLogger(__name__)
 
 from .. import config as cfg
 from . import infer_env
@@ -172,6 +175,12 @@ class CaptionWorker:
                 self.close()
                 raise CaptionError('the caption model stopped responding') from None
         if not data.get('ok'):
+            # The reason used to die here: the pass stored caption_state='error'
+            # and nobody could say why (a whole bench came back "0 words" with
+            # nothing to read). Logged, never raised — a per-shot refusal must
+            # still be absorbed, but it must be absorbed OUT LOUD.
+            logger.warning('caption worker refused a shot: %s',
+                           data.get('error') or 'no reason given')
             return ''
         return str(data.get('caption') or '')
 
