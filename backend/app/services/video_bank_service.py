@@ -3310,6 +3310,65 @@ def set_dataset_clip_caption(user_id, dataset_id, clip_id, caption) -> dict | No
     return {'ok': True, 'caption': row.caption, 'sidecar_written': written}
 
 
+def remove_dataset_clips(user_id, dataset_id, clip_ids) -> dict | None:
+    """Drop clips OUT of a built dataset — the encode, never the triage.
+
+    The one verb the dataset workspace could not have without this: a promotion
+    is a bulk decision (a target, a length, everything you kept), and the clip
+    that turns out to be three frames of a hand is only visible afterwards, in
+    the set. Until now the only exit was deleting the whole dataset and cutting
+    it again.
+
+    Exactly the same promise as delete_video_dataset, applied to a subset: the
+    .mp4 and its homonym .txt go, and the SOURCE shot in the bank is merely
+    un-promoted — every bound, every decision and every caption it carries
+    survive, so the clip can be promoted again without re-triaging anything.
+
+    Missing files are not an error. A user who cleaned the output folder by hand
+    still needs the row gone, and refusing on a file that is already absent would
+    leave a dataset permanently claiming a clip nobody can play.
+    """
+    ds = get_video_dataset(user_id, dataset_id)
+    if ds is None:
+        return None
+    ids = {int(i) for i in (clip_ids or []) if str(i).lstrip('-').isdigit()}
+    if not ids:
+        return {'removed': 0, 'clips': VideoDatasetClip.query.filter_by(
+            dataset_id=ds.id).count(), 'files_missing': 0}
+    rows = (VideoDatasetClip.query
+            .filter(VideoDatasetClip.dataset_id == ds.id,
+                    VideoDatasetClip.id.in_(ids)).all())
+    missing = 0
+    source_clip_ids = set()
+    for row in rows:
+        clip_path = os.path.join(ds.output_dir, row.filename)
+        for path in (clip_path, video_clip_export.sidecar_path(clip_path)):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                missing += 1
+            except OSError as e:
+                logger.warning('video dataset %s: could not delete %s: %s',
+                               ds.id, path, e)
+        if row.source_clip_id:
+            source_clip_ids.add(row.source_clip_id)
+        db.session.delete(row)
+    # Un-promote the shots these clips were cut from, and ONLY those: the filter
+    # names this dataset as well as the ids, so a bank clip promoted into another
+    # dataset that happens to share a rowid keeps its own mark.
+    if source_clip_ids:
+        (VideoClip.query
+         .filter(VideoClip.id.in_(source_clip_ids),
+                 VideoClip.promoted_dataset_id == ds.id)
+         .update({'promoted_dataset_id': None}, synchronize_session=False))
+    db.session.commit()
+    return {
+        'removed': len(rows),
+        'clips': VideoDatasetClip.query.filter_by(dataset_id=ds.id).count(),
+        'files_missing': missing,
+    }
+
+
 def delete_video_dataset(user_id, dataset_id) -> bool:
     """Throw away a badly cut dataset — the ENCODE, never the triage.
 

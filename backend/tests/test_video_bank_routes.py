@@ -375,6 +375,92 @@ def test_clearing_a_caption_leaves_an_empty_file_never_a_missing_one(client,
     assert os.path.isfile(os.path.join(body['output_dir'], 'clip_0001.txt'))
 
 
+def test_removing_a_clip_deletes_its_mp4_AND_its_sidecar(client, tmp_path, seams):
+    """A dataset is a FLAT FOLDER read by os.walk — an orphan .txt whose .mp4 is
+    gone is not inert there. ai-toolkit pairs by basename and diffusion-pipe walks
+    the directory, so the half that survives is either dropped in silence or read
+    as a caption for nothing."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    item = body['items'][0]
+    client.post(f'/api/video-dataset/{ds_id}/clip/{item["id"]}/caption',
+                json={'caption': 'a woman walking'})
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                    json={'ids': [item['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 1
+    assert r.get_json()['clips'] == 1
+    for name in ('clip_0001.mp4', 'clip_0001.txt'):
+        assert not os.path.exists(os.path.join(body['output_dir'], name)), name
+    # And the row is gone from the payload, not merely from disk.
+    assert [i['filename'] for i in
+            client.get(f'/api/video-dataset/{ds_id}').get_json()['items']] \
+        == ['clip_0002.mp4']
+
+
+def test_removing_a_clip_UN_PROMOTES_its_shot_instead_of_touching_the_bank(
+        client, tmp_path, seams):
+    """The promise the confirmation makes, and the reason this is a safe button:
+    the bank keeps every shot, every bound and every decision. Only the claim
+    "this one is already in a dataset" is withdrawn — which is what lets the user
+    promote it again after re-cutting, with no triage to redo."""
+    bank_id, ds_id = _promote(client, tmp_path)
+    item = client.get(f'/api/video-dataset/{ds_id}').get_json()['items'][0]
+    before = _clips(client, bank_id)
+    promoted = [c for c in before if c['promoted_dataset_id'] == ds_id]
+    assert len(promoted) == 2, 'the fixture no longer promotes two shots'
+
+    client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [item['id']]})
+
+    after = _clips(client, bank_id)
+    assert len(after) == len(before)                     # no shot was deleted
+    assert [c['status'] for c in after] == [c['status'] for c in before]
+    assert sum(1 for c in after if c['promoted_dataset_id'] == ds_id) == 1
+
+
+def test_removing_nothing_removes_nothing_rather_than_emptying_the_set(client,
+                                                                       tmp_path, seams):
+    """The `triagePayload` footgun, on this route: an empty list must never be
+    read as "all". A dataset is an encode that cost real minutes."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': []})
+
+    assert r.status_code == 200
+    assert r.get_json() == {'ok': True, 'removed': 0, 'clips': 2, 'files_missing': 0}
+
+
+def test_removing_a_clip_whose_file_a_user_already_deleted_still_clears_the_row(
+        client, tmp_path, seams):
+    """Refusing here would leave the dataset permanently claiming a clip nobody can
+    play — the row IS the thing that has to go."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    item = body['items'][0]
+    os.remove(os.path.join(body['output_dir'], 'clip_0001.mp4'))
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                    json={'ids': [item['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 1
+    assert r.get_json()['files_missing'] == 1
+    assert client.get(f'/api/video-dataset/{ds_id}').get_json()['clips'] == 1
+
+
+def test_removing_clips_refuses_a_body_that_is_not_a_list(client, tmp_path, seams):
+    _bank_id, ds_id = _promote(client, tmp_path)
+
+    assert client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                       json={'ids': 'all'}).status_code == 400
+    assert client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                       json={}).status_code == 400
+    assert client.post('/api/video-dataset/9999/clips/remove',
+                       json={'ids': [1]}).status_code == 404
+
+
 def test_deleting_a_dataset_is_a_404_when_it_is_not_yours(client):
     assert client.delete('/api/video-dataset/9999').status_code == 404
 

@@ -149,6 +149,30 @@ def video_dataset_caption(dataset_id, clip_id):
     return jsonify(out)
 
 
+@bp.post('/video-dataset/<int:dataset_id>/clips/remove')
+def video_dataset_remove_clips(dataset_id):
+    """Body {ids: [...]}. Drop clips out of a built set — the encode, not the triage.
+
+    A POST rather than a DELETE, and not for taste: this deletes a LIST, and a
+    request body on DELETE is unspecified enough that Werkzeug, the dev proxy and
+    the browser's own fetch have each been observed dropping it. The verb that
+    carries a body reliably is the one used here.
+
+    The bank keeps every shot and every decision — the source clips are merely
+    un-promoted, so what was removed can be promoted again without triaging
+    anything. That promise is the reason this is a safe button, so it is stated
+    both here and in the confirmation the user reads.
+    """
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids')
+    if not isinstance(ids, list):
+        return jsonify({'error': 'ids must be a list of clip ids'}), 400
+    out = svc.remove_dataset_clips(LOCAL_USER, dataset_id, ids)
+    if out is None:
+        return _missing(dataset_id)
+    return jsonify({'ok': True, **out})
+
+
 @bp.post('/video-dataset/<int:dataset_id>/references')
 def video_dataset_references(dataset_id):
     """Attach 1-4 identity reference images (multipart field `files`). Replaces
