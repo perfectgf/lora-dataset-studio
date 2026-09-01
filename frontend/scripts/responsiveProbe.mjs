@@ -209,6 +209,11 @@ const PAGES = {
       // measures the DRAWER on a phone and is skipped on a desktop.
       { name: 'rail', open: ['[aria-controls="video-filter-rail"]'] },
       { name: 'passes', open: ['[aria-controls="video-passes-panel"]'] },
+      // The two launch windows, measured as layers — the image lane measures
+      // its dialogs the same way (auto-reject, curate, caption lab).
+      { name: 'describe', open: ['[aria-controls="video-passes-panel"]',
+        '#video-passes-panel >> button:has-text("Describe shots")'] },
+      { name: 'promote', open: ['button:has-text("Build the dataset")'] },
     ],
   },
   '#/datasets': {

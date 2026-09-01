@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HelpBadge } from '../../help/HelpMode'
 
 /** 🗣 The launch window of the Describe pass — the options, AT the button.
@@ -29,6 +29,14 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
   const [recaption, setRecaption] = useState(false)
   const [includeEdited, setIncludeEdited] = useState(false)
 
+  // The shared dialog mechanics (PassDialog's): Escape closes, and so does a
+  // click on the backdrop — but never a drag that merely ends there.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   const submit = (e) => {
     e.preventDefault()
     onLaunch({
@@ -42,10 +50,15 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Describe shots"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-label="Describe shots" data-probe-layer
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2 sm:p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      {/* The image lane's PassDialog chrome, worn here: a pinned header, a
+          scrolling body, a pinned footer — the launch button can never scroll
+          out of reach of the choices above it. */}
       <form onSubmit={submit}
-        className="w-full max-w-lg max-h-[90vh] space-y-4 overflow-y-auto rounded-xl border border-border bg-surface-overlay p-4 shadow-2xl sm:p-5">
+        className="flex w-full max-w-lg max-h-[92vh] flex-col overflow-hidden rounded-xl border border-border bg-surface-overlay shadow-2xl">
+        <header className="shrink-0 space-y-1 border-b border-border p-4">
         <h2 className="flex items-center gap-2 text-base font-bold text-content">
           🗣 Describe shots
           <HelpBadge topic="video-captions" />
@@ -69,7 +82,9 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
                 ? `, on the ${captionModel.runtime.device.toUpperCase()}` : ''}) `
               + '\u2014 not Ollama or LM\u00a0Studio. Models download from Hugging Face.'}
         </p>
+        </header>
 
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
         {captionModel?.runtime?.backend !== 'local_llm' && models.length > 1 && (
           <fieldset>
             <legend className="text-sm font-medium text-content">Model</legend>
@@ -155,15 +170,19 @@ export default function DescribeShotsDialog({ captionModel, initialStyle, onLaun
           </div>
         </fieldset>
 
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose}
-            className="min-h-10 rounded-md border border-border bg-surface-raised px-3 py-1.5 text-sm text-content hover:bg-surface lg:min-h-0">
-            Cancel
-          </button>
-          <button type="submit"
-            className="min-h-10 rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 lg:min-h-0">
-            🗣 Describe
-          </button>
+        </div>
+
+        <div className="shrink-0 border-t border-border p-3">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={onClose}
+              className="min-h-10 rounded-md border border-border px-3 py-1.5 text-sm text-content-muted hover:bg-surface-raised hover:text-content lg:min-h-0">
+              Cancel
+            </button>
+            <button type="submit"
+              className="min-h-10 rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 lg:min-h-0">
+              🗣 Describe
+            </button>
+          </div>
         </div>
       </form>
     </div>
