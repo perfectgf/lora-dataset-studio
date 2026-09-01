@@ -1163,12 +1163,16 @@ def _reusable_probs(bank_id, src: VideoSource, path):
         threshold=shot_threshold_for(bank_id, src))
 
 
-def _insert_clips(bank_id, src: VideoSource, shots) -> int:
+def _insert_clips(bank_id, src: VideoSource, shots, *, skip_bounds=None) -> int:
     """Persist the detector's bounds AS GIVEN.
 
     start_s/end_s are copied verbatim because they are canonical; the frame
     indices are stored because they are what the detector actually said, and they
-    make a later disagreement debuggable. Nothing ever cuts from them."""
+    make a later disagreement debuggable. Nothing ever cuts from them.
+
+    `skip_bounds` names the spans this file ALREADY has a row for — kept by the
+    re-cut, promoted, or hand-made — so the same shot is never stored twice."""
+    skip = set(skip_bounds or ())
     rows = []
     for shot in shots or []:
         try:
@@ -1177,6 +1181,8 @@ def _insert_clips(bank_id, src: VideoSource, shots) -> int:
         except (KeyError, TypeError, ValueError):
             continue
         if end_s <= start_s:
+            continue
+        if _bounds_key(start_s, end_s) in skip:
             continue
         transition = shot.get('transition')
         rows.append({
@@ -1306,7 +1312,19 @@ def _load_probs_or_raise(bank_id, source_id):
     return probs
 
 
-def _drop_clips_of(bank_id, source_id, *, replace_manual) -> dict:
+def _bounds_key(start_s, end_s):
+    """The identity of a SPAN, for matching a re-cut against what exists.
+
+    Rounded to the microsecond: the detector recomputes bounds from the same
+    cached probabilities with the same arithmetic, so equal shots come back
+    bit-identical — the rounding only protects against a float that made a
+    round trip through SQLite in a different build. Never a tolerance window:
+    two spans that differ by a millisecond are two different spans, and
+    inheriting a caption across them would describe the wrong footage."""
+    return (round(float(start_s), 6), round(float(end_s), 6))
+
+
+def _drop_clips_of(bank_id, source_id, *, replace_manual, keep_bounds=None) -> dict:
     """Delete the clips a re-cut is about to replace, and everything that
     described them.
 
@@ -1327,13 +1345,26 @@ def _drop_clips_of(bank_id, source_id, *, replace_manual) -> dict:
     the bank's .npz on purpose (rewriting tens of megabytes inside a click), and
     are unreachable the moment their row is gone — the same trade
     `_forget_measurements` documents for a trim.
+
+    A SHOT WHOSE BOUNDS DID NOT MOVE IS NOT REPLACED. `keep_bounds` carries the
+    spans the re-cut is about to produce; a clip landing on one of them keeps
+    its row — and with it its triage decision, its caption, its measurements and
+    its thumbnail, all of which describe that exact span and remain true of it.
+    That is sound precisely because a threshold change selects a SUBSET of the
+    same boundaries and never shifts one (shot_boundaries.apply_min_length), so
+    an equal span is the SAME shot rather than a coincidence. A MERGED shot
+    (A∪B, one boundary gone) matches nothing and is rebuilt from scratch, which
+    is the honest outcome: it is new footage in one clip and nothing measured
+    about A still describes it.
     """
+    keep = set(keep_bounds or ())
     query = (VideoClip.query.filter_by(bank_id=bank_id, source_id=int(source_id))
              .filter(VideoClip.promoted_dataset_id.is_(None)))
     if not replace_manual:
         query = query.filter(db.or_(VideoClip.detector.is_(None),
                                     VideoClip.detector != 'manual'))
-    doomed = query.all()
+    doomed = [c for c in query.all()
+              if _bounds_key(c.start_s, c.end_s) not in keep]
     manual = sum(1 for clip in doomed if clip.detector == 'manual')
     for clip in doomed:
         try:
@@ -1343,7 +1374,20 @@ def _drop_clips_of(bank_id, source_id, *, replace_manual) -> dict:
                         '%s', bank_id, clip.id)
         db.session.delete(clip)
     db.session.flush()
-    return {'removed': len(doomed), 'replaced_manual': manual}
+    return {'removed': len(doomed), 'replaced_manual': manual,
+            'kept': len(keep & _existing_bounds(bank_id, source_id))}
+
+
+def _existing_bounds(bank_id, source_id) -> set:
+    """The spans this file still holds — every row a re-cut must not duplicate.
+
+    Includes the clips the drop SPARED for any reason: promoted (never touched),
+    hand-made on a bank-wide pass, and now the unmoved ones. Re-inserting a shot
+    on a span that already has a row is how a re-cut used to hand a promoted
+    clip a twin — measured against this set at insert time instead."""
+    rows = (db.session.query(VideoClip.start_s, VideoClip.end_s)
+            .filter_by(bank_id=bank_id, source_id=int(source_id)).all())
+    return {_bounds_key(a, b) for a, b in rows}
 
 
 def recut_source(user_id, bank_id, source_id, threshold=None) -> dict | None:
@@ -1365,12 +1409,21 @@ def recut_source(user_id, bank_id, source_id, threshold=None) -> dict | None:
         raise ValueError('this file has not been probed, so its frame rate is '
                          'unknown — run Probe first')
     clips = _shot_config().clips_from_probs(probs, fps_native=fps, threshold=thr)
-    dropped = _drop_clips_of(bank_id, src.id, replace_manual=True)
-    made = _insert_clips(bank_id, src, clips)
+    # What the new threshold produces, so the drop can spare the shots it
+    # reproduces exactly — their triage and captions still describe them.
+    bounds = {_bounds_key(c['start_s'], c['end_s']) for c in clips
+              if c.get('start_s') is not None and c.get('end_s') is not None}
+    dropped = _drop_clips_of(bank_id, src.id, replace_manual=True,
+                             keep_bounds=bounds)
+    made = _insert_clips(bank_id, src, clips,
+                         skip_bounds=_existing_bounds(bank_id, src.id))
     src.detect_state = 'ok'
     db.session.commit()
-    return {'clips': made, 'threshold': thr, 'counts': _counts(bank_id),
-            **dropped}
+    # `clips` stays what it always meant — how many shots this file HAS now —
+    # so a caller that only reads that number is unaffected by the keeping.
+    # `kept` says how many of them are the old rows, work and all.
+    return {'clips': made + dropped['kept'], 'threshold': thr,
+            'counts': _counts(bank_id), **dropped}
 
 
 def recut_bank(user_id, bank_id, threshold=None) -> dict | None:
@@ -1385,7 +1438,7 @@ def recut_bank(user_id, bank_id, threshold=None) -> dict | None:
     rows = (VideoSource.query.filter_by(bank_id=bank_id)
             .order_by(VideoSource.id.asc()).all())
     from . import shot_probs
-    done = made = skipped = single = 0
+    done = made = skipped = single = kept = 0
     for src in rows:
         if src.detect_state == SINGLE_SHOT_STATE:
             single += 1
@@ -1400,14 +1453,22 @@ def recut_bank(user_id, bank_id, threshold=None) -> dict | None:
                else shot_threshold_for(bank_id, src))
         clips = _shot_config().clips_from_probs(probs, fps_native=src.fps_native,
                                                 threshold=thr)
-        _drop_clips_of(bank_id, src.id, replace_manual=False)
-        made += _insert_clips(bank_id, src, clips)
+        bounds = {_bounds_key(c['start_s'], c['end_s']) for c in clips
+                  if c.get('start_s') is not None and c.get('end_s') is not None}
+        outcome = _drop_clips_of(bank_id, src.id, replace_manual=False,
+                                 keep_bounds=bounds)
+        kept += outcome['kept']
+        # Same meaning as the per-file path: shots the file now has.
+        made += outcome['kept'] + _insert_clips(
+            bank_id, src, clips, skip_bounds=_existing_bounds(bank_id, src.id))
         done += 1
     db.session.commit()
     # `single_shot` is counted apart from `skipped`: one is "this file has no
     # cache and needs a real pass", the other is "you told me not to". Merging
     # them would offer the user a fix for something that is not broken.
-    return {'sources': done, 'clips': made, 'skipped': skipped,
+    # `kept` is the answer to the question that stops people from touching the
+    # slider at all: what happens to the shots I already triaged and captioned.
+    return {'sources': done, 'clips': made, 'kept': kept, 'skipped': skipped,
             'single_shot': single, 'counts': _counts(bank_id)}
 
 

@@ -585,9 +585,11 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   const recutSource = (src) => perSource(
     src, videoSourceRecutUrl(bankId, src.id),
     `Find the shots in ${src.relpath} again?\n\n`
-    + 'This replaces every shot on this file, INCLUDING any you cut by hand. '
-    + 'Shots already promoted into a dataset are kept.',
-    (d) => `${d.clips} shots`
+    + 'Shots whose bounds do not change keep their triage and captions. The '
+    + 'others are replaced, INCLUDING any you cut by hand. Shots already '
+    + 'promoted into a dataset are kept.',
+    (d) => `${d.clips} shot(s)`
+      + (d.kept ? `, ${d.kept} unchanged (triage and captions kept)` : '')
       + (d.replaced_manual ? `, replacing ${d.replaced_manual} hand-made.` : '.'))
 
   if (!bank) return <p className="text-sm text-content-muted">Loading…</p>

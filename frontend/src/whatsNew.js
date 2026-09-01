@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-recut-keeps-what-did-not-move',
+    date: '2026-09-01',
+    title: 'Changing the shot threshold no longer throws away your triage',
+    blurb:
+      'A re-cut used to replace every shot of a file — decisions, captions and '
+      + 'measurements with them — so trying a different threshold cost an '
+      + 'afternoon of work. Now a shot whose bounds do not change keeps its row: '
+      + 'its Keep/Reject, its caption and its scores stay. Only genuinely new or '
+      + 'merged shots start clean, and the result line says how many were kept.',
+  },
+  {
     id: '2026-09-01-video-bank-wears-the-bank-shell',
     date: '2026-09-01',
     title: 'The video bank now looks and works like the image bank',

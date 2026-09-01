@@ -106,6 +106,13 @@ export function dryRunSummary(result) {
 export function recutSummary(result) {
   const parts = [`${result?.clips || 0} shots across `
     + `${result?.sources || 0} ${result?.sources === 1 ? 'file' : 'files'}.`]
+  // The answer to the question that stops people touching the slider at all.
+  // A shot the new threshold reproduces exactly keeps its row — and with it the
+  // triage decision and the caption that describe that very span.
+  if (result?.kept) {
+    parts.push(`${result.kept} shot(s) did not move: their triage and captions `
+      + 'were kept.')
+  }
   if (result?.skipped) {
     parts.push(`${result.skipped} could not be re-cut from cache — `
       + 'run Find shots on them once.')
