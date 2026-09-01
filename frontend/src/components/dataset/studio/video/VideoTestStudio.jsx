@@ -38,7 +38,7 @@ import VideoSourcePicker from './VideoSourcePicker';
 import { shortLoraName } from './videoLoraGroups';
 import {
   buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
-  isRunning, optionsUrl,
+  isRunning, optionsUrl, clipVfiUrl,
 } from './videoStudioApi';
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
@@ -46,6 +46,10 @@ import {
    rather than slow. It is a checkbox, and the panel says what it changes. */
 const DEFAULT_OPTIONS = {
   turbo: true, eros: false, sparse: '', latentUpscale: false,
+  // '' = auto: the server's own count for the mode in force (turbo 6, dense
+  // 20). Kept empty rather than pre-filled so a run reads "auto" until someone
+  // decides otherwise — a number in the box would claim a choice nobody made.
+  steps: '',
   frames: 56, megapixels: 0.3, seed: '',
 };
 
@@ -156,6 +160,23 @@ export default function VideoTestStudio() {
   /* Reuse loads a past clip's settings back into the panel — including its
      SEED, which is the whole point: changing one dial on the same seed is the
      only comparison that says anything about the dial. */
+  // ↗ Smoothing. A queued job like any other — the clip list already polls, so
+  // the new card simply appears and renders. `vfiBusy` only guards the double
+  // click between the POST and that first poll.
+  const [vfiBusy, setVfiBusy] = useState(null);
+  const smooth = async (clip) => {
+    setVfiBusy(clip.id);
+    try {
+      await postJson(clipVfiUrl(clip.id), {});
+      toast.info?.('Smoothing queued — the new clip appears below when it is done.');
+      await refreshClips();
+    } catch (e) {
+      toast.error(e?.message || 'That clip could not be smoothed.');
+    } finally {
+      setVfiBusy(null);
+    }
+  };
+
   const reuse = (clip) => {
     setPrompt(clip.prompt || '');
     setMode(clip.mode === 't2v' ? 't2v' : 'i2v');
@@ -163,11 +184,23 @@ export default function VideoTestStudio() {
       turbo: !!clip.turbo, eros: !!clip.eros, sparse: clip.sparse || '',
       latentUpscale: !!clip.latent_upscale, frames: clip.frames || opts.frames,
       megapixels: clip.megapixels || opts.megapixels,
+      // Reuse replays the count the clip ACTUALLY ran, never "auto" — the
+      // whole point of ↻ Reuse is that the second run is the first one with
+      // one dial moved.
+      steps: clip.steps || '',
       seed: clip.seed ?? '',
     });
     if (clip.lora) {
       setLora({ lora: clip.lora, runId: clip.run_id, datasetId: clip.dataset_id });
       setStrength(clip.lora_strength ?? 1);
+    }
+    // The start frame comes back too, or Reuse restores every dial except the
+    // one that decides whether Generate works: an image-to-video clip reused
+    // without its frame lands blocked on "Pick a start frame". The staged file
+    // is still in ComfyUI's input folder — the name is all the graph needs, and
+    // the server re-reads the shape from the file when it is not sent.
+    if (clip.mode !== 't2v' && clip.source_image) {
+      setSource({ image: clip.source_image, ratio: null, preview: null });
     }
     toast.info?.('Settings loaded — change one thing and generate again.');
   };
@@ -192,6 +225,10 @@ export default function VideoTestStudio() {
     opts.eros ? '10Eros' : null,
     opts.sparse ? `sparse ${opts.sparse}` : null,
     opts.latentUpscale ? 'upscale ×2' : null,
+    // Only when it was CHOSEN: "auto" belongs in the dial's own label, and a
+    // readback that always claimed a step count would make the automatic case
+    // look like a decision somebody made.
+    opts.steps ? `${opts.steps} steps` : null,
   ].filter(Boolean).join(' · ');
 
   const generateButton = (
@@ -286,7 +323,7 @@ export default function VideoTestStudio() {
         <h2 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">
           Clips — newest first
         </h2>
-        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} />
+        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={smooth} vfiBusy={vfiBusy} />
       </section>
 
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}

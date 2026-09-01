@@ -1715,6 +1715,10 @@ class VideoTestClip(db.Model):
     turbo = db.Column(db.Boolean, nullable=False, default=False)
     sparse = db.Column(String(16), nullable=True)        # '' / default / conservative / max
     latent_upscale = db.Column(db.Boolean, nullable=False, default=False)
+    # ↗ The clip this one was interpolated FROM, or NULL. A smoothed clip is a
+    # new artefact with its own frame rate — never an edit of the original,
+    # which would destroy the comparison the studio exists for.
+    vfi_of = db.Column(Integer, nullable=True, index=True)
 
     rating = db.Column(Integer, nullable=False, default=0)  # 1 | -1 | 0, same scale as the image studio
     created_at = db.Column(DateTime, default=db.func.current_timestamp())

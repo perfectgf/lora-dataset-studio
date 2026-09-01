@@ -40,6 +40,13 @@ def _clip_dict(clip):
     return {
         'id': clip.id, 'status': clip.status, 'error': clip.error,
         'filename': clip.filename, 'prompt': clip.prompt, 'mode': clip.mode,
+        # The staged start frame, so ↻ Reuse can hand it back: without it a
+        # reused image-to-video clip lands in i2v mode with nothing to animate
+        # and Generate stays blocked — every dial restored except the one that
+        # decides whether the button works at all.
+        'source_image': clip.source_image,
+        # ↗ The clip this one was smoothed from, so the card can say so.
+        'vfi_of': getattr(clip, 'vfi_of', None),
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
@@ -128,6 +135,55 @@ def video_studio_deploy():
     return jsonify({'ok': True, 'filename': name})
 
 
+@bp.post('/clip/<int:clip_id>/vfi')
+def video_studio_clip_vfi(clip_id):
+    """↗ Smooth a finished clip — RIFE frame interpolation, as a new clip.
+
+    The same recipe the maintainer's image generator uses (rife49, x2, ensemble)
+    so a clip smoothed here is the clip smoothed there. A new row, never an edit
+    of the original: the studio exists to compare, and overwriting the thing
+    being compared would end that.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        out = vts.interpolate_clip(LOCAL_USER, clip_id,
+                                   multiplier=data.get('multiplier'))
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    return jsonify({'ok': True, **out})
+
+
+@bp.post('/lora/import')
+def video_studio_lora_import():
+    """Bring a LoRA the user already has into the picker.
+
+    Multipart `file`, or JSON `{path}` for a file on this machine — the second
+    is the one that matters for a 300 MB weight, since nothing crosses HTTP.
+    The picker listed only what this app trained and what was already in
+    ComfyUI's folder, so anything downloaded had to be moved there by hand with
+    the app open beside a file explorer.
+
+    400 for every refusal, because all of them are things the user can fix: the
+    wrong extension, an unusable name, a file that is not there, or a DIFFERENT
+    weight already under that name (never overwritten — that would silently
+    change what every clip made with that name meant).
+    """
+    upload = request.files.get('file')
+    data = request.get_json(silent=True) or {}
+    try:
+        out = vts.import_external_lora(
+            src_path=(str(data.get('path')).strip() if data.get('path') else None),
+            upload=upload,
+            filename=(upload.filename if upload is not None else None))
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    except OSError as exc:
+        logger.exception('video studio: lora import failed')
+        return jsonify({'ok': False,
+                        'error': f'Could not copy that LoRA into ComfyUI: {exc}'}), 500
+    return jsonify({'ok': True, **out})
+
+
 @bp.post('/source')
 def video_studio_source():
     """Stage the i2v start image into ComfyUI's input folder.
@@ -138,6 +194,8 @@ def video_studio_source():
       * an UPLOAD (multipart `image`) — the general case;
       * a BANK image (`bank_id` + `image_id`) — animating the very portrait the
         LoRA was trained from;
+      * an image from the app's own GALLERY (`gallery_image_id`) — the picture
+        someone just generated, animated without a round trip through disk;
       * the FIRST FRAME of a dataset clip (`dataset_id` + `filename`) — the
         honest baseline, since that frame is material the LoRA actually saw.
 
@@ -207,7 +265,25 @@ def _resolve_source(req):
     if data.get('dataset_id') and data.get('filename'):
         return _dataset_clip_frame(int(data['dataset_id']), data['filename']), True
 
-    raise ValueError('attach an image, or name a bank image or a dataset clip')
+    if data.get('gallery_image_id'):
+        # An image the app itself generated — the Gallery feed's own row id.
+        # Served at full size from the dataset folder it lives in, exactly as
+        # /api/dataset/<id>/img/<name> serves it, so what gets animated is the
+        # picture the user is looking at rather than a thumbnail of it.
+        from ..extensions import db
+        from ..models import LoraTestImage
+        from ..services.dataset_storage import dataset_path
+        row = db.session.get(LoraTestImage, int(data['gallery_image_id']))
+        if row is None or not row.filename or not row.dataset_id:
+            raise ValueError('that generated image is not in the gallery any more')
+        path = os.path.join(str(dataset_path(int(row.dataset_id))),
+                            os.path.basename(str(row.filename)))
+        if not os.path.isfile(path):
+            raise ValueError('that generated image is no longer on disk')
+        return path, False
+
+    raise ValueError('attach an image, or name a bank image, a dataset clip or '
+                     'a gallery image')
 
 
 def _dataset_clip_frame(dataset_id, filename):
@@ -241,6 +317,27 @@ def _dataset_clip_frame(dataset_id, filename):
     except Exception as exc:                      # noqa: BLE001 — any decode error
         raise ValueError(f'could not read a frame from that clip: {exc}')
     raise ValueError('that clip has no decodable frame')
+
+
+def _staged_image_ratio(name):
+    """width / height of an ALREADY staged start frame, by its staged name.
+
+    The ratio travels with the pick; a caller replaying a past clip has only
+    the name. Reading it back costs one PIL open of a file this app wrote
+    itself, and returns None on anything unreadable — the same fine answer
+    _image_ratio gives, with the same single consumer.
+    """
+    safe = os.path.basename(str(name or ''))
+    if not safe:
+        return None
+    try:
+        from .. import config as cfg
+        folder = cfg.comfyui_dir('input')
+    except Exception:  # noqa: BLE001 — no input folder is "no ratio", not a 500
+        return None
+    if not folder:
+        return None
+    return _image_ratio(os.path.join(str(folder), safe))
 
 
 def _image_ratio(path):
@@ -296,7 +393,13 @@ def video_studio_generate():
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
-            source_ratio=data.get('ratio'))
+            # The ratio only sizes the latent upscale, and a client that has
+            # the staged NAME but not the shape (↻ Reuse) would otherwise fall
+            # back to the node's landscape defaults — turning a reused portrait
+            # clip into a wide one on the upscale pass. Re-read here from the
+            # file itself, which is still where the staging put it.
+            source_ratio=(data.get('ratio')
+                          or (_staged_image_ratio(image) if mode == 'i2v' else None)))
     except lts.StudioAssetsMissing as exc:
         return _studio_missing_response(exc)
     except (ValueError, TypeError) as exc:

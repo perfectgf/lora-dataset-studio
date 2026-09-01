@@ -19,6 +19,9 @@ export function clipTags(clip) {
   if (clip.turbo) tags.push('turbo');
   if (clip.sparse) tags.push(`sparse ${clip.sparse}`);
   if (clip.latent_upscale) tags.push('upscale ×2');
+  // ↗ A smoothed clip has the same settings as its source and is NOT the same
+  // artefact — without this the pair is two identical-looking cards.
+  if (clip.vfi_of) tags.push(`smoothed → ${Math.round(clip.fps || 0)} fps`);
   if (clip.steps) tags.push(`${clip.steps} steps`);
   if (clip.seed !== null && clip.seed !== undefined) tags.push(`seed ${clip.seed}`);
   return tags;

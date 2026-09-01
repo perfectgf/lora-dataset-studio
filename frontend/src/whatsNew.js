@@ -120,6 +120,50 @@ export const WHATS_NEW = [
     to: '/gallery',
   },
   {
+    id: '2026-09-01-video-studio-smooth-vfi',
+    date: '2026-09-01',
+    title: 'Smooth a test clip to twice its frame rate',
+    blurb:
+      'Every finished clip gains a ↗ Smooth button: RIFE frame interpolation, '
+      + 'the same recipe the image generator runs (rife49, ×2, ensemble), so a '
+      + 'clip smoothed here is the clip smoothed there. It makes a NEW clip at '
+      + 'double the rate and the same duration — the original stays, because '
+      + 'comparing the two is the point.',
+  },
+  {
+    id: '2026-09-01-reuse-brings-the-start-frame-back',
+    date: '2026-09-01',
+    title: '↻ Reuse gives the start frame back, and any LoRA can be imported',
+    blurb:
+      'Reusing an image-to-video clip restored every dial — model, steps, '
+      + 'length, seed — and left the start frame empty, so Generate stayed '
+      + 'blocked. It comes back now. And the LoRA picker gained an import: give '
+      + 'it a path on this machine or choose the file, and it lands in '
+      + 'ComfyUI’s folder ready to test — no more moving files by hand.',
+  },
+  {
+    id: '2026-09-01-video-studio-length-to-15s',
+    date: '2026-09-01',
+    title: 'Clips up to 15 seconds, on a slider instead of a 21-row list',
+    blurb:
+      'The length list stopped at 209 frames (8.7s) because it was reading the '
+      + 'TRAINING catalogue — the model renders to 15s and the server always '
+      + 'accepted it. Every legal length from 0.88s to 15.04s is now on one '
+      + 'slider that snaps to what the VAE accepts, with the seconds and the '
+      + 'frame count above it and both ends of the range in view.',
+  },
+  {
+    id: '2026-09-01-video-studio-steps-dial',
+    date: '2026-09-01',
+    title: 'The sampling steps are a dial now, not a decision made for you',
+    blurb:
+      'The Video Test Studio ran 6 steps with Turbo and 20 without, and nothing '
+      + 'on screen let you move that — the one number that plainly trades time '
+      + 'for fidelity. There is now a Sampling steps slider (4 to 40) that says '
+      + 'what auto resolves to, and an explicit count wins over Turbo’s own. '
+      + '↻ Reuse replays the count a clip really ran.',
+  },
+  {
     id: '2026-09-01-canvas-lanes-move-and-resize',
     date: '2026-09-01',
     title: 'Move a dataset’s block on the Canvas, and give it the room it needs',
@@ -132,6 +176,17 @@ export const WHATS_NEW = [
       + 'past its own room — double-click it to fit. ✦ Tidy up still hands '
       + 'everything back to the automatic layout.',
     to: '/canvas',
+  },
+  {
+    id: '2026-09-01-start-frame-from-the-gallery',
+    date: '2026-09-01',
+    title: 'Animate an image straight from the Gallery',
+    blurb:
+      'The Video Test Studio’s start frame took an upload, a Bank image or '
+      + 'a dataset clip — but not the picture this app had just generated, which '
+      + 'meant exporting it to disk to feed it back in. The Gallery is now a '
+      + 'fourth source: pick any generated image and it is staged at full size.',
+    to: '/datasets',
   },
   {
     id: '2026-09-01-video-prep-in-one-button',
