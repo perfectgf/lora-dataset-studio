@@ -178,6 +178,18 @@ const PAGES = {
          would measure the drawer and report it as the dup panel. Each variant
          is skipped (and said so) on the viewports where its first control is
          absent, which is how the two split the five devices between them. */
+      /* ✨ The bank's improve launch window. It carries the SAME Klein dials
+         the dataset one does (instruction editor, model, preset with its LoRA
+         strengths, output size) since the pass was proved to read them here
+         too — which makes it the densest dialog on this page, over a phone
+         screen, and exactly what a source test cannot see. Two clicks, as a
+         user does it: open ✂ Edits, then the improve button. Skipped, and said
+         so, when Klein is not installed (the button is disabled) or the bank
+         holds nothing to improve. */
+      { name: 'improve', open: ['[aria-controls="bank-passes-panel"]',
+        '?summary:has-text("Edits")',
+        '#bank-edits button:visible',
+        'button:visible:has-text("Upscale & improve")'] },
       { name: 'dups', open: ['button:has-text("≈ Duplicates")'] },
       { name: 'dups-drawer', open: ['[aria-controls="bank-filter-rail"]',
         'button:has-text("≈ Duplicates")', '[aria-label="Close the filters"]'] },
@@ -760,10 +772,21 @@ async function main() {
         if (!reachable) continue;
 
         let opened = true;
-        for (const selector of state.open) {
+        for (const raw of state.open) {
+          /* A step prefixed with '?' is OPTIONAL: absent is not a failure, it is
+             a different shape of the same screen. The bank's panels are bare
+             sections on a desktop and <details> folds on a phone, so the click
+             that opens a fold exists at one width and not at the other — and a
+             state that demanded it everywhere would have skipped, in silence,
+             at exactly the width worth measuring. */
+          const optional = raw.startsWith('?');
+          const selector = optional ? raw.slice(1) : raw;
           const el = page.locator(selector).first();
           try {
-            if (!(await el.count()) || !(await el.isVisible())) { opened = false; break; }
+            if (!(await el.count()) || !(await el.isVisible())) {
+              if (optional) continue;
+              opened = false; break;
+            }
             await el.click({ timeout: 4000 });
             await page.waitForTimeout(350);
           } catch { opened = false; break; }

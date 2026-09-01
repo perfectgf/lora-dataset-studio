@@ -301,11 +301,11 @@ export default function PassDialog({
             : secondary}
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" onClick={dismiss} disabled={busy}
-              className="rounded-md border border-border px-3 py-1.5 text-sm text-content-muted hover:bg-surface-raised hover:text-content disabled:opacity-50">
+              className="min-h-10 rounded-md border border-border px-3 py-1.5 text-sm text-content-muted hover:bg-surface-raised hover:text-content disabled:opacity-50 lg:min-h-0">
               {launched ? 'Close' : 'Cancel'}
             </button>
             <button type="button" onClick={launch} disabled={busy || !!blocked}
-              className="rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
+              className="min-h-10 rounded-md bg-gradient-primary px-4 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50 lg:min-h-0">
               {busy ? 'Starting…' : runLabel}
             </button>
           </div>

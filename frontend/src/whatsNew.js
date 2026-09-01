@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-bank-improve-carries-the-dials',
+    date: '2026-09-01',
+    title: 'The bank’s ✨ improve shows the dials it obeys, instead of naming them',
+    blurb:
+      'Improving a whole bank ran on the same instruction, LoRA preset, '
+      + 'strengths and output size as a dataset improve — and its launch window '
+      + 'listed them as things to go and change in Settings. They are in the '
+      + 'window now, exactly as in the dataset one, whenever Klein is the engine.',
+    to: '/bank',
+  },
+  {
     id: '2026-09-01-improve-panel-lora-strengths',
     date: '2026-09-01',
     title: 'Tune a preset’s LoRAs from the picture they apply to',

@@ -412,8 +412,12 @@ export const BANK_PASSES = {
       { name: 'Klein weights + ComfyUI (Setup ▸ Generation models), when Klein runs',
         note: 'A bank has no dataset to inherit a Klein model from, so this pass '
           + 'resolves it automatically — the panel names the one that will run.' },
-      { name: 'The improve instruction (Settings ▸ Engines ▸ Upscale & improve)',
-        note: 'Klein only. SeedVR2 sends no instruction at all.' },
+      { name: 'The improve instruction, the LoRA preset and its strengths, and the '
+          + 'output size — all editable in this window when Klein is picked',
+        note: 'Klein only (SeedVR2 sends no instruction and chains no LoRA), and '
+          + 'app-wide: the same values the dataset window edits, because a bank '
+          + 'improve runs the very same pass. Building the presets themselves '
+          + 'stays in Settings ▸ Engines.' },
     ],
     notHere: [
       'WHICH images deserve it — that is the curation you already do in the grid, '

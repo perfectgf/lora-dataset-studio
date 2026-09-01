@@ -227,7 +227,8 @@ export function effectiveImprovePrompt({ stored = '', shipped = '' } = {}) {
  *  out, they have already re-run every other dataset. */
 export const IMPROVE_SCOPE_NOTE =
   'This is the app-wide instruction — the same one Settings shows. Changing it here '
-  + 'changes every ✨ Upscale & improve from now on, in every dataset.';
+  + 'changes every ✨ Upscale & improve from now on — in every dataset, and in '
+  + 'every bank.';
 
 /** Shown while the toggle is off, in place of the box's usual footer. */
 export const IMPROVE_OFF_NOTE =
