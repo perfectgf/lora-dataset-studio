@@ -11,6 +11,7 @@ import {
   writeFamilySelection,
 } from '../utils/canvasFamilyFilter';
 import { toOverrideMap } from '../utils/canvasPlacement';
+import { mergeLanePlacement, toLanePlacementMap } from '../utils/canvasLanePlacement';
 import { pinWriteShortfall, toImageNodeMap, visibleImageNodes } from '../utils/canvasImageNodes';
 import { tidyLaneRows } from '../utils/canvasPinBatch';
 import { useToast } from '../components/common/Toast';
@@ -95,6 +96,38 @@ export default function CanvasPage() {
     putJson(`/api/dataset/${datasetId}/canvas/positions`, { positions: rows }).catch(() => {});
   }, []);
 
+  /* 🛝 Where each LANE sits and how much room it keeps, {datasetId: {x?,y?,h?}}.
+     Server-side like the card positions it travels with, and for the same
+     reason: a board whose cards follow the dataset from one machine to the next
+     while its lanes stay behind is an inconsistency you only discover after you
+     have changed desk. A lane with no row is laid out by the stack — which is
+     every lane until somebody drags one. */
+  const [lanePlacements, setLanePlacements] = useState({});
+  const loadLanePlacements = useCallback(() => apiFetch('/api/train/canvas/lanes')
+    .then((d) => setLanePlacements(toLanePlacementMap(d?.lanes || [])))
+    // Same rule as the positions: a board that opens in its automatic layout is
+    // a far better failure than a board that does not open.
+    .catch(() => {}), []);
+  useEffect(() => { loadLanePlacements(); }, [loadLanePlacements]);
+
+  /* Remember one lane's placement. Screen FIRST, database after — a lane must
+     follow the finger at the speed of the finger, and where a block sits is a
+     display preference: a failed write must never interrupt what the user is
+     doing. The MERGE happens on both sides (here for the screen, in the service
+     for the row) because each gesture only ever speaks for its own half — a
+     move must not forget a height, a resize must not forget a position. */
+  const onSaveLane = useCallback((datasetId, change) => {
+    setLanePlacements((cur) => {
+      const next = mergeLanePlacement(cur[datasetId], change);
+      if (!next) {
+        const { [datasetId]: _gone, ...rest } = cur;
+        return rest;
+      }
+      return { ...cur, [datasetId]: next };
+    });
+    putJson(`/api/dataset/${datasetId}/canvas/lane`, change).catch(() => {});
+  }, []);
+
   /* The images PINNED on the board, {datasetId: {imageId: node}}.
      Stored SERVER-SIDE, in canvas_image_node, deliberately next to the card
      positions rather than in localStorage: the cards already follow the dataset
@@ -125,8 +158,8 @@ export default function CanvasPage() {
      implementation of the restore, free to disagree with the one that actually
      wrote the rows. */
   const onReloadLayout = useCallback(
-    () => Promise.all([loadPositions(), loadImageNodes()]),
-    [loadPositions, loadImageNodes]);
+    () => Promise.all([loadPositions(), loadImageNodes(), loadLanePlacements()]),
+    [loadPositions, loadImageNodes, loadLanePlacements]);
 
   /* The write itself, extracted so the immediate path and the coalesced one
      below cannot drift into two different requests. */
@@ -288,6 +321,16 @@ export default function CanvasPage() {
       return next;
     });
     for (const id of visibleSelected) del(`/api/dataset/${id}/canvas/positions`).catch(() => {});
+    /* 🛝 And the LANES go back to the automatic stack. ✦ Tidy up is the escape
+       hatch from every arrangement on this board — it already was for the cards
+       and for the pictures, and a lane left parked at a position nobody
+       remembers setting would be the one thing the button could not undo. */
+    setLanePlacements((cur) => {
+      const next = { ...cur };
+      for (const id of visibleSelected) delete next[id];
+      return next;
+    });
+    for (const id of visibleSelected) del(`/api/dataset/${id}/canvas/lane`).catch(() => {});
     /* And the pinned images RE-FLOW rather than being deleted or left behind.
        Neither of the obvious answers is right: deleting them would make a
        "rebuild the automatic tree" button destroy content the user placed
@@ -440,12 +483,16 @@ export default function CanvasPage() {
       triggerWord: row?.trigger_word || null,
       status: state?.status || 'loading',
       error: state?.error || null,
+      // 🛝 What this lane was told about its own room and position, or null.
+      // Consumed by utils/canvasLayout.stackLanes, straight through the two
+      // memos in between.
+      placement: lanePlacements[id] || null,
       // The RAW tree, not a laid-out graph: the canvas has to be able to lay it
       // out again when a run is removed from the board (see LineageCanvas).
       tree: state?.tree || null,
     };
   }).filter((entry) => entry.status !== 'ready' || (entry.tree?.nodes || []).length > 0),
-  [visibleSelected, index.datasets, filteredTrees]);
+  [visibleSelected, index.datasets, filteredTrees, lanePlacements]);
   const visibleRuns = useMemo(() => entries.reduce(
     (count, entry) => count + (entry.tree?.nodes || []).length, 0), [entries]);
 
@@ -532,6 +579,7 @@ export default function CanvasPage() {
             onForgetImageNodes={onForgetImageNodes}
             onReloadLayout={onReloadLayout}
             onPinLane={onPinLane} onTidyUp={onTidyUp}
+            lanePlacements={lanePlacements} onSaveLane={onSaveLane}
             onRefetchDataset={onRefetchDataset}
             /* ⏏ Below `lg` the header that carries this button is not drawn, so
                the board's ⋯ shelf carries it instead. Same handler, same panel —

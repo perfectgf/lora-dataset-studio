@@ -47,7 +47,12 @@ import { useCanvasRun } from '../../hooks/useCanvasRun';
 import {
   canvasRunDatasetIds, describeCanvasRun, readyImageCount, runPinCandidates,
 } from '../../utils/canvasRunResults';
-import { isNodeControlTarget, nodePointerIntent } from '../../utils/canvasNodeChrome';
+import {
+  isNodeControlTarget, laneEdgeHeight, nodePointerIntent,
+} from '../../utils/canvasNodeChrome';
+import {
+  laneOverflows, mergeLanePlacement, moveLaneTo, resizeLaneHeight,
+} from '../../utils/canvasLanePlacement';
 import { showsZoomLabels, zoomLabelScale, zoomLabelText } from '../../utils/canvasZoomLegibility';
 import {
   pinBatchAnnouncement, pinBatchPendingAcrossLanes, placeImageBatch,
@@ -120,6 +125,14 @@ const LONG_PRESS_MS = 420;
 // is still a click, so inspecting a run never depends on holding perfectly
 // still — and a 2-px twitch must not write a position to the database.
 const DRAG_SLOP = 4;
+/* 🛝 Two presses on a lane's bottom edge inside this window mean "fit this lane
+   to what it draws". Measured as PRESSES, never as a dblclick: the frame takes
+   the pointer capture the moment a grip is grabbed, and a captured pointer
+   retargets every click that follows to the frame itself — so an onDoubleClick
+   written on the edge is a handler that can never fire. That is the same trap
+   that once made a pinned image's ✕ do nothing, and it was found here the same
+   way: by driving the board rather than by reading it. */
+const LANE_FIT_PRESS_MS = 400;
 /* ONE empty layout array for every lane that has no pinned picture.
    `layoutByLane[id] || []` looks harmless and is not: a fresh [] on every render
    is a new prop identity, and a new prop identity is a re-render of the whole
@@ -174,9 +187,19 @@ const LaneHeader = memo(function LaneHeader({ lane, onZoomRef }) {
     ? `/api/dataset/${lane.datasetId}/img/${encodeURIComponent(lane.refFilename)}`
     : null;
   return (
-    <div style={{ position: 'absolute', left: 0, top: lane.y, height: LANE_HEADER_H,
-      width: Math.max(lane.width, CARD_W) }}
-      className="flex items-center gap-2 overflow-hidden">
+    <div
+      // 🛝 The lane's own GRIP. The title strip was already the one piece of a
+      // lane that is chrome rather than content, and it is now what you drag to
+      // move the whole block — the same bargain the group bar makes, for the
+      // same reason: a dataset needs exactly one thing to grab, visible at rest,
+      // that cannot be confused with grabbing a card inside it.
+      data-canvas-lane=""
+      data-canvas-lane-move=""
+      data-dataset-id={lane.datasetId}
+      title={`${lane.name} — drag to move this dataset's block`}
+      style={{ position: 'absolute', left: lane.x, top: lane.y, height: LANE_HEADER_H,
+        width: Math.max(lane.width, CARD_W) }}
+      className="flex cursor-grab touch-none items-center gap-2 overflow-hidden">
       {refUrl && (
         <button type="button" data-canvas-control
           onClick={() => onZoomRef?.({ url: refUrl, name: lane.name })}
@@ -217,6 +240,79 @@ const LaneHeader = memo(function LaneHeader({ lane, onZoomRef }) {
   );
 });
 
+/** 🛝 The ROOM a lane keeps, drawn.
+ *
+ *  Until lanes could be arranged there was nothing to draw: a lane WAS its
+ *  tree, and its block ended wherever that tree did. It does not any more —
+ *  `📌 Pin all` hangs a contact sheet below the tree that the stack never
+ *  counted, so the sheet landed on the next dataset (measured: 894 world units
+ *  of the lane below covered). The reservation is now a number the user can
+ *  set, and a number you can set is a number you have to be able to SEE.
+ *
+ *  Purely visual and `pointer-events: none`: every card, pill and picture of
+ *  this lane is drawn over it, and a frame that ate their clicks would be the
+ *  same bug the group bar already taught this board once. The grips are drawn
+ *  separately, in the chrome layer (LaneEdge / LaneHeader).
+ *
+ *  The bottom rule turns amber when the lane's content reaches past the room it
+ *  keeps — which is the collision, named at the place it happens instead of
+ *  being discovered as "the board looks broken". */
+const LaneFrame = memo(function LaneFrame({ lane, active = false }) {
+  const overflowing = laneOverflows(lane);
+  return (
+    <div aria-hidden data-testid="canvas-lane-frame"
+      data-lane-overflow={overflowing ? 'true' : 'false'}
+      style={{ position: 'absolute', left: lane.x, top: lane.y,
+        width: Math.max(lane.width, CARD_W), height: LANE_HEADER_H + lane.reserved }}
+      className={'pointer-events-none rounded-lg border transition-colors '
+        + (active
+          ? 'border-indigo-400/70 bg-indigo-500/5'
+          : (overflowing
+            ? 'border-dashed border-amber-400/50'
+            : 'border-border'))} />
+  );
+});
+
+/** 🛝 …and the grip that sets it: a grab band along the lane's bottom edge.
+ *
+ *  In the CHROME layer, after every card and every picture, and that placement
+ *  is load-bearing rather than tidy. The board has already shipped this bug
+ *  once: a group's title bar drawn as an ordinary sibling was painted over by
+ *  whatever the board placed on it, and the group became impossible to move,
+ *  export and close at once. A lane is the biggest object here and a picture
+ *  parked at its bottom edge is the ordinary case, not the exotic one.
+ *
+ *  Double-click FITS the lane to its content. It is the one-gesture answer to
+ *  the collision this whole feature is about, and it is exactly what a drag to
+ *  the amber rule would achieve by hand. */
+const LaneEdge = memo(function LaneEdge({ lane, boardScale, active = false }) {
+  const h = laneEdgeHeight(boardScale, lane.reserved);
+  const overflowing = laneOverflows(lane);
+  return (
+    <div
+      data-canvas-lane=""
+      data-canvas-lane-resize=""
+      data-dataset-id={lane.datasetId}
+      data-testid="canvas-lane-resize"
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label={`Room kept by ${lane.name} — drag to change it, `
+        + 'double-click to fit it to what this dataset draws'}
+      title={overflowing
+        ? `${lane.name} draws past the room it keeps — drag this edge down, or `
+          + 'double-click it, to give the block the room it needs'
+        : `Drag to change how much room ${lane.name} keeps (the datasets below `
+          + 'move with it) · double-click to fit it to its content'}
+      style={{ position: 'absolute', left: lane.x,
+        top: lane.y + LANE_HEADER_H + lane.reserved - h / 2,
+        width: Math.max(lane.width, CARD_W), height: h }}
+      className={'cursor-ns-resize touch-none rounded-full transition-colors '
+        + (active
+          ? 'bg-indigo-400/70'
+          : (overflowing ? 'bg-amber-400/40 hover:bg-amber-300/70' : 'bg-transparent hover:bg-indigo-400/50'))} />
+  );
+});
+
 /** One dataset's tree, drawn exactly as the in-card graph draws it.
  *
  *  ⚡ MEMOISED, and that is not a micro-optimisation — it is what makes panning
@@ -239,7 +335,8 @@ const LaneGraph = memo(function LaneGraph({ lane, isLit, onHover, onNodeClick, d
   if (!g || !g.nodes.length) return null;
   return (
     <svg
-      style={{ position: 'absolute', left: 0, top: lane.graphY }}
+      // `left: lane.x`, not 0 — a lane can be moved sideways now.
+      style={{ position: 'absolute', left: lane.x, top: lane.graphY }}
       className="lds-lgraph block overflow-visible"
       width={g.width} height={g.height}
       viewBox={`0 0 ${g.width} ${g.height}`}
@@ -351,7 +448,7 @@ const LaneImages = memo(function LaneImages({ lane, layout, onGeometry, onClose,
      it is long. */
   const edges = imageNodeEdges(edgeAnchors(layout), lane.graph);
   return (
-    <div style={{ position: 'absolute', left: 0, top: lane.graphY }}>
+    <div style={{ position: 'absolute', left: lane.x, top: lane.graphY }}>
       <svg width="1" height="1" className="block overflow-visible" aria-hidden>
         <LineageEdges edges={edges} isLit={() => false} tintIndex={tintIndexFor(lane.datasetId)} />
       </svg>
@@ -406,6 +503,13 @@ const LaneImages = memo(function LaneImages({ lane, layout, onGeometry, onClose,
 
 export default function LineageCanvas({ entries, positions, imageNodes, allImageNodes = imageNodes, onPinLane,
   onSaveImageNodes, onForgetImageNodes, onTidyUp, onRefetchDataset, onReloadLayout,
+  // 🛝 Where a whole LANE sits and how much room it keeps. One handler for both
+  // gestures: each sends only the half it changed and the server merges, so a
+  // move can never forget a height and a resize can never forget a position.
+  // `lanePlacements` is {datasetId: {x?,y?,h?}} — read here only to hand it to
+  // the preset panel; the LANES themselves carry their own placement on the
+  // entry, which is what `stackLanes` consumes.
+  onSaveLane, lanePlacements,
   // Rendered as the board's TOP overlay. A slot rather than an import: which
   // datasets are shown is the page's question, but the answer belongs on the
   // board it changes -- and the canvas should not have to know what a dataset
@@ -556,9 +660,21 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
      lane sits never depends on how another lane was arranged. Moving a card
      down used to grow its lane for good, leaving dead board between it and the
      next dataset for as long as the arrangement lasted. */
-  const world = useMemo(() => stackLanes(laneStackEntries({
-    placed, layoutByLane, restingByLane, stackPlaced: shown,
-  })), [placed, layoutByLane, restingByLane, shown]);
+  /* 🛝 The lane being dragged RIGHT NOW, as a placement override.
+     Held here and merged in below rather than written on every frame: a lane
+     move is one PUT at the end of the gesture, exactly like a card's — the
+     board follows the finger at the speed of the finger and the database hears
+     about it once. */
+  const [laneDrag, setLaneDrag] = useState(null);   // {datasetId, placement}
+  const world = useMemo(() => {
+    const rows = laneStackEntries({
+      placed, layoutByLane, restingByLane, stackPlaced: shown,
+    });
+    return stackLanes(laneDrag
+      ? rows.map((e) => (e.datasetId === laneDrag.datasetId
+        ? { ...e, placement: mergeLanePlacement(e.placement, laneDrag.placement) } : e))
+      : rows);
+  }, [placed, layoutByLane, restingByLane, shown, laneDrag]);
 
   /* 🔌 External LoRA plugin nodes: files pinned on the board (not produced by
      any run here) that, when checked, stack on top of the next generation.
@@ -965,6 +1081,34 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
     return true;
   }, []);
 
+  /* 🛝 Pick a whole LANE up — by its title strip (move) or by its bottom edge
+     (the room it keeps). The lane's CURRENT box is read off the laid-out board
+     rather than off its stored placement, because a lane that has never been
+     arranged has no stored placement to add a delta to: its position is
+     wherever the stack put it, and that is the position the drag has to start
+     from or the block jumps on the first pixel. */
+  const laneRef = useRef(null);
+  const beginLane = useCallback((datasetId, mode, origin) => {
+    const lane = (worldRef.current?.lanes || []).find((l) => l.datasetId === datasetId);
+    if (!lane) return false;
+    laneRef.current = { datasetId, mode, sx: origin.x, sy: origin.y,
+      box: { x: lane.x, y: lane.y }, startH: lane.reserved, moved: false, cur: null };
+    pan.current = null;
+    return true;
+  }, []);
+
+  /* ⇕ Fit a lane to what it actually draws — the one-gesture version of
+     dragging its edge down until the amber rule goes out. `contentH` is the
+     lane's real reach below its own origin: its tree, its strips and the
+     contact-sheet band 📌 Pin all lays under them. */
+  const fitLane = useCallback((datasetId) => {
+    const lane = (worldRef.current?.lanes || []).find((l) => l.datasetId === datasetId);
+    if (!lane) return;
+    onSaveLane?.(datasetId, { h: lane.contentH });
+  }, [onSaveLane]);
+  // The first of the two presses that make a fit — see LANE_FIT_PRESS_MS.
+  const laneTap = useRef({ datasetId: null, at: 0 });
+
   const onPointerDown = useCallback((e) => {
     suppressClick.current = false;
     press.current = null;
@@ -1021,6 +1165,33 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
         return;
       }
     }
+    /* 🛝 A LANE's grips. Hit-tested after the pinned nodes and before the run
+       cards, which is the order the DOM already implies: a card sits INSIDE its
+       lane, so a press that reached a lane grip reached the block itself. On
+       every pointer type and with no long press, for the same reason the group
+       bar has none — a finger that landed on a bar or on an edge has already
+       said what it means. */
+    const laneEl = e.target.closest?.('[data-canvas-lane]');
+    if (laneEl) {
+      const resizing = !!e.target.closest?.('[data-canvas-lane-resize]');
+      const laneId = Number(laneEl.dataset.datasetId);
+      if (resizing) {
+        // ⇕ Two presses on the same edge = fit it to its content. Decided here,
+        // on the pointerdown, because the capture taken two lines below makes
+        // every later click land on the frame instead of on the edge.
+        const { datasetId: last, at } = laneTap.current;
+        laneTap.current = { datasetId: laneId, at: Date.now() };
+        if (last === laneId && Date.now() - at < LANE_FIT_PRESS_MS) {
+          laneTap.current = { datasetId: null, at: 0 };
+          suppressClick.current = true;
+          takeOverView();
+          fitLane(laneId);
+          return;
+        }
+      }
+      frameRef.current?.setPointerCapture?.(e.pointerId);
+      if (beginLane(laneId, resizing ? 'resize' : 'move', localPoint(e))) return;
+    }
     const card = e.target.closest?.('[data-canvas-node]');
     if (card) {
       press.current = { datasetId: Number(card.dataset.datasetId),
@@ -1061,7 +1232,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
     // localPoint lit des refs via frameRect() : identite neuve a chaque
     // rendu, la lister recreerait ce handler en boucle pour rien.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [beginDrag, beginImage, refreshRect]);
+  }, [beginDrag, beginImage, beginLane, fitLane, refreshRect, takeOverView]);
 
   const onPointerMove = useCallback((e) => {
     // A press that travels is a drag or a pan, never a click — whichever of the
@@ -1122,6 +1293,23 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
         detach: !!gi.groupBox && gi.mode === 'move' });
       return;
     }
+    const gl = laneRef.current;
+    if (gl) {
+      const p = localPoint(e);
+      const s = clampScale(viewRef.current.scale);
+      const dx = (p.x - gl.sx) / s;
+      const dy = (p.y - gl.sy) / s;
+      if (!gl.moved && Math.hypot(p.x - gl.sx, p.y - gl.sy) < DRAG_SLOP) return;
+      gl.moved = true;
+      // A resize speaks only for the height, a move only for the position —
+      // the merge that keeps the other one is done once, on the way to the
+      // board and again on the way to the database (mergeLanePlacement).
+      gl.cur = gl.mode === 'resize'
+        ? { h: resizeLaneHeight(gl.startH, dy) }
+        : moveLaneTo(gl.box, dx, dy);
+      setLaneDrag({ datasetId: gl.datasetId, placement: gl.cur });
+      return;
+    }
     const d = dragRef.current;
     if (d) {
       const p = localPoint(e);
@@ -1166,6 +1354,24 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
     // one measures the board as it is then (see frameRect). Nothing below reads
     // a local point, so this is safe at the top and covers both exits.
     dropRect();
+    const gl = laneRef.current;
+    if (gl) {
+      laneRef.current = null;
+      setLaneDrag(null);
+      /* Same rule as everywhere else on this board: only a gesture that
+         actually TRAVELLED writes. A tap on a lane's title strip must stay a
+         tap — it must not turn an automatic lane into an arranged one behind
+         the user's back, and it must not stop the board re-framing itself. */
+      if (gl.moved && gl.cur) {
+        suppressClick.current = true;
+        takeOverView();
+        onSaveLane?.(gl.datasetId, gl.cur);
+      }
+      pointers.current.delete(e.pointerId);
+      frameRef.current?.releasePointerCapture?.(e.pointerId);
+      if (pointers.current.size === 0) frameRef.current?.classList.remove('is-grabbing');
+      return;
+    }
     const gi = imgRef.current;
     if (gi) {
       imgRef.current = null;
@@ -1242,7 +1448,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
       pan.current = null;
       frameRef.current?.classList.remove('is-grabbing');
     }
-  }, [dropRect, onPinLane, runCardGesture, saveImage, saveRows, takeOverView]);
+  }, [dropRect, onPinLane, onSaveLane, runCardGesture, saveImage, saveRows, takeOverView]);
 
   // --- inspection / compare (identical rules to the in-card graph) -----------
   const nodeById = useMemo(() => {
@@ -2019,6 +2225,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
           up throws an arrangement away, and until now that was the ONLY
           way out of one. */}
       <CanvasLayoutPresets positions={positions} imageNodes={allImageNodes}
+        lanePlacements={lanePlacements}
         datasetIds={shown.map((e) => e.datasetId)}
         onRestored={onReloadLayout} toast={toast} />
       {/* 📷 The board as a file. What it exports is stated before the
@@ -2202,9 +2409,16 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               className="pointer-events-none absolute left-0 top-0 block overflow-visible">
               <LineageEdges edges={provenance.edges} isLit={() => false} />
             </svg>
+            {/* 🛝 The room each lane keeps, UNDER everything it holds. Drawn as
+                one layer rather than inside each lane's own group so a later
+                lane's frame can never be painted over an earlier lane's cards —
+                the ordering bug this board has already shipped once. */}
+            {world.lanes.map((lane) => (
+              <LaneFrame key={`frame:${lane.datasetId}`} lane={lane}
+                active={laneDrag?.datasetId === lane.datasetId} />
+            ))}
             {world.lanes.map((lane) => (
               <div key={lane.datasetId}>
-                <LaneHeader lane={lane} onZoomRef={setRefZoom} />
                 <LaneImages lane={lane} layout={layoutByLane[lane.datasetId] || NO_LAYOUT}
                   blendNotes={blendNotes}
                   onGeometry={handleImageGeometry} onClose={handleCloseImage}
@@ -2221,6 +2435,18 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
                   isPicked={isPicked} onTogglePick={onTogglePick}
                   onOpenActions={onOpenActions} onZoomPreview={zoomPreview}
                   onOpenGallery={openGallery} />
+              </div>
+            ))}
+            {/* 🛝 …and a lane's two GRIPS, over every card and every picture.
+                Chrome wins over content, always — the rule CanvasGroupBar was
+                extracted to keep. A picture parked on a lane's title strip or
+                across its bottom edge would otherwise leave that dataset with
+                no way to be moved or resized at all. */}
+            {world.lanes.map((lane) => (
+              <div key={`chrome:${lane.datasetId}`} className="z-10">
+                <LaneHeader lane={lane} onZoomRef={setRefZoom} />
+                <LaneEdge lane={lane} boardScale={clampScale(view.scale)}
+                  active={laneDrag?.datasetId === lane.datasetId} />
               </div>
             ))}
             {/* 🔌 Plugin nodes (the external LoRA type is the first one) live in

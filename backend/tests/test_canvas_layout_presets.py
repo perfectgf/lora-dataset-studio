@@ -98,7 +98,10 @@ def test_restoring_puts_the_cards_and_the_pictures_back(client, app):
 
     r = client.post(f'/api/train/canvas/layouts/{pid}/apply')
     assert r.status_code == 200
-    assert r.get_json()['applied'] == {'cards': 1, 'images': 1}
+    # Three counts, because the board has three arrangeable things: the cards,
+    # the pictures, and — since lanes became movable and resizable — the lanes
+    # themselves. This preset was saved without any, so that one is zero.
+    assert r.get_json()['applied'] == {'cards': 1, 'images': 1, 'lanes': 0}
 
     lane = client.get('/api/train/canvas/positions').get_json()['positions'][str(ds_id)]
     assert lane == [{'record_id': 7, 'x': 111.0, 'y': 222.0}]

@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-canvas-lanes-move-and-resize',
+    date: '2026-09-01',
+    title: 'Move a dataset’s block on the Canvas, and give it the room it needs',
+    blurb:
+      'Pin a run’s images and the contact sheet hangs below the tree — but the '
+      + 'board never counted it, so it landed on top of the next dataset. Each '
+      + 'lane now has its own two grips: drag its title strip to move the whole '
+      + 'block, drag its bottom edge to set how much room it keeps, and the '
+      + 'datasets below move with it. The edge turns amber when a lane draws '
+      + 'past its own room — double-click it to fit. ✦ Tidy up still hands '
+      + 'everything back to the automatic layout.',
+    to: '/canvas',
+  },
+  {
     id: '2026-09-01-video-prep-in-one-button',
     date: '2026-09-01',
     title: '▶ Run everything now really runs everything',

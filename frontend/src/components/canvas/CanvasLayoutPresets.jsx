@@ -20,8 +20,8 @@ import { HelpBadge } from '../../help/HelpMode';
  * will do; deleting a preset sits at the other end of the row behind its own
  * confirmation, for the same reason the pinned images' 🗑 arms itself.
  */
-export default function CanvasLayoutPresets({ positions, imageNodes, datasetIds,
-  onRestored, toast }) {
+export default function CanvasLayoutPresets({ positions, imageNodes, lanePlacements,
+  datasetIds, onRestored, toast }) {
   const [open, setOpen] = useState(false);
   const [presets, setPresets] = useState(null);      // null = never loaded
   const [busy, setBusy] = useState('');
@@ -45,7 +45,7 @@ export default function CanvasLayoutPresets({ positions, imageNodes, datasetIds,
 
   useEffect(() => { if (open && presets == null) load(); }, [open, presets, load]);
 
-  const snapshot = () => canvasLayoutSnapshot({ positions, imageNodes, datasetIds });
+  const snapshot = () => canvasLayoutSnapshot({ positions, imageNodes, lanePlacements, datasetIds });
 
   const save = useCallback(async () => {
     const clean = canvasPresetName(name);

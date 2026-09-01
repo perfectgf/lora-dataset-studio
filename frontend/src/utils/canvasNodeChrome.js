@@ -214,6 +214,28 @@ export function groupBarHeight(boardScale, groupH) {
   return Math.min(Math.max(BAR_BASE, BAR_BASE / s), groupBarMaxHeight(groupH));
 }
 
+// 🛝 The grab band along a LANE's bottom edge — the grip that sets how much
+// room that dataset keeps. Same disease as the bar above: a 6-px edge at 24 %
+// zoom is a 1.4-px target, which is not a hard grip, it is no grip.
+const LANE_EDGE_BASE = 8;      // its thickness on screen, in pixels
+const MAX_EDGE_FRACTION = 0.2; // …and the share of the lane it may never exceed
+
+/**
+ * How thick a lane's bottom-edge resize grip must be drawn, in BOARD units.
+ *
+ * Capped as a fraction of the lane, for the reason the bar's cap exists: a
+ * short lane whose grab band was a third of its height would be a lane you
+ * cannot click INTO — the band would sit over its own content.
+ */
+export function laneEdgeHeight(boardScale, laneH) {
+  const s = Number(boardScale);
+  const h = Number(laneH);
+  const cap = Number.isFinite(h) && h > 0
+    ? Math.max(LANE_EDGE_BASE, h * MAX_EDGE_FRACTION) : LANE_EDGE_BASE;
+  if (!Number.isFinite(s) || s <= 0) return LANE_EDGE_BASE;
+  return Math.min(Math.max(LANE_EDGE_BASE, LANE_EDGE_BASE / s), cap);
+}
+
 /**
  * The TALLEST that bar can ever get on this strip, in board units — its height
  * at maximum zoom-out, where the counter-scale saturates against the cap.

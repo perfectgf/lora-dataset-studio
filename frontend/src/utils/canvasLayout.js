@@ -13,11 +13,15 @@
      • SCREEN — pixels inside the frame. screen = world * scale + translate.
    Every function below states which one it takes.
 
-   Slice 1 has no per-node placement: lanes stack in the order given, each at
-   x = 0. Node dragging and its remembered positions are slice 2's Placement
-   layer, which will sit BETWEEN lineageGraph.js and this file — this module
-   only ever consumes finished per-lane sizes, so it does not have to change
-   when that layer arrives. */
+   Lanes stack in the order given. A lane with no PLACEMENT of its own sits at
+   x = 0, under the one above it, and reserves exactly what its content needs —
+   which is every lane on a board nobody has arranged. One that carries a
+   placement (utils/canvasLanePlacement: an optional position, an optional
+   reserved height) is drawn where it says and keeps the room it says, and the
+   lanes below move with that room. This module consumes finished per-lane
+   sizes and a finished placement; deciding either is somebody else's job. */
+
+import { clampLanePlacement } from './canvasLanePlacement.js';
 
 // A lane's title strip (dataset name + run count), above its graph.
 export const LANE_HEADER_H = 34;
@@ -91,8 +95,23 @@ export function stackLanes(entries) {
     const overX = Math.min(0, Number(e?.minX) || 0);
     const overY = Math.min(0, Number(e?.minY) || 0);
     const reachX = Math.max(w, Number(e?.maxX) || 0);
-    const reachY = Math.max(h, Number(e?.maxY) || 0);
-    const lane = { ...e, x: 0, y, graphY: y + LANE_HEADER_H, width: w, height: h };
+    /* What the lane actually DRAWS below its own origin, and what it KEEPS.
+       They were the same number until lanes could be arranged, and conflating
+       them is the collision this split exists to end: a 📌 Pin all band reaches
+       far below the tree, the stack only ever advanced by the tree, so the band
+       landed on the next dataset (measured: 894 units of the lane below).
+       `reserved` is now what the user said, when they said anything. */
+    const contentH = Math.max(h, Number(e?.maxY) || 0);
+    const placement = clampLanePlacement(e?.placement);
+    const reserved = placement?.h != null ? placement.h : h;
+    // ✦ Fit and 📷 Export frame the REACH, never the reservation: a lane whose
+    // content overflows the room it keeps is still framed and still exported —
+    // it just overlaps, which is what the person who set that height chose.
+    const reachY = Math.max(reserved, contentH);
+    const laneX = placement?.x != null ? placement.x : 0;
+    const laneY = placement?.y != null ? placement.y : y;
+    const lane = { ...e, x: laneX, y: laneY, graphY: laneY + LANE_HEADER_H,
+      width: w, height: h, reserved, contentH, placement: placement || null };
     lanes.push(lane);
     left = Math.min(left, lane.x + overX);
     top = Math.min(top, lane.graphY + overY);
@@ -102,10 +121,16 @@ export function stackLanes(entries) {
     // why there is no trailing gap — the board ends where the content ends,
     // instead of carrying one lane-gap of dead space "fit" would waste.
     bottom = Math.max(bottom, lane.graphY + reachY);
-    // …and the STACK advances by the lane's own size only. `reachY` is
-    // deliberately absent here: that is what lets a picture hang below its lane
-    // without pushing the next dataset down the board.
-    y += LANE_HEADER_H + h + LANE_GAP;
+    /* …and the STACK advances by the room the lane KEEPS. `contentH` is
+       deliberately absent here: that is what lets a picture hang below its lane
+       without pushing the next dataset down the board — the rule that stops the
+       whole board sliding under the hand still dragging the picture.
+
+       ⚠️ A MOVED lane still advances the cursor. Taking it out of the flow
+       instead would make every other lane jump the moment one is dragged, which
+       is the same bug from the other end. Moving one lane moves exactly one
+       lane; where it lands is then its owner's business, like a dragged card. */
+    y += LANE_HEADER_H + reserved + LANE_GAP;
   }
   if (!lanes.length) return { lanes, x: 0, y: 0, width: 0, height: 0 };
   return { lanes, x: left, y: top, width: right - left, height: bottom - top };

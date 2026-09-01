@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ..extensions import db
-from ..models import (CanvasImageNode, CanvasNodePosition, FaceDataset,
+from ..models import (CanvasImageNode, CanvasLanePlacement, CanvasNodePosition, FaceDataset,
                       FaceDatasetImage, LoraTestImage)
 from .. import config as cfg
 from . import (bank_transfer_metadata, caption_origin, dataset_activity,
@@ -2896,6 +2896,9 @@ def delete_dataset(user_id, dataset_id):
     # 🖼 Pinned-image nodes: same story, same trap. They reference
     # lora_test_image rows that are being deleted in this very transaction.
     canvas_imgs = CanvasImageNode.query.filter_by(dataset_id=dataset_id).all()
+    # Where the lane itself sat and how much room it kept: same story again, and
+    # at most one row.
+    canvas_lane = CanvasLanePlacement.query.filter_by(dataset_id=dataset_id).all()
     dataset_path = _dataset_path(dataset_id)
     trashed_path = None
     try:
@@ -2928,6 +2931,8 @@ def delete_dataset(user_id, dataset_id):
             db.session.delete(pos)
         for pin in canvas_imgs:
             db.session.delete(pin)
+        for placement in canvas_lane:
+            db.session.delete(placement)
         # Force the child DELETEs to reach the DB BEFORE the parent's. The child
         # models declare only a table-level ForeignKey (no relationship()), so the
         # unit of work has no ordering dependency between them and would otherwise
