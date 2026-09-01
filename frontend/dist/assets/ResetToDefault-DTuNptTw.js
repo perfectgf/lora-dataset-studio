@@ -1,0 +1,6 @@
+import{c as h,j as s}from"./index-C1cIbHr9.js";import{d as l,i as p,R as f,r as y}from"./settingDefaults-BziHJdz3.js";/**
+ * @license lucide-react v1.34.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const m=[["path",{d:"M10 8h4",key:"1sr2af"}],["path",{d:"M12 21v-9",key:"17s77i"}],["path",{d:"M12 8V3",key:"13r4qs"}],["path",{d:"M17 16h4",key:"h1uq16"}],["path",{d:"M19 12V3",key:"o1uvq1"}],["path",{d:"M19 21v-5",key:"qua636"}],["path",{d:"M3 14h4",key:"bcjad9"}],["path",{d:"M5 10V3",key:"cb8scm"}],["path",{d:"M5 21v-7",key:"1w1uti"}]],j=h("sliders-vertical",m),b="rounded-md border border-border-strong px-2 py-1 text-xs font-medium text-content hover:bg-surface-raised",x=e=>e&&typeof e=="object"?JSON.parse(JSON.stringify(e)):e;function T({label:e,section:r,field:a,config:o,configDefaults:n,setField:i,value:d,className:c=""}){const t=l(n,r,a);if(t===void 0)return null;const u=d!==void 0?d:((o||{})[r]||{})[a];return p(u,t)?null:s.jsx("div",{className:`mt-1 flex justify-end ${c}`,children:s.jsxs("button",{type:"button",onClick:()=>i(r,a,x(t)),"aria-label":y(e,t),className:b,children:[s.jsx("span",{"aria-hidden":"true",children:"↺ "}),f]})})}export{T as R,j as S};
