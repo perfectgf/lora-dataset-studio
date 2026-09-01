@@ -179,12 +179,17 @@ def video_studio_motion_enhance():
 
     Never destructive: a model that answers nothing usable gives the original
     back rather than emptying a field somebody typed into.
+
+    `image` — the staged start frame, when the panel has one — anchors the
+    rewrite on the picture that will actually be animated, so an instruction
+    cannot enrich the prompt with scenery the frame does not contain.
     """
     from ..services import video_motion_prompt as vmp
     data = request.get_json(silent=True) or {}
     try:
         return jsonify({'ok': True,
                         'prompt': vmp.enhance(data.get('prompt'),
+                                              image=data.get('image'),
                                               model=data.get('model'))})
     except (ValueError, TypeError) as exc:
         return _map_error(exc)

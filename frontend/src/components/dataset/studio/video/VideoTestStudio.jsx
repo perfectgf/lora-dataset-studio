@@ -213,7 +213,10 @@ export default function VideoTestStudio() {
   const enhanceMotion = async () => {
     setMotionBusy('enhance');
     try {
-      const r = await postJson(motionEnhanceUrl(), { prompt, model: motionModel });
+      // The start frame travels too: an enrichment anchored on the picture
+      // that will actually be animated cannot add scenery the frame lacks.
+      const r = await postJson(motionEnhanceUrl(),
+        { prompt, image: source.image || null, model: motionModel });
       if (r?.prompt) setPrompt(r.prompt);
     } catch (e) {
       toast.error(e?.message || 'The motion could not be enriched.');

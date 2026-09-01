@@ -518,7 +518,8 @@ def _json_response_format(kind: str) -> dict:
             'json_schema': {'name': 'lds_object', 'schema': {'type': 'object'}}}
 
 
-def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_json=False):
+def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_json=False,
+          top_p=None, stop=None):
     """POST one chat completion. Retries ONCE on a rejected JSON-mode spelling.
 
     Ollama's `format='json'` has an OpenAI-compatible equivalent, and it is not
@@ -537,6 +538,13 @@ def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_jso
     global _json_format
     payload = {'model': model, 'messages': messages,
                'max_tokens': max_tokens, 'temperature': temperature, 'stream': False}
+    # Both are OpenAI-standard, so they travel to whatever LM Studio is
+    # fronting; sent only when a caller asked, so every existing pass keeps the
+    # exact payload it was measured on.
+    if top_p is not None:
+        payload['top_p'] = float(top_p)
+    if stop:
+        payload['stop'] = list(stop)
     headers = {'Content-Type': 'application/json', **_headers()}
     target = f'{url or base_url()}/v1/chat/completions'
     if not as_json:
@@ -713,6 +721,9 @@ def generate_text(prompt: str, *,
                   model: str | None = None,
                   num_predict: int = 400,
                   strict: bool = False,
+                  temperature: float = 0.2,
+                  top_p: float | None = None,
+                  stop: list[str] | None = None,
                   timeout: tuple[float, float] | float = (10, 120)) -> str:
     """Text-only generation through the same loaded model. Mirrors the Ollama seam."""
     endpoint = _suffix_free(url) if url else base_url()
@@ -732,7 +743,8 @@ def generate_text(prompt: str, *,
     try:
         _admit(endpoint, target)
         resp = _chat([{'role': 'user', 'content': prompt}], model=target,
-                     max_tokens=num_predict, temperature=0.2, timeout=timeout, url=endpoint)
+                     max_tokens=num_predict, temperature=float(temperature),
+                     top_p=top_p, stop=stop, timeout=timeout, url=endpoint)
     except LocalLmStudioFenceError:
         raise                              # the fence speaks for itself, 409 upstream
     except Exception as exc:               # noqa: BLE001 - reported below

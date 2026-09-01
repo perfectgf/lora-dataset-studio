@@ -335,6 +335,9 @@ def generate_text_ollama(prompt: str, *,
                          repeat_penalty: float = 1.1,
                          keep_alive: str | int = 0,
                          strict: bool = False,
+                         temperature: float = 0.3,
+                         top_p: float | None = None,
+                         stop: list[str] | None = None,
                          timeout: tuple[float, float] | float = (10, 120)) -> str:
     """Text-only generation via the SAME Ollama model as the vision seam (no image
     attached). Used to derive a SHORT caption from an already-stored long one — a pure
@@ -358,11 +361,19 @@ def generate_text_ollama(prompt: str, *,
             'model': model_name,
             'prompt': prompt,
             'stream': False,
-            'options': {'temperature': 0.3, 'num_ctx': int(num_ctx),
+            'options': {'temperature': float(temperature), 'num_ctx': int(num_ctx),
                         'num_predict': int(num_predict),
                         'repeat_penalty': float(repeat_penalty)},
             'keep_alive': keep_alive,
         }
+        # Only when asked for. A creative caller wants a warm, nucleus-sampled
+        # answer and a hard stop before the model starts reviewing its own work;
+        # the captioners want neither, and their payload stays the one they were
+        # measured on.
+        if top_p is not None:
+            payload['options']['top_p'] = float(top_p)
+        if stop:
+            payload['options']['stop'] = list(stop)
         _admit_local_ollama(url, model_name, keep_alive=keep_alive)
         resp = requests.post(f'{url}/api/generate', json=payload, timeout=timeout)
         resp.raise_for_status()
