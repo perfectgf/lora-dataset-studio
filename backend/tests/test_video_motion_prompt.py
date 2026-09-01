@@ -75,3 +75,68 @@ def test_without_a_local_model_both_say_which_one_is_missing(app, monkeypatch):
             vmp.enhance('she turns her head')
         with pytest.raises(ValueError, match='Ollama: not running'):
             vmp.suggest_from_frame('a.png')
+
+
+# --- instructed, and on the model the user chose (2026-09-01) -------------------
+
+def test_the_enhancer_has_the_two_modes_the_image_generator_has():
+    """The ported design: the MODEL picks between obeying an instruction about
+    the motion and enriching the motion itself. Without the instruction mode a
+    click on 'make her jump instead' would decorate a sentence that says
+    something else."""
+    p = vmp._ENHANCE_PROMPT.lower()
+    assert 'instruction mode' in p and 'enrich mode' in p
+    assert 'pick automatically' in p
+    # And what it must never do, in the wording rather than in a checker.
+    assert 'no camera' in p
+    assert 'only the resulting prompt' in p
+
+
+def test_auto_is_STEERED_by_what_is_already_in_the_field(app, tmp_path, monkeypatch):
+    """The frame says what is THERE; the field says what should HAPPEN in it.
+    Steering rather than replacing is the difference between a suggestion and a
+    tool — and the people in the answer must stay the frame's."""
+    from app.services import vision_llm
+    seen = {}
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'describe_image',
+                        lambda data, prompt, **kw: seen.update(prompt=prompt, kw=kw)
+                        or 'She jumps twice, landing softly.')
+    frame = tmp_path / 'f.png'
+    frame.write_bytes(b'\x89PNG\r\n')
+    monkeypatch.setattr('app.config.comfyui_dir', lambda *a, **k: str(tmp_path))
+    with app.app_context():
+        out = vmp.suggest_from_frame('f.png', instruction='make her jump twice')
+    assert out.startswith('She jumps twice')
+    assert 'make her jump twice' in seen['prompt']
+    assert 'the frame actually shows' in seen['prompt']
+    # Free proposal when the field is empty — no instruction is appended.
+    with app.app_context():
+        vmp.suggest_from_frame('f.png')
+    assert 'user asks for this movement' not in seen['prompt'].lower()
+
+
+def test_the_chosen_model_travels_and_empty_means_the_providers_own(app, monkeypatch):
+    from app.services import vision_llm
+    seen = {}
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'generate_text',
+                        lambda prompt, **kw: seen.update(kw=kw)
+                        or 'She turns her head slowly and smiles.')
+    with app.app_context():
+        vmp.enhance('she turns', model='qwen3-vl:8b')
+        assert seen['kw']['model'] == 'qwen3-vl:8b'
+        vmp.enhance('she turns', model='')
+        assert seen['kw']['model'] is None      # the provider's own, not ''
+
+
+def test_the_motion_model_is_its_own_setting(app):
+    """Not the image passes' vision_model: the two answer different questions
+    on the same machine, and tuning one must not re-point the other."""
+    with app.app_context():
+        assert vmp.configured_model() == ''
+        assert vmp.set_model('qwen3-vl:8b') == 'qwen3-vl:8b'
+        assert vmp.configured_model() == 'qwen3-vl:8b'
+        from app import config as cfg
+        assert (cfg.get('ollama.vision_model') or '') != 'qwen3-vl:8b'
+        assert vmp.set_model('') == ''          # back to the provider's own

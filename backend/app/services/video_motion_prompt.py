@@ -52,13 +52,33 @@ _AUTO_PROMPT = (
     'No camera directions, no preamble, no quotation marks. Under 40 words.'
 )
 
+# TWO MODES, picked by the model itself — the shape the image generator's own
+# enhancer uses (ENHANCE_SYSTEM_PROMPT there), ported because it is what makes
+# the button obey rather than only embellish: typing "make her jump instead" and
+# pressing ✨ should DO that, not decorate the sentence that says something else.
 _ENHANCE_PROMPT = (
-    'Rewrite this video motion prompt so it is more specific about the '
-    'MOVEMENT — which limb or object moves, in which direction, how fast, what '
-    'it touches. Keep the same subject, the same action and the same intent: '
-    'you are enriching it, not replacing it. One sentence, English, under 50 '
-    'words. Answer with the rewritten prompt alone — no preamble, no quotes, '
-    'no commentary.\n\nPrompt: '
+    'You improve the MOTION prompt of a video clip. You have TWO modes — pick '
+    'automatically:\n'
+    '1) INSTRUCTION mode — when the text is a request ABOUT the motion ("make '
+    'her jump instead", "slower", "have her walk toward the camera", '
+    '"translate to English"): FOLLOW it and output the resulting motion '
+    'prompt, keeping every part of the movement the instruction does not '
+    'mention.\n'
+    '2) ENRICH mode (default, when the text is just a motion) — keep the same '
+    'subject, action and intent, and say it with more of the detail a sampler '
+    'can use: which limb or object moves, in which direction, how fast, what '
+    'it touches.\n'
+    'One sentence, English, under 50 words. No camera directions. Output ONLY '
+    'the resulting prompt — no preamble, no quotes, no commentary.\n\n'
+    'Text: '
+)
+
+# What ✨ Auto does when the field is NOT empty: the frame says what is there,
+# the user's line says what should happen in it. Steering rather than replacing
+# is the whole difference between a suggestion and a tool.
+_AUTO_INSTRUCTED = (
+    '\nThe user asks for this movement in particular — follow it, using the '
+    'people and the setting the frame actually shows: '
 )
 
 
@@ -96,12 +116,17 @@ def available() -> tuple[bool, str]:
     return False, f"{vision_llm.label(provider)}: {probe.get('detail') or 'not ready'}"
 
 
-def suggest_from_frame(image_name) -> str:
+def suggest_from_frame(image_name, instruction=None, model=None) -> str:
     """✨ A motion line proposed from the staged start frame.
 
     Reads the picture back out of ComfyUI's input folder — where the picker
     staged it — because that file IS what the render will animate; describing
     anything else would propose a movement for a different image.
+
+    `instruction` is whatever is already in the Motion field: the frame says
+    what is THERE, the instruction says what should HAPPEN in it, and the model
+    is asked to obey it with the people the frame actually shows. Without one
+    the proposal is free.
     """
     from .. import config as cfg
     from . import vision_llm
@@ -117,16 +142,24 @@ def suggest_from_frame(image_name) -> str:
         raise ValueError('that start frame is not on this machine any more')
     with open(path, 'rb') as fh:
         data = fh.read()
-    text = _clean(vision_llm.describe_image(data, _AUTO_PROMPT,
-                                            num_predict=MAX_TOKENS))
+    ask = _AUTO_PROMPT
+    steer = str(instruction or '').strip()
+    if steer:
+        ask = ask + _AUTO_INSTRUCTED + steer
+    text = _clean(vision_llm.describe_image(data, ask, num_predict=MAX_TOKENS,
+                                            model=(model or None)))
     if len(text) < MIN_CHARS:
         raise ValueError('the model returned nothing usable — try again, or '
                          'write the motion yourself')
     return text
 
 
-def enhance(prompt) -> str:
-    """✨ The same intent, said with more of the detail a sampler can use."""
+def enhance(prompt, model=None) -> str:
+    """✨ Obey an instruction about the motion, or enrich the motion itself.
+
+    Which of the two happens is the MODEL's call, from the text alone — the
+    image generator's own design, and the reason a single button can both
+    embellish "she turns" and act on "make her jump instead"."""
     from . import vision_llm
     base = str(prompt or '').strip()
     if len(base) < MIN_ASK_CHARS:
@@ -135,10 +168,55 @@ def enhance(prompt) -> str:
     if not ok:
         raise ValueError(f'no local model to enrich it with — {why}')
     text = _clean(vision_llm.generate_text(_ENHANCE_PROMPT + base,
-                                           num_predict=MAX_TOKENS))
+                                           num_predict=MAX_TOKENS,
+                                           model=(model or None)))
     if len(text) < MIN_CHARS:
         # The original is returned rather than an error: an enhancement that
         # could not be made must never cost the user the prompt they wrote.
         logger.warning('motion enhance: unusable answer, keeping the original')
         return base
     return text
+
+# ── Which model writes it ────────────────────────────────────────────────────
+# Its own setting, and not the image passes' `vision_model`: those two answer
+# different questions on the same machine (one describes a photo for a caption,
+# this one writes a movement for a sampler), and a user who tunes one must not
+# silently re-point the other. Empty = whatever the provider's vision model
+# already is, so an install that sets nothing behaves exactly as before.
+_MODEL_KEY = 'video_caption.motion_model'
+
+
+def configured_model() -> str:
+    from .. import config as cfg
+    return (cfg.get(_MODEL_KEY) or '').strip()
+
+
+def model_choices() -> dict:
+    """{provider, label, current, models, reachable} — what the ⚙ window shows.
+
+    The list is the provider's own (vision_llm.list_models, the same one every
+    other picker in this app reads), so a model pulled in Ollama appears here
+    without a second registry to keep in step. An unreachable server answers
+    `reachable: False` with an empty list rather than an error: the window then
+    says so and keeps the current choice visible.
+    """
+    from . import vision_llm
+    listed = vision_llm.list_models() or {}
+    return {'provider': listed.get('provider') or vision_llm.provider(),
+            'label': vision_llm.label(listed.get('provider')),
+            'reachable': bool(listed.get('reachable')),
+            'current': configured_model(),
+            'models': list(listed.get('models') or [])}
+
+
+def set_model(name) -> str:
+    """Remember which model writes the motion. '' returns to the provider's own.
+
+    Never validated against the list: a model can be pulled between the moment
+    the window was opened and the moment it is saved, and refusing a name this
+    app simply had not heard of yet would be a lie about what the server holds.
+    """
+    from .. import config as cfg
+    value = str(name or '').strip()
+    cfg.save_config({'video_caption': {'motion_model': value}})
+    return value

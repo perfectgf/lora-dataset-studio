@@ -28,6 +28,10 @@ export const clipVfiUrl = (id) => `/api/video-studio/clip/${id}/vfi`;
  * neither is a launch. */
 export const motionSuggestUrl = () => '/api/video-studio/motion/suggest';
 export const motionEnhanceUrl = () => '/api/video-studio/motion/enhance';
+
+/** ⚙ The model that writes the motion — listed, and chosen. */
+export const motionModelsUrl = () => '/api/video-studio/motion/models';
+export const motionModelUrl = () => '/api/video-studio/motion/model';
 export const sourceUrl = () => `${VIDEO_STUDIO_BASE}/source`;
 export const generateUrl = () => `${VIDEO_STUDIO_BASE}/generate`;
 export const clipsUrl = (limit = 24) => `${VIDEO_STUDIO_BASE}/clips?limit=${limit}`;

@@ -34,6 +34,7 @@ import StudioActionBar from '../StudioActionBar';
 import VideoClipHistory from './VideoClipHistory';
 import VideoLoraPicker from './VideoLoraPicker';
 import VideoOptionsPanel from './VideoOptionsPanel';
+import MotionModelDialog from './MotionModelDialog';
 import VideoSourcePicker from './VideoSourcePicker';
 import { shortLoraName } from './videoLoraGroups';
 import {
@@ -169,6 +170,10 @@ export default function VideoTestStudio() {
   // remembered nowhere, because it changes what the sampler reads.
   const [motionBusy, setMotionBusy] = useState(null);
   const [enhanceOn, setEnhanceOn] = useState(false);
+  // ⚙ The model window, and the model it settled on — kept here so both
+  // buttons send it without re-reading a setting on every click.
+  const [modelOpen, setModelOpen] = useState(false);
+  const [motionModel, setMotionModel] = useState('');
   const smooth = async (clip) => {
     setVfiBusy(clip.id);
     try {
@@ -190,7 +195,10 @@ export default function VideoTestStudio() {
     if (!source.image) { toast.warning('Pick a start frame first.'); return; }
     setMotionBusy('auto');
     try {
-      const r = await postJson(motionSuggestUrl(), { image: source.image });
+      // What is already written STEERS the proposal instead of being replaced
+      // by it: the frame says what is there, this says what should happen in it.
+      const r = await postJson(motionSuggestUrl(),
+        { image: source.image, instruction: prompt, model: motionModel });
       if (r?.prompt) setPrompt(r.prompt);
     } catch (e) {
       toast.error(e?.message || 'The motion could not be written.');
@@ -205,7 +213,7 @@ export default function VideoTestStudio() {
   const enhanceMotion = async () => {
     setMotionBusy('enhance');
     try {
-      const r = await postJson(motionEnhanceUrl(), { prompt });
+      const r = await postJson(motionEnhanceUrl(), { prompt, model: motionModel });
       if (r?.prompt) setPrompt(r.prompt);
     } catch (e) {
       toast.error(e?.message || 'The motion could not be enriched.');
@@ -351,6 +359,15 @@ export default function VideoTestStudio() {
                 className="min-h-10 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:text-content disabled:opacity-40 lg:min-h-0">
                 {motionBusy === 'enhance' ? '…' : '✨ Enrich'}
               </button>
+              {/* ⚙ opens the model window — the list belongs at the moment
+                  somebody wonders about it, not permanently beside the two
+                  buttons that use it. */}
+              <button type="button" onClick={() => setModelOpen(true)}
+                title="Which model writes the motion"
+                aria-label="Which model writes the motion"
+                className="min-h-10 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:text-content lg:min-h-0">
+                ⚙
+              </button>
             </span>
             <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
               placeholder="What happens in the shot — she turns her head and smiles, the camera pushes in slowly…"
@@ -402,6 +419,12 @@ export default function VideoTestStudio() {
 
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
         onRun={generate} runLabel="▶ Generate clip" note={reason} />
+
+      {/* ⚙ The model that writes the motion, on demand. */}
+      {modelOpen && (
+        <MotionModelDialog onClose={() => setModelOpen(false)}
+          onSaved={setMotionModel} />
+      )}
     </div>
   );
 }

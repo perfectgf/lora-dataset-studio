@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-motion-auto-instructed',
+    date: '2026-09-01',
+    title: '✨ Auto obeys what you type, and you choose the model behind it',
+    blurb:
+      'Type what should happen — "make her jump twice", "slower" — and ✨ Auto '
+      + 'follows it while keeping the people your start frame actually shows; '
+      + 'leave the field empty and it proposes freely. ✨ Enrich picks the same '
+      + 'two modes by itself. The ⚙ beside them opens the model window: the '
+      + 'motion writer is its own setting, so tuning it never re-points your '
+      + 'image passes.',
+  },
+  {
     id: '2026-09-01-motion-auto-and-enrich',
     date: '2026-09-01',
     title: 'The Motion field writes itself, and can be enriched',

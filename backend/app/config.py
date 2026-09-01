@@ -475,8 +475,12 @@ DEFAULTS = {
     #   user already operates), 'transformers', or 'local_llm'. Which local
     #   server and which model are NOT new settings: local_llm.provider and the
     #   provider's vision_model already say it for the image passes.
+    # motion_model: which local LLM writes or enriches the ✨ Motion field in
+    #   the Video Test Studio (empty = the provider's own vision model). Its own
+    #   key because it answers a different question from the image passes' one:
+    #   a user who tunes the writer must not re-point the captioner.
     'video_caption': {'model': '', 'style': '', 'tokenizer_dir': '',
-                      'backend': ''},
+                      'backend': '', 'motion_model': ''},
     # Optional second semantic space for Image Bank. Its interpreter is recorded
     # separately so ✨ Score may borrow a user's CUDA Python without making the
     # SigLIP2 installer mutate that environment. Existing configs without this

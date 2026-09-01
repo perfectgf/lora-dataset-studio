@@ -165,7 +165,10 @@ def video_studio_motion_suggest():
     data = request.get_json(silent=True) or {}
     try:
         return jsonify({'ok': True,
-                        'prompt': vmp.suggest_from_frame(data.get('image'))})
+                        'prompt': vmp.suggest_from_frame(
+                            data.get('image'),
+                            instruction=data.get('instruction'),
+                            model=data.get('model'))})
     except (ValueError, TypeError) as exc:
         return _map_error(exc)
 
@@ -180,9 +183,27 @@ def video_studio_motion_enhance():
     from ..services import video_motion_prompt as vmp
     data = request.get_json(silent=True) or {}
     try:
-        return jsonify({'ok': True, 'prompt': vmp.enhance(data.get('prompt'))})
+        return jsonify({'ok': True,
+                        'prompt': vmp.enhance(data.get('prompt'),
+                                              model=data.get('model'))})
     except (ValueError, TypeError) as exc:
         return _map_error(exc)
+
+
+@bp.get('/motion/models')
+def video_studio_motion_models():
+    """⚙ Which local models can write the motion, and which one does today."""
+    from ..services import video_motion_prompt as vmp
+    return jsonify(vmp.model_choices())
+
+
+@bp.put('/motion/model')
+def video_studio_motion_model_set():
+    """⚙ Remember the model that writes the motion. Empty returns to the
+    provider's own vision model."""
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    return jsonify({'ok': True, 'model': vmp.set_model(data.get('model'))})
 
 
 @bp.post('/lora/import')
