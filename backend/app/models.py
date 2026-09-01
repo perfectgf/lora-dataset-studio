@@ -1541,6 +1541,15 @@ class VideoClip(db.Model):
     # comparable captions any more than two checkpoints do. NULL for a human's
     # caption and for a failed one.
     caption_style = db.Column(String(16), nullable=True)
+    # C12-C: the captioner's labelled tail as JSON — subject / motion / setting /
+    # style / short — NULL when the model wrote none. The paragraph in `caption`
+    # is what trains; these are what a budgeted target is served instead of a
+    # cut paragraph, and what a facet UI can read. Additive (_SCHEMA_ADDITIONS).
+    caption_fields = db.Column(Text, nullable=True)
+    # umT5 token count of the paragraph, measured by the worker with the real
+    # tokenizer when it has one (NULL otherwise): Wan's encoder truncates past
+    # 512 in silence, and a word count is a guess about that.
+    caption_tokens = db.Column(Integer, nullable=True)
     # Triage decision — the same three words as the image lane.
     status = db.Column(String(10), nullable=False, default='pending', index=True)
     reject_reason = db.Column(String(16), nullable=True)

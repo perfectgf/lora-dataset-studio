@@ -7,6 +7,7 @@ import {
   VIDEO_CLIP_LIMITS, limitsSentence,
   searchBasisNote, captionMatchNote, captionStateNote, uncaptionedWarning,
   captionModelNote, captionStyleLabel, overBudgetWarning,
+  overTokenBudgetWarning, servedShortNote,
 } from './videoClipSearch.js'
 
 // ---- what stops a search before it starts ------------------------------------
@@ -244,4 +245,23 @@ test('overBudgetWarning fires only past a PUBLISHED budget, and says the worst c
   assert.match(note, /200-word/)
   assert.match(note, /241 words/)
   assert.match(note, /without saying so/)
+})
+
+test('overTokenBudgetWarning fires only past a PUBLISHED window, and says the worst case', () => {
+  assert.equal(overTokenBudgetWarning({ over_token_budget: 0, caption_token_budget: 512 }), '')
+  assert.equal(overTokenBudgetWarning({ over_token_budget: 2, caption_token_budget: 0 }), '')
+  const note = overTokenBudgetWarning({
+    over_token_budget: 2, caption_token_budget: 512, caption_tokens_max: 540,
+  })
+  assert.match(note, /2 prompt\(s\)/)
+  assert.match(note, /512-token/)
+  assert.match(note, /540 tokens/)
+})
+
+test('servedShortNote says how many prompts went out in their short form, and which lines', () => {
+  assert.equal(servedShortNote({ served_short: 0 }), '')
+  assert.equal(servedShortNote(undefined), '')
+  const note = servedShortNote({ served_short: 3 })
+  assert.match(note, /3 prompt\(s\)/)
+  assert.match(note, /Subject \/ Motion \/ Setting \/ Style/)
 })

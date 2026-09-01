@@ -272,6 +272,31 @@ export function overBudgetWarning(composition) {
     + 'them off mid-sentence without saying so. Shorten them, or accept the cut.'
 }
 
+/** Past the encoder's TOKEN window — the count that decides, where words only
+ * warn. Measured by the caption pass with umT5's own tokenizer when it found
+ * one, estimated (1.4 tokens per word, rounded up) when it did not; the reserve
+ * for the trigger and the measured lines is already inside the count. Fires
+ * only for what STILL overruns after the export served its short forms. */
+export function overTokenBudgetWarning(composition) {
+  const over = Number(composition?.over_token_budget) || 0
+  const budget = Number(composition?.caption_token_budget) || 0
+  if (over <= 0 || budget <= 0) return ''
+  return `${over} prompt(s) still run past this model's ${budget}-token encoder window `
+    + `(longest: up to ${composition?.caption_tokens_max} tokens) — the encoder drops `
+    + 'the tail without saying so. Shorten those captions, or accept the cut.'
+}
+
+/** How many prompts the export wrote in their SHORT form — the caption's own
+ * Subject / Motion / Setting / Style lines — because the paragraph would not
+ * fit the encoder window. Said, so a sidecar shorter than its caption is no
+ * mystery. */
+export function servedShortNote(composition) {
+  const n = Number(composition?.served_short) || 0
+  if (n <= 0) return ''
+  return `${n} prompt(s) were written in their short form (Subject / Motion / Setting / Style) `
+    + "because the full paragraph would not fit this model's encoder window."
+}
+
 export function limitsSentence() {
   return 'Best at subjects, settings, styles and framing, in the frames it '
     + 'looked at. It cannot count, cannot hear, and ignores “without” — so '

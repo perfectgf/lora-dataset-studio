@@ -37,6 +37,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -694,6 +695,8 @@ def _clip_row(clip: VideoClip, relpaths: dict, thresholds=None) -> dict:
         # shows why a hybrid search moved a shot up, and the promotion dialog
         # counts what has none. One field, three readers, no second request.
         'caption': clip.caption, 'caption_state': clip.caption_state,
+        'caption_fields': _fields_dict(clip.caption_fields),
+        'caption_tokens': clip.caption_tokens,
         'promoted_dataset_id': clip.promoted_dataset_id,
         'metrics': metrics if metrics and metrics.get('metrics_state') == 'ok' else None,
         'flags': flags,
@@ -2460,11 +2463,17 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
     # silence, so an over-long caption has to be visible BEFORE the encode,
     # like the uncaptioned count next to it.
     budget = profile.get('caption_word_budget')
+    token_budget = profile.get('caption_token_budget')
     keeps_audio = bool(profile.get('audio'))
-    word_counts = [len(compose_sidecar_text(trigger_word, c.caption,
-                                            c.metrics_json,
-                                            keeps_audio=keeps_audio).split())
-                   for c in rows]
+    # The SERVED text — the short form where the paragraph would not fit the
+    # encoder window (C12-C) — so both gauges below describe what the .txt
+    # will hold, not a paragraph the export replaced.
+    plans = [plan_sidecar(trigger_word, c.caption, c.metrics_json,
+                          keeps_audio=keeps_audio, fields_json=c.caption_fields,
+                          caption_tokens=c.caption_tokens, token_budget=token_budget)
+             for c in rows]
+    word_counts = [len(p['text'].split()) for p in plans]
+    token_counts = [p['tokens'] for p in plans]
     composition = {
         'high_fps_clips': sum(1 for c in rows if c.source_id in high_fps_ids),
         'sources': len(per_source),
@@ -2479,6 +2488,15 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
         'caption_words_max': max(word_counts) if word_counts else 0,
         'over_caption_budget': (sum(1 for w in word_counts if w > budget)
                                 if budget else 0),
+        # Tokens — the count that decides, where words only warn (C12-C).
+        # Measured by the caption pass when it had umT5's tokenizer, estimated
+        # otherwise; `tokens_measured` says how many of the counts are real.
+        'caption_token_budget': token_budget,
+        'caption_tokens_max': max(token_counts) if token_counts else 0,
+        'over_token_budget': (sum(1 for t in token_counts if t > token_budget)
+                              if token_budget else 0),
+        'served_short': sum(1 for p in plans if p['served_short']),
+        'tokens_measured': sum(1 for p in plans if p['measured']),
     }
     if not clip_ids:
         raise ValueError('nothing to promote — keep some clips first')
@@ -2563,7 +2581,11 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
         # Whether this target keeps its audio track — the gate on the measured
         # `Audio:` line: a Wan sidecar must never discuss a soundtrack its own
         # export strips.
-        keeps_audio = bool((video_targets.get(profile_key) or {}).get('audio'))
+        profile_now = video_targets.get(profile_key) or {}
+        keeps_audio = bool(profile_now.get('audio'))
+        # The encoder window the sidecars are planned against (C12-C) — read
+        # HERE, in the job that writes them, not smuggled from the preflight.
+        token_budget = profile_now.get('caption_token_budget')
 
         index = 0
         encoded = too_short = failed = dropped_by_inset = 0
@@ -2633,9 +2655,11 @@ def _promote_job(bank_id, dataset_id, clip_ids, profile_key, frames, size,
             # EMPTY sidecar is not neutral either, it trains as an empty prompt
             # in silence, which is what the pre-flight count exists to surface.
             video_clip_export.write_sidecar(
-                str(dst), compose_sidecar_text(trigger_word, clip.caption,
-                                               clip.metrics_json,
-                                               keeps_audio=keeps_audio))
+                str(dst), plan_sidecar(trigger_word, clip.caption, clip.metrics_json,
+                                       keeps_audio=keeps_audio,
+                                       fields_json=clip.caption_fields,
+                                       caption_tokens=clip.caption_tokens,
+                                       token_budget=token_budget)['text'])
             index = candidate
             encoded += 1
             db.session.add(VideoDatasetClip(
@@ -2692,6 +2716,69 @@ def _with_trigger(trigger, caption) -> str:
 # clip does not make it audible footage, and the training sentence it earns is
 # still the true one.
 _NEAR_SILENCE_RATIO = 0.98
+
+
+# --- C12-C: tokens, where the word counts are only a proxy ---------------------------
+# Measured with umT5's own tokenizer over 48 captions from the shipped prompt
+# (three prompt/frame arms, 2026-09-01): 1.35-1.36 tokens per word, tight. The
+# estimate rounds UP so a caption the estimate clears really clears.
+TOKENS_PER_WORD = 1.4
+# What this project appends to a caption — the trigger, `Camera: …`, `Audio: …` —
+# never exceeds this many tokens (the longest camera phrase is ten words). A
+# CEILING, not a measurement: the encoder window is checked against the caption's
+# count PLUS this, so a sidecar that clears the check fits.
+SIDECAR_TOKEN_RESERVE = 40
+
+
+def estimate_tokens(text) -> int:
+    """umT5 tokens a text costs, from its words, rounded up — the fallback for a
+    caption the pass could not measure (no tokenizer on this machine)."""
+    words = len(str(text or '').split())
+    return int(math.ceil(words * TOKENS_PER_WORD)) if words else 0
+
+
+def _fields_dict(raw):
+    """The stored caption_fields JSON as a dict, or None — never an exception."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def plan_sidecar(trigger, caption, metrics_json, keeps_audio=False, *,
+                 fields_json=None, caption_tokens=None, token_budget=None) -> dict:
+    """What the .txt will hold, and why.
+
+    The paragraph is served whenever it fits the target's encoder window. When
+    its tokens — measured by the caption pass, else estimated — plus the reserve
+    for the lines this project appends would overrun that window, and the
+    caption carries its labelled fields, the SHORT form is served instead:
+    Subject, Motion, Setting, Style, in the model's own words. Nothing is cut
+    mid-sentence here, ever: a caption without fields is served whole and the
+    preflight counts it over budget, so the user sees the cut the trainer would
+    otherwise make in silence. No window published (token_budget None) = the
+    paragraph, always — the vendors' word caps stay a warning, never a knife.
+
+    Returns {'text', 'served_short', 'tokens', 'measured'}: `tokens` is the
+    sidecar's ceiling (caption count + reserve), `measured` whether that count
+    came from the tokenizer rather than the estimate."""
+    from . import caption_fields
+    body = (caption or '').strip()
+    measured = isinstance(caption_tokens, int) and caption_tokens >= 0
+    count = caption_tokens if measured else estimate_tokens(body)
+    served_short = False
+    if token_budget and body and count + SIDECAR_TOKEN_RESERVE > int(token_budget):
+        short = caption_fields.fields_to_prose(_fields_dict(fields_json))
+        if short:
+            body, served_short = short, True
+            count, measured = estimate_tokens(short), False
+    text = compose_sidecar_text(trigger, body, metrics_json, keeps_audio=keeps_audio)
+    return {'text': text, 'served_short': served_short,
+            'tokens': (count + SIDECAR_TOKEN_RESERVE) if text else 0,
+            'measured': measured}
 
 
 def compose_sidecar_text(trigger, caption, metrics_json, keeps_audio=False) -> str:

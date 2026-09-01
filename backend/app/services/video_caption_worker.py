@@ -61,7 +61,7 @@ class CaptionWorker:
     """A warm Qwen3-VL, alive for as long as the ``with`` block."""
 
     def __init__(self, *, use_gpu=False, models_root=None, max_new_tokens=400,
-                 model=None):
+                 model=None, tokenizer_dir=None):
         # None = let the child fall back to its own default. The parent normally
         # passes the configured id explicitly, so the two halves cannot disagree
         # about which checkpoint a caption came from.
@@ -70,6 +70,14 @@ class CaptionWorker:
         self.models_root = models_root if models_root is not None else (
             cfg.get('bank_scoring.models_root') or None)
         self.max_new_tokens = int(max_new_tokens)
+        # Folder holding umT5's spiece.model, or None: with it the child measures
+        # every caption in the encoder's own tokens (C12-C); without it the
+        # parent estimates from words and says so.
+        self.tokenizer_dir = (tokenizer_dir or '').strip() or None
+        # Which counter the child managed to load ('sentencepiece',
+        # 'transformers' or None), and the count for the LAST caption returned.
+        self.token_counter = None
+        self.last_tokens = None
         self.device = None
         # What the child reports having ACTUALLY loaded, once it is up.
         self.loaded_model = None
@@ -126,7 +134,8 @@ class CaptionWorker:
                 'models_root': self.models_root,
                 'device': 'auto' if self.use_gpu else 'cpu',
                 'max_new_tokens': self.max_new_tokens,
-                'model': self.model}) + '\n')
+                'model': self.model,
+                'tokenizer_dir': self.tokenizer_dir}) + '\n')
             proc.stdin.flush()
             data = json.loads(_readline_with_timeout(proc, START_TIMEOUT))
         except TextEncodeError:
@@ -143,6 +152,7 @@ class CaptionWorker:
         # What the child ACTUALLY loaded, echoed back — the authority on which
         # checkpoint wrote this run's captions, rather than what we asked for.
         self.loaded_model = data.get('model') or self.model
+        self.token_counter = data.get('token_counter') or None
         self._proc = proc
         return proc
 
@@ -181,7 +191,10 @@ class CaptionWorker:
             # still be absorbed, but it must be absorbed OUT LOUD.
             logger.warning('caption worker refused a shot: %s',
                            data.get('error') or 'no reason given')
+            self.last_tokens = None
             return ''
+        tokens = data.get('tokens')
+        self.last_tokens = tokens if isinstance(tokens, int) and tokens >= 0 else None
         return str(data.get('caption') or '')
 
 

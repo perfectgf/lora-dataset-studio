@@ -466,7 +466,11 @@ DEFAULTS = {
     #   way, even an uncensored model describes around explicit footage, and the
     #   base model asked plainly outperformed it. A caption that talks around its
     #   subject teaches the trained model to look away. Empty = 'standard'.
-    'video_caption': {'model': '', 'style': ''},
+    # tokenizer_dir: folder holding umT5's spiece.model, so captions are measured
+    #   in the Wan encoder's OWN tokens (it truncates past 512 in silence) rather
+    #   than estimated from words. Empty = found in this machine's HF caches when
+    #   an umT5 snapshot is there, else estimated and labelled as such.
+    'video_caption': {'model': '', 'style': '', 'tokenizer_dir': ''},
     # Optional second semantic space for Image Bank. Its interpreter is recorded
     # separately so ✨ Score may borrow a user's CUDA Python without making the
     # SigLIP2 installer mutate that environment. Existing configs without this

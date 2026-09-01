@@ -7,7 +7,9 @@ import {
   insetProblem, insetHint, insetOutcome,
   capProblem, capHint, capBalanceNote,
 } from './videoTargetChoice'
-import { uncaptionedWarning, overBudgetWarning } from './videoClipSearch'
+import {
+  uncaptionedWarning, overBudgetWarning, overTokenBudgetWarning, servedShortNote,
+} from './videoClipSearch'
 import { passBlockedBy } from './videoCapability'
 import VideoTargetPicker from './VideoTargetPicker'
 
@@ -116,6 +118,13 @@ export default function PromoteVideoDialog({
       // Its mirror image: a caption the encoder will CUT without saying so.
       const budget = overBudgetWarning(d.composition)
       if (budget) toast.warning(budget)
+      // Tokens decide where words only warn: what the encoder will actually cut.
+      const tokens = overTokenBudgetWarning(d.composition)
+      if (tokens) toast.warning(tokens)
+      // And what the export did about it — said, so a sidecar shorter than its
+      // caption is no mystery.
+      const short = servedShortNote(d.composition)
+      if (short) toast.info(short, 8000)
       onDone?.(d)
       onClose?.()
     } catch (err) {

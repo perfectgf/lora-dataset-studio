@@ -27,6 +27,7 @@ making one — so overwriting a human's words requires asking for it by name.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -35,6 +36,8 @@ import tempfile
 
 from ..extensions import db
 from ..models import VideoBank, VideoClip, VideoSource
+
+from . import caption_fields
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,40 @@ def model_is_cached(model_id):
     except Exception:  # noqa: BLE001 — an unreadable cache is not an absent model
         return True
     return False
+
+
+def umt5_tokenizer_dir():
+    """The folder holding umT5's `spiece.model`, or None.
+
+    umT5 is the text encoder behind every Wan 2.x model, and it truncates past
+    512 tokens IN SILENCE — while a word count is only a guess about tokens
+    (1.36 per word, measured over 48 captions from the shipped prompt; that
+    guess is what the export preflight is left with when this returns None).
+
+    `video_caption.tokenizer_dir` names a folder outright. Blank = look, without
+    downloading anything, in the Hugging Face caches this machine already
+    declares — the same roots model_is_cached reads — for any umT5 snapshot:
+    ai-toolkit's `umt5_xxl_encoder` mirror keeps it under `tokenizer/`, Wan's own
+    repos under `google/umt5-xxl/`. A preflight must never cost a fetch."""
+    import glob
+    from .. import config as cfg
+    explicit = (cfg.get('video_caption.tokenizer_dir') or '').strip()
+    if explicit:
+        if os.path.isfile(os.path.join(explicit, 'spiece.model')):
+            return explicit
+        logger.warning('video_caption.tokenizer_dir has no spiece.model: %s', explicit)
+        return None
+    for root in _hf_cache_dirs():
+        for pattern in ('models--*umt5*/snapshots/*/spiece.model',
+                        'models--*umt5*/snapshots/*/tokenizer/spiece.model',
+                        'models--*/snapshots/*/google/umt5-xxl/spiece.model'):
+            try:
+                hits = sorted(glob.glob(os.path.join(root, pattern)))
+            except OSError:
+                hits = []
+            if hits:
+                return os.path.dirname(hits[0])
+    return None
 
 
 def download_notice(model_id):
@@ -252,6 +289,19 @@ _PROMPT_PLAIN = (
     'caption in plain prose.'
 )
 
+# C12-C: the structured tail. The paragraph stays the caption that trains; the
+# five labelled lines are what a target with a PUBLISHED budget can be served
+# instead of a paragraph nobody should cut mid-sentence, and what a later UI
+# can show as facets. Parsed by caption_fields.split_caption_fields — forgiving,
+# never trusted: a model that skips the block costs the fields, not the caption.
+_FIELDS_TAIL = (
+    ' When the paragraph is done, write a line containing only --- and then five '
+    'short labelled lines, each on its own line and each under 20 words: '
+    'Subject: who or what is on screen. Motion: what moves and how. Setting: '
+    'where it happens. Style: light, palette and mood. Short: the whole shot in '
+    '12 to 20 words.'
+)
+
 # The styles a caption run can be asked for. `standard` is first and is the
 # default: an install that sets nothing captions exactly as it did before.
 # Labels are what the UI shows, so they live here rather than being invented
@@ -262,14 +312,14 @@ CAPTION_STYLES = {
         'hint': 'A full-paragraph caption: the action as it unfolds, the '
                 'subject, the setting and the mood. The camera line is added '
                 'from our own motion classifier at export.',
-        'prompt': _PROMPT,
+        'prompt': _PROMPT + _FIELDS_TAIL,
     },
     'plain': {
         'label': 'Plain',
         'hint': 'Also names explicit content instead of describing around it. '
                 'Measurably better on adult footage, where the standard prompt '
                 'produces captions that are about something other than the shot.',
-        'prompt': _PROMPT_PLAIN,
+        'prompt': _PROMPT_PLAIN + _FIELDS_TAIL,
     },
 }
 
@@ -433,6 +483,8 @@ def caption_one(bank, clip, *, worker, scratch, relpaths, model=None,
     from .video_bank_service import _abs_source_path
     path = _abs_source_path(bank, relpaths.get(clip.source_id) or '')
     caption = ''
+    fields = None
+    tokens = None
     frames = []
     try:
         if path:
@@ -444,8 +496,15 @@ def caption_one(bank, clip, *, worker, scratch, relpaths, model=None,
             # <0.0s>…<0.3s>, and every description of speed and duration is
             # wrong at the source.
             span_s = times[-1] - times[0] if len(times) > 1 else 0.0
-            caption = clean_caption(_caption_frames(frames, caption_prompt(style),
-                                                    worker=worker, span_s=span_s))
+            raw = _caption_frames(frames, caption_prompt(style), worker=worker,
+                                  span_s=span_s)
+            # C12-C: the paragraph is the caption; the labelled tail, when the
+            # model wrote one, becomes the fields. A missing tail costs nothing.
+            prose, fields = caption_fields.split_caption_fields(raw)
+            caption = clean_caption(prose)
+            # Measured by the worker in umT5 tokens when it has the tokenizer
+            # (None otherwise — the preflight then estimates, and says so).
+            tokens = getattr(worker, 'last_tokens', None)
     except Exception as e:  # noqa: BLE001 — one shot never sinks the pass
         logger.warning('caption: clip %s failed: %s', clip.id, e)
         caption = ''
@@ -462,12 +521,18 @@ def caption_one(bank, clip, *, worker, scratch, relpaths, model=None,
         # bank captioned across a setting change stays readable row by row.
         clip.caption_model = model or None
         clip.caption_style = style or None
+        # The labelled tail, when the model wrote one (C12-C). None is honest:
+        # a caption without fields is served whole, never a guessed split.
+        clip.caption_fields = json.dumps(fields, ensure_ascii=False) if fields else None
+        clip.caption_tokens = tokens if isinstance(tokens, int) else None
     else:
         # Nothing wrote it, so nothing is claimed — neither a checkpoint nor a
         # style produced that emptiness.
         clip.caption_state = 'error'
         clip.caption_model = None
         clip.caption_style = None
+        clip.caption_fields = None
+        clip.caption_tokens = None
     db.session.commit()
     return 'ok' if caption else 'error'
 
@@ -494,7 +559,8 @@ def run_captions(bank_id, recaption=False, *, include_edited=False, on_clip=None
     scratch = tempfile.mkdtemp(prefix=f'lds-vcap-{bank_id}-')
     captioned = failed = 0
     try:
-        with CaptionWorker(use_gpu=use_gpu, model=model) as worker:
+        with CaptionWorker(use_gpu=use_gpu, model=model,
+                           tokenizer_dir=umt5_tokenizer_dir()) as worker:
             for clip in rows:
                 if should_stop is not None and should_stop():
                     break

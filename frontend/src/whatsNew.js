@@ -83,6 +83,28 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-captions-fit-the-encoder',
+    date: '2026-09-01',
+    title: 'Video captions that fit the model — measured in its own tokens',
+    blurb:
+      '🗣 Describe shots now ends each caption with a short structured tail '
+      + '(Subject, Motion, Setting, Style) and, when umT5\'s tokenizer is on your '
+      + 'machine, counts the caption in the Wan encoder\'s own tokens instead of '
+      + 'guessing from words. Building a training set uses both: a prompt that '
+      + 'would overrun the encoder window (512 tokens on Wan, which cuts in '
+      + 'silence) is written in its short form instead of being truncated '
+      + 'mid-sentence, and the export tells you how many.',
+  },
+  {
+    id: '2026-09-01-video-captions-work-under-transformers-5',
+    date: '2026-09-01',
+    title: 'Describe shots works again on machines whose Python carries transformers 5',
+    blurb:
+      'Every shot of a caption pass was failing there — with no reason shown '
+      + 'anywhere. The pass now runs on transformers 4 and 5 alike, and when a '
+      + 'shot is refused the reason lands in the log instead of vanishing.',
+  },
+  {
     id: '2026-08-31-watermark-zones-whole-mark',
     date: '2026-08-31',
     title: 'Watermark zones that cover the whole mark — thumbnails included',

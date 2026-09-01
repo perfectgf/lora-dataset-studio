@@ -39,10 +39,11 @@ Protocol — a WARM WORKER, because loading 8.3 GB costs far more than captionin
 one shot, and the parent commits per clip so a stopped pass loses nothing:
 
   stdin,  once      : {"models_root": path|null, "device": "auto"|"cpu",
-                       "max_new_tokens": 400}
-  stdout, once ready: {"ok": true, "ready": true, "device": "cuda"}
+                       "max_new_tokens": 400, "tokenizer_dir": path|null}
+  stdout, once ready: {"ok": true, "ready": true, "device": "cuda",
+                       "token_counter": "sentencepiece"|"transformers"|null}
   stdin,  per clip  : {"frames": ["abs.jpg", ...], "prompt": "..."}\n
-  stdout, per clip  : {"ok": true, "caption": "..."}\n
+  stdout, per clip  : {"ok": true, "caption": "...", "tokens": 187|null}\n
                       {"ok": false, "error": "..."}\n   ← one bad clip, worker lives
   EOF on stdin      : clean exit.
 A fatal load failure prints {"ok": false, "ready": false, "error": ...} and exits.
@@ -79,6 +80,64 @@ import import_report  # noqa: E402
 MODEL_ID = 'Qwen/Qwen3-VL-4B-Instruct'
 
 
+def _load_caption_fields():
+    """The parent's caption_fields module, imported BY PATH.
+
+    Stdlib-only by contract (see its docstring), so it loads in an interpreter
+    that has none of the app. It is what lets the token count below be taken on
+    the PROSE the trainer reads, never on the labelled tail the model appends
+    (C12-C). None when it cannot load — the count then covers the whole text
+    and is a little high, which errs on the safe side of a budget."""
+    import importlib.util
+    path = os.path.join(_HERE, os.pardir, 'app', 'services', 'caption_fields.py')
+    try:
+        spec = importlib.util.spec_from_file_location('lds_caption_fields', path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as e:  # noqa: BLE001 — a missing helper costs precision, never the pass
+        _log(f'[caption] caption_fields unavailable, counting whole captions: '
+             f'{type(e).__name__}: {e}')
+        return None
+
+
+def _load_token_counter(tokenizer_dir):
+    """(callable text -> int, backend name), or (None, None).
+
+    The umT5 tokenizer behind every Wan 2.x text encoder, from a folder holding
+    `spiece.model`. Its encoder truncates past 512 tokens IN SILENCE, and a word
+    count is a guess about that — so when the parent found the tokenizer, the
+    caption is measured in the encoder's own tokens.
+
+    sentencepiece FIRST, on purpose: transformers 5.3 refuses to rebuild this
+    tokenizer's precompiled normalizer from the .model file ("Cannot parse
+    precompiled_charsmap" — measured 2026-09-01 in ComfyUI's python, the very
+    interpreter this worker borrows), while the raw model loads in every
+    version and yields the SAME piece inventory; the HF wrapper only appends the
+    EOS, which is the +1 below. transformers second, for a folder that ships a
+    tokenizer.json and no .model. Neither → None, and the parent falls back to
+    a words×ratio estimate it labels as one."""
+    folder = str(tokenizer_dir or '').strip()
+    if not folder:
+        return None, None
+    spm_file = os.path.join(folder, 'spiece.model')
+    if os.path.isfile(spm_file):
+        try:
+            import sentencepiece as spm
+            sp = spm.SentencePieceProcessor(model_file=spm_file)
+            return (lambda text: len(sp.encode(str(text))) + 1), 'sentencepiece'
+        except Exception as e:  # noqa: BLE001
+            _log(f'[caption] sentencepiece counter unavailable: {type(e).__name__}: {e}')
+    try:
+        from transformers import AutoTokenizer
+        tok = AutoTokenizer.from_pretrained(folder)
+        return (lambda text: len(tok(str(text), add_special_tokens=True).input_ids)), \
+            'transformers'
+    except Exception as e:  # noqa: BLE001
+        _log(f'[caption] token counter unavailable: {type(e).__name__}: {e}')
+    return None, None
+
+
 def main() -> int:
     raw = sys.stdin.readline()
     try:
@@ -95,6 +154,8 @@ def main() -> int:
     # and half the memory". Unset keeps the safe default below.
     want_dtype = str(req.get('dtype') or '').lower()
     model_id = str(req.get('model') or '').strip() or MODEL_ID
+    count_tokens, token_counter = _load_token_counter(req.get('tokenizer_dir'))
+    fields_mod = _load_caption_fields() if count_tokens is not None else None
 
     if want == 'cpu':
         os.environ['CUDA_VISIBLE_DEVICES'] = ''
@@ -230,7 +291,8 @@ def main() -> int:
 
     # The id is echoed so the parent records what REALLY loaded rather than what
     # it asked for — the two differ the moment any fallback creeps in.
-    _emit({'ok': True, 'ready': True, 'device': device, 'model': model_id})
+    _emit({'ok': True, 'ready': True, 'device': device, 'model': model_id,
+           'token_counter': token_counter})
     _log('[caption] ready')
 
     for line in sys.stdin:
@@ -259,7 +321,18 @@ def main() -> int:
             # is trained as an empty prompt with nothing said anywhere.
             _emit({'ok': False, 'error': 'the model returned an empty caption'})
             continue
-        _emit({'ok': True, 'caption': caption})
+        # The count is taken on the PROSE — what the trainer reads — not on
+        # the labelled tail the parent strips (C12-C). None = no counter here.
+        tokens = None
+        if count_tokens is not None:
+            prose = caption
+            if fields_mod is not None:
+                prose = fields_mod.split_caption_fields(caption)[0] or caption
+            try:
+                tokens = int(count_tokens(prose))
+            except Exception as e:  # noqa: BLE001 — a lost count never costs the caption
+                _log(f'[caption] token count skipped: {type(e).__name__}: {e}')
+        _emit({'ok': True, 'caption': caption, 'tokens': tokens})
     _log('[caption] stdin closed — exiting')
     return 0
 
