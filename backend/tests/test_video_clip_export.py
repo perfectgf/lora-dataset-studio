@@ -249,3 +249,22 @@ def test_one_shot_cannot_become_the_whole_dataset():
     long take must not outweigh every other shot on its own."""
     from app.services.video_clip_export import slice_spans
     assert len(slice_spans(0.0, 600.0, 39, 24, limit=8)) == 8
+
+
+def test_the_promote_job_is_actually_told_to_slice():
+    """The wiring, pinned because it BROKE: slice_long reached the preflight
+    (which counted 152 extra clips) and never the job (which encoded 39), since
+    the job is called with positional arguments and the option was appended as
+    a keyword to the wrong call. A trial run caught in ten minutes what four
+    green test files could not — the option now travels, and this reads the
+    call itself."""
+    import ast
+    import inspect
+    from app.services import video_bank_service as svc
+    src = inspect.getsource(svc.start_promote)
+    tree = ast.parse(src.lstrip())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == '_promote_job']
+    assert calls, 'start_promote must build the promote job'
+    assert any(kw.arg == 'slice_long' for kw in calls[0].keywords), \
+        '_promote_job is called without slice_long — the option would be dead'

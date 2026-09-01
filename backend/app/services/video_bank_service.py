@@ -2716,7 +2716,8 @@ def start_promote(app, user_id, bank_id, *, ids=None, name, target_profile,
 
     bank_jobs.start(app, job_key(bank_id), 'promote',
                     _promote_job(bank.id, dataset.id, clip_ids, target_profile,
-                                 frames, size, inset, trigger),
+                                 frames, size, inset, trigger,
+                                 slice_long=bool(slice_long)),
                     total=len(clip_ids))
     return {'id': dataset.id, 'name': dataset.name,
             'output_dir': dataset.output_dir, 'clips': len(clip_ids),
