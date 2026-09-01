@@ -1545,7 +1545,7 @@ A flat cheat-sheet of the main `config.json` keys, for quick lookup or hand-edit
 | `cloud.quantize.export_budget_seconds` | Time budget for the conversion inside the pod (default `1800`). |
 | `cloud.full_transformer.fp8_export_budget_seconds` | Time budget for that conversion on the pod (default `1800`). Exceeding it abandons the export; the bf16 master is already delivered, so the run stays a success. |
 | `face_scoring.python` | Python interpreter used to run the InsightFace subprocess (empty = current interpreter). |
-| `face_scoring.models_root` | Directory where InsightFace model weights are stored/downloaded. Empty resolves to `data/models/insightface`, so a Docker install keeps them on its mounted volume instead of re-downloading ~350 MB whenever the container is recreated. |
+| `face_scoring.models_root` | Directory where InsightFace model weights are stored/downloaded. Empty resolves to `data/models/insightface`, so a Docker install keeps them on its mounted volume instead of re-downloading them whenever the container is recreated (~350 MB downloaded, ~750 MB on disk — InsightFace keeps the zip next to what it extracted). |
 | `face_scoring.green` | Similarity score threshold (0–1) above which an image is flagged "green" (strong match). |
 | `face_scoring.orange` | Similarity score threshold (0–1) above which an image is flagged "orange" (borderline match). |
 | `masks.python` | Python interpreter used to run the rembg subprocess (empty = current interpreter). |

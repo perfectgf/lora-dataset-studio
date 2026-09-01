@@ -21,6 +21,7 @@ scorer, the mask detector); one that forgets is the whole bug back.
 """
 import json
 import pathlib
+import sys
 from collections import deque
 
 import pytest
@@ -47,8 +48,8 @@ def _install_pack(root, nested=False):
     if nested:
         d = d / face_models.PACK
     d.mkdir(parents=True, exist_ok=True)
-    for name in ('scrfd_10g_bnkps.onnx', 'glintr100.onnx'):
-        (d / name).write_bytes(b'')
+    for stem in face_models.PACK_MODELS:
+        (d / f'{stem}.onnx').write_bytes(b'')
     return d
 
 
@@ -111,6 +112,20 @@ def test_an_empty_pack_folder_is_not_a_pack(app, home):
         assert face_models.models_root() == str(cfg.data_dir() / 'models' / 'insightface')
 
 
+def test_a_half_extracted_pack_never_outranks_a_complete_one(app, home):
+    """The pack arrives as one zip of FIVE models that extractall writes one by
+    one, so a run killed mid-extraction leaves a folder insightface will never
+    re-download into. Counting a single .onnx would send every face pass at that
+    dead root and leave a complete pack untouched next door."""
+    _install_pack(home)
+    managed = pathlib.Path(_managed(app))
+    partial = managed / 'models' / face_models.PACK
+    partial.mkdir(parents=True)
+    (partial / 'genderage.onnx').write_bytes(b'')
+    with app.app_context():
+        assert face_models.models_root() == str(home)
+
+
 # --- and every surface hands it to its child --------------------------------
 
 def _png(color=(255, 0, 0)):
@@ -139,8 +154,10 @@ def _fresh_job(kind):
 
 def test_every_face_surface_hands_its_child_the_resolved_root(
         client, tmp_path, app, monkeypatch, home):
-    """Four producers, one answer. The Bank pass is the one the report named;
-    the other three would have gone on downloading into the same lost home."""
+    """FIVE producers, one answer. The Bank pass is the one the report named; the
+    other four would have gone on downloading into the same lost home. The count
+    is the test: an adversarial pass put ``or None`` back in the folder-scan
+    round and 113 tests stayed green, because nothing exercised it."""
     from app.services import face_mask, face_similarity as fsim, folder_person
     from app.services import image_bank_service as banks
 
@@ -164,6 +181,13 @@ def test_every_face_surface_hands_its_child_the_resolved_root(
     client.post(f'/api/bank/{bank_id}/folder-person', json={'subfolder': 'anna'})
     with app.app_context():
         folder_person._sample_job(bank_id, 'anna')(_fresh_job('folder-check'))
+        # The folder SCAN is a second, separate payload in the same module — the
+        # preflight of the pass, not the sample check behind the button.
+        groups = [{'name': 'anna',
+                   'images': [str(tmp_path / 'src' / 'anna' / f'a{i}.jpg')
+                              for i in range(3)]}]
+        folder_person._embed_round(_fresh_job('folder-scan'), bank_id, groups,
+                                   allow_inference=False)
 
     # The dataset scorer and the mask detector drive their child through a
     # different seam, so they get their own trap rather than a shared assumption.
@@ -188,5 +212,81 @@ def test_every_face_surface_hands_its_child_the_resolved_root(
         fsim.score_dataset_faces(str(ref), [str(img)])
         face_mask.detect_faces([str(img)])
 
-    assert set(seen) == {'faces', 'folder-check', 'dataset-scorer', 'mask-detector'}
+    assert set(seen) == {'faces', 'folder-check', 'folder-scan',
+                         'dataset-scorer', 'mask-detector'}
     assert set(seen.values()) == {expected}
+
+
+# --- the carcass an interrupted download leaves behind ------------------------
+
+def _infer():
+    """The workers run in their own interpreter and cannot import the app, so
+    they carry their own copy of the pack vocabulary. Loaded the way they are."""
+    sys.path.insert(0, str(cfg.BACKEND_DIR / 'infer'))
+    import face_score_infer as fsi
+    return fsi
+
+
+def test_the_worker_and_the_app_agree_on_what_the_pack_contains():
+    """Two copies of one list, by necessity (separate interpreters). Pinned here
+    so they cannot drift: a worker that discards on a different list would delete
+    a pack the resolver had just called complete."""
+    fsi = _infer()
+    assert (fsi.PACK, fsi.PACK_MODELS) == (face_models.PACK, face_models.PACK_MODELS)
+
+
+def test_an_incomplete_pack_in_a_managed_root_is_discarded_so_it_downloads_again(tmp_path):
+    """insightface skips the download whenever the folder exists, so without this
+    the user is stuck for good — and on the mounted volume, "for good" now means
+    across container recreations too."""
+    fsi = _infer()
+    root = tmp_path / 'data' / 'models' / 'insightface'
+    outer = root / 'models' / face_models.PACK
+    outer.mkdir(parents=True)
+    (outer / 'genderage.onnx').write_bytes(b'')
+    (root / 'models' / f'{face_models.PACK}.zip').write_bytes(b'stale')
+
+    assert fsi._discard_incomplete_pack(str(root)) is True
+    assert not outer.exists()
+    assert not (root / 'models' / f'{face_models.PACK}.zip').exists()
+
+
+def test_a_complete_pack_is_never_discarded(tmp_path):
+    fsi = _infer()
+    root = tmp_path / 'data' / 'models' / 'insightface'
+    _install_pack(root)
+    assert fsi._discard_incomplete_pack(str(root)) is False
+    assert len(list((root / 'models' / face_models.PACK).glob('*.onnx'))) == 5
+
+
+def test_insightfaces_own_default_folder_is_never_discarded(tmp_path, monkeypatch):
+    """``~/.insightface`` may be shared with another tool that put those files
+    there. The app clears carcasses out of roots IT chose, nothing else — and the
+    rule is that exact folder, not "under the home": on Windows the install
+    itself usually lives under the home, where this repair is needed most."""
+    fsi = _infer()
+    fake_home = tmp_path / 'home'
+    monkeypatch.setenv('USERPROFILE', str(fake_home))
+    monkeypatch.setenv('HOME', str(fake_home))
+    root = fake_home / '.insightface'
+    outer = root / 'models' / face_models.PACK
+    outer.mkdir(parents=True)
+    (outer / 'genderage.onnx').write_bytes(b'')
+
+    assert fsi._discard_incomplete_pack(str(root)) is False
+    assert (outer / 'genderage.onnx').exists()
+
+
+def test_a_carcass_inside_the_home_is_still_discarded_when_it_is_ours(tmp_path, monkeypatch):
+    """The Windows case the previous rule got wrong: data/ under the user's home
+    is the normal install layout, and a carcass there must still be cleared."""
+    fsi = _infer()
+    monkeypatch.setenv('USERPROFILE', str(tmp_path))
+    monkeypatch.setenv('HOME', str(tmp_path))
+    root = tmp_path / 'lora-dataset-studio' / 'data' / 'models' / 'insightface'
+    outer = root / 'models' / face_models.PACK
+    outer.mkdir(parents=True)
+    (outer / 'genderage.onnx').write_bytes(b'')
+
+    assert fsi._discard_incomplete_pack(str(root)) is True
+    assert not outer.exists()

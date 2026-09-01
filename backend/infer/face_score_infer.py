@@ -96,6 +96,60 @@ def _repair_nested_antelopev2(models_root=None):
         _log(f"[face] repaired nested antelopev2 layout ({moved} model(s) moved up)")
 
 
+# The five models antelopev2 ships, mirrored by hand from
+# app/services/face_models.py: these scripts run in their OWN interpreter and
+# cannot import the app. test_face_models_root.py pins the two lists together.
+PACK = 'antelopev2'
+PACK_MODELS = ('1k3d68', '2d106det', 'genderage', 'glintr100', 'scrfd_10g_bnkps')
+
+
+def _discard_incomplete_pack(models_root):
+    """Delete a pack folder that can never load, so the next call re-downloads.
+
+    insightface returns early whenever ``<root>/models/antelopev2`` EXISTS —
+    the folder, not its contents (utils/storage.download). The pack is one zip
+    of five models that ``extractall`` writes one by one, so an extraction cut
+    short (a Stop, a container killed, a full disk) leaves a folder that every
+    later call skips the download for and then fails on
+    ``assert 'detection' in self.models``. Nothing repairs it.
+
+    That used to cure itself in Docker, where the folder lived in the writable
+    layer and died with the container. Now that the pack sits on the mounted
+    volume it would last forever, so the carcass is cleared here instead.
+
+    NEVER ``~/.insightface`` itself: that folder is insightface's own default and
+    may be shared with another tool that put those files there. Anywhere else was
+    chosen for this app. The test is that exact folder and not "under the home" —
+    on Windows the whole install usually sits under the home, so a wider rule
+    would quietly disable this everywhere it is needed. Best effort: a failure to
+    delete is logged, not raised, because the download that follows is what the
+    user is waiting for.
+    """
+    import shutil
+    legacy = os.path.join(os.path.expanduser('~'), '.insightface')
+    root = models_root or legacy
+    if os.path.normcase(os.path.abspath(root)) == os.path.normcase(os.path.abspath(legacy)):
+        return False
+    outer = os.path.join(root, 'models', PACK)
+    if not os.path.isdir(outer):
+        return False
+    if all(os.path.isfile(os.path.join(outer, f'{m}.onnx')) for m in PACK_MODELS):
+        return False
+    try:
+        shutil.rmtree(outer)
+        # The zip is never deleted upstream (the line is commented out), and it
+        # is re-fetched with overwrite=True anyway, so a stale one is 350 MB of
+        # nothing. Only ever removed here, alongside the folder it filled.
+        stale_zip = outer + '.zip'
+        if os.path.isfile(stale_zip):
+            os.remove(stale_zip)
+    except OSError as e:
+        _log(f'[face] incomplete antelopev2 pack left in place ({e})')
+        return False
+    _log('[face] discarded an incomplete antelopev2 pack — downloading it again')
+    return True
+
+
 def main() -> int:
     raw = sys.stdin.read()
     try:
@@ -115,6 +169,7 @@ def main() -> int:
     import numpy as np, cv2
     from insightface.app import FaceAnalysis
     _repair_nested_antelopev2(models_root)
+    _discard_incomplete_pack(models_root)
     import onnxruntime as _ort
     # Ask for CUDA only if the parent requested it AND this interpreter really
     # exposes it: the stock face extra ships CPU onnxruntime, and listing a

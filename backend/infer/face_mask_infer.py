@@ -159,8 +159,10 @@ def main() -> int:
     # already owns rather than growing a second copy of that trap.
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from face_score_infer import _repair_nested_antelopev2
+        from face_score_infer import (_discard_incomplete_pack,
+                                      _repair_nested_antelopev2)
         _repair_nested_antelopev2(models_root)
+        _discard_incomplete_pack(models_root)
     except Exception:  # noqa: BLE001 — repair is best-effort, never fatal
         pass
 

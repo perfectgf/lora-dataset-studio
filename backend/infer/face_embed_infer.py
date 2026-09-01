@@ -112,6 +112,7 @@ DET_SIZE = (640, 640)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bank_image_guard import read_validated_bank_image  # noqa: E402
+from face_score_infer import _discard_incomplete_pack  # noqa: E402
 from face_score_infer import _repair_nested_antelopev2  # noqa: E402
 import npz_atomic  # noqa: E402
 
@@ -365,6 +366,7 @@ def main() -> int:
         import numpy as np  # noqa: F401 — insightface needs it importable
         from insightface.app import FaceAnalysis
         _repair_nested_antelopev2(models_root)
+        _discard_incomplete_pack(models_root)
         # Provider selection is EXPLICIT per requested device — a bare
         # ['CUDAExecutionProvider', ...] would silently grab the GPU the moment
         # onnxruntime-gpu is present, outside the parent's GPU-exclusive window.
