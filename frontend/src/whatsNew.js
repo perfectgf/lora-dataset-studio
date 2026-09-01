@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-start-frame-clip-tab-fixed',
+    date: '2026-09-02',
+    title: 'Picking a start frame from a training clip no longer takes the page down',
+    blurb:
+      'In the Video Test Studio, opening the “Dataset clip” tab and choosing a '
+      + 'training set blanked the screen: the clip list was read from the wrong '
+      + 'field and a count arrived where the clips were meant to be. It lists '
+      + 'them properly now, and says so plainly when a set holds none.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-01-motion-auto-instructed',
     date: '2026-09-01',
     title: '✨ Auto obeys what you type, and you choose the model behind it',

@@ -45,3 +45,16 @@ test('the probe reaches the Studio through its id-carrying route', () => {
 test('the shortcut state drives the bar the users drive', () => {
   assert.match(probe, /\{ name: 'shortcut', open: \['\[data-probe-chrome="action-bar"\] button'\] \}/);
 });
+
+test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () => {
+  /* The lane is a tab: every run before this measured the Images lane and
+     called the page clean, while the video panels had never been seen at
+     360 px. The selectors are pinned on both sides — a renamed testid would
+     otherwise put the lane back out of sight with the probe still green. */
+  const lanes = read('../../../pages/StudioPage.jsx');
+  const picker = read('./video/VideoSourcePicker.jsx');
+  assert.match(lanes, /data-testid=\{`studio-lane-\$\{id\}`\}/);
+  assert.match(picker, /data-testid=\{`video-source-\$\{id\}`\}/);
+  assert.match(probe, /\{ name: 'video', open: \['\[data-testid="studio-lane-video"\]'\] \}/);
+  assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
+});

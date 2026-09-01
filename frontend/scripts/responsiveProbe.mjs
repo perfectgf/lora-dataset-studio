@@ -319,6 +319,13 @@ const PAGES = {
       // The bottom bar's first shortcut: it reveals and scrolls to a section —
       // the page in the state a shortcut leaves it in.
       { name: 'shortcut', open: ['[data-probe-chrome="action-bar"] button'] },
+      /* The VIDEO lane. It is a tab, so every run measured the Images lane and
+         the video panels were never seen at 360 px at all — a whole surface
+         that could only be checked by hand. The gallery state opens the tab
+         whose grid and "Show older" row live one level deeper still. */
+      { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
+      { name: 'video-gallery',
+        open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
     ],
   },
 };

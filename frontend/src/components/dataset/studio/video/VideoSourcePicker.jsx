@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Image as ImageIcon, Upload, Film, Type, Sparkles } from 'lucide-react';
 import { apiFetch, postJson, postForm } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
+import { appendImages, datasetClips, galleryPage } from './videoPickerFeeds';
 import { sourceUrl } from './videoStudioApi';
 
 const TABS = [
@@ -30,9 +31,10 @@ const TABS = [
   { id: 'clip', label: 'Dataset clip', icon: Film },
 ];
 
-/* One page of the feed. The Gallery page itself pages on a cursor; this is a
-   picker, not a browser — enough to reach what was just made, and the newest
-   are first. */
+/* One page of the feed, and the picker walks the same cursor the Gallery page
+   walks — 60 thumbnails is what fits without a wait, not how many pictures
+   somebody owns. "Show more" fetches the next page; the count says how far in
+   the feed you are, so a picture further back is reachable rather than absent. */
 const GALLERY_PAGE = 60;
 
 export default function VideoSourcePicker({ mode, onMode, image, preview, onPicked, aspect, onAspect }) {
@@ -45,6 +47,8 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
   const [datasetId, setDatasetId] = useState(null);
   const [clips, setClips] = useState([]);
   const [gallery, setGallery] = useState([]);
+  const [more, setMore] = useState(null);   // {before, more} — the feed's cursor
+  const [paging, setPaging] = useState(false);
   const [busy, setBusy] = useState(false);
 
   /* Lists are fetched when their tab is opened, never on mount: a bank walk is
@@ -61,7 +65,12 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
   useEffect(() => {
     if (tab !== 'gallery' || gallery.length) return;
     apiFetch(`/api/gallery/images?limit=${GALLERY_PAGE}`)
-      .then((d) => setGallery(d.images || [])).catch(() => setGallery([]));
+      .then((d) => {
+        const page = galleryPage(d);
+        setGallery(page.images);
+        setMore({ before: page.before, more: page.more });
+      })
+      .catch(() => { setGallery([]); setMore(null); });
   }, [tab, gallery.length]);
   useEffect(() => {
     if (!bankId) return;
@@ -70,9 +79,29 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
   }, [bankId]);
   useEffect(() => {
     if (!datasetId) return;
+    // `items`, never `clips` — see videoPickerFeeds: on that payload `clips` is
+    // the count, and rendering a number took the whole page down.
     apiFetch(`/api/video-dataset/${datasetId}`)
-      .then((d) => setClips(d.clips || [])).catch(() => setClips([]));
+      .then((d) => setClips(datasetClips(d))).catch(() => setClips([]));
   }, [datasetId]);
+
+  /* The next page of the Gallery feed, appended. Failure leaves what is
+     already on screen and simply stops offering more: half a feed still lets
+     somebody pick a picture. */
+  const showMore = useCallback(async () => {
+    if (!more?.more || paging) return;
+    setPaging(true);
+    try {
+      const page = galleryPage(await apiFetch(
+        `/api/gallery/images?limit=${GALLERY_PAGE}&before_id=${more.before}`));
+      setGallery((list) => appendImages(list, page.images));
+      setMore({ before: page.before, more: page.more });
+    } catch {
+      setMore((m) => (m ? { ...m, more: false } : null));
+    } finally {
+      setPaging(false);
+    }
+  }, [more, paging]);
 
   const stage = useCallback(async (send) => {
     setBusy(true);
@@ -133,6 +162,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
           <div className="flex w-full gap-1">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button key={id} type="button" onClick={() => setTab(id)}
+                data-testid={`video-source-${id}`}
                 className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
                   tab === id ? 'border-accent bg-accent/10 text-content' : 'border-border text-content-muted'}`}>
                 <Icon aria-hidden="true" className="h-3.5 w-3.5" />{label}
@@ -190,7 +220,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                   checkpoint show up here, newest first.
                 </p>
               ) : (
-                <div className="grid max-h-56 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
+                <div className="grid max-h-72 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
                   {gallery.map((g) => (
                     <button key={g.id} type="button"
                       title={g.prompt || 'Generated image'}
@@ -205,9 +235,24 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                   ))}
                 </div>
               )}
-              <p className="text-[0.6875rem] text-content-subtle">
-                Animates the picture at full size, not its thumbnail.
-              </p>
+              {/* How much of the feed is on screen, and the way to the rest.
+                  Without this the newest 60 read as the whole Gallery. */}
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="min-w-0 flex-1 text-[0.6875rem] text-content-subtle">
+                  Animates the picture at full size, not its thumbnail.
+                  {gallery.length > 0 && (
+                    <span className="ml-1">
+                      {more?.more ? `Newest ${gallery.length}.` : `All ${gallery.length}.`}
+                    </span>
+                  )}
+                </p>
+                {more?.more && (
+                  <button type="button" onClick={showMore} disabled={paging}
+                    className="shrink-0 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:border-accent hover:text-content disabled:opacity-50 min-h-10 lg:min-h-0">
+                    {paging ? 'Loading…' : 'Show older'}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -218,8 +263,13 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                 <option value="">Pick a video training set…</option>
                 {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
+              {datasetId && clips.length === 0 && (
+                <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted">
+                  No clip in that training set — or it could not be read.
+                </p>
+              )}
               {datasetId && (
-                <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
+                <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
                   {clips.map((c) => (
                     <button key={c.id} type="button"
                       onClick={() => stage(async () => postJson(sourceUrl(), {
