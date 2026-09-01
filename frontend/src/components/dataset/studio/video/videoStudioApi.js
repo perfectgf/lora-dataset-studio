@@ -115,3 +115,27 @@ export function clipSummary(clip) {
   if (clip.seed !== null && clip.seed !== undefined) bits.push(`seed ${clip.seed}`);
   return bits.join(' · ');
 }
+
+/** Every legal clip length the STUDIO may generate, not the ones training uses.
+ *
+ * The dropdown was built from `frame_choices` — the TRAINING catalogue, which
+ * stops at 209 frames because that is where training clip lengths stop being
+ * useful. The model renders to about 15 s, the server has always accepted it
+ * (FRAMES_MIN/FRAMES_MAX = 22/362, and its own comment says capping the studio
+ * at 8.7 s would be "a reason that has nothing to do with the studio") — the
+ * list on screen was simply the wrong table. Generated from the bounds and the
+ * VAE's own rule (≡ 5 mod 17), so there is one source of truth and no third
+ * copy of the ladder.
+ */
+export function studioFrameChoices(options) {
+  const min = Number(options?.frames_min) || 22;
+  const max = Number(options?.frames_max) || 362;
+  const out = [];
+  for (let f = min - ((min - 5) % 17 || 0); f <= max; f += 17) {
+    if (f >= min && f % 17 === 5 % 17) out.push(f);
+  }
+  // The floor the catalogue offers is 22 (5 mod 17) and stays first even when
+  // the arithmetic above starts one rung higher.
+  if (out[0] !== min && min % 17 === 5) out.unshift(min);
+  return out.length ? out : (options?.frame_choices || [39, 56, 107]);
+}

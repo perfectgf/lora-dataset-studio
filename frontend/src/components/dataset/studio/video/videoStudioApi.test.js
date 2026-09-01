@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildGeneratePayload, clipSeconds, clipSummary, isRunning, SPARSE_CHOICES,
-} from './videoStudioApi.js';
+  buildGeneratePayload, clipSeconds, clipSummary, isRunning, SPARSE_CHOICES, studioFrameChoices,
+}  from './videoStudioApi.js';
 
 test('an option left off is absent from the payload, never false', () => {
   const body = buildGeneratePayload({ mode: 'i2v', prompt: ' she turns ', image: 'a.png' });
@@ -91,4 +91,29 @@ test('an explicit step count travels; auto sends nothing at all', () => {
   // mode in force, and nothing here claims a choice nobody made.
   const auto = buildGeneratePayload({ mode: 't2v', prompt: 'a street', turbo: true, steps: '' })
   assert.equal('steps' in auto, false)
+})
+
+// --- the studio's own clip lengths, not training's (2026-09-01) ---------------
+
+test('the length list reaches the model, not the training catalogue', () => {
+  // The dropdown was built from `frame_choices` — the TRAINING ladder, which
+  // stops at 209 frames (8.67s) because that is where training lengths stop
+  // being useful. The server has always accepted up to 362 (15.04s) and says
+  // so in its own comment; the list on screen was the wrong table.
+  const l = studioFrameChoices({ frames_min: 22, frames_max: 362 })
+  assert.equal(l[0], 22)
+  assert.equal(l[l.length - 1], 362)
+  // 362 frames at 24 fps is 15.04s — the model's own reach.
+  assert.equal(clipSeconds(362, 24), 15.04)
+  // Every rung is legal for H3's VAE: 17 pixel frames per chunk, so ≡ 5 mod 17.
+  assert.ok(l.every((f) => f % 17 === 5))
+  // No duplicates, ascending.
+  assert.deepEqual([...l].sort((a, b) => a - b), l)
+  assert.equal(new Set(l).size, l.length)
+})
+
+test('the length list falls back rather than inventing lengths', () => {
+  const fallback = studioFrameChoices({ frame_choices: [39, 56] })
+  assert.ok(fallback.length > 0)
+  assert.ok(fallback.every((f) => f % 17 === 5 || [39, 56].includes(f)))
 })

@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-01-video-studio-length-to-15s',
+    date: '2026-09-01',
+    title: 'Clips up to 15 seconds, on a slider instead of a 21-row list',
+    blurb:
+      'The length list stopped at 209 frames (8.7s) because it was reading the '
+      + 'TRAINING catalogue — the model renders to 15s and the server always '
+      + 'accepted it. Every legal length from 0.88s to 15.04s is now on one '
+      + 'slider that snaps to what the VAE accepts, with the seconds and the '
+      + 'frame count above it and both ends of the range in view.',
+  },
+  {
     id: '2026-09-01-video-studio-steps-dial',
     date: '2026-09-01',
     title: 'The sampling steps are a dial now, not a decision made for you',

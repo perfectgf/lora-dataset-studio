@@ -14,7 +14,7 @@
  * is a length the VAE accepts.
  */
 import { Sparkles, Flame, Zap, Maximize2 } from 'lucide-react';
-import { clipSeconds, SPARSE_CHOICES } from './videoStudioApi';
+import { clipSeconds, SPARSE_CHOICES, studioFrameChoices } from './videoStudioApi';
 
 function Toggle({ checked, onChange, icon: Icon, label, cost, hint, disabled, disabledHint }) {
   return (
@@ -58,7 +58,10 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
       ? `Needs the ${a.pack} node pack in ComfyUI (ComfyUI-Manager: “${a.search}”), then a restart.`
       : 'Needs a ComfyUI node pack that is not installed.';
   };
-  const frames = options?.frame_choices?.length ? options.frame_choices : [39, 56, 73, 107];
+  /* The STUDIO's ladder, not the training catalogue's: that one stops at 209
+     frames (8.7 s) because that is where training lengths stop being useful,
+     while this model renders to ~15 s and the server accepts it. */
+  const frames = studioFrameChoices(options);
   const fps = options?.fps || 24;
   const mp = options?.megapixels || { min: 0.1, max: 2, default: 0.3 };
   /* What "auto" resolves to, from the server's own constants rather than a
@@ -160,14 +163,32 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
       <div className="flex flex-col gap-1.5 border-t border-border pt-3">
         <h3 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">Shot</h3>
         <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+          {/* A SLIDER, not a 21-row dropdown. The legal lengths are a ladder
+              (H3's VAE packs 17 frames per chunk, so every rung is ≡ 5 mod 17)
+              and a ladder is what a discrete slider is for: it snaps, so an
+              illegal count cannot be picked, and the whole range is legible
+              without opening anything. The live value sits ABOVE the track —
+              below it is where a finger lands (NN/g) — and reads in SECONDS
+              first, because that is the unit the shot is thought in; the frame
+              count follows as the technical truth. Same shape as Resolution
+              underneath: one kind of dial, one look. */}
           <label className="flex flex-col gap-1 text-xs text-content-muted">
-            Length
-            <select value={value.frames} onChange={(e) => set({ frames: Number(e.target.value) })}
-              className="rounded-lg border border-border bg-app px-2 py-1.5 text-content min-h-10 lg:min-h-0">
-              {frames.map((f) => (
-                <option key={f} value={f}>{f} frames · {clipSeconds(f, fps)}s</option>
-              ))}
-            </select>
+            <span className="flex items-baseline justify-between gap-2">
+              Length
+              <span className="tabular-nums text-content">
+                {seconds}s
+                <span className="ml-1 text-content-subtle">· {value.frames} frames</span>
+              </span>
+            </span>
+            <input type="range" min="0" max={Math.max(0, frames.length - 1)} step="1"
+              value={Math.max(0, frames.indexOf(value.frames))}
+              onChange={(e) => set({ frames: frames[Number(e.target.value)] })}
+              aria-label="Clip length"
+              className="mt-1 accent-accent" />
+            <span className="flex justify-between text-[0.625rem] tabular-nums text-content-subtle">
+              <span>{clipSeconds(frames[0], fps)}s</span>
+              <span>{clipSeconds(frames[frames.length - 1], fps)}s</span>
+            </span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             <span className="flex items-baseline justify-between">
