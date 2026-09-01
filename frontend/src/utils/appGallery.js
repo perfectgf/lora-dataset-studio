@@ -43,6 +43,43 @@ export function mergeGalleryPage(existing, incoming) {
   return fresh.length ? [...(existing || []), ...fresh] : (existing || []);
 }
 
+/** Merge a freshly read HEAD page over the feed already on screen.
+ *
+ *  The mirror image of mergeGalleryPage, and the difference is the end rows
+ *  land on: the feed is newest-first, so an image that appeared since the last
+ *  read belongs at the TOP. Rows already on screen are dropped rather than
+ *  re-inserted, which is what keeps every page the reader has scrolled through
+ *  — and their order — exactly where they were.
+ *
+ *  Nothing is ever REMOVED here. A row missing from the head page may simply
+ *  have been pushed past its limit by newer ones, and a quiet background read
+ *  is not the place to decide an image is gone. */
+export function mergeGalleryHead(existing, incoming) {
+  const seen = new Set((existing || []).map((i) => i.id));
+  const fresh = (incoming || []).filter((i) => !seen.has(i.id));
+  return fresh.length ? [...fresh, ...(existing || [])] : (existing || []);
+}
+
+/** The ids of every job still owing GPU time, from a /api/system/queue reading.
+ *  A Set because the only question asked of it is membership. */
+export function liveQueueIds(listing) {
+  return new Set((listing?.jobs || []).map((j) => j?.job_id).filter(Boolean));
+}
+
+/** True when a job the previous reading saw is no longer in the queue.
+ *
+ *  That is the edge the feed cares about: something finished (or was
+ *  cancelled), so there may be a new image to show. Deliberately NOT "the queue
+ *  is empty" — a batch of eight lands eight images, one at a time, and a feed
+ *  that only refreshed at the end of the batch would spend minutes stale while
+ *  results piled up behind it. */
+export function queueDrained(previous, current) {
+  for (const id of previous || []) {
+    if (!current?.has?.(id)) return true;
+  }
+  return false;
+}
+
 /** True when any filter narrows the feed — the empty state depends on it. */
 export function galleryFiltered({ datasetId = '', kind = '', liked = false } = {}) {
   return !!(datasetId !== '' && datasetId != null) || !!kind || !!liked;

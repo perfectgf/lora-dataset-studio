@@ -41,10 +41,13 @@ import SettingsLink from '../common/SettingsLink';
 import PromptOverrideField from '../common/PromptOverrideField';
 import KleinModelSetting from '../shared/KleinModelSetting';
 import { improveInstructionLine, improveAnimeCaution } from './kleinImproveHint';
+import { isFixedLoraDuplicate, fixedLoraDuplicateWarning } from '../../utils/loraDuplicateGuard';
 import {
   IMPROVE_MEGAPIXELS_MAX, IMPROVE_MEGAPIXELS_MIN, IMPROVE_MEGAPIXELS_STEP,
-  IMPROVE_OFF_NOTE, IMPROVE_SCOPE_NOTE, createImproveSaver, effectiveImprovePrompt,
-  improveEditorState, improveSettingsPatch,
+  IMPROVE_OFF_NOTE, IMPROVE_SCOPE_NOTE, PRESET_LORA_STRENGTH_MAX,
+  PRESET_LORA_STRENGTH_MIN, PRESET_LORA_STRENGTH_STEP, createImproveSaver,
+  effectiveImprovePrompt, improveEditorState, improveSettingsPatch,
+  presetChainRows, withPresetRowStrength,
 } from './kleinImproveEditor';
 
 const TTL_MS = 15000;
@@ -56,6 +59,31 @@ const TTL_MS = 15000;
 let cache = { at: 0, promise: null, value: null };
 /** Every mounted note. A save reaches all of them — see the header. */
 const subscribers = new Set();
+
+/* ── The two module-level handles a RUN needs before it starts ───────────────
+   The dials this panel writes are read by the SERVER at enqueue time
+   (face_dataset_service.improve_lora_preset_rows re-reads config.json), so a
+   value that is still coalescing in a saver — or still in flight — is a value
+   the run will not use. A slider dropped and ✨ Generate clicked a beat later
+   is the ordinary gesture, and it produced a render made with the previous
+   strength while the panel displayed the new one.
+   Module-level rather than a prop: the launcher (ImproveModal) is a PARENT of
+   the panel and would otherwise need a ref handle drilled through every host,
+   which is the plumbing the publish/subscribe pair above already refused. */
+const flushers = new Set();
+let inFlight = Promise.resolve();
+
+/** Send every mounted note's pending keystroke/drag NOW. */
+export function flushImproveSettings() {
+  flushers.forEach((fn) => { try { fn(); } catch { /* keep going */ } });
+}
+
+/** Resolves when the writes those flushes started have landed (or failed —
+ *  a run is not blocked by a settings save that could not be stored; the
+ *  panel's own error line reports that). */
+export function whenImproveSettingsSettled() {
+  return inFlight;
+}
 
 function loadSettings() {
   const now = Date.now();
@@ -128,7 +156,22 @@ export default function KleinImproveNote({
 
   useEffect(() => {
     let cancelled = false;
-    const receive = (d) => { if (!cancelled) setPayload(d); };
+    const receive = (d) => {
+      if (cancelled) return;
+      setPayload(d);
+      /* …and LET GO of the drafted preset list. Every other drafted field is a
+         scalar the user is editing; this one is the whole
+         `generation_lora_presets` array — every preset, every row, including
+         the ones this copy never touched. Kept after a publish, the copy in the
+         bulk toolbar would keep rewriting the app-wide setting from the
+         snapshot it had before the copy in the lightbox modal saved, silently
+         reverting it. Not while a write is still coalescing here: that pending
+         value is a finger still on a slider. */
+      if (!saver.current?.pending?.presets) {
+        setDraft((cur) => (cur && cur.presets !== undefined
+          ? { ...cur, presets: undefined } : cur));
+      }
+    };
     loadSettings().then(receive);
     subscribers.add(receive);
     return () => { cancelled = true; subscribers.delete(receive); };
@@ -136,10 +179,14 @@ export default function KleinImproveNote({
 
   const commit = useCallback(async (patch) => {
     if (alive.current) { setSaving(true); setError(null); }
+    // PUT returns the WHOLE settings payload, so what every note ends up
+    // showing is what the server stored, not what this one hoped it sent.
+    const req = putJson('/api/settings', improveSettingsPatch(patch));
+    // Chained, never replaced: two saves in flight must BOTH be waited on, and
+    // a rejected one must not poison the chain for the next run.
+    inFlight = Promise.allSettled([inFlight, req]).then(() => {});
     try {
-      // PUT returns the WHOLE settings payload, so what every note ends up
-      // showing is what the server stored, not what this one hoped it sent.
-      publishSettings(await putJson('/api/settings', improveSettingsPatch(patch)));
+      publishSettings(await req);
     } catch (e) {
       if (alive.current) setError(e?.message || 'Could not save the instruction.');
     } finally {
@@ -153,9 +200,12 @@ export default function KleinImproveNote({
   useEffect(() => {
     alive.current = true;
     const s = saver.current;
+    // Published so a launcher can settle this panel before it starts a run.
+    const flush = () => s.flush();
+    flushers.add(flush);
     // Closing the lightbox mid-sentence is the case that loses work: flush the
     // pending keystroke instead of letting the timer die with the component.
-    return () => { alive.current = false; s.flush(); };
+    return () => { alive.current = false; flushers.delete(flush); s.flush(); };
   }, []);
 
   const server = improveEditorState(payload);
@@ -163,6 +213,12 @@ export default function KleinImproveNote({
   const enabled = draft?.enabled ?? server.enabled;
   const loraPreset = draft?.loraPreset ?? server.loraPreset;
   const megapixels = draft?.megapixels ?? server.megapixels;
+  // The preset DEFINITIONS behind that name — drafted locally like everything
+  // else here, so a publish landing from another mounted copy cannot snap a
+  // slider back under the finger holding it.
+  const presets = draft?.presets ?? server.presets;
+  const chain = presetChainRows(presets, loraPreset);
+  const presetExists = server.loraPresets.includes(loraPreset);
   const state = {
     loaded: server.loaded,
     enabled,
@@ -189,6 +245,13 @@ export default function KleinImproveNote({
     // sentence for the same reason.
     saver.current.schedule('loraPreset', v);
     saver.current.flush();
+  };
+  const setLoraStrength = (index, v) => {
+    const next = withPresetRowStrength(presets, loraPreset, index, v);
+    setDraft((d) => ({ ...(d || {}), presets: next }));
+    // Dragging emits a change per pixel: coalesced like the typed fields, so a
+    // slide from 0.5 to 0.9 is ONE settings write and not forty.
+    saver.current.schedule('presets', next);
   };
   const setMegapixels = (v) => {
     setDraft((d) => ({ ...(d || {}), megapixels: v }));
@@ -244,13 +307,100 @@ export default function KleinImproveNote({
             {server.loraPresets.map((name) => (
               <option key={name} value={name} className="bg-surface-overlay">{name}</option>
             ))}
-            {loraPreset && !server.loraPresets.includes(loraPreset) && (
+            {loraPreset && !presetExists && (
               <option value={loraPreset} className="bg-surface-overlay">
                 {loraPreset} (missing — runs as None)
               </option>
             )}
           </select>
         </label>
+      )}
+      {/* WHAT the picked preset actually chains, and the one number people came
+          for. Naming a preset and then saying nothing about its contents left
+          the strength — the dial you turn when a LoRA is too strong on THIS
+          picture — one settings trip away from the picture itself.
+
+          Tuning only. Adding, removing, reordering and renaming stay in
+          Settings ▸ Engines: those change what the preset IS, for every surface
+          that runs Klein, while a strength is the reversible half you want in
+          front of the render. Drawn only for a preset that EXISTS — a stale
+          pick already says so in the select above, and inventing empty rows
+          under it would read as "this preset is broken" instead of "gone". */}
+      {loraPreset && presetExists && (
+        <div data-testid="klein-improve-lora-chain"
+          className="min-w-0 space-y-1 rounded-md border border-white/10 bg-white/[0.02] p-2">
+          {chain.length === 0 && (
+            <p className="text-content-subtle break-words">
+              This preset chains no LoRA yet — its files are added in Settings ▸ Engines.
+            </p>
+          )}
+          {chain.map((row) => {
+            // The row the server DROPS, named where it is being tuned: this
+            // file is the one Klein already loads outside the presets, so its
+            // slider moves nothing at all. Same guard, same wording as the
+            // Settings card — one answer, in both places.
+            const duplicate = isFixedLoraDuplicate(row.file, server.consistencyLora);
+            return (
+              <div key={row.index} className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                {/* The stored path, truncated by the box and never by us —
+                    title carries the whole of it, which is the half that
+                    matters when two folders hold the same filename. */}
+                <span className="min-w-0 flex-1 truncate font-mono text-content-muted" title={row.file}>
+                  {row.label}
+                </span>
+                <span className="w-8 shrink-0 text-right tabular-nums text-content">
+                  {row.strength.toFixed(2)}
+                </span>
+                <input
+                  type="range"
+                  data-testid="klein-improve-lora-strength"
+                  aria-label={`Chain strength of ${row.file} in preset ${loraPreset}`}
+                  min={PRESET_LORA_STRENGTH_MIN} max={PRESET_LORA_STRENGTH_MAX}
+                  step={PRESET_LORA_STRENGTH_STEP}
+                  /* NOT disabled while saving, for the reason the instruction
+                     box is not: a save fires 600 ms after the last change, and
+                     a control taken away mid-drag ends the drag wherever the
+                     finger happened to be. Only an unloaded panel disables. */
+                  disabled={!server.loaded}
+                  value={row.strength}
+                  onChange={(e) => setLoraStrength(row.index, e.target.value)}
+                  /* Letting go IS the decision — send it now instead of 600 ms
+                     later. Without this, dropping a slider and pressing ✨
+                     Generate started a run the server resolved from the value
+                     still on disk, while the panel showed the new one. Both
+                     ends of the gesture: pointer and keyboard. */
+                  onPointerUp={() => saver.current.flush()}
+                  onKeyUp={() => saver.current.flush()}
+                  className="h-6 w-24 shrink-0 accent-indigo-400 disabled:opacity-50 lg:h-4"
+                />
+                {/* w-full inside the WRAPPING row = its own line under it. */}
+                {duplicate && (
+                  <p role="alert" className="w-full text-amber-400 break-words">
+                    {fixedLoraDuplicateWarning('klein')}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+          {/* A failed PUT used to be reported ONLY inside the instruction
+              editor, which is closed by default — so a slider could sit on a
+              value the server never stored, saying nothing. The sliders write
+              through the same saver; they owe the same answer. */}
+          {error && (
+            <p role="alert" className="text-rose-400 break-words">
+              <span aria-hidden="true">✗ </span>{error}
+            </p>
+          )}
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-content-subtle break-words">
+              Strengths belong to the preset — a change here applies wherever it runs.
+            </span>
+            <SettingsLink section="engines" focus="klein-generation-lora-presets"
+              className="min-h-10 lg:min-h-0 inline-flex items-center">
+              Add or remove LoRAs
+            </SettingsLink>
+          </p>
+        </div>
       )}
       {/* The output budget (klein.improve_megapixels) — the size the result
           comes back at, and the knob people left this panel for (reported the

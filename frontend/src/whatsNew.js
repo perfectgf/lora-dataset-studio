@@ -99,6 +99,43 @@ export const WHATS_NEW = [
     to: '/studio',
   },
   {
+    id: '2026-09-01-improve-panel-lora-strengths',
+    date: '2026-09-01',
+    title: 'Tune a preset’s LoRAs from the picture they apply to',
+    blurb:
+      'The ✨ Upscale & improve window named which LoRA preset it chains and '
+      + 'then said nothing about what was in it, so the one number you actually '
+      + 'change — how hard a LoRA pulls — still meant a trip to Settings. The '
+      + 'window now lists the preset’s LoRAs with a slider each, saved as you '
+      + 'drag. Building the presets themselves (adding, removing, reordering) '
+      + 'stays in Settings ▸ Engines: those change what a preset IS, for every '
+      + 'surface that runs Klein.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-improve-result-zoom',
+    date: '2026-09-01',
+    title: 'Zoom into the improved picture without leaving the window',
+    blurb:
+      'An upscale is judged on detail that fit-to-window hides. The result now '
+      + 'takes the wheel, a pinch on a touchscreen and a double-tap to fit '
+      + 'again — the same gestures the image viewer has always had, and never '
+      + 'past the picture’s own pixels.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-gallery-refreshes-itself',
+    date: '2026-09-01',
+    title: 'The Gallery shows a new render without a page reload',
+    blurb:
+      'Generate or improve something with the Gallery open and the image only '
+      + 'appeared after refreshing the page by hand. The feed now watches the '
+      + 'shared generation queue and slips whatever finished in at the top — '
+      + 'keeping your scroll, your selection and an open image exactly where '
+      + 'they were.',
+    to: '/gallery',
+  },
+  {
     id: '2026-09-01-video-studio-smooth-vfi',
     date: '2026-09-01',
     title: 'Smooth a test clip to twice its frame rate',
