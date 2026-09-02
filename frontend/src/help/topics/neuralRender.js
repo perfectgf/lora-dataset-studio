@@ -17,7 +17,9 @@ export const NEURAL_RENDER_TOPICS = [
      'originals kept', 'backup', 'undo neural render', 'video enhance', 'enhance video',
      'enhance a clip', 'improve a clip', 'flat art', 'anime keep tones', 'greys the whites',
      'washed out', 'nvngx_dlssnr.dll', 'model not found', 'windows only', 'nvidia only',
-     'not available in docker', 'render as a new clip'],
+     'not available in docker', 'render as a new clip', 'compare', 'compare with original',
+     'side by side', 'before after', 'before and after', 'original vs render', 'swap sides',
+     'in step', 'synchronised playback', 'synchronized playback'],
     '/datasets', 'using-the-app', 'neural-render-for-video-clips'),
   // The install, in Setup: the bridge is a button, the model is a folder.
   setupStep('setup-dlss5-install', 'install', 'Install DLSS 5 Neural Rendering',

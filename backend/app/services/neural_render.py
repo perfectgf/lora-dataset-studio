@@ -599,6 +599,18 @@ def forget_backups(dataset_id, filenames=None) -> int:
     return dropped
 
 
+def original_clip_path(user_id, dataset_id, clip_id) -> str | None:
+    """The kept ORIGINAL of a rendered dataset clip, for the side-by-side
+    player — None when the clip is unknown or plays no render (no backup).
+    The filename comes from the row, never from the request, and the backup
+    folder is the app's own: containment is by construction."""
+    ds, rows = _dataset_and_rows(user_id, dataset_id, [clip_id])
+    if ds is None or not rows:
+        return None
+    path = backup_dir(ds.id) / os.path.basename(rows[0].filename)
+    return str(path) if path.is_file() else None
+
+
 def restore_dataset_clips(user_id, dataset_id, clip_ids=None) -> dict:
     """🩹 Put the originals back (all rendered clips when ``clip_ids`` is empty).
     The backup is MOVED over the clip, so a restored clip has no backup and is

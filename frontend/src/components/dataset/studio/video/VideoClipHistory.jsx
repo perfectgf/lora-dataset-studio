@@ -18,7 +18,7 @@ import { clipTags } from './videoClipTags';
 const ACTION = 'flex items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[0.6875rem] min-h-10 lg:min-h-0';
 
 export default function VideoClipHistory({
-  clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy,
+  clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy, onCompare,
 }) {
   if (!clips.length) {
     return (
@@ -107,6 +107,16 @@ export default function VideoClipHistory({
                     className={`${ACTION} border-border text-content-muted hover:text-content disabled:opacity-40`}>
                     <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
                     {nrBusy === clip.id ? '…' : 'Neural'}
+                  </button>
+                )}
+                {/* ⇔ A rendered clip against the clip it was rendered from, in
+                    step — the comparison this whole screen exists for, on the
+                    one pair where nothing but the render differs. */}
+                {clip.status === 'done' && clip.nr_of && onCompare && (
+                  <button type="button" onClick={() => onCompare(clip)}
+                    title={`Play clip #${clip.nr_of} (the source) next to this render, in step`}
+                    className={`${ACTION} border-border text-content-muted hover:text-content`}>
+                    ⇔ Compare
                   </button>
                 )}
                 <button type="button" onClick={() => onDelete(clip)} title="Delete this clip"

@@ -91,7 +91,8 @@ export const WHATS_NEW = [
       + 'clips of the Test Studio runs the NVIDIA DLSS 5 model over them: skin, hair '
       + 'and fabric gain structure the source only implied. In a dataset the render '
       + 'replaces the clip and the original is kept (Restore); in the studio it is a '
-      + 'new clip to compare. Windows + NVIDIA only; Setup installs the bridge, you '
+      + 'new clip to compare. A ⇔ Compare button plays the original and the render '
+      + 'side by side, in step. Windows + NVIDIA only; Setup installs the bridge, you '
       + 'bring the model file.',
     to: '/datasets',
   },

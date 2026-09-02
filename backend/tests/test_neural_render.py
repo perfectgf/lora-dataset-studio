@@ -426,3 +426,19 @@ def test_backups_leave_with_their_clips_and_with_the_dataset(app, client, tmp_pa
     assert sorted(p.name for p in root.iterdir()) == ['clip_0002.mp4']
     assert client.delete(f'/api/video-dataset/{ds_id}').status_code == 200
     assert not root.exists()
+
+
+def test_the_original_of_a_rendered_clip_is_served_and_absent_otherwise(app, client, tmp_path, monkeypatch):
+    """The side-by-side player needs the bytes the render replaced. They exist
+    only for a rendered clip (the backup IS the state), so a clip that plays
+    its own original answers 404 rather than serving itself twice."""
+    ds_id, ids, out = _dataset(app, tmp_path)
+    _stub_render(monkeypatch)
+    _run_job_inline(monkeypatch)
+    assert client.get(f'/api/video-dataset/{ds_id}/clip/{ids[0]}/original').status_code == 404
+    assert client.post(f'/api/video-dataset/{ds_id}/neural-render', json={'ids': [ids[0]]}).status_code == 200
+    r = client.get(f'/api/video-dataset/{ds_id}/clip/{ids[0]}/original')
+    assert r.status_code == 200 and r.data == b'ORIGINAL clip_0001.mp4'
+    assert r.headers.get('Accept-Ranges') == 'bytes'
+    assert client.get(f'/api/video-dataset/{ds_id}/clip/{ids[1]}/original').status_code == 404
+    assert client.get(f'/api/video-dataset/999/clip/{ids[0]}/original').status_code == 404

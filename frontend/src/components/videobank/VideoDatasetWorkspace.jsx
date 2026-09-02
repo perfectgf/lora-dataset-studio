@@ -13,7 +13,8 @@ import VideoDatasetGrid from './VideoDatasetGrid'
 import VideoDatasetLightbox from './VideoDatasetLightbox'
 import NeuralRenderDialog from './NeuralRenderDialog'
 import {
-  videoDatasetClipCaptionUrl, videoDatasetNeuralRenderCancelUrl, videoDatasetNeuralRenderRestoreUrl,
+  videoDatasetClipCaptionUrl, videoDatasetClipOriginalUrl, videoDatasetNeuralRenderCancelUrl,
+  videoDatasetNeuralRenderRestoreUrl,
   videoDatasetNeuralRenderUrl, videoDatasetReferencesUrl, videoDatasetRemoveClipsUrl,
 } from './videoBankApi'
 import { toggleSelection, selectRange } from './videoTriage'
@@ -719,6 +720,8 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
           onPrev={() => setOpenId(player.prevId ?? openId)}
           onNext={() => setOpenId(player.nextId ?? openId)}
           onRemove={(clip) => removeClips([clip.id])}
+          compareSrc={renderedIds.includes(player.clip.id)
+            ? videoDatasetClipOriginalUrl(ds.id, player.clip.id) : null}
           hasPrev={player.prevId != null}
           hasNext={player.nextId != null} />
       )}

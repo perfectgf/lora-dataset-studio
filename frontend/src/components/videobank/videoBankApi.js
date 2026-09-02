@@ -170,6 +170,11 @@ export function videoDatasetReferencesUrl(datasetId) {
 export function videoDatasetNeuralRenderUrl(datasetId) {
   return `/api/video-dataset/${datasetId}/neural-render`
 }
+/** The ORIGINAL bytes of a neural-rendered dataset clip (404 when the clip
+ * plays no render) — the left side of the ⇔ comparison. */
+export function videoDatasetClipOriginalUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/original`
+}
 export function videoDatasetNeuralRenderCancelUrl(datasetId) {
   return `/api/video-dataset/${datasetId}/neural-render/cancel`
 }

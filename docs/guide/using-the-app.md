@@ -3689,6 +3689,11 @@ finished clip in two places:
   makes a **new clip** in the list, tagged `neural render`; the original stays,
   so the pair can be compared.
 
+**Compare.** A rendered dataset clip's lightbox and a rendered studio clip's card
+carry **⇔ Compare**: the original and the render play side by side, in step —
+the left player leads (play, pause, seek there), the right one follows, muted;
+**Swap sides** puts the render first. On a phone the two stack.
+
 **The dials.** *Tone* is how much the model relights (0 keeps the clip's own
 tones — the setting for flat art and anime, where the default greys pure whites).
 *Structure* is how much micro-detail is added. *Automatic mask* lets the model

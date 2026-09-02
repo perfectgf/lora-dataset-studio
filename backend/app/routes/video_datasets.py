@@ -691,6 +691,18 @@ def video_dataset_neural_render_cancel(dataset_id):
     return jsonify({'ok': True, 'cancelled': nr.cancel_dataset_job(dataset_id)})
 
 
+@bp.get('/video-dataset/<int:dataset_id>/clip/<int:clip_id>/original')
+def video_dataset_clip_original(dataset_id, clip_id):
+    """The ORIGINAL bytes of a neural-rendered clip, for the side-by-side
+    player: the clip's own media route now serves the render, this serves
+    what it replaced. Range-capable like the media route (the player seeks).
+    404 when the clip plays no render — there is nothing to compare with."""
+    path = nr.original_clip_path(LOCAL_USER, dataset_id, clip_id)
+    if path is None:
+        return jsonify({'error': 'this clip plays no render — no original to show'}), 404
+    return send_file(path, mimetype='video/mp4', conditional=True, max_age=0)
+
+
 @bp.post('/video-dataset/<int:dataset_id>/neural-render/restore')
 def video_dataset_neural_render_restore(dataset_id):
     """🩹 Body {ids: [...] (empty = every rendered clip)}. Moves each original
