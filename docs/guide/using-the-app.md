@@ -3694,6 +3694,17 @@ carry **⇔ Compare**: the original and the render play side by side, in step �
 the left player leads (play, pause, seek there), the right one follows, muted;
 **Swap sides** puts the render first. On a phone the two stack.
 
+**⬇ Export** turns that comparison into a file: one mp4 holding both clips side
+by side, each captioned, in step by construction — a single timeline instead of
+two players, so it plays correctly anywhere. The app encodes it when you press
+the button (a ten-second pair takes a couple of seconds), then your browser saves
+it. Two things about that file are deliberate: it carries **no metadata**, because
+a clip that came out of the Test Studio holds the entire generation workflow —
+every prompt and every folder path on your machine — in a comment tag nothing on
+screen displays, and this file is the one built to be sent to other people; and
+the captions need a font, so on a machine with none of the usual ones the two
+panes come out unlabelled rather than the export failing.
+
 **The dials.** *Tone* is how much the model relights (0 keeps the clip's own
 tones — the setting for flat art and anime, where the default greys pure whites).
 *Structure* is how much micro-detail is added. *Automatic mask* lets the model

@@ -45,6 +45,9 @@ export const clipsUrl = (limit = 24, before = null) =>
 export const clipUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}`;
 export const clipVideoUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}/video`;
 export const clipRateUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}/rate`;
+/** ⬇ A render and its source as ONE side-by-side mp4 (404 when the clip is
+ * not a render, or its source is gone). */
+export const clipComparisonUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}/comparison`;
 
 /* The sparse levels, in the order they cost adherence. The wording says what
  * each one DOES to the picture rather than naming a budget: "0.3 video budget"

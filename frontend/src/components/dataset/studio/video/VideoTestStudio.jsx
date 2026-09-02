@@ -49,6 +49,7 @@ import {
 import {
   clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
   isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, clipVideoUrl,
+  clipComparisonUrl,
   motionEnhanceUrl, motionSuggestUrl,
 } from './videoStudioApi';
 
@@ -609,6 +610,7 @@ export default function VideoTestStudio() {
         <SideBySideVideo originalSrc={clipVideoUrl(compareClip.nr_of)}
           renderSrc={clipVideoUrl(compareClip.id)}
           title={`clip #${compareClip.nr_of} → neural render #${compareClip.id}`}
+          exportHref={clipComparisonUrl(compareClip.id)}
           onClose={() => setCompareClip(null)} />
       )}
       {/* ⚙ The model that writes the motion, on demand. */}

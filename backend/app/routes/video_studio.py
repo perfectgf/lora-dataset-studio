@@ -13,6 +13,7 @@ to tell there are two services behind the app.
 
 No login — single local user (`cfg.LOCAL_USER`), like every other blueprint here.
 """
+import io
 import logging
 import os
 import uuid
@@ -650,6 +651,32 @@ def video_studio_clip_media(clip_id):
     if not os.path.isfile(path):
         return jsonify({'error': 'clip file not found'}), 404
     return send_file(path, mimetype='video/mp4', conditional=True, max_age=0)
+
+
+@bp.get('/clip/<int:clip_id>/comparison')
+def video_studio_clip_comparison(clip_id):
+    """⬇ A finished render and the clip it came from, as ONE mp4 side by side.
+
+    The dataset surface offers the same verb on its own rendered clips; the two
+    routes differ only in where the pair comes from (a backup beside the dataset
+    there, another row of the history here)."""
+    from ..models import VideoTestClip
+    clip = VideoTestClip.query.filter_by(id=clip_id).first()
+    if clip is None or not clip.filename or not clip.nr_of:
+        return jsonify({'error': 'this clip is not a neural render — nothing to compare'}), 404
+    source = VideoTestClip.query.filter_by(id=clip.nr_of).first()
+    if source is None or not source.filename:
+        return jsonify({'error': 'the clip this render came from is gone'}), 404
+    clips = str(vts.clips_dir())
+    render_path = os.path.join(clips, os.path.basename(clip.filename))
+    source_path = os.path.join(clips, os.path.basename(source.filename))
+    try:
+        data = _nr.build_comparison(source_path, render_path, left_label='Original',
+                                    right_label='Neural render (DLSS 5)')
+    except _nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return send_file(io.BytesIO(data), mimetype='video/mp4', as_attachment=True,
+                     download_name=f'clip-{source.id}-vs-neural-{clip.id}.mp4', max_age=0)
 
 
 @bp.post('/clip/<int:clip_id>/rate')

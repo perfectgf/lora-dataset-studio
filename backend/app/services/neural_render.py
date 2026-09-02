@@ -355,6 +355,124 @@ def clip_dimensions(path) -> tuple[int, int] | None:
         return None
 
 
+# ── ⇔ The comparison, as ONE file ───────────────────────────────────────────
+# The side-by-side player answers "did this do anything?" on screen and nowhere
+# else. A file answers it everywhere: a post, a message, a note kept beside the
+# clip. So this encodes the picture the player shows — the two clips in one
+# frame, in step by construction, one timeline instead of two players.
+
+COMPARISON_CRF = 18            # near-transparent: the point of this file is detail
+COMPARISON_MAX_BYTES = 512 * 1024 * 1024
+COMPARISON_TIMEOUT_S = 900
+# drawtext needs a font FILE, and no font ships with this app. None of these is
+# guaranteed, so labels are a bonus and never a failure: a machine with none of
+# them gets the two panes unlabelled instead of an error.
+FONT_CANDIDATES = (
+    r'C:\Windows\Fonts\arial.ttf',
+    r'C:\Windows\Fonts\segoeui.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+)
+
+
+def comparison_font() -> str | None:
+    """The first usable font file, or None when the labels have to be dropped."""
+    return next((f for f in FONT_CANDIDATES if os.path.isfile(f)), None)
+
+
+def graph_value(path) -> str:
+    """A path as a filtergraph VALUE.
+
+    Three parsers read this string — the graph, the filter description, then the
+    option — and each eats one level of escaping, so a Windows drive colon needs
+    TWO backslashes to reach drawtext. Measured on the bundled ffmpeg 7.1:
+    ``C\\\\:/Windows/…`` parses, while ``C\\:/Windows/…`` and ``C\\:\\\\Windows\\\\…``
+    both die with "No option name near". Backslashes become forward slashes for
+    the same reason; a path with no colon comes back unchanged.
+    """
+    return str(path).replace('\\', '/').replace(':', r'\\:')
+
+
+def label_filter(text, font) -> str:
+    """One caption, centred at the bottom of its pane, on a box so it stays
+    readable over a white frame. The text is stripped of the three characters
+    that would end the option rather than escaped: these labels are ours, not
+    the user's, and a caption is not worth an escaping bug."""
+    safe = str(text).replace('\\', '').replace("'", '').replace(':', ' ')
+    return (f"drawtext=fontfile={graph_value(font)}:text='{safe}':fontcolor=white:"
+            'fontsize=h/22:box=1:boxcolor=black@0.55:boxborderw=10:'
+            'x=(w-text_w)/2:y=h-text_h-24')
+
+
+def comparison_argv(left, right, out, *, left_label, right_label,
+                    font=None, ffmpeg=None) -> list:
+    """The one command that builds the side-by-side file.
+
+    ``-map_metadata -1`` is not tidiness. A studio clip carries ComfyUI's ENTIRE
+    workflow in its ``comment`` tag — every prompt and every absolute path,
+    ``C:\\Users\\<name>\\…`` included — and ffmpeg copies that to the output by
+    default. This file exists to be handed to other people, so it starts with no
+    metadata at all. (Measured: the tag was there, in full, before this flag was.)
+
+    ``-map 0:a?`` keeps the left clip's sound when it has one and asks for
+    nothing when it does not; ``-shortest`` ends on the shorter of the two.
+    """
+    ff = str(ffmpeg or ffmpeg_tools.ffmpeg_path() or 'ffmpeg')
+    if font:
+        graph = (f'[0:v]{label_filter(left_label, font)}[l];'
+                 f'[1:v]{label_filter(right_label, font)}[r];'
+                 '[l][r]hstack=inputs=2[v]')
+    else:
+        graph = '[0:v][1:v]hstack=inputs=2[v]'
+    return [ff, '-y', '-hide_banner', '-i', str(left), '-i', str(right),
+            '-filter_complex', graph, '-map', '[v]', '-map', '0:a?',
+            '-map_metadata', '-1',
+            '-c:v', 'libx264', '-crf', str(COMPARISON_CRF), '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-shortest', str(out)]
+
+
+def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
+                     timeout_s=None) -> bytes:
+    """The side-by-side clip's BYTES.
+
+    Built into a temp file — an mp4 with ``+faststart`` has to be seekable, so a
+    pipe is not an option — then read back and deleted here. The bytes are what
+    the route sends: a file still on disk while a response streams it is a handle
+    Windows will not let go of, and this one has no reason to outlive the click.
+    """
+    for path, side in ((left, 'left'), (right, 'right')):
+        if not path or not os.path.isfile(str(path)):
+            raise NeuralRenderError(f'the {side} clip is not on disk any more')
+    if not ffmpeg_tools.ffmpeg_path() and not ffmpeg:
+        raise NeuralRenderError('ffmpeg is needed to build the comparison — '
+                                'install the video extra from Setup')
+    out = Path(tempfile.mkdtemp(prefix='lds-compare-'))
+    dst = out / 'comparison.mp4'
+    try:
+        argv = comparison_argv(left, right, dst, left_label=left_label,
+                               right_label=right_label, font=comparison_font(),
+                               ffmpeg=ffmpeg)
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, encoding='utf-8',
+                                  errors='replace',
+                                  timeout=timeout_s or COMPARISON_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            raise NeuralRenderError('building the comparison took too long and was stopped')
+        if proc.returncode != 0 or not dst.is_file():
+            tail = (proc.stderr or '').strip().splitlines()[-1:] or ['ffmpeg failed']
+            raise NeuralRenderError(f'the comparison could not be built: {tail[0]}')
+        size = dst.stat().st_size
+        if size > COMPARISON_MAX_BYTES:
+            raise NeuralRenderError(
+                f'the comparison came out at {size // (1024 * 1024)} MB, past the '
+                f'{COMPARISON_MAX_BYTES // (1024 * 1024)} MB this route will hold '
+                'in memory — compare a shorter clip')
+        return dst.read_bytes()
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
 # ── The render itself: one child per clip ───────────────────────────────────
 
 def worker_argv(src, dst, params, temporal_on, ffmpeg=None) -> list:

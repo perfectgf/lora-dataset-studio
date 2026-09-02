@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-compare-export',
+    date: '2026-09-03',
+    title: 'Save a before/after comparison as one video',
+    blurb:
+      'The ⇔ comparison has an ⬇ Export button: the original and its neural '
+      + 'render are encoded into ONE mp4, side by side and labelled, so a '
+      + 'before/after can be shown to somebody who does not have the app — on a '
+      + 'rendered clip of a training set and on a render in the Test Studio '
+      + 'alike. The exported file starts with no metadata at all, because a '
+      + 'clip out of the studio carries the whole generation workflow — prompts '
+      + 'and folder paths included — in a tag nothing displays.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-studio-render-time',
     date: '2026-09-03',
     title: 'Every clip in the Video Test Studio says how long it took to render',

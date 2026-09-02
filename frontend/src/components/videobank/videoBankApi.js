@@ -175,6 +175,11 @@ export function videoDatasetNeuralRenderUrl(datasetId) {
 export function videoDatasetClipOriginalUrl(datasetId, clipId) {
   return `/api/video-dataset/${datasetId}/clip/${clipId}/original`
 }
+/** ⬇ The two of them as ONE mp4, side by side and labelled — the picture the
+ * comparison shows, in a file. Same 404 as the original route. */
+export function videoDatasetClipComparisonUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/comparison`
+}
 export function videoDatasetNeuralRenderCancelUrl(datasetId) {
   return `/api/video-dataset/${datasetId}/neural-render/cancel`
 }

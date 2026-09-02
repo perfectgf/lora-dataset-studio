@@ -13,8 +13,10 @@ it is known to exist) and `licence_note` (MiniMax H3's licence grants no rights 
 all in the EU, the UK, South Korea or the USA, and the restriction reaches the
 OUTPUTS — a user must not discover that in a forum thread after building a set).
 """
+import io
 import logging
 import mimetypes
+import os
 from ..extensions import db
 
 from flask import Blueprint, jsonify, request, send_file
@@ -703,6 +705,27 @@ def video_dataset_clip_original(dataset_id, clip_id):
     if path is None:
         return jsonify({'error': 'this clip plays no render — no original to show'}), 404
     return send_file(path, mimetype='video/mp4', conditional=True, max_age=0)
+
+
+@bp.get('/video-dataset/<int:dataset_id>/clip/<int:clip_id>/comparison')
+def video_dataset_clip_comparison(dataset_id, clip_id):
+    """⬇ The two clips as ONE mp4, side by side — the picture the ⇔ player
+    shows, in a file that can leave the app.
+
+    Same 404 as the original route and for the same reason: without a render
+    there are not two things to put next to each other."""
+    original = nr.original_clip_path(LOCAL_USER, dataset_id, clip_id)
+    render = svc.dataset_clip_media_path(LOCAL_USER, dataset_id, clip_id)
+    if original is None or render is None:
+        return jsonify({'error': 'this clip plays no render — nothing to compare'}), 404
+    try:
+        data = nr.build_comparison(original, render, left_label='Original',
+                                   right_label='Neural render (DLSS 5)')
+    except nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    stem = os.path.splitext(os.path.basename(render))[0]
+    return send_file(io.BytesIO(data), mimetype='video/mp4', as_attachment=True,
+                     download_name=f'{stem}-vs-neural.mp4', max_age=0)
 
 
 @bp.post('/video-dataset/<int:dataset_id>/neural-render/restore')
