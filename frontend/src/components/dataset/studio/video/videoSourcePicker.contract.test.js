@@ -14,12 +14,16 @@ import test from 'node:test'
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8')
 const PICKER = read('./VideoSourcePicker.jsx')
 
-/** The clip tab's JSX, from its guard to the next tab-guarded block. */
+/** The strip of staged frames follows the last tab: its guard is the end of
+ * the clip tab's JSX. */
+const STRIP_GUARD = '{frames.length > 0 && ('
+
+/** The clip tab's JSX, from its guard to the strip that follows it. */
 function clipTab(src) {
   const start = src.indexOf("{tab === 'clip' && (")
   assert.ok(start > 0, 'the Dataset clip tab is gone')
-  const end = src.indexOf('{image && (', start)
-  assert.ok(end > start, 'the staged-picture block that follows the tab is gone')
+  const end = src.indexOf(STRIP_GUARD, start)
+  assert.ok(end > start, 'the strip of staged frames that follows the tab is gone')
   return src.slice(start, end)
 }
 
@@ -94,9 +98,69 @@ test('a poster that cannot load becomes its placeholder — in the tile and besi
   const tab = clipTab(PICKER)
   assert.match(tab, /<Poster src=\{poster\}[^>]*\n\s*fallback=/, 'the clip tile does not fall back on its placeholder')
   assert.doesNotMatch(tab, /<img src=\{poster\}/)
-  const ready = PICKER.slice(PICKER.indexOf('{image && ('))
-  assert.match(ready, /<Poster src=\{preview\}/, 'the Ready block does not fall back on its icon')
-  assert.doesNotMatch(ready, /<img src=\{preview\}/)
+  const strip = PICKER.slice(PICKER.indexOf(STRIP_GUARD))
+  assert.match(strip, /<Poster src=\{f\.preview\}/, 'the strip does not fall back on its icon')
+  assert.doesNotMatch(strip, /<img src=\{f\.preview\}/)
+})
+
+test('several start frames: a pick appends to a strip, each frame has its ✕, and the parent gets a batch once', () => {
+  // Asked for from the picker (2026-09-02): "batch the image inputs". The
+  // strip is the parent's list — what Generate walks — so the picker takes
+  // it as a prop and hands additions up; it never keeps a frame of its own.
+  assert.match(PICKER, /export default function VideoSourcePicker\(\{ mode, onMode, frames = \[\], onAdd, onRemove, onClear, aspect, onAspect \}\)/)
+  assert.doesNotMatch(PICKER, /onPicked|useState\(\{ image: null/)
+  // The upload takes several files, and forgets the pick so the same file
+  // can be chosen again after a removal (an unchanged value fires no change).
+  assert.match(PICKER, /<input type="file" accept="image\/\*" multiple className="hidden"\n\s*onChange=\{\(e\) => \{ onFiles\(e\.target\.files\); e\.target\.value = ''; \}\} \/>/)
+  // "Drop images here" is now true: the label listens for the drop.
+  assert.match(PICKER, /onDrop=\{\(e\) => \{ e\.preventDefault\(\); if \(!busy\) onFiles\(e\.dataTransfer\.files\); \}\}/)
+  // Staging walks the WHOLE list in order — a refused pick is refused alone,
+  // inside the loop, and the walk goes on — and hands up ONCE, in `finally`,
+  // so five pictures with one bad file are four frames and one message that
+  // counts them (refuted 2026-09-02: the first refusal used to end the walk
+  // and say nothing of the rest).
+  const stage = PICKER.slice(PICKER.indexOf('const stage = useCallback(async (picks)'), PICKER.indexOf('}, [frames, onAdd, toast]);'))
+  assert.ok(stage.length > 0, 'the staging walk is gone')
+  assert.match(stage, /for \(const pick of fresh\) \{\n\s*try \{\n\s*const r = await pick\.send\(\);/)
+  assert.match(stage, /\} catch \(e\) \{\n\s*releasePreview\(pick\);\n\s*if \(!refusal\) refusal = e\?\.message/)
+  assert.match(stage, /\} finally \{\n\s*fresh\.forEach\(\(pick\) => inFlight\.current\.delete\(pick\.key\)\);\n\s*if \(staged\.length\) onAdd\(staged\);/)
+  assert.match(stage, /`Staged \$\{staged\.length\} of \$\{fresh\.length\} — \$\{refusal\}`/)
+  assert.equal((stage.match(/onAdd\(/g) || []).length, 1, 'the parent is handed the batch exactly once')
+  // Dedupe is by ORIGIN, before any request: the server stages every pick
+  // under a fresh name, so the staged name cannot say "same picture". A pick
+  // whose staging is in flight is skipped the same way (a double click on a
+  // tile that is not pressed yet), and a pick that never stages lets go of
+  // the blob URL the upload minted for it.
+  assert.match(stage, /const seen = new Set\(frames\.map\(\(f\) => f\.key\)\);/)
+  assert.match(stage, /if \(inFlight\.current\.has\(pick\.key\)\) \{ releasePreview\(pick\); continue; \}/)
+  assert.match(stage, /if \(seen\.has\(pick\.key\)\) \{ releasePreview\(pick\); dropped \+= 1; continue; \}/)
+  assert.match(stage, /fresh\.forEach\(\(pick\) => inFlight\.current\.add\(pick\.key\)\);/)
+  assert.match(PICKER, /const inFlight = useRef\(new Set\(\)\);/)
+  // The two ways out of the strip let go of the previews too.
+  assert.match(PICKER, /onClick=\{\(\) => \{ releasePreview\(f\); onRemove\(f\.key\); \}\}/)
+  assert.match(PICKER, /onClick=\{\(\) => \{ frames\.forEach\(releasePreview\); onClear\(\); \}\}/)
+  // The two "already in the batch" sentences, the only sign a re-pick gives.
+  assert.match(stage, /'Already in the batch — remove it from the strip to pick it again\.'/)
+  assert.match(stage, /`\$\{dropped\} already in the batch — skipped\.`/)
+  assert.match(PICKER, /uploadKey\(file\)/)
+  for (const key of ['`bank:${bankId}:${im.id}`', '`gallery:${g.id}`', '`clip:${datasetId}:${c.filename}`']) {
+    assert.ok(PICKER.includes(key), `a tile is not keyed by its origin: ${key}`)
+  }
+  // A tile in the strip reads as pressed and clicks OUT again.
+  assert.equal((PICKER.match(/aria-pressed=\{held\(key\)\}/g) || []).length, 3, 'the three grids mark a held tile')
+  assert.match(PICKER, /const toggle = \(pick\) => \(held\(pick\.key\) \? onRemove\(pick\.key\) : stage\(\[pick\]\)\);/)
+  // The strip: one ✕ per frame, named for a screen reader, and Clear all
+  // only when there is more than one to clear.
+  const strip = PICKER.slice(PICKER.indexOf(STRIP_GUARD))
+  assert.match(strip, /\{frames\.map\(\(f, i\) => \(/)
+  // ✕ and Clear all let go of the upload preview BEFORE the frame leaves the
+  // strip — an object URL nobody revokes lives until the page does.
+  assert.match(strip, /onClick=\{\(\) => \{ releasePreview\(f\); onRemove\(f\.key\); \}\}/)
+  assert.match(strip, /aria-label=\{`Remove start frame \$\{i \+ 1\}`\}/)
+  assert.match(strip, /\{frames\.length > 1 && \(\n\s*<button type="button" onClick=\{\(\) => \{ frames\.forEach\(releasePreview\); onClear\(\); \}\}/)
+  // One frame reads as it always did; several say what the click will do.
+  assert.match(strip, /Ready — staged into ComfyUI as/)
+  assert.match(strip, /\{frames\.length\} start frames — one clip each, on one seed; ✨ reads the first\./)
 })
 
 test('the clip list empties when the set changes, and a late reply is dropped', () => {

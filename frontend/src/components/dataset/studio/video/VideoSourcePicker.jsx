@@ -16,8 +16,16 @@
  * All four end at the same server route, which stages the picture into
  * ComfyUI's input folder with EXIF stripped. The component never holds a path
  * from the user's disk: what comes back is the staged NAME the graph will use.
+ *
+ * SEVERAL AT ONCE (2026-09-02). A pick APPENDS to a strip rather than
+ * replacing the frame, and Generate queues one clip per frame on one seed —
+ * asked for from the picker: judging a motion LoRA on one portrait is judging
+ * it on one portrait. The strip is the parent's list (it is what Generate
+ * walks); this component stages, hands the frames up, and draws the strip.
+ * A picture already in the strip is not staged twice — its ORIGIN is the
+ * key, since the server stages every pick under a fresh name.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Upload, Film, Type, Sparkles, ZoomIn } from 'lucide-react';
 import { apiFetch, postJson, postForm } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
@@ -25,6 +33,7 @@ import { HelpBadge } from '../../../../help/HelpMode';
 import { datasetClipPoster } from '../../../videobank/videoDatasetClips';
 import { appendImages, datasetClips, galleryPage } from './videoPickerFeeds';
 import { clampTile, gridBoxHeight, readTile, writeTile, TILE_MAX, TILE_MIN, TILE_STEP } from './videoPickerTile';
+import { releasePreview, uploadKey } from './videoStartFrames';
 import { sourceUrl } from './videoStudioApi';
 
 const TABS = [
@@ -52,8 +61,16 @@ function Poster({ src, className, fallback }) {
   return <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className={className} />;
 }
 
-export default function VideoSourcePicker({ mode, onMode, image, preview, onPicked, aspect, onAspect }) {
+export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, onRemove, onClear, aspect, onAspect }) {
   const toast = useToast();
+  // Whether a picture is already in the strip — by where it came from. A
+  // tile the strip holds clicks OUT again (a pressed tile, the way a
+  // multi-pick grid reads), rather than staging the same portrait under a
+  // second name.
+  const held = (key) => frames.some((f) => f.key === key);
+  // The picks whose staging is in flight: a tile is not in the strip until
+  // its POST answers, so a second click in that gap would stage it again.
+  const inFlight = useRef(new Set());
   const [tab, setTab] = useState('upload');
   const [banks, setBanks] = useState([]);
   const [bankId, setBankId] = useState(null);
@@ -154,24 +171,64 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
     }
   }, [more, paging]);
 
-  const stage = useCallback(async (send) => {
+  /* Stage a list of picks — `{ key, preview, send }` each — in order, and hand
+     up what staged ONCE, so the parent appends a batch, not a frame at a time.
+     A pick the strip already holds is skipped before any request (the same
+     file chosen twice from the dialog; a tile is caught earlier, it toggles),
+     and so is one whose staging is still in flight (a double click). A
+     refusal mid-way refuses that pick alone: the walk goes on, so five
+     pictures with one bad file are four start frames and one message that
+     counts ("Staged 4 of 5 — …"), not one frame and silence over the rest. */
+  const stage = useCallback(async (picks) => {
+    const seen = new Set(frames.map((f) => f.key));
+    const fresh = [];
+    let dropped = 0;
+    for (const pick of picks) {
+      if (inFlight.current.has(pick.key)) { releasePreview(pick); continue; }
+      if (seen.has(pick.key)) { releasePreview(pick); dropped += 1; continue; }
+      seen.add(pick.key);
+      fresh.push(pick);
+    }
+    if (dropped) {
+      toast.info(picks.length === 1
+        ? 'Already in the batch — remove it from the strip to pick it again.'
+        : `${dropped} already in the batch — skipped.`);
+    }
+    if (!fresh.length) return;
     setBusy(true);
+    fresh.forEach((pick) => inFlight.current.add(pick.key));
+    const staged = [];
+    let refusal = null;
     try {
-      const r = await send();
-      onPicked({ image: r.image, ratio: r.ratio, preview: r.preview || null });
-    } catch (e) {
-      toast.error(e?.message || 'That image could not be used as a start frame.');
+      for (const pick of fresh) {
+        try {
+          const r = await pick.send();
+          staged.push({ key: pick.key, image: r.image, ratio: r.ratio, preview: pick.preview || null });
+        } catch (e) {
+          releasePreview(pick);
+          if (!refusal) refusal = e?.message || 'That image could not be used as a start frame.';
+        }
+      }
     } finally {
+      fresh.forEach((pick) => inFlight.current.delete(pick.key));
+      if (staged.length) onAdd(staged);
+      if (refusal) {
+        toast.error(staged.length ? `Staged ${staged.length} of ${fresh.length} — ${refusal}` : refusal);
+      }
       setBusy(false);
     }
-  }, [onPicked, toast]);
+  }, [frames, onAdd, toast]);
 
-  const onFile = (file) => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('image', file);
-    const localPreview = URL.createObjectURL(file);
-    stage(async () => ({ ...(await postForm(sourceUrl(), fd)), preview: localPreview }));
+  /* A tile's click: into the strip, or out of it if it is there. */
+  const toggle = (pick) => (held(pick.key) ? onRemove(pick.key) : stage([pick]));
+
+  const onFiles = (files) => {
+    const picks = Array.from(files || []).map((file) => {
+      const fd = new FormData();
+      fd.append('image', file);
+      return { key: uploadKey(file), preview: URL.createObjectURL(file), send: () => postForm(sourceUrl(), fd) };
+    });
+    if (picks.length) stage(picks);
   };
 
   return (
@@ -248,17 +305,25 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
           {/* The ink spans the whole dropzone rather than huddling in the
               middle: a centred icon plus a centred sentence measured 2 % of the
               row, which the probe reads as an empty box — correctly. */}
+          {/* A drop lands here too — the label always said so, and until the
+              batch nothing listened: a label around a file input takes no
+              drop by itself. */}
           {tab === 'upload' && (
-            <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted hover:border-primary/60">
+            <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted hover:border-primary/60"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); if (!busy) onFiles(e.dataTransfer.files); }}>
               <Upload aria-hidden="true" className="h-4 w-4 shrink-0" />
               <span className="flex-1">
-                {busy ? 'Preparing…' : 'Drop an image here, or choose one from this machine'}
+                {busy ? 'Preparing…' : 'Drop images here, or choose them from this machine — several at once queue one clip each'}
               </span>
               <span className="shrink-0 rounded-md border border-border px-2 py-1">
                 {busy ? '…' : 'Browse'}
               </span>
-              <input type="file" accept="image/*" className="hidden"
-                onChange={(e) => onFile(e.target.files?.[0])} />
+              {/* The value is cleared after the pick: a file removed from the
+                  strip and chosen again is a change the input would otherwise
+                  not report, the same file being "still" selected. */}
+              <input type="file" accept="image/*" multiple className="hidden"
+                onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
             </label>
           )}
 
@@ -271,17 +336,22 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
               </select>
               {bankId && (
                 <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
-                  {images.map((im) => (
-                    <button key={im.id} type="button" title={im.filename}
-                      onClick={() => stage(async () => ({
-                        ...(await postJson(sourceUrl(), { bank_id: bankId, image_id: im.id })),
-                        preview: `/api/bank/${bankId}/thumb/${im.id}`,
-                      }))}
-                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-primary">
-                      <img src={`/api/bank/${bankId}/thumb/${im.id}`} alt=""
-                        loading="lazy" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
+                  {images.map((im) => {
+                    const key = `bank:${bankId}:${im.id}`;
+                    return (
+                      <button key={im.id} type="button" title={im.filename} aria-pressed={held(key)}
+                        onClick={() => toggle({
+                          key,
+                          preview: `/api/bank/${bankId}/thumb/${im.id}`,
+                          send: () => postJson(sourceUrl(), { bank_id: bankId, image_id: im.id }),
+                        })}
+                        className={`aspect-square overflow-hidden rounded-md border hover:border-primary ${
+                          held(key) ? 'border-primary ring-2 ring-primary' : 'border-border'}`}>
+                        <img src={`/api/bank/${bankId}/thumb/${im.id}`} alt=""
+                          loading="lazy" className="h-full w-full object-cover" />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -296,18 +366,23 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                 </p>
               ) : (
                 <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
-                  {gallery.map((g) => (
-                    <button key={g.id} type="button"
-                      title={g.prompt || 'Generated image'}
-                      onClick={() => stage(async () => ({
-                        ...(await postJson(sourceUrl(), { gallery_image_id: g.id })),
-                        preview: g.url,
-                      }))}
-                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-primary">
-                      <img src={g.url} alt="" loading="lazy"
-                        className="h-full w-full object-cover" />
-                    </button>
-                  ))}
+                  {gallery.map((g) => {
+                    const key = `gallery:${g.id}`;
+                    return (
+                      <button key={g.id} type="button" aria-pressed={held(key)}
+                        title={g.prompt || 'Generated image'}
+                        onClick={() => toggle({
+                          key,
+                          preview: g.url,
+                          send: () => postJson(sourceUrl(), { gallery_image_id: g.id }),
+                        })}
+                        className={`aspect-square overflow-hidden rounded-md border hover:border-primary ${
+                          held(key) ? 'border-primary ring-2 ring-primary' : 'border-border'}`}>
+                        <img src={g.url} alt="" loading="lazy"
+                          className="h-full w-full object-cover" />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               {/* How much of the feed is on screen, and the way to the rest.
@@ -353,13 +428,16 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                 <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
                   {clips.map((c) => {
                     const poster = datasetClipPoster(datasetId, c);
+                    const key = `clip:${datasetId}:${c.filename}`;
                     return (
-                      <button key={c.id} type="button" title={c.filename}
-                        onClick={() => stage(async () => ({
-                          ...(await postJson(sourceUrl(), { dataset_id: datasetId, filename: c.filename })),
+                      <button key={c.id} type="button" title={c.filename} aria-pressed={held(key)}
+                        onClick={() => toggle({
+                          key,
                           preview: poster,
-                        }))}
-                        className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border hover:border-primary">
+                          send: () => postJson(sourceUrl(), { dataset_id: datasetId, filename: c.filename }),
+                        })}
+                        className={`flex min-w-0 flex-col overflow-hidden rounded-md border hover:border-primary ${
+                          held(key) ? 'border-primary ring-2 ring-primary' : 'border-border'}`}>
                         <Poster src={poster} className="aspect-square w-full object-cover"
                           fallback={(
                             <span aria-hidden="true"
@@ -382,18 +460,42 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
             </div>
           )}
 
-          {image && (
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-app p-1.5">
-              <Poster src={preview} className="h-14 w-14 rounded-md object-cover"
-                fallback={(
-                  <span className="flex h-14 w-14 items-center justify-center rounded-md bg-surface text-content-subtle">
-                    <ImageIcon aria-hidden="true" className="h-5 w-5" />
-                  </span>
-                )} />
-              <span className="min-w-0 flex-1 text-[0.6875rem] text-content-muted">
-                Ready — staged into ComfyUI as
-                <code className="ml-1 break-all">{image}</code>
+          {/* The strip: what the next launch walks, in pick order, each frame
+              with its ✕ (the same corner the reference panel uses). One frame
+              reads as it always did; several say what a click will do. */}
+          {frames.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-app p-1.5">
+              {frames.map((f, i) => (
+                <div key={f.key} className="relative shrink-0" title={f.image}>
+                  <Poster src={f.preview} className="h-14 w-14 rounded-md object-cover"
+                    fallback={(
+                      <span className="flex h-14 w-14 items-center justify-center rounded-md bg-surface text-content-subtle">
+                        <ImageIcon aria-hidden="true" className="h-5 w-5" />
+                      </span>
+                    )} />
+                  <button type="button" onClick={() => { releasePreview(f); onRemove(f.key); }} disabled={busy}
+                    aria-label={`Remove start frame ${i + 1}`} title="Remove this start frame"
+                    className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-bl bg-black/70 text-[0.625rem] leading-none text-white disabled:opacity-40">
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <span className="min-w-[10rem] flex-1 text-[0.6875rem] text-content-muted">
+                {frames.length === 1 ? (
+                  <>
+                    Ready — staged into ComfyUI as
+                    <code className="ml-1 break-all">{frames[0].image}</code>
+                  </>
+                ) : (
+                  <>{frames.length} start frames — one clip each, on one seed; ✨ reads the first.</>
+                )}
               </span>
+              {frames.length > 1 && (
+                <button type="button" onClick={() => { frames.forEach(releasePreview); onClear(); }} disabled={busy}
+                  className="shrink-0 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:border-primary hover:text-content disabled:opacity-50 min-h-10 lg:min-h-0">
+                  Clear all
+                </button>
+              )}
             </div>
           )}
         </>

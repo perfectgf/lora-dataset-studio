@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-studio-start-frame-batch',
+    date: '2026-09-02',
+    title: 'Test a video LoRA on several start frames in one click',
+    blurb:
+      'The Test Studio’s start frame is now a strip: pick several pictures '
+      + '(several files at once, or tiles from a bank, the Gallery or a training '
+      + 'set) and Generate queues one clip per frame on the same seed and the '
+      + 'same prompt — ✨ Enrich rewrites it once, for the first clip — so the '
+      + 'clips differ by their picture and nothing else. Each frame has its ✕, '
+      + 'the button says how many clips a click queues, and dropping a file '
+      + 'onto the picker works again.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-02-video-studio-fast-disk',
     date: '2026-09-02',
     title: 'Video clips in seconds instead of minutes on machines whose RAM cannot hold the H3 weights',

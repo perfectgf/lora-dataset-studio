@@ -193,14 +193,24 @@ def test_a_launch_whose_enrichment_failed_still_launches_and_says_so(
     assert r.status_code == 200, r.get_json()
     assert r.get_json()['enrich_skipped'] == 'the GPU is already in use outside LDS'
     assert launched['prompt'] == vmp.inject_alignment_header('she turns')
+    # The answer names the prompt that ran — the text as typed, header and
+    # all — so a batch of start frames can send the rest of its clips on the
+    # same one (the header injection is its own fixed point, so the same
+    # text sent back is headed once, not twice).
+    assert r.get_json()['prompt'] == launched['prompt']
+    assert vmp.inject_alignment_header(r.get_json()['prompt']) == launched['prompt']
 
-    # A launch whose enrichment worked carries no such key at all.
+    # A launch whose enrichment worked carries no such key at all, and names
+    # the rewrite: the second clip of a batch runs it with `enhance` dropped,
+    # since the vision window refuses once this clip sits in the queue.
     monkeypatch.setattr(vmp, 'enhance', lambda *a, **kw: 'She turns slowly toward the lens.')
     r = client.post('/api/video-studio/generate',
                     json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': 'she turns',
                           'enhance': True, 'frames': 56})
     assert r.status_code == 200
     assert 'enrich_skipped' not in r.get_json()
+    assert r.get_json()['prompt'] == launched['prompt']
+    assert 'She turns slowly toward the lens.' in r.get_json()['prompt']
 
 
 def test_the_enhancement_says_when_it_had_nothing_to_add(client, monkeypatch):

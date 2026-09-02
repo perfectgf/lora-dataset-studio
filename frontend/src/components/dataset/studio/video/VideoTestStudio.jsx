@@ -5,9 +5,10 @@
  * The image studio's whole shape is a matrix: checkpoints × strengths, twelve
  * cells, twelve seconds, and the answer is in the contact sheet. A clip is
  * minutes. The same shape here would be half an hour of waiting before anything
- * could be looked at, so this queues ONE clip per launch and keeps a history —
- * comparison happens in time (two players, same seed, one setting changed)
- * rather than in space.
+ * could be looked at, so this queues one clip per START FRAME — a launch is
+ * one clip, or one per picture in the strip, all on one seed — and keeps a
+ * history: comparison happens in time (two players, same seed, one setting
+ * changed) rather than in space.
  *
  * THE SHAPE OF THE SCREEN (redesign, 2026-08-31 — "respecte le thème général")
  * A take sheet. On a wide screen the TAKE sits on the left — which LoRA, which
@@ -43,10 +44,16 @@ import NeuralRenderDialog from '../../../videobank/NeuralRenderDialog';
 import SideBySideVideo from '../../../videobank/SideBySideVideo';
 import { shortLoraName } from './videoLoraGroups';
 import {
-  buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
+  addFrames, failureNotice, generateLabel, queueClips, queuedNotice, releasePreview, removeFrame,
+} from './videoStartFrames';
+import {
+  clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
   isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, clipVideoUrl,
   motionEnhanceUrl, motionSuggestUrl,
 } from './videoStudioApi';
+
+/* No start frame yet — what the ✨ helpers and the readback see before a pick. */
+const EMPTY_SOURCE = { image: null, ratio: null, preview: null };
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
    tens of minutes — long enough that a new user concludes the studio is broken
@@ -77,7 +84,17 @@ export default function VideoTestStudio() {
   const [strength, setStrength] = useState(1.3);
   const [mode, setMode] = useState('i2v');
   const [aspect, setAspect] = useState('landscape');
-  const [source, setSource] = useState({ image: null, ratio: null, preview: null });
+  // The start frames, in pick order: the strip the picker draws and the list
+  // Generate walks — one clip each, on one seed (one frame was the whole state
+  // until 2026-09-02). `source` is the FIRST of them: what ✨ Auto and ✨ Enrich
+  // read, and what a change of resets the poller on.
+  const [sources, setSources] = useState([]);
+  const source = sources[0] || EMPTY_SOURCE;
+  const addSources = useCallback((list) => setSources((prev) => addFrames(prev, list).frames), []);
+  const removeSource = useCallback((key) => setSources((prev) => removeFrame(prev, key)), []);
+  const clearSources = useCallback(() => setSources([]), []);
+  // How far a batch is between the click and the last reply, for the button.
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [prompt, setPrompt] = useState('');
   const [opts, setOpts] = useState(DEFAULT_OPTIONS);
   const [clips, setClips] = useState([]);
@@ -128,20 +145,26 @@ export default function VideoTestStudio() {
     };
   }, [clips, refreshClips]);
 
+  /* One POST per start frame, in order, on one seed and one prompt (the
+     server's from the first reply — see queueClips) — text-only is one
+     launch without a picture. The walk stops at the first refusal and says how
+     far it got; what queued is queued, and the list picks it up. */
   const generate = async () => {
     setBusy(true);
+    const launches = mode === 't2v' ? [null] : sources;
+    setProgress({ done: 0, total: launches.length });
     try {
-      const body = buildGeneratePayload({ enhance: enhanceOn,
-        mode, prompt, image: source.image, ratio: source.ratio, aspect,
+      const outcome = await queueClips(launches, { enhance: enhanceOn,
+        mode, prompt, aspect,
         lora: lora.lora, loraStrength: strength, runId: lora.runId,
         datasetId: lora.datasetId, ...opts,
-      });
-      const r = await postJson(generateUrl(), body);
-      toast.success(`Queued — seed ${r.seed}, ${r.frames} frames.`);
+      }, (body) => postJson(generateUrl(), body), (done, total) => setProgress({ done, total }));
+      if (outcome.failed) toast.error(failureNotice(outcome));
+      else toast.success(queuedNotice(outcome));
       // The launch went through with the prompt as typed: the writer could
       // not run (fence, server away). Said, or the checkbox looks ignored.
-      if (r?.enrich_skipped) toast.warning(`Queued without enrichment — ${r.enrich_skipped}`);
-      refreshClips();
+      if (outcome.enrichSkipped) toast.warning(`Queued without enrichment — ${outcome.enrichSkipped}`);
+      if (outcome.queued.length) refreshClips();
     } catch (e) {
       toast.error(e?.message || 'The clip could not be queued.');
     } finally {
@@ -323,12 +346,16 @@ export default function VideoTestStudio() {
     // is still in ComfyUI's input folder — the name is all the graph needs, and
     // the server re-reads the shape from the file when it is not sent.
     if (clip.mode !== 't2v' && clip.source_image) {
-      setSource({ image: clip.source_image, ratio: null, preview: null });
+      // The one frame this clip came from, alone in the strip: Reuse means
+      // "this clip again, one thing changed", not "this clip and the batch".
+      // The frames it replaces let go of their upload previews first.
+      sources.forEach(releasePreview);
+      setSources([{ key: `staged:${clip.source_image}`, image: clip.source_image, ratio: null, preview: null }]);
     }
     toast.info?.('Settings loaded — change one thing and generate again.');
   };
 
-  const needsImage = mode === 'i2v' && !source.image;
+  const needsImage = mode === 'i2v' && sources.length === 0;
   const blocked = busy || needsImage || !prompt.trim();
   const reason = needsImage
     ? 'Pick a start frame, or switch to text-only.'
@@ -339,7 +366,7 @@ export default function VideoTestStudio() {
      "wrong LoRA" or "still on 10Eros". */
   const readback = [
     lora.lora ? `${shortLoraName(lora.lora)} @ ${Number(strength).toFixed(2)}` : 'no LoRA',
-    mode === 't2v' ? 'text only' : 'from an image',
+    mode === 't2v' ? 'text only' : (sources.length > 1 ? `from ${sources.length} images` : 'from an image'),
     seconds ? `${seconds}s` : `${opts.frames} frames`,
     `${Number(opts.megapixels).toFixed(2)} MP`,
     opts.turbo ? 'turbo' : null,
@@ -352,11 +379,16 @@ export default function VideoTestStudio() {
     opts.steps ? `${opts.steps} steps` : null,
   ].filter(Boolean).join(' · ');
 
+  // The button counts what a click queues ("Generate 3 clips"), and where the
+  // walk is while it queues — the same text in the rail and in the phone's
+  // bar, which is handed the running text too (its own convention is a bare
+  // "…" while a run is on; a batch has a count to show).
+  const label = generateLabel({ mode, count: sources.length, busy, done: progress.done, total: progress.total });
   const generateButton = (
     <button type="button" onClick={generate} disabled={blocked}
       className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-sm font-semibold text-gray-950 disabled:opacity-40 min-h-10">
       <Play aria-hidden="true" className="h-4 w-4" />
-      {busy ? 'Queueing…' : 'Generate clip'}
+      {label}
     </button>
   );
 
@@ -376,7 +408,7 @@ export default function VideoTestStudio() {
           MiniMax H3 · beta
         </span>
         <span className="hidden text-xs text-content-subtle sm:inline">
-          One clip per launch — compare in time, same seed, one dial changed.
+          One clip per start frame — compare in time, same seed, one dial changed.
         </span>
       </header>
 
@@ -428,9 +460,9 @@ export default function VideoTestStudio() {
           </div>
 
           <div id="vs-source" className="scroll-mt-16">
-            <VideoSourcePicker mode={mode} onMode={setMode} image={source.image}
-              preview={source.preview} aspect={aspect} onAspect={setAspect}
-              onPicked={setSource} />
+            <VideoSourcePicker mode={mode} onMode={setMode} frames={sources}
+              aspect={aspect} onAspect={setAspect}
+              onAdd={addSources} onRemove={removeSource} onClear={clearSources} />
           </div>
 
           <div id="vs-motion" className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-3 scroll-mt-16">
@@ -520,7 +552,7 @@ export default function VideoTestStudio() {
       </section>
 
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
-        onRun={generate} runLabel="▶ Generate clip" note={reason} />
+        onRun={generate} runLabel={`▶ ${label}`} runningLabel={`▶ ${label}`} note={reason} />
 
       {/* ✨ The neural render dials, asked once per clip. The capability's own
           sentences come with the options payload, so the dialog can refuse

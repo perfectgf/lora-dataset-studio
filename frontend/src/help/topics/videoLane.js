@@ -71,7 +71,10 @@ export const VIDEO_LANE_TOPICS = [
      'clip from the training set', 'first frame of a clip', 'clip tab empty',
      'dataset clip does not work', 'preview size', 'bigger thumbnails',
      'enlarge previews', 'enlarge the thumbnails', 'tile size', 'zoom thumbnails',
-     'thumbnails too small', 'ready staged', 'staged picture', 'text only', 'no start frame'],
+     'thumbnails too small', 'ready staged', 'staged picture', 'text only', 'no start frame',
+     'several start frames', 'multiple start frames', 'batch', 'batch of images',
+     'one clip per frame', 'one clip per image', 'several clips at once', 'remove a frame',
+     'clear all', 'same seed', 'already in the batch'],
     '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   // The ✨ writers of the Motion field. Searched for by the gesture ("auto",
   // "enrich"), by the format the answer comes back in (people paste H3's field

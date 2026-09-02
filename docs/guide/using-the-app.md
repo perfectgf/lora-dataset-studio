@@ -3766,9 +3766,23 @@ LoRA actually saw). The bank, Gallery and Dataset clip tabs show their pictures
 as a grid of tiles — a clip's tile is the poster its training set shows for it
 — and the 🔍 **Preview size** slider above the grid enlarges them, more than
 three times over, when a face is too small to judge at the default; the size is
-remembered by the browser. Text-only skips the picture entirely and composes
-the shot from the prompt. Either way, describe the *movement*: the start frame
-already says what the scene looks like.
+remembered by the browser. Pick **several** and each goes into a strip under
+the tabs — several files at once from the upload tab, or tile after tile from
+a bank, the Gallery or a training set; a tile already in the strip shows as
+pressed and a second click takes it out again, and each frame in the strip has
+its ✕ (the strip knows a frame by where it came from, so the same picture
+picked from two tabs is two frames; a picture the server refuses is skipped
+and said so, the others still go in). Generate then queues **one clip per
+frame, on one seed and one prompt**: a random seed — or a negative one, which
+counts as random — is drawn once, for the first clip, and re-used for the
+rest, and ✨ Enrich at launch rewrites the prompt once, for that first clip,
+the rest running the rewrite it got (the vision model shares the GPU with
+ComfyUI and is not asked again once a clip sits in its queue), so the clips
+differ by their picture and nothing else — the button says how
+many clips a click will queue, and ✨ Auto reads the first frame. Text-only
+skips the picture entirely and composes the shot from the prompt. Either way,
+describe the *movement*: the start frame already says what the scene looks
+like.
 
 **Or let a local model write the movement.** ✨ **Auto** looks at the start frame
 and proposes a motion for it; anything already in the field is read as the

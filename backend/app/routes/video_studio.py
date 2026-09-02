@@ -478,6 +478,12 @@ def video_studio_generate():
     not be sitting on a stalled prompt, because a job queued behind a wedged one
     looks exactly like a job that is simply slow — and here "simply slow" is a
     plausible five minutes.
+
+    The answer names the `prompt` that ran (the rewrite when ✨ Enrich at
+    launch worked, the text as typed when it did not) next to the `seed` the
+    graph got: a batch of start frames launches its first clip, then sends
+    the rest with THAT prompt and THAT seed, since the vision window is shut
+    to it as soon as this clip sits in ComfyUI's queue.
     """
     blocked = _require_comfyui() or _require_no_stalled_comfyui()
     if blocked:
@@ -564,7 +570,7 @@ def video_studio_generate():
         return _map_error(exc)
     if enrich_skipped:
         out = {**out, 'enrich_skipped': enrich_skipped}
-    return jsonify({'ok': True, **out})
+    return jsonify({'ok': True, 'prompt': prompt, **out})
 
 
 @bp.get('/clips')
