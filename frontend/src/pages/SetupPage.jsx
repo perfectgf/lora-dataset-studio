@@ -38,10 +38,19 @@ const KEY_FIELDS = [
     href: 'https://openrouter.ai/keys',
     help: 'Powers the OpenRouter engine — one key and one balance for the same '
       + 'upstream models. Pick the model in Settings \u203a Image engines.' },
+  // 📤 Not an image engine, but a key like the three above and read on the
+  // same "what can this install do" screen: the Overview row and the final
+  // summary count it, so the field that turns it on must be here too.
+  { key: 'CIVITAI_API_KEY', label: 'Civitai API key (optional)', engine: 'civitai',
+    href: 'https://civitai.com/user/account',
+    help: 'Publishes your checkpoints as Civitai model pages and posts generated '
+      + 'images under them from the app; also reads the prompts in the 🌐 Civitai '
+      + 'browser and unlocks adult results in Civitai scans. A free account has one.' },
 ]
 
 /** Which capability probe the "Save & test" button runs for each key field. */
-const KEY_TEST_TARGET = { nanobanana: 'gemini', chatgpt: 'openai', openrouter: 'openrouter' }
+const KEY_TEST_TARGET = { nanobanana: 'gemini', chatgpt: 'openai', openrouter: 'openrouter',
+  civitai: 'civitai' }
 
 // Default local vision model + rough VRAM notes surfaced in the wizard. The
 // ABLITERATED Qwen3-VL is required — vanilla qwen3-vl refuses to caption the NSFW
@@ -111,6 +120,10 @@ const CAPABILITY_STEP_ID = {
   'SigLIP2 Bank semantics (optional)': 'quality',
   'Watermark detector (optional)': 'quality',
   'Scraping extras (optional)': 'quality',
+  // 📤 A credential like the three above it: its field sits on the same
+  // keys screen (the wizard's optional keys block), so the row lands on the
+  // control that turns it on.
+  '📤 Civitai publishing': 'image',
   'LoRA training': 'training',
   'Test Studio': 'comfyui',
 }
@@ -495,7 +508,11 @@ export default function SetupPage() {
         <div className="space-y-4">
           {KEY_FIELDS.map((f) => {
             const isChatgpt = f.engine === 'chatgpt'
-            const laneOk = isChatgpt ? chatgpt.keySet : !!step.engines[f.engine]
+            // The Civitai key is not an image engine: its readiness is the
+            // capability probe's own row, not a member of `step.engines`.
+            const laneOk = isChatgpt ? chatgpt.keySet
+              : f.engine === 'civitai' ? !!(caps && caps.civitai && caps.civitai.ok)
+                : !!step.engines[f.engine]
             const field = (
               <div key={f.key}>
                 <div className="flex items-center justify-between gap-2">

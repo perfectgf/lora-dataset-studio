@@ -28,6 +28,7 @@ export const CIVITAI_API = {
   link: (recordId, step, filename, checkpoint) =>
     `/api/civitai/links/${recordId}/${step}${saveQuery(filename, checkpoint)}`,
   datasetLinks: (datasetId) => `/api/civitai/links?dataset_id=${datasetId}`,
+  page: (ref) => `/api/civitai/page?ref=${encodeURIComponent(ref)}`,
   createLink: '/api/civitai/links',
   deleteLink: (id) => `/api/civitai/links/${id}/delete`,
   draftDefaults: (recordId, step, filename, checkpoint) =>
@@ -88,6 +89,25 @@ export function civitaiVerbRefusal(img) {
     return 'This picture has no library entry to post.';
   }
   return null;
+}
+
+/** The versions of a looked-up page as select options — name first, the id
+ *  beside it so an address's `?modelVersionId=` can be recognised by eye. */
+export function pageVersionOptions(page) {
+  return (page?.versions || []).map((v) => ({
+    id: v.id,
+    label: `${v.name || 'unnamed'} (#${v.id})${v.base_model ? ` · ${v.base_model}` : ''}`,
+  }));
+}
+
+/** The version to preselect: the one the pasted address names when the page
+ *  has it, else the page's newest (first). Null on a page with no version. */
+export function preselectVersion(page, urlVersionId) {
+  const versions = page?.versions || [];
+  if (!versions.length) return null;
+  const wanted = Number(urlVersionId);
+  const hit = versions.find((v) => v.id === wanted);
+  return (hit || versions[0]).id;
 }
 
 /** One line naming a link, for the modal header and the popover title. */

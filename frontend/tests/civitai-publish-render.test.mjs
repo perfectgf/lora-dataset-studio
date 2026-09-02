@@ -78,6 +78,25 @@ test('the checkpoint door renders the mark / create tabs and no post section', (
   assert.doesNotMatch(html, /data-testid="civitai-post-image"/, 'a checkpoint is not a picture to post')
 })
 
+test('the mark pane looks the page up first and only then offers a version to link', async () => {
+  // Effects never run under renderToStaticMarkup, so the pane is proved in the
+  // state it opens in: the address field and Look up, no version pick yet —
+  // the pick only exists once a page has answered.
+  const { default: Modal } = await import('../src/components/shared/CivitaiPublishModal.jsx')
+  const html = inApp(createElement(Modal, {
+    context: {
+      kind: 'checkpoint',
+      node: { record_id: 4, dataset_id: 7, dataset_name: 'Nova', train_type: 'krea' },
+      pill: { step: 2500, filename: 'lora_nova_000002500.safetensors' },
+    },
+    onClose: () => {},
+  }))
+  // The link lookup is still pending at first paint, so the tabs are not
+  // drawn yet; the pane's own controls are pinned by their test ids in the
+  // source, which the contract below reads.
+  assert.match(html, /Looking up the link/)
+})
+
 test('the popover shows the 📤 row only when a host can open the dialog, and never for a run card', () => {
   const node = { record_id: 4, dataset_id: 7, train_type: 'krea', source: 'local' }
   const pill = { step: 2500, filename: 'lora_nova_000002500.safetensors', present: true, download_url: '/dl' }

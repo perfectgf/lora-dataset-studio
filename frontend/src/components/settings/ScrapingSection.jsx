@@ -57,6 +57,8 @@ const SCRAPE_SECRETS = [
     help: 'One key, three uses: adult content in Civitai scans (without it they return SFW results only), '
       + 'the prompts of the 🌐 Civitai browser, and 📤 publishing your checkpoints and generated images '
       + 'from the app. Create one under civitai.com → Account settings → API Keys.',
+    // Test = the key shown to Civitai, answering with the account it opens.
+    testTarget: 'civitai',
   },
   {
     key: 'PEXELS_API_KEY',

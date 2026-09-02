@@ -177,6 +177,35 @@ def probe_gemini() -> dict:
     return {'ok': ok, 'detail': 'key set' if ok else 'key missing'}
 
 
+def probe_civitai() -> dict:
+    """📤 Publish to Civitai (and the 🌐 prompt browser's prompts, and adult
+    results in Civitai scans): ready when the one Civitai credential resolves,
+    through the same chain every Civitai feature reads (env > cookies dir >
+    stored secret). A key's presence, never its validity — the site is asked
+    nothing here, this runs on every capabilities poll."""
+    try:
+        from .services.civitai_browser import civitai_api_key
+        ok = bool(civitai_api_key())
+    except Exception:
+        ok = bool(cfg.secret('CIVITAI_API_KEY'))
+    return {'ok': ok, 'detail': 'key set' if ok else 'key missing'}
+
+
+def probe_civitai_test() -> dict:
+    """The Test button's version of the above: the key is shown to Civitai
+    (`/api/v1/me`) and the answer names the account. Network, on demand only
+    — never part of the capabilities poll."""
+    from .services import civitai_publish
+    key = civitai_publish.api_key()
+    if not key:
+        return {'ok': False, 'detail': 'key missing'}
+    who = civitai_publish.whoami(key)
+    if who:
+        return {'ok': True, 'detail': f'signed in as {who}'}
+    return {'ok': False, 'detail': 'key set, but Civitai did not accept it (refused, '
+                                   'or unreachable right now)'}
+
+
 def probe_openai() -> dict:
     """ChatGPT engine readiness: a pay-per-use API key OR a connected ChatGPT
     subscription (Codex OAuth) both light the engine up."""
@@ -2443,6 +2472,10 @@ def probe(force=False) -> dict:
         'dataset_import': _dataset_import_policy(),
         'python': python_ml_status(),
         'scrape_deps': scrape_deps['ok'],
+        # 📤 Civitai publishing — a credential, not an install: the Overview row
+        # and the Setup summary count it like the engine keys, and its door is
+        # the key field under Scraping & sources.
+        'civitai': probe_civitai(),
         # WHICH modules are absent, same convention as joycaption/video/siglip2
         # above. The install banner used to recite a hand-written list of three
         # package names; the probe watches seven, so a machine flagged because

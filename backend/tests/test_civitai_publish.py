@@ -596,6 +596,9 @@ def test_a_page_that_is_not_a_lora_or_a_version_not_of_that_page_is_refused(clie
             cp.link_checkpoint_to_page(rec.id, 2500, 'https://civitai.com/models/2755270?modelVersionId=1',
                                        KEY, filename=NUMBERED)
         assert e.value.code == 'no_version'
+        # The refusal NAMES the versions the page does have (the maintainer hit
+        # this with a mistyped id and had nothing to go on).
+        assert 'v1.0 (#3100001)' in e.value.message and 'Look the page up' in e.value.message
         with pytest.raises(cp.CivitaiPublishError) as e:
             cp.link_checkpoint_to_page(rec.id, 2500, 'garbage', KEY, filename=NUMBERED)
         assert e.value.code == 'bad_ref'
@@ -821,6 +824,46 @@ def test_link_routes_round_trip(client, app, civitai):
     assert client.post(f'/api/civitai/links/{unnamed["id"]}/delete').status_code == 200
     assert client.get(f'/api/civitai/links/{rid}/2500').get_json()['link'] is None
     assert client.post(f'/api/civitai/links/{link["id"]}/delete').status_code == 404
+
+
+def test_the_capabilities_payload_counts_the_civitai_key_like_an_engine_key(app, monkeypatch):
+    from app import capabilities
+    from app.services import civitai_browser
+    with app.app_context():
+        monkeypatch.setattr(civitai_browser, 'civitai_api_key', lambda: None)
+        assert capabilities.probe_civitai() == {'ok': False, 'detail': 'key missing'}
+        monkeypatch.setattr(civitai_browser, 'civitai_api_key', lambda: 'k')
+        assert capabilities.probe_civitai() == {'ok': True, 'detail': 'key set'}
+        capabilities._cache = None
+        capabilities._cache_ts = 0.0
+        assert capabilities.probe(force=True)['civitai'] == {'ok': True, 'detail': 'key set'}
+
+
+def test_the_key_test_button_shows_the_key_to_civitai_and_names_the_account(client, civitai, monkeypatch):
+    from app import capabilities
+    r = client.post('/api/settings/test/civitai')
+    assert r.status_code == 200 and r.get_json() == {'ok': True, 'detail': 'signed in as creator'}
+    cp._who_cache.update(key=None, at=0.0, value=None)
+    civitai.fail['/api/v1/me'] = (401, {'error': 'unauthorized'})
+    assert capabilities.probe_civitai_test()['ok'] is False
+    assert 'did not accept' in capabilities.probe_civitai_test()['detail']
+    monkeypatch.setattr(cp, 'api_key', lambda: None)
+    assert capabilities.probe_civitai_test() == {'ok': False, 'detail': 'key missing'}
+
+
+def test_a_pasted_address_is_looked_up_before_it_is_linked(client, civitai, monkeypatch):
+    r = client.get('/api/civitai/page?ref=https://civitai.red/models/2755270/nova?modelVersionId=3100001')
+    assert r.status_code == 200, r.get_json()
+    d = r.get_json()
+    assert d['page']['name'] == 'Nova' and d['page']['type'] == 'LORA'
+    assert [v['id'] for v in d['page']['versions']] == [3100001]
+    assert d['version_id'] == 3100001
+    # No version in the address: the modal preselects the newest itself.
+    assert client.get('/api/civitai/page?ref=2755270').get_json()['version_id'] is None
+    r = client.get('/api/civitai/page?ref=garbage')
+    assert r.status_code == 400 and r.get_json()['error_code'] == 'bad_ref'
+    monkeypatch.setattr(cp, 'api_key', lambda: None)
+    assert client.get('/api/civitai/page?ref=2755270').get_json()['error_code'] == 'no_key'
 
 
 def test_publishing_images_without_a_link_answers_what_to_do(client, app, civitai):

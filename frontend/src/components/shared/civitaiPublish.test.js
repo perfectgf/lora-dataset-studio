@@ -2,8 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CIVITAI_API, civitaiLinkLine, civitaiTarget, civitaiTargetKnown, civitaiVerbRefusal,
-  draftFormFrom, draftFormRefusal, jobOutcome, jobPhaseLabel,
+  draftFormFrom, draftFormRefusal, jobOutcome, jobPhaseLabel, pageVersionOptions, preselectVersion,
 } from './civitaiPublish.js';
+
+test('a looked-up page becomes a version pick: the address\'s version first, else the newest', () => {
+  const page = { versions: [
+    { id: 3274157, name: 'run 160 - step 2750', base_model: 'Krea 2' },
+    { id: 3274154, name: 'run 156 - step 1500', base_model: 'Krea 2' },
+  ] };
+  assert.deepEqual(pageVersionOptions(page).map((o) => o.label),
+    ['run 160 - step 2750 (#3274157) · Krea 2', 'run 156 - step 1500 (#3274154) · Krea 2']);
+  assert.equal(preselectVersion(page, 3274154), 3274154);
+  assert.equal(preselectVersion(page, '3274154'), 3274154, 'an id read from a URL is a string');
+  // A version the page does not have is not an error here: the newest is offered.
+  assert.equal(preselectVersion(page, 3274119), 3274157);
+  assert.equal(preselectVersion(page, null), 3274157);
+  assert.equal(preselectVersion({ versions: [] }, 1), null);
+  assert.deepEqual(pageVersionOptions(null), []);
+  assert.equal(CIVITAI_API.page('https://civitai.red/models/1?modelVersionId=2'),
+    '/api/civitai/page?ref=https%3A%2F%2Fcivitai.red%2Fmodels%2F1%3FmodelVersionId%3D2');
+});
 
 test('the image door reads the checkpoint stamped on the row; the popover door reads node + pill', () => {
   // A picture has no file name of its own: it carries the DEPLOYED name it ran

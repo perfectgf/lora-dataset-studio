@@ -354,13 +354,16 @@ Scraping & sources** — the same one the scraper and the 🌐 prompt browser us
   background; the page is created as a **draft** so you give it a last look on
   Civitai (cover images, final read) before pressing Publish there. Tick
   **Publish the page right away** to skip that step.
-- **Mark an existing page** — the LoRA already has a page? Paste its address
-  (add `?modelVersionId=` to aim at one version; otherwise the newest is
-  taken). Nothing is uploaded; the checkpoint is simply remembered as that
-  version, which is all the next gesture needs. The same two tabs open from
-  a picture's 📤 dialog: the picture names the checkpoint it was made with
-  (its stamp and the deployed LoRA name it ran with), and the app resolves
-  which save that is — no file to pick.
+- **Mark an existing page** — the LoRA already has a page? Paste its address,
+  press **Look up**: the page's name and its versions appear, the one the
+  address points at (`?modelVersionId=`) preselected, the newest otherwise.
+  Pick which version this checkpoint is and press **Link this version**.
+  Nothing is uploaded; the checkpoint is simply remembered as that version,
+  which is all the next gesture needs. The same two tabs open from a
+  picture's 📤 dialog: the picture names the checkpoint it was made with (its
+  stamp and the deployed LoRA name it ran with), and the app resolves which
+  save that is — no file to pick. **Unlink** forgets the link (the page on
+  Civitai is untouched); linking again simply retargets it.
 
 A linked pill shows **On Civitai** in its popover; the dialog opens the page,
 relinks it, or forgets the link (the page itself is never touched).

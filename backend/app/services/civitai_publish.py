@@ -888,17 +888,12 @@ def detach_links_of_run(record_id) -> int:
                .update({'record_id': None}, synchronize_session=False))
 
 
-def link_checkpoint_to_page(record_id, step, ref, key, filename=None, version_id=None,
-                            hint=None):
-    """"Mark the page": resolve a pasted model URL/id against Civitai, pick the
-    version (the URL's, the caller's, else the newest), and remember it for
-    this save. A caller without a file name (a picture) gets it resolved from
-    the run's saves, the deployed name it ran with breaking a shared step; a
-    run whose saves are not on this machine is remembered under '' — marking
-    needs no file, only a page. Returns (link, page)."""
-    rec = _record(record_id)
-    if not str(filename or '').strip():
-        filename = resolve_save_filename(rec, step, hint) or ''
+def lookup_model_page(ref, key):
+    """A pasted address or id → the page it names, plus the version the
+    address itself points at (`?modelVersionId=`), or None. The modal shows
+    this BEFORE linking, so the version is picked from a list rather than
+    typed: a wrong id in a pasted address used to be the only way to learn
+    what the page's versions were called."""
     parsed = parse_model_ref(ref)
     if not parsed:
         raise CivitaiPublishError(
@@ -912,13 +907,33 @@ def link_checkpoint_to_page(record_id, step, ref, key, filename=None, version_id
                           'app is a LoRA adapter.')
     if not page['versions']:
         raise CivitaiPublishError('no_version', 'That model page has no version to link to yet.')
+    return page, url_version
+
+
+def _versions_line(page) -> str:
+    return ', '.join(f'{v["name"] or "unnamed"} (#{v["id"]})' for v in page['versions'][:12])
+
+
+def link_checkpoint_to_page(record_id, step, ref, key, filename=None, version_id=None,
+                            hint=None):
+    """"Mark the page": resolve a pasted model URL/id against Civitai, pick the
+    version (the caller's, the URL's, else the newest), and remember it for
+    this save. A caller without a file name (a picture) gets it resolved from
+    the run's saves, the deployed name it ran with breaking a shared step; a
+    run whose saves are not on this machine is remembered under '' — marking
+    needs no file, only a page. Returns (link, page)."""
+    rec = _record(record_id)
+    if not str(filename or '').strip():
+        filename = resolve_save_filename(rec, step, hint) or ''
+    page, url_version = lookup_model_page(ref, key)
     wanted = version_id or url_version
     version = None
     if wanted:
         version = next((v for v in page['versions'] if v['id'] == int(wanted)), None)
         if version is None:
             raise CivitaiPublishError(
-                'no_version', f'Version {wanted} is not one of that model\'s versions.')
+                'no_version', f'Version {wanted} is not one of that model\'s versions - it has: '
+                              f'{_versions_line(page)}. Look the page up and pick one.')
     else:
         version = page['versions'][0]
     link = save_link(record_id, step, filename, rec.dataset_id, model_id=page['id'],

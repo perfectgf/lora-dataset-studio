@@ -5,7 +5,8 @@ import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { checkpointFileLabel } from '../../utils/generatedImageFacts';
 import {
   CIVITAI_API, CIVITAI_POLL_MS, civitaiLinkLine, civitaiTarget, civitaiTargetKnown,
-  draftFormFrom, draftFormRefusal, jobOutcome, jobPhaseLabel,
+  draftFormFrom, draftFormRefusal, jobOutcome, jobPhaseLabel, pageVersionOptions,
+  preselectVersion,
 } from './civitaiPublish';
 
 /* 📤 Publish to Civitai — ONE modal, two doors.
@@ -92,6 +93,12 @@ export default function CivitaiPublishModal({ context, onClose }) {
   const [pickedLinkId, setPickedLinkId] = useState(null);
   const [pane, setPane] = useState('mark');             // mark | create
   const [ref, setRef] = useState('');
+  // The looked-up page and the version picked from ITS list — a pasted
+  // address is checked before anything is remembered, so a wrong or missing
+  // `?modelVersionId=` becomes a pick, not a refusal to decode.
+  const [page, setPage] = useState(null);
+  const [versionId, setVersionId] = useState(null);
+  const [lookingUp, setLookingUp] = useState(false);
   const [linking, setLinking] = useState(false);
   const [linkError, setLinkError] = useState(null);
   const [defaults, setDefaults] = useState(null);
@@ -175,15 +182,30 @@ export default function CivitaiPublishModal({ context, onClose }) {
     onClose?.();
   }, [job?.state, onClose, toast]);
 
+  const lookUp = async () => {
+    if (!ref.trim() || lookingUp) return;
+    setLookingUp(true); setLinkError(null); setPage(null);
+    try {
+      const d = await apiFetch(CIVITAI_API.page(ref.trim()));
+      setPage(d.page);
+      setVersionId(preselectVersion(d.page, d.version_id));
+    } catch (e) {
+      setLinkError(e?.message || 'Could not look this page up.');
+    } finally {
+      setLookingUp(false);
+    }
+  };
+
   const markPage = async () => {
-    if (!known || !ref.trim() || linking) return;
+    if (!known || !page || versionId == null || linking) return;
     setLinking(true); setLinkError(null);
     try {
       const d = await postJson(CIVITAI_API.createLink, {
         record_id: target.recordId, step: target.step, filename: target.filename,
-        checkpoint: target.checkpoint, url: ref.trim(),
+        checkpoint: target.checkpoint, url: String(page.id), version_id: versionId,
       });
       setLink(d.link);
+      setPage(null);
       toast.success(`Checkpoint linked to ${civitaiLinkLine(d.link)}`);
     } catch (e) {
       setLinkError(e?.message || 'Could not link this page.');
@@ -333,17 +355,43 @@ export default function CivitaiPublishModal({ context, onClose }) {
               {pane === 'mark' ? (
                 <div className="flex flex-col gap-1.5">
                   <p className="m-0 text-xs text-content-muted">
-                    Paste the address of the LoRA&apos;s page on Civitai (with <code>?modelVersionId=</code> to aim
-                    at one version; otherwise the newest is taken). The checkpoint is remembered as that version.
+                    Paste the address of the LoRA&apos;s page on Civitai and look it up; then pick which of its
+                    versions this checkpoint is (the address&apos;s <code>?modelVersionId=</code> is preselected
+                    when it has one). The checkpoint is remembered as that version.
                   </p>
                   <div className="flex gap-2">
-                    <input value={ref} onChange={(e) => setRef(e.target.value)} disabled={busy || noKey}
+                    <input value={ref} onChange={(e) => { setRef(e.target.value); setPage(null); }}
+                      disabled={busy || noKey || lookingUp}
                       placeholder="https://civitai.com/models/12345/my-lora" className={`${FIELD} font-mono`}
                       data-testid="civitai-ref" />
-                    <button type="button" onClick={markPage} disabled={busy || noKey || !ref.trim()} className={PRIMARY}>
-                      {linking && <Spinner />} Link
+                    <button type="button" onClick={lookUp} disabled={busy || noKey || lookingUp || !ref.trim()}
+                      className={PRIMARY} data-testid="civitai-lookup">
+                      {lookingUp && <Spinner />} Look up
                     </button>
                   </div>
+                  {page && (
+                    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-surface-raised p-2"
+                      data-testid="civitai-page">
+                      <p className="m-0 text-sm text-content">
+                        <strong>{page.name}</strong>
+                        <span className="text-xs text-content-muted"> · {page.type || 'model'}
+                          {page.nsfw ? ' · mature' : ''} · {page.versions.length} version{page.versions.length === 1 ? '' : 's'}</span>
+                      </p>
+                      <label className="flex flex-col gap-0.5">
+                        <span className={LABEL}>This checkpoint is version</span>
+                        <select value={versionId ?? ''} onChange={(e) => setVersionId(Number(e.target.value))}
+                          disabled={busy} className={FIELD} data-testid="civitai-version">
+                          {pageVersionOptions(page).map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        </select>
+                      </label>
+                      <div className="flex justify-end">
+                        <button type="button" onClick={markPage} disabled={busy || noKey || versionId == null}
+                          className={PRIMARY} data-testid="civitai-link">
+                          {linking && <Spinner />} Link this version
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {linkError && <p role="alert" className="m-0 text-xs text-rose-300">{linkError}</p>}
                 </div>
               ) : (

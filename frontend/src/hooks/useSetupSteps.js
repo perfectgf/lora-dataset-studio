@@ -692,6 +692,11 @@ export function deriveCapabilitySummary(caps) {
     { label: 'Watermark detector (optional)', ok: !!c.watermark_detect,
       topic: 'setup-quality' },
     { label: 'Scraping extras (optional)', ok: !!c.scrape_deps, topic: 'setup-quality' },
+    // 📤 A credential, counted like the engine keys above: publishing a
+    // checkpoint or posting an image to Civitai needs the one Civitai key,
+    // and a machine without it must read "not ready, here is the field" —
+    // the same rule as every row here. Its door is the key itself.
+    { label: '📤 Civitai publishing', ok: !!(c.civitai && c.civitai.ok), topic: 'CIVITAI_API_KEY' },
     { label: 'LoRA training', ok: !!c.training_visible, topic: 'setup-training' },
     { label: 'Test Studio', ok: !!c.studio_visible,
       topic: 'setup-comfyui', waitingTopic: WAITING,

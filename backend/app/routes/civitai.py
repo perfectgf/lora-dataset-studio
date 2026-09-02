@@ -65,6 +65,21 @@ def civitai_link(record_id, step):
     return jsonify({'ok': True, 'link': cp.link_payload(link)})
 
 
+@bp.get('/page')
+def civitai_page():
+    """Look a pasted address up BEFORE linking: the page's name, type and its
+    versions to pick from, plus the version the address itself names
+    (`version_id`, or null). Read-only; the link is a separate POST."""
+    key = cp.api_key()
+    if not key:
+        return _fail(_NO_KEY)
+    try:
+        page, url_version = cp.lookup_model_page(request.args.get('ref') or '', key)
+    except cp.CivitaiPublishError as e:
+        return _fail(e, _status_for(e.code))
+    return jsonify({'ok': True, 'page': page, 'version_id': url_version})
+
+
 @bp.post('/links')
 def civitai_link_create():
     """"Mark the page": {record_id, step, url|model_id, filename?, checkpoint?,
