@@ -52,6 +52,28 @@ def test_an_offline_comfyui_is_nothing_to_free_not_a_failure(app, levers):
     assert out['freed_gb'] == 0.0 and out['vram_before_gb'] is None
 
 
+def test_the_verdict_survives_a_rebuilt_enum(app, levers, monkeypatch):
+    """test_comfyui_utils reloads app.utils.comfyui, which rebuilds the verdict
+    enum for every test that runs after it in the same worker; this file's
+    fixture keeps the member it imported before. Mapped by member identity the
+    service answered 'unknown' — the release runner drew that order, the local
+    gate did not. The same rebuilt class, put in place for this test alone, is
+    what pins the mapping by value, whichever worker the two files share."""
+    from enum import Enum
+    from app.utils import comfyui as cu
+    rebuilt = Enum('ComfyVramFreeVerdict', [(m.name, m.value) for m in ComfyVramFreeVerdict])
+    assert rebuilt.FREED is not ComfyVramFreeVerdict.FREED
+    monkeypatch.setattr(cu, 'ComfyVramFreeVerdict', rebuilt)
+    with app.app_context():
+        out = mr.free_memory(settle_seconds=0)
+    assert out['comfyui'] == 'freed'
+    levers['verdict'] = ComfyVramFreeVerdict.COMFYUI_OFFLINE
+    levers['readings'] = [{'ram_used_gb': 10.0}, {'ram_used_gb': 10.0}]
+    with app.app_context():
+        out = mr.free_memory(settle_seconds=0)
+    assert out['comfyui'] == 'offline'
+
+
 def test_a_machine_that_cannot_measure_still_answers(app, levers):
     levers['readings'] = [{}, {}]
     with app.app_context():
