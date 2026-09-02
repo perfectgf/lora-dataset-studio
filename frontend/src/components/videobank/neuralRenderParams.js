@@ -94,6 +94,30 @@ export function costMultiplier(params) {
   return p.passes * (p.scale === 2 ? 4 : 1)
 }
 
+/** The dials of a render as short tags, for a card's pill row or a lightbox
+ *  line. Always says the mode; says a dial only when it left its default,
+ *  so a plain render reads as two words and a pushed one as its pushes. */
+export function neuralRenderTags(rec) {
+  if (!rec || typeof rec !== 'object') return []
+  const tags = []
+  const num = (v, d) => (Number.isFinite(Number(v)) ? Number(v) : d)
+  const tone = num(rec.tone, 1)
+  const structure = num(rec.structure, 1)
+  const strength = num(rec.strength, 1)
+  const passes = num(rec.passes, 1)
+  const scale = num(rec.scale, 1)
+  if (tone !== 1) tags.push(`tone ${tone}`)
+  if (structure !== 1) tags.push(`structure ${structure}`)
+  if (strength !== 1) tags.push(`strength ×${strength}`)
+  if (passes > 1) tags.push(`${passes} passes`)
+  if (scale === 2) tags.push('2× render')
+  if (rec.automask) tags.push('auto mask')
+  const used = typeof rec.temporal_used === 'boolean' ? rec.temporal_used : rec.temporal === 'on'
+  tags.push(used ? 'temporal' : 'still')
+  if (Number.isFinite(Number(rec.ms_per_frame))) tags.push(`${Math.round(Number(rec.ms_per_frame))} ms/frame`)
+  return tags
+}
+
 /** The one sentence the buttons show when the lane is not set up, built from the
  *  capability's own list so the wording lives in one place (the backend). */
 export function nrRefusal(status) {

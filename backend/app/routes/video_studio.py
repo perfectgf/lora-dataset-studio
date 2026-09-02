@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 bp = Blueprint('video_studio', __name__, url_prefix='/api/video-studio')
 
 
+def _json_or_none(text):
+    if not text:
+        return None
+    try:
+        import json
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return None
+
+
 def _clip_dict(clip):
     """One clip row as the panel reads it.
 
@@ -51,6 +61,8 @@ def _clip_dict(clip):
         'vfi_of': getattr(clip, 'vfi_of', None),
         # ✨ The clip this one was neural-rendered from, same reading.
         'nr_of': getattr(clip, 'nr_of', None),
+        # ✨ The dials that made a neural render, or null — the pills read them.
+        'nr_params': _json_or_none(getattr(clip, 'nr_params', None)),
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
@@ -62,6 +74,8 @@ def _clip_dict(clip):
         'created_at': clip.created_at.isoformat() if clip.created_at else None,
         'seconds': (round((clip.frames - 1) / clip.fps, 2)
                     if clip.frames and clip.fps else None),
+        # ⏱ How long the queue spent on it, or null when the queue could not say.
+        'render_seconds': clip.render_seconds,
     }
 
 
@@ -575,15 +589,39 @@ def video_studio_generate():
 
 @bp.get('/clips')
 def video_studio_clips():
-    """The history, newest first. `limit` caps it (default 24, hard max 200)."""
+    """The history, newest first. `limit` caps a page (default 24, hard max
+    200); `before=<id>` pages further back.
+
+    THE SOURCE OF A RENDER RIDES ALONG. A smoothed or neural-rendered clip
+    points at the clip it was made from (`vfi_of`, `nr_of`), and that clip is
+    older by construction — after a few renders it falls off the newest page,
+    and the pair the studio exists to compare reads as "the original was
+    deleted" (reported on the first evening). So every source of a listed
+    render is appended to the page it belongs with, whatever its age, and the
+    list stays newest first. `has_more` says whether a further page exists —
+    judged on the page proper, not on the sources it carried along.
+    """
     from ..models import VideoTestClip
     try:
         limit = max(1, min(200, int(request.args.get('limit', 24))))
     except (TypeError, ValueError):
         limit = 24
-    rows = (VideoTestClip.query.order_by(VideoTestClip.id.desc())
-            .limit(limit).all())
-    return jsonify({'clips': [_clip_dict(c) for c in rows]})
+    query = VideoTestClip.query.order_by(VideoTestClip.id.desc())
+    try:
+        before = int(request.args.get('before', 0))
+    except (TypeError, ValueError):
+        before = 0
+    if before > 0:
+        query = query.filter(VideoTestClip.id < before)
+    page = query.limit(limit).all()
+    listed = {c.id for c in page}
+    wanted = {getattr(c, 'nr_of', None) for c in page} | {getattr(c, 'vfi_of', None) for c in page}
+    wanted = {i for i in wanted if i and i not in listed}
+    sources = (VideoTestClip.query.filter(VideoTestClip.id.in_(wanted)).all()
+               if wanted else [])
+    rows = sorted(page + sources, key=lambda c: c.id, reverse=True)
+    return jsonify({'clips': [_clip_dict(c) for c in rows],
+                    'has_more': len(page) == limit, 'page_size': limit})
 
 
 @bp.get('/clip/<int:clip_id>')

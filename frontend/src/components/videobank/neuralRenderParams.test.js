@@ -2,8 +2,17 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   NR_DEFAULTS, NR_PRESETS, TEMPORAL_MIN_WIDTH, normalizeNrParams, presetFor,
-  temporalOutcome, nrRefusal, costMultiplier,
+  temporalOutcome, nrRefusal, costMultiplier, neuralRenderTags,
 } from './neuralRenderParams.js'
+
+test('a render is remembered by its pushes, its mode and its cost', () => {
+  assert.deepEqual(neuralRenderTags(null), [])
+  assert.deepEqual(neuralRenderTags({ tone: 1, structure: 1, strength: 1, passes: 1, scale: 1, temporal: 'auto', temporal_used: false }), ['still'])
+  assert.deepEqual(neuralRenderTags({ tone: 0, structure: 1.5, strength: 2.3, passes: 3, scale: 2, automask: true, temporal: 'auto', temporal_used: true, ms_per_frame: 261.8 }),
+    ['tone 0', 'structure 1.5', 'strength ×2.3', '3 passes', '2× render', 'auto mask', 'temporal', '262 ms/frame'])
+  // Before the child answered, the request stands in for the fact.
+  assert.deepEqual(neuralRenderTags({ temporal: 'on' }), ['temporal'])
+})
 
 test('defaults are the photoreal preset, and the flat-art preset only moves tone', () => {
   assert.equal(presetFor(NR_DEFAULTS), 'photo')

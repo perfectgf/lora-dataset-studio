@@ -222,6 +222,9 @@ _SCHEMA_ADDITIONS = (
     ('video_test_clip', 'vfi_of', 'INTEGER'),
     # The clip a studio clip was neural-rendered FROM (DLSS 5), same reading as vfi_of.
     ('video_test_clip', 'nr_of', 'INTEGER'),
+    ('video_test_clip', 'nr_params', 'TEXT'),
+    # ⏱ How long the queue spent on the clip, seconds (see the model).
+    ('video_test_clip', 'render_seconds', 'FLOAT'),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),

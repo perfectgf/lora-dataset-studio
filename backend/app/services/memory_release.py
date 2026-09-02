@@ -107,8 +107,11 @@ def free_memory(*, settle_seconds=SETTLE_SECONDS) -> dict:
     vram_before, vram_after = _round(before.get('vram_used_gb')), _round(after.get('vram_used_gb'))
     freed = (round(ram_before - ram_after, 1)
              if ram_before is not None and ram_after is not None else None)
-    comfy = {ComfyVramFreeVerdict.FREED: 'freed',
-             ComfyVramFreeVerdict.COMFYUI_OFFLINE: 'offline'}.get(verdict, 'unknown')
+    # Keyed by VALUE, not by member: a rebuilt enum (the suite once reloaded
+    # utils.comfyui) keeps its values, and a member of the old class is not a
+    # key of the new one — the release runner read every verdict as 'unknown'.
+    comfy = {ComfyVramFreeVerdict.FREED.value: 'freed',
+             ComfyVramFreeVerdict.COMFYUI_OFFLINE.value: 'offline'}.get(getattr(verdict, 'value', None), 'unknown')
     return {
         'ok': True,
         'comfyui': comfy,

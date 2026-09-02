@@ -420,10 +420,12 @@ def test_backups_leave_with_their_clips_and_with_the_dataset(app, client, tmp_pa
     r = client.post(f'/api/video-dataset/{ds_id}/neural-render', json={'ids': []})
     assert r.status_code == 200
     root = nr.backup_dir(ds_id)
-    assert sorted(p.name for p in root.iterdir()) == ['clip_0001.mp4', 'clip_0002.mp4']
+    # Each kept original travels with the record of the dials that replaced it.
+    assert sorted(p.name for p in root.iterdir()) == ['clip_0001.mp4', 'clip_0001.mp4.nr.json',
+                                                      'clip_0002.mp4', 'clip_0002.mp4.nr.json']
     r = client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [ids[0]]})
     assert r.status_code == 200 and r.get_json()['removed'] == 1
-    assert sorted(p.name for p in root.iterdir()) == ['clip_0002.mp4']
+    assert sorted(p.name for p in root.iterdir()) == ['clip_0002.mp4', 'clip_0002.mp4.nr.json']
     assert client.delete(f'/api/video-dataset/{ds_id}').status_code == 200
     assert not root.exists()
 
@@ -483,3 +485,22 @@ def test_the_child_scales_up_for_the_model_and_back_for_the_file():
     assert float(mod.apply_strength(np, fin, fout, 2.0)[0, 0, 0]) == pytest.approx(0.7)
     assert float(mod.apply_strength(np, fin, fout, 0.0)[0, 0, 0]) == pytest.approx(0.5)
     assert float(mod.apply_strength(np, fin, np.full((2, 2, 3), 0.9, np.float32), 3.0)[0, 0, 0]) == 1.0
+
+
+def test_a_dataset_render_keeps_its_dials_beside_the_original(app, client, tmp_path, monkeypatch):
+    """The record lives next to the kept original, outside the dataset folder
+    (a trainer must never find a .json there), is published with the state,
+    and leaves with the backup on restore."""
+    ds_id, ids, out = _dataset(app, tmp_path)
+    _stub_render(monkeypatch)
+    _run_job_inline(monkeypatch)
+    r = client.post(f'/api/video-dataset/{ds_id}/neural-render', json={'ids': [ids[0]], 'strength': 1.5, 'temporal': 'off'})
+    assert r.status_code == 200
+    assert sorted(p.name for p in out.iterdir()) == ['clip_0001.mp4', 'clip_0001.txt', 'clip_0002.mp4', 'clip_0002.txt']
+    state = client.get(f'/api/video-dataset/{ds_id}/neural-render').get_json()
+    rec = state['rendered_params'][str(ids[0])]
+    assert rec['strength'] == 1.5 and rec['temporal'] == 'off' and rec['temporal_used'] is False
+    assert str(ids[1]) not in state['rendered_params']
+    assert client.post(f'/api/video-dataset/{ds_id}/neural-render/restore', json={'ids': [ids[0]]}).status_code == 200
+    assert not nr.sidecar_path(ds_id, 'clip_0001.mp4').exists()
+    assert client.get(f'/api/video-dataset/{ds_id}/neural-render').get_json()['rendered_params'] == {}

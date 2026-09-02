@@ -5,6 +5,8 @@
  * carries icons of its own, so here the emoji go and each fact stands alone —
  * ordered by how much it changed the render: base first, LoRA and strength,
  * then the accelerators, then the numbers that make a run repeatable. */
+import { neuralRenderTags } from '../../../videobank/neuralRenderParams.js';
+
 export function clipTags(clip) {
   if (!clip) return [];
   const tags = [];
@@ -19,8 +21,9 @@ export function clipTags(clip) {
   if (clip.turbo) tags.push('turbo');
   if (clip.sparse) tags.push(`sparse ${clip.sparse}`);
   if (clip.latent_upscale) tags.push('upscale ×2');
-  // ✨ A neural-rendered clip: same settings as its source, different pixels.
-  if (clip.nr_of) tags.push('neural render');
+  // ✨ A neural-rendered clip: same settings as its source, different pixels —
+  // and the dials that made it, which are the only ones that differ.
+  if (clip.nr_of) tags.push('neural render', ...neuralRenderTags(clip.nr_params));
   // ↗ A smoothed clip has the same settings as its source and is NOT the same
   // artefact — without this the pair is two identical-looking cards.
   if (clip.vfi_of) tags.push(`smoothed → ${Math.round(clip.fps || 0)} fps`);

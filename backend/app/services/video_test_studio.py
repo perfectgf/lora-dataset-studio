@@ -1095,6 +1095,9 @@ def link_completed_clip(job_id, filename, failed=False, reason=None):
         logger.info('video studio: clip %s already %s — late completion ignored',
                     clip.id, clip.status)
         return
+    # Read before the row settles, on the failure path too: a clip that died
+    # after four minutes of rendering says something a bare "failed" does not.
+    clip.render_seconds = _render_seconds(job_id)
     if failed:
         clip.status = 'failed'
         clip.error = (reason or 'Generation failed (see the server log in '
@@ -1105,6 +1108,32 @@ def link_completed_clip(job_id, filename, failed=False, reason=None):
     clip.status = 'done'
     _bring_clip_home(filename)
     db.session.commit()
+
+
+def _render_seconds(job_id):
+    """Seconds the queue spent on a job: from the worker's claim (`started_at`,
+    stamped when the job is taken, so the wait in the queue is excluded) to the
+    moment it settled (`completed_at`). ComfyUI's model loading is inside that
+    window on purpose — it is what the user waited for, and on a machine whose
+    RAM cannot hold the weights it is most of the number.
+
+    None whenever the queue cannot say: no job row (a clip settled by hand), a
+    stamp missing, a clock that went backwards — and a job the queue CANCELLED.
+    That last one is the ComfyUI-restart path: the job stalls with its
+    `started_at` kept, the barrier waits for the user, and `completed_at` is
+    stamped when the barrier is reconciled, hours later if need be. The
+    difference then measures the outage, not the render, and a card saying
+    "failed after 6 h" would be a lie. A number here is a measurement, never a
+    guess.
+    """
+    from ..models import ImageGenerationQueue
+    job = ImageGenerationQueue.query.filter_by(job_id=job_id).first()
+    if job is None or job.status not in ('completed', 'failed'):
+        return None
+    if not job.started_at or not job.completed_at:
+        return None
+    secs = (job.completed_at - job.started_at).total_seconds()
+    return round(secs, 1) if secs >= 0 else None
 
 
 def _bring_clip_home(filename):
