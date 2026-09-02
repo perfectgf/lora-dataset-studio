@@ -310,6 +310,14 @@ const PAGES = {
       // tile refuses the verb (an improve result, or a candidate waiting).
       { name: 'improve', open: ['[data-testid="gallery-zoom"]',
         '[data-testid="lightbox-improve-klein"]'] },
+      // 📤 The Civitai dialog, reached the same way: open the viewer, press
+      // the Civitai verb. One state on ONE page for a dialog two doors share
+      // (the viewer everywhere it opens, the checkpoint popover on the Canvas
+      // and the run graph) — measured here because this page's path to it is
+      // the shortest. It stacks a thumbnail, the page section (link line or
+      // the mark/create tabs) and the post section over a phone screen.
+      { name: 'civitai', open: ['[data-testid="gallery-zoom"]',
+        '[data-testid="lightbox-civitai"]'] },
     ],
   },
   /* 🎬 One video training set's workspace. Needs an id, like the Studio above —

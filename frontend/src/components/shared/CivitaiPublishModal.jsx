@@ -267,7 +267,7 @@ export default function CivitaiPublishModal({ context, onClose }) {
             <p className="m-0 mt-0.5 text-[0.6875rem] text-content-subtle">
               {status == null ? 'Checking the API key…'
                 : noKey ? 'No Civitai API key configured.'
-                  : `Signed in as ${status.username || '(key accepted)'} · links open on ${status.link_host}`}
+                  : `${status.username ? `Signed in as ${status.username}` : 'API key configured'} · links open on ${status.link_host}`}
             </p>
           </div>
           <button type="button" ref={closeRef} onClick={close} aria-label="Close" title="Close (Esc)"

@@ -45,4 +45,8 @@ test('the probe knows the page: its states and the selector that means "data arr
   // Klein verb; its testid lives in the shared lightbox, not the page.
   assert.match(probe, /open: \['\[data-testid="gallery-zoom"\]',\s*\n\s*'\[data-testid="lightbox-improve-klein"\]'\]/);
   assert.match(lightbox, /data-testid=\{`lightbox-improve-\$\{btn\.id\}`\}/);
+  // 📤 The Civitai state opens the shared publish dialog from the viewer's
+  // verb — the one layer of this wave the source tests cannot measure.
+  assert.match(probe, /open: \['\[data-testid="gallery-zoom"\]',\s*\n\s*'\[data-testid="lightbox-civitai"\]'\]/);
+  assert.match(lightbox, /data-testid="lightbox-civitai"/);
 });
