@@ -438,6 +438,16 @@ def test_a_multi_shot_plan_carries_the_official_timecodes_the_model_must_copy():
     assert vmp.shot_count(3, 1) == 1
     assert vmp.shot_count(99, 10) == vmp.MAX_SHOTS
     assert vmp.shot_count('junk', 10) == 1
+    # Four seconds hold four shots at most: six on four is one every 0.67 s,
+    # under the line the rule names — the cap stopped one second short of it.
+    # Five seconds carry six.
+    assert vmp.shot_count(6, 4) == 4
+    assert vmp.shot_count(6, 5) == 6
+    # Every length the graph can take, every count the plan allows: no shot
+    # shorter than 0.7 s once the clip has a length to pace.
+    for secs in range(1, 16):
+        for shots in range(1, vmp.MAX_SHOTS + 1):
+            assert secs / vmp.shot_count(shots, secs) >= 0.7, (secs, shots)
     assert 'EXACTLY 2 shots' in vmp.shot_directive(2, 4)
     # An unknown length with several shots still asks for increasing codes.
     d = vmp.shot_directive(None, 2)
@@ -486,14 +496,18 @@ def test_a_prose_answer_or_an_audio_line_becomes_the_official_fields():
                    'non_diegetic_music: N/A')
 
 
-def test_a_field_cut_by_the_token_budget_loses_its_orphan_tail():
+def test_a_field_that_stops_on_a_word_no_clause_ends_on_loses_that_tail():
     long = ('integrated_multimodal_description: [Shot 1] She turns slowly toward the '
             'window and the light climbs her face as the curtain lifts. Her hand rises '
-            'toward the glass and then she')
+            'toward the glass and then the')
     out = vmp.finish(long, with_image=False)
     assert out.startswith('integrated_multimodal_description: [Shot 1] She turns slowly')
-    assert 'and then she' not in out
+    assert 'and then the' not in out
     assert out.split('\n')[0].endswith('curtain lifts.')
+    # The same tail on a pronoun is a clause that may only have lost its full
+    # stop: under the budget, nothing proves a cut, and it stays.
+    out = vmp.finish(long[:-len('the')] + 'she', with_image=False)
+    assert out.split('\n')[0].endswith('toward the glass and then she')
     # A short field is kept whole rather than cut to a stub; N/A is N/A.
     assert vmp._trim_dangling('N/A') == 'N/A'
     assert vmp._trim_dangling('rain on glass, then wind') == 'rain on glass, then wind'
@@ -655,7 +669,8 @@ def test_the_chatter_around_an_answer_is_dropped_in_all_its_dialects():
 def test_the_orphan_tail_cut_knows_a_timecode_from_a_full_stop():
     """`rfind('.')` took the dot inside "00:05.000" for a sentence end and
     the field lost its second shot; and a final clause that merely lost its
-    full stop — a noun at the end, no joining word — is kept, not cut."""
+    full stop is kept, not cut — only the budget, joining punctuation or a
+    word no clause ends on (a determiner, a coordinator) make a tail a cut."""
     two_shots = ('[Shot 1] She turns toward the window slowly, the light on her cheek. '
                  '[Shot 2] At 00:05.000, the camera cuts to a close-up of her hands folding the letter')
     assert vmp._trim_dangling(two_shots) == two_shots
@@ -665,19 +680,45 @@ def test_the_orphan_tail_cut_knows_a_timecode_from_a_full_stop():
     # The same tail with the budget hit IS the cut.
     assert vmp._trim_dangling(kept, truncated=True) == \
         'She turns her head slowly toward the window.'
-    # A tail on a joining word is a fragment whatever the budget.
-    assert vmp._trim_dangling('She turns her head slowly toward the window. The camera '
-                              'follows her hand as it rises to the glass and') == \
-        'She turns her head slowly toward the window.'
+    # A tail on a determiner or a coordinator is a fragment whatever the
+    # budget — each word of the list, or a word could leave it unnoticed.
+    for w in ('a', 'an', 'the', 'and', 'or', 'nor'):
+        assert vmp._trim_dangling('She turns her head slowly toward the window. The camera '
+                                  f'follows her hand as it rises to the glass and rests on {w}') == \
+            'She turns her head slowly toward the window.', w
     assert vmp._trim_dangling('She turns her head slowly toward the window. Then the camera,') == \
         'She turns her head slowly toward the window.'
     # The placeholder with its own full stop still goes.
     assert vmp._trim_dangling('Soft breaths, fabric rustle. N/A.') == 'Soft breaths, fabric rustle.'
-    # The budget is judged on the scrubbed answer, once, in finish().
-    long = 'integrated_multimodal_description: ' + ('She turns slowly. ' * 100) + 'and then the'
+    # The budget is judged on the scrubbed answer, once, in finish() — and
+    # at the budget a tail on a pronoun is the cut too.
+    long = 'integrated_multimodal_description: ' + ('She turns slowly. ' * 100) + 'and then she'
     assert len(long.split()) >= vmp._BUDGET_WORDS
     out = vmp.finish(long, with_image=False)
     assert out.splitlines()[0].endswith('She turns slowly.')
+
+
+def test_a_final_clause_that_lost_its_full_stop_stays_whatever_its_last_word():
+    """Refuted on the previous word list: four of these five legitimate
+    closing clauses were amputated because they end on a pronoun, a
+    preposition or "is" ("behind her", "looking at", "everything that is")
+    — the vocabulary the craft rules ask for ("toward the camera", "to her
+    left"). A missing full stop is not proof of a cut; the budget is, or a
+    word no clause can end on."""
+    clauses = [
+        'She grips the rail and arches back slowly. The rim light settles behind her',
+        'Fabric slips from her shoulder and the light shifts. He steps in close behind her',
+        'She turns toward the window, breathing steadily. The lens holds on what she is looking at',
+        'She grips the rail and arches back slowly. The light stays there',
+        'Fabric slips from her shoulder and the light shifts. The frame holds everything that is',
+    ]
+    for c in clauses:
+        assert vmp._trim_dangling(c) == c, c
+        # Through the pipeline as well: the description keeps its last clause.
+        out = vmp.finish('integrated_multimodal_description: ' + c, with_image=False)
+        assert out.splitlines()[0] == 'integrated_multimodal_description: [Shot 1] ' + c, c
+        # The budget hit is the cut, on these same tails.
+        assert vmp._trim_dangling(c, truncated=True) == c.split('. ')[0] + '.', c
 
 
 def test_a_shot_marker_in_mid_field_moves_to_the_front_instead_of_doubling():

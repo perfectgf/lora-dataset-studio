@@ -192,14 +192,15 @@ def clip_seconds(seconds) -> int:
 
 def shot_count(shots, seconds: int) -> int:
     """How many shots the plan asks for: clamped to [1, MAX_SHOTS], and never
-    more than one per second on a clip shorter than four — a cut every 0.7 s
-    is a flicker, not a montage."""
+    more than one per second on a clip of four seconds or less — a cut every
+    0.7 s is a flicker, not a montage (six shots on four seconds is one every
+    0.67 s; five seconds carry six)."""
     try:
         n = int(shots)
     except (TypeError, ValueError):
         n = 1
     n = max(1, min(n, MAX_SHOTS))
-    if 1 <= seconds < 4:
+    if 1 <= seconds <= 4:
         n = min(n, seconds)
     return n
 
@@ -388,21 +389,27 @@ _HEADER_SENTENCE = re.compile(
 # Where a sentence ends: a full stop followed by space or the end — so the
 # dot inside a timecode ("00:05.000") or a decimal is not one.
 _SENTENCE_END = re.compile(r'[.!?](?=["\')\]]*(?:\s|$))')
-# A tail that stops on a joining word is the budget's cut; one that stops on
-# a noun is a clause that lost its full stop, and stays.
-_FRAGMENT_TAIL = re.compile(
-    r'(?i)(?:^|\s)(?:a|an|the|and|or|but|of|to|with|as|at|in|on|into|onto|from|for'
-    r'|by|her|his|their|its|while|then|that|which|toward|towards|across|through'
-    r'|over|under|before|after|until|she|he|they|we|who|whose|when|where|is|are)$')
+# A tail that stops on a word no English clause can end on — a determiner
+# waiting for its noun, a coordinator waiting for its second half — is a cut
+# whatever the budget said. Nothing else is: a final clause that merely lost
+# its full stop ends on a preposition or a pronoun as often as on a noun
+# ("settles behind her", "what she is looking at"), and the craft rules ask
+# for exactly that vocabulary ("toward the camera", "to her left"). Measured:
+# a wider list — prepositions, pronouns, "is/are" — amputated four of five
+# legitimate closing clauses (two on "her", one on "at", one on "is").
+_FRAGMENT_TAIL = re.compile(r'(?i)(?:^|\s)(?:a|an|the|and|or|nor)$')
 
 
 def _trim_dangling(txt: str, *, truncated: bool = False) -> str:
     """A field the token budget cut mid-sentence ends on a fragment the model
     would render as a half-thought. Cut back to the last sentence end — but
     only when what remains is a real field, never down to a stub, and only
-    when the tail IS a fragment: a final clause that merely lost its full stop
-    ("... ending on a close-up of her face") stays, unless the answer hit the
-    budget, where every unfinished tail is the cut.
+    when the tail IS a fragment: it hangs on joining punctuation or on a word
+    no clause ends on (a determiner, a coordinator). A final clause that
+    merely lost its full stop stays whatever its last word ("... ending on a
+    close-up of her face", "... settles behind her"): a missing full stop is
+    not proof of a cut — unless the answer hit the budget, where every
+    unfinished tail is the cut.
 
     A field that carries content AND a trailing "N/A" (measured: the model
     copies the placeholder from the format block after a real soundscape)
