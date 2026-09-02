@@ -94,6 +94,8 @@ export const WHATS_NEW = [
       + 'new clip to compare. Windows + NVIDIA only; Setup installs the bridge, you '
       + 'bring the model file.',
     to: '/datasets',
+  },
+  {
     id: '2026-09-02-video-studio-preview-size',
     date: '2026-09-02',
     title: 'A Preview size slider in the Video Test Studio’s start frame picker',
