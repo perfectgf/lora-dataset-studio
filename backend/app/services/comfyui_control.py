@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import threading
@@ -224,6 +225,53 @@ def _sanitized_child_env() -> dict[str, str]:
     return child
 
 
+# Why the launcher passes `--fast-disk` (measured 2026-09-02, per node, on the
+# maintainer's machine — 24 GB card, 48 GB of system RAM, models on an NVMe):
+#
+# The Video Test Studio's MiniMax H3 set weighs ~43 GB (DiT 21 + text encoder
+# 16 + VAEs 6). ComfyUI's default loader stages every weight it offloads in
+# system RAM, so on a machine whose RAM cannot hold the set beside everything
+# else, a 56-frame clip cost 348 s — 319 s of them in the VAE decode, streamed
+# layer by layer from a paged RAM with 1 GB of VRAM free, without one line of
+# log — and the SECOND clip 302-315 s, the text encoder and the DiT chasing
+# each other through the page file. `--fast-disk` tells ComfyUI to prefer the
+# safetensors file over an unpinned RAM copy: the same clip took 30 s cold and
+# 21-24 s warm, with 21 GB of RAM still free. It beat every other lever that
+# was measured: `--disable-dynamic-vram` (72 s cold, 315 s warm), a `/free`
+# before the clip (59 s) and a fresh process (63 s). On a machine with RAM to
+# spare the flag costs nothing the OS file cache does not give back.
+#
+# `--disable-dynamic-vram` is deliberately NOT passed: it fixes the VAE decode
+# and leaves the swap storm on the next clip, which is the worse half.
+_FAST_DISK_FLAG = '--fast-disk'
+
+
+def _memory_flags(layout: _PortableLayout) -> list:
+    """The memory flags THIS ComfyUI understands — read from its own
+    `comfy/cli_args.py`, never assumed.
+
+    `--fast-disk` arrived in ComfyUI in May 2026. argparse answers an unknown
+    flag with an exit before the server exists, which the launcher would then
+    report as "ComfyUI couldn't start" on every older portable bundle — a
+    regression for exactly the installs the flag was never going to help. The
+    file is read as text (no import, nothing executed); an unreadable file
+    means the fixed command line, as before.
+    """
+    try:
+        text = (layout.base_dir / 'comfy' / 'cli_args.py').read_text(
+            encoding='utf-8', errors='replace')
+    except OSError:
+        logger.debug('ComfyUI cli_args.py unreadable; launching without memory flags')
+        return []
+    # The DECLARATION, not a mention: a comment or a longer flag that happens
+    # to contain the name must not put it on the command line.
+    declared = re.search(r'add_argument\(\s*["\']' + re.escape(_FAST_DISK_FLAG) + r'["\']', text)
+    flags = [_FAST_DISK_FLAG] if declared else []
+    # Paste-safe: flag names only, never a path.
+    logger.info('ComfyUI portable launch: memory flags %s', flags or 'none')
+    return flags
+
+
 def _spawn(layout: _PortableLayout):
     """Spawn only the fixed, LDS-owned ComfyUI command.  No user .bat is involved."""
     argv = [
@@ -233,6 +281,7 @@ def _spawn(layout: _PortableLayout):
         '--preview-method', 'none',
         '--listen', '127.0.0.1',
         '--port', '8188',
+        *_memory_flags(layout),
     ]
     kwargs = {
         'shell': False,

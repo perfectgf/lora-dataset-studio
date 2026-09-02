@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildGeneratePayload, clipSeconds, clipSummary, isRunning, SPARSE_CHOICES, studioFrameChoices,
+  buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, SPARSE_CHOICES,
+  studioFrameChoices,
 }  from './videoStudioApi.js';
 
 test('an option left off is absent from the payload, never false', () => {
@@ -125,4 +126,24 @@ test('the launch carries the enrich flag only when it is asked for', () => {
   assert.equal(on.enhance, true)
   const off = buildGeneratePayload({ mode: 't2v', prompt: 'she turns' })
   assert.equal('enhance' in off, false)
+})
+
+test('the launch advice phrases exactly what the server sent, flag names included', () => {
+  const base = { flag: '--fast-disk', ram_total_gb: 47.7, weights_gb: 43 }
+  const add = launchAdviceLines({ ...base, add: true, remove: null })
+  assert.equal(add.title, 'ComfyUI is running without --fast-disk')
+  assert.match(add.action, /^Add --fast-disk on the command that starts ComfyUI, then start it again\.$/)
+
+  const both = launchAdviceLines({ ...base, add: true, remove: '--disable-dynamic-vram' })
+  assert.match(both.title, /running with --disable-dynamic-vram, which switches off the loader --fast-disk relies on/)
+  assert.match(both.action, /^Remove --disable-dynamic-vram and add --fast-disk on the command/)
+
+  // The flag already on the line: the card must not ask to add it again.
+  const only = launchAdviceLines({ ...base, add: false, remove: '--disable-dynamic-vram' })
+  assert.match(only.action, /^Remove --disable-dynamic-vram \(--fast-disk is already on the command line\) on the command/)
+  assert.doesNotMatch(only.action, /and add/)
+
+  // Nothing sent, nothing said.
+  assert.equal(launchAdviceLines(null), null)
+  assert.equal(launchAdviceLines({}), null)
 })

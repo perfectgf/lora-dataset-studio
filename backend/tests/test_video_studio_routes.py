@@ -429,3 +429,88 @@ def test_a_clip_publishes_the_start_frame_reuse_needs(app):
 
     assert row['source_image'] == 'lds_vstudio_abc123.png'
     assert row['mode'] == 'i2v'
+
+
+def test_options_carry_the_launch_advice_the_running_comfyui_earns(client, monkeypatch):
+    from app.services import video_test_studio as vts
+    # Started without the flag on a 48 GB machine, on a ComfyUI that knows it: told.
+    monkeypatch.setattr(vts, 'comfyui_launch_facts',
+                        lambda timeout=3: (['main.py', '--listen', '127.0.0.1'], 47.7, '0.30.1'))
+    body = client.get('/api/video-studio/options').get_json()
+    assert body['launch_advice'] == {'flag': '--fast-disk', 'add': True, 'remove': None,
+                                     'ram_total_gb': 47.7, 'weights_gb': vts.H3_HOST_RAM_GB}
+    # Started by LDS's own launcher (which passes the flag): nothing to say.
+    monkeypatch.setattr(vts, 'comfyui_launch_facts',
+                        lambda timeout=3: (['main.py', '--fast-disk'], 47.7, '0.30.1'))
+    assert client.get('/api/video-studio/options').get_json()['launch_advice'] is None
+    # Unreachable, or too old to echo its argv: silence, never a guess.
+    monkeypatch.setattr(vts, 'comfyui_launch_facts', lambda timeout=3: (None, None, None))
+    assert client.get('/api/video-studio/options').get_json()['launch_advice'] is None
+
+
+class _Resp:
+    def __init__(self, payload, status=200, raises=None):
+        self.status_code = status
+        self._payload = payload
+        self._raises = raises
+
+    def json(self):
+        if self._raises:
+            raise self._raises
+        return self._payload
+
+
+def _facts_with(app, monkeypatch, response=None, raising=None):
+    from app.services import video_test_studio as vts
+    import requests
+    seen = {}
+
+    def fake_get(*args, **kwargs):
+        seen.update(kwargs)
+        if raising:
+            raise raising
+        return response
+
+    monkeypatch.setattr(requests, 'get', fake_get)
+    with app.app_context():
+        from app import config as cfg
+        monkeypatch.setattr(cfg, 'get', lambda key, default=None: (
+            'http://127.0.0.1:8188' if key == 'comfyui.api_url' else default))
+        return vts.comfyui_launch_facts(), seen
+
+
+def test_launch_facts_read_argv_ram_and_version_from_system_stats(app, monkeypatch):
+    # A raw, unaligned byte count: the GiB figure is handed on as a float and
+    # rounded ONCE, by the advice, so the seam bytes → GiB is really crossed.
+    payload = {'system': {'argv': ['main.py', '--fast-disk'], 'ram_total': 50465476608,
+                          'comfyui_version': '0.30.1'}}
+    facts, seen = _facts_with(app, monkeypatch, _Resp(payload))
+    assert facts == (['main.py', '--fast-disk'], 50465476608 / 1024 ** 3, '0.30.1')
+    # The call is bounded and never follows a redirect off the configured host:
+    # it sits in the synchronous body of the options route the panel fetches on mount.
+    assert seen['timeout'] == 3
+    assert seen['allow_redirects'] is False
+
+
+def test_launch_facts_keep_the_argv_when_an_older_server_sends_no_ram(app, monkeypatch):
+    facts, _ = _facts_with(app, monkeypatch, _Resp({'system': {'argv': ['main.py']}}))
+    assert facts == (['main.py'], None, None)
+
+
+@pytest.mark.parametrize('response', [
+    _Resp({'system': {}}),                       # a server that echoes nothing useful
+    _Resp({}),                                   # no system block at all
+    _Resp([]),                                   # not even an object
+    _Resp({'system': {'argv': ['main.py']}}, status=500),
+    _Resp(None, raises=ValueError('not json')),
+])
+def test_launch_facts_answer_none_for_every_shape_of_nothing(app, monkeypatch, response):
+    facts, _ = _facts_with(app, monkeypatch, response)
+    assert facts == (None, None, None)
+
+
+def test_launch_facts_never_raise_when_the_request_fails(app, monkeypatch):
+    import requests
+    for exc in (requests.ConnectionError('down'), requests.Timeout('slow')):
+        facts, _ = _facts_with(app, monkeypatch, raising=exc)
+        assert facts == (None, None, None)

@@ -105,6 +105,9 @@ def video_studio_options():
         'turbo_steps': vts.TURBO_STEPS, 'default_steps': vts.DEFAULT_STEPS,
         'base_official': vts.BASE_OFFICIAL, 'base_eros': vts.BASE_EROS,
         'eros_available': vts.eros_on_disk(),
+        # How the running ComfyUI was started, judged against this machine's
+        # RAM: None, or the flag that turns minutes per clip into seconds.
+        'launch_advice': vts.launch_advice(*vts.comfyui_launch_facts()),
     })
 
 

@@ -158,3 +158,24 @@ export function studioFrameChoices(options) {
   if (out[0] !== min && min % 17 === 5) out.unshift(min);
   return out.length ? out : (options?.frame_choices || [39, 56, 107]);
 }
+
+// ⏱ The launch advice, as two sentences. The server decides WHETHER to speak
+// (video_test_studio.launch_advice: the flag missing, a ComfyUI that knows it,
+// a machine whose RAM cannot hold the weights); this only phrases what it
+// sent, and never spells a flag of its own — every name comes from the payload,
+// so a second flag on the server side needs no change here.
+export function launchAdviceLines(advice) {
+  if (!advice || !advice.flag) return null;
+  const { flag, add, remove } = advice;
+  const title = remove
+    ? `ComfyUI is running with ${remove}, which switches off the loader ${flag} relies on`
+    : `ComfyUI is running without ${flag}`;
+  let change;
+  if (remove && add) change = `Remove ${remove} and add ${flag}`;
+  else if (remove) change = `Remove ${remove} (${flag} is already on the command line)`;
+  else change = `Add ${flag}`;
+  return {
+    title,
+    action: `${change} on the command that starts ComfyUI, then start it again.`,
+  };
+}

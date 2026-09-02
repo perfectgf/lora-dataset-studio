@@ -33,6 +33,7 @@ reason the pitfalls below can be pinned by tests at all.
 import json
 import os
 import random
+import re
 import uuid
 
 from . import video_targets
@@ -1351,3 +1352,136 @@ def studio_ready(missing=None) -> bool:
     if missing is None:
         missing = missing_weights()
     return not any(m['required'] for m in missing)
+
+
+# ⏱ How ComfyUI was STARTED decides more than any dial on this screen.
+#
+# The H3 set the graph loads weighs about 43 GB (DiT int8 21 + text encoder
+# nvfp4 16 + the two VAEs 6), and ComfyUI's default loader keeps a copy of every
+# weight it offloads in system RAM. On a machine whose RAM cannot hold that set
+# beside the OS and the desktop, the models page through the swap file at every
+# node change — measured per node on a 48 GB machine: a 56-frame clip took
+# 348 s (319 s of them decoding the VAE), the next one 302-315 s. Started with
+# `--fast-disk`, ComfyUI reads the weights back from the safetensors files
+# instead: the same clip took 30 s cold and 21-24 s warm, RAM left alone.
+#
+# LDS's own launcher passes the flag (`comfyui_control._spawn`). A ComfyUI the
+# user starts some other way — a .bat, a Desktop install, another machine —
+# is not ours to configure, so the Studio asks the running instance what it
+# was started with (`/system_stats` echoes its argv, its RAM and its version)
+# and SAYS so when the flag is missing on a machine that needs it. Every
+# "cannot tell" case stays silent: advice built on a guess would name a flag
+# the user may already be passing, or one their ComfyUI does not know.
+H3_HOST_RAM_GB = 43
+# psutil reports the RAM the OS can use, a little under the nominal size: the
+# 48 GB machine above reads 47.7, a 64 GB one about 63.7. The floor sits under
+# the nominal 64 GB it means, or that class of machine would get the card the
+# comment above says it should not. Calibrated on one point (48 GB of RAM,
+# 43 GB of weights); nothing in between has been measured.
+FAST_DISK_RAM_FLOOR_GB = 60
+# `--fast-disk` was declared in ComfyUI v0.23.0 (2026-06-01). argparse answers
+# an unknown flag with an exit before the server exists, so advising it to an
+# older instance would stop that ComfyUI from starting — the exact failure the
+# launcher guards against by reading cli_args.py. Below this version, or
+# without one, the advice stays silent.
+FAST_DISK_MIN_COMFYUI = (0, 23, 0)
+_FAST_DISK_FLAG = '--fast-disk'
+# `--high-ram` is the user saying "I prefer the page file to model loading" —
+# the opposite choice, made on purpose, whatever the loader. Never argued with.
+_HIGH_RAM_FLAG = '--high-ram'
+# `--fast-disk` only steers ComfyUI's DYNAMIC loader (its whole effect runs
+# through the vbar path). With that loader off the flag is inert, so advising
+# it alone would send the user to a change that changes nothing. ComfyUI's own
+# rule (`enables_dynamic_vram`): `--enable-dynamic-vram` forces the loader on;
+# otherwise `--disable-dynamic-vram` or any of the memory modes below turns it
+# off. The switch is what a launcher tuned for an older ComfyUI still carries
+# (the maintainer's own did, calibrated on a 20 GB image model, and ComfyUI now
+# announces it as "will be removed soon") — that one is named, to be removed.
+# The modes are a choice, and the advice stays silent rather than argue.
+_DYNAMIC_VRAM_SWITCH = '--disable-dynamic-vram'
+_DYNAMIC_VRAM_FORCE = '--enable-dynamic-vram'
+_DYNAMIC_VRAM_OFF_MODES = ('--novram', '--highvram', '--gpu-only', '--cpu')
+
+_VERSION_RE = re.compile(r'(\d+)\.(\d+)(?:\.(\d+))?')
+
+
+def knows_fast_disk(comfyui_version) -> bool:
+    """Does a ComfyUI reporting this version string declare `--fast-disk`?
+
+    Reads the leading `major.minor[.patch]` out of whatever the server sent
+    ("0.30.1", "v0.23.0", "0.30.1+16"); anything else is "cannot tell" = False.
+    """
+    m = _VERSION_RE.search(str(comfyui_version or ''))
+    if not m:
+        return False
+    return tuple(int(g or 0) for g in m.groups()) >= FAST_DISK_MIN_COMFYUI
+
+
+def launch_advice(argv, ram_total_gb, comfyui_version=None):
+    """What to change on the command that starts ComfyUI, or None. Pure.
+
+    {flag, add, remove, ram_total_gb, weights_gb}: `flag` is `--fast-disk`;
+    `add` says whether it is missing from the line (False = already there);
+    `remove` names `--disable-dynamic-vram` when the launcher carries it and
+    nothing forces the loader back on, because the flag does nothing until that
+    switch is gone — a card that only said "add --fast-disk" to such a launcher
+    would send the user to a change that changes nothing.
+
+    None covers every case where nothing should be said: no argv (an instance
+    too old to echo it, or unreachable), a ComfyUI that predates the flag, no
+    RAM figure or enough RAM, `--high-ram`, a memory mode with no dynamic
+    loader, and a line that already has what it needs.
+    """
+    if not isinstance(argv, (list, tuple)) or not argv:
+        return None
+    if not knows_fast_disk(comfyui_version):
+        return None
+    if not isinstance(ram_total_gb, (int, float)) or isinstance(ram_total_gb, bool):
+        return None
+    if ram_total_gb <= 0 or ram_total_gb >= FAST_DISK_RAM_FLOOR_GB:
+        return None
+    flags = {str(a).split('=', 1)[0].strip() for a in argv}
+    if _HIGH_RAM_FLAG in flags:
+        return None
+    forced_on = _DYNAMIC_VRAM_FORCE in flags
+    if not forced_on and any(m in flags for m in _DYNAMIC_VRAM_OFF_MODES):
+        return None
+    switched_off = (not forced_on) and _DYNAMIC_VRAM_SWITCH in flags
+    has_flag = _FAST_DISK_FLAG in flags
+    if has_flag and not switched_off:
+        return None
+    return {'flag': _FAST_DISK_FLAG, 'add': not has_flag,
+            'remove': _DYNAMIC_VRAM_SWITCH if switched_off else None,
+            'ram_total_gb': round(float(ram_total_gb), 1),
+            'weights_gb': H3_HOST_RAM_GB}
+
+
+def comfyui_launch_facts(timeout=3):
+    """(argv, ram_total_gb, version) of the RUNNING ComfyUI, from /system_stats.
+
+    NETWORK — one short GET, kept out of the pure `launch_advice` so the
+    decision stays testable without a server. Each field is None on its own
+    when the server did not send it (an older instance echoes its argv without
+    a RAM figure, and that argv is still worth having); all three are None when
+    ComfyUI is not configured, does not answer, or answers nonsense. Never
+    raises.
+    """
+    from .. import config as cfg
+    import requests
+    api = (cfg.get('comfyui.api_url') or '').rstrip('/')
+    if not api:
+        return None, None, None
+    try:
+        r = requests.get(f'{api}/system_stats', timeout=timeout, allow_redirects=False)
+        if r.status_code != 200:
+            return None, None, None
+        payload = r.json()
+        system = (payload.get('system') if isinstance(payload, dict) else None) or {}
+    except Exception:
+        return None, None, None
+    argv = system.get('argv')
+    ram = system.get('ram_total')
+    version = system.get('comfyui_version')
+    ram_gb = (ram / 1024 ** 3) if isinstance(ram, (int, float)) and not isinstance(ram, bool) and ram > 0 else None
+    return ((list(argv) if isinstance(argv, (list, tuple)) else None), ram_gb,
+            (str(version) if version else None))

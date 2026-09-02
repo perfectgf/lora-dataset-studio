@@ -389,3 +389,90 @@ def test_the_filename_prefix_is_unique_per_clip():
     that only carried a user id produced repeat filenames across sessions — and
     a repeat filename is a stale clip served under a new run's name."""
     assert vts.new_prefix(1) != vts.new_prefix(1)
+
+
+# ⏱ The launch advice: pure, and silent whenever it cannot know.
+
+_ARGV = ['main.py', '--windows-standalone-build', '--listen', '127.0.0.1']
+_RAM = 47.7            # what a 48 GB machine reports (psutil total, in GiB)
+_VERSION = '0.30.1'
+
+
+def test_advice_names_fast_disk_only_when_the_flag_is_missing_and_ram_is_short():
+    out = vts.launch_advice(_ARGV, _RAM, _VERSION)
+    assert out == {'flag': '--fast-disk', 'add': True, 'remove': None,
+                   'ram_total_gb': 47.7, 'weights_gb': vts.H3_HOST_RAM_GB}
+    # The flag present — bare or with a value, padded or not — ends the matter.
+    assert vts.launch_advice(_ARGV + ['--fast-disk'], _RAM, _VERSION) is None
+    assert vts.launch_advice(_ARGV + ['--fast-disk=1'], _RAM, _VERSION) is None
+    assert vts.launch_advice(_ARGV + [' --fast-disk '], _RAM, _VERSION) is None
+    # `--high-ram` is the opposite choice, made on purpose: silence.
+    assert vts.launch_advice(_ARGV + ['--high-ram'], _RAM, _VERSION) is None
+    # The figure shown is the raw GiB, rounded once, here — the card prints it as is.
+    assert vts.launch_advice(_ARGV, 46.999637603759766, _VERSION)['ram_total_gb'] == 47.0
+
+
+def test_the_floor_spares_a_64_gb_machine_that_reports_less_than_64():
+    # psutil reports usable RAM: a 64 GB machine reads ~63.7. The floor must
+    # sit under that, or the class the comment exempts would get the card.
+    assert vts.launch_advice(_ARGV, 63.7, _VERSION) is None
+    assert vts.launch_advice(_ARGV, vts.FAST_DISK_RAM_FLOOR_GB, _VERSION) is None
+    assert vts.launch_advice(_ARGV, 128, _VERSION) is None
+    assert vts.launch_advice(_ARGV, vts.FAST_DISK_RAM_FLOOR_GB - 0.1, _VERSION) is not None
+    # And it still leaves the OS and the desktop room beside the weight set.
+    assert vts.FAST_DISK_RAM_FLOOR_GB > vts.H3_HOST_RAM_GB + 12
+
+
+@pytest.mark.parametrize('version', [None, '', 'garbage', '0.22.0', '0.3.60', 'v0.22.9+3'])
+def test_a_comfyui_that_predates_the_flag_gets_no_advice(version):
+    # argparse exits on an unknown flag before the server exists: telling such
+    # an install to add `--fast-disk` would stop it from starting at all.
+    assert vts.launch_advice(_ARGV, _RAM, version) is None
+    assert vts.knows_fast_disk(version) is False
+
+
+@pytest.mark.parametrize('version', ['0.23.0', 'v0.23.0', '0.30.1', '0.30.1+16', '1.0'])
+def test_a_comfyui_that_knows_the_flag_is_advised(version):
+    assert vts.knows_fast_disk(version) is True
+    assert vts.launch_advice(_ARGV, _RAM, version)['add'] is True
+
+
+def test_a_launcher_that_switches_the_dynamic_loader_off_is_told_which_flag_to_drop():
+    # `--fast-disk` steers the dynamic loader only; with `--disable-dynamic-vram`
+    # on the line it is inert, so the advice must name the switch — and say
+    # whether the flag itself still needs adding, or is already there.
+    tuned = ['main.py', '--disable-async-offload', '--disable-dynamic-vram', '--cache-classic']
+    out = vts.launch_advice(tuned, _RAM, _VERSION)
+    assert out == {'flag': '--fast-disk', 'add': True, 'remove': '--disable-dynamic-vram',
+                   'ram_total_gb': 47.7, 'weights_gb': vts.H3_HOST_RAM_GB}
+    already = vts.launch_advice(tuned + ['--fast-disk'], _RAM, _VERSION)
+    assert already['remove'] == '--disable-dynamic-vram' and already['add'] is False
+    # `--enable-dynamic-vram` overrides the switch (ComfyUI's own rule): the
+    # loader runs, so only the flag itself can be missing.
+    forced = vts.launch_advice(tuned + ['--enable-dynamic-vram'], _RAM, _VERSION)
+    assert forced == {**out, 'remove': None}
+    assert vts.launch_advice(tuned + ['--enable-dynamic-vram', '--fast-disk'], _RAM, _VERSION) is None
+    # The deliberate choices still win over the switch.
+    assert vts.launch_advice(tuned + ['--high-ram'], _RAM, _VERSION) is None
+    # And the RAM floor applies either way.
+    assert vts.launch_advice(tuned, 128, _VERSION) is None
+
+
+@pytest.mark.parametrize('mode', ['--novram', '--highvram', '--gpu-only', '--cpu'])
+def test_a_memory_mode_that_has_no_dynamic_loader_gets_no_advice(mode):
+    # These turn the loader off by design; arguing with them would name a flag
+    # that does nothing there — unless `--enable-dynamic-vram` forces it back on.
+    assert vts.launch_advice(['main.py', mode], _RAM, _VERSION) is None
+    assert vts.launch_advice(['main.py', mode, '--disable-dynamic-vram'], _RAM, _VERSION) is None
+    assert vts.launch_advice(['main.py', mode, '--enable-dynamic-vram'], _RAM, _VERSION)['add'] is True
+
+
+def test_advice_stays_silent_when_it_cannot_tell():
+    assert vts.launch_advice(None, _RAM, _VERSION) is None          # no argv echoed
+    assert vts.launch_advice([], _RAM, _VERSION) is None
+    assert vts.launch_advice('--fast-disk', _RAM, _VERSION) is None  # a string is not argv
+    assert vts.launch_advice(_ARGV, None, _VERSION) is None          # no RAM figure
+    assert vts.launch_advice(_ARGV, 0, _VERSION) is None
+    assert vts.launch_advice(_ARGV, True, _VERSION) is None          # a bool is not a size
+    # Odd argv ELEMENTS never raise: a server that echoes numbers is answered, not crashed on.
+    assert vts.launch_advice(['main.py', 1, None], _RAM, _VERSION)['add'] is True

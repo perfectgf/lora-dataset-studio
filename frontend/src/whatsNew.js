@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-studio-fast-disk',
+    date: '2026-09-02',
+    title: 'Video clips in seconds instead of minutes on machines whose RAM cannot hold the H3 weights',
+    blurb:
+      'The Video Test Studio loads about 43 GB of weights, and ComfyUI keeps a '
+      + 'copy of everything it offloads in system RAM — on a 48 GB machine a '
+      + '56-frame clip took five to six minutes, nearly all of it swapping '
+      + 'models. ComfyUI started from the Setup screen now runs with '
+      + '--fast-disk, which reads the weights from disk instead: the same clip '
+      + 'takes 20 to 30 seconds. When ComfyUI was started some other way, the '
+      + 'Studio says so and names the flag to add — or the one to drop, when a '
+      + 'launcher still switches the dynamic loader off.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-02-video-studio-preview-size',
     date: '2026-09-02',
     title: 'A Preview size slider in the Video Test Studio’s start frame picker',

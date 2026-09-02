@@ -42,7 +42,7 @@ import VideoSourcePicker from './VideoSourcePicker';
 import { shortLoraName } from './videoLoraGroups';
 import {
   buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
-  isRunning, optionsUrl, clipVfiUrl, motionEnhanceUrl, motionSuggestUrl,
+  isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, motionEnhanceUrl, motionSuggestUrl,
 } from './videoStudioApi';
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
@@ -337,6 +337,9 @@ export default function VideoTestStudio() {
     </button>
   );
 
+  // ⏱ Phrased once, from what the server sent; null when it sent nothing.
+  const launchAdvice = launchAdviceLines(options?.launch_advice);
+
   return (
     <div className="flex flex-col gap-3">
       <header data-probe-chrome="video-studio-header"
@@ -371,6 +374,24 @@ export default function VideoTestStudio() {
               <li key={m.filename}>{m.what} — <code className="break-all">{m.filename}</code></li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* How ComfyUI was STARTED decides more than any dial below. The server
+          asks the running instance for its argv and its RAM and answers only
+          when it can tell (see video_test_studio.launch_advice); measured on a
+          48 GB machine, the flag is the difference between 5 minutes and 25
+          seconds per clip, so it is said here, before the first launch. */}
+      {launchAdvice && (
+        <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm"
+          data-testid="video-launch-advice">
+          <p className="font-semibold text-amber-200">{launchAdvice.title}</p>
+          <p className="mt-1 text-content-muted">
+            The video weights (about {options.launch_advice.weights_gb} GB) are then kept in
+            system RAM, and the machine running ComfyUI has {options.launch_advice.ram_total_gb} GB
+            — clips take minutes instead of seconds while models page in and out.{' '}
+            {launchAdvice.action}
+          </p>
         </div>
       )}
 
