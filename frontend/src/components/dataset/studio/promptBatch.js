@@ -38,9 +38,19 @@ export function visibleBatch(batch, recentPrompts) {
  *  compter UNE passe, pas deux. Après le lancement il entre dans l'historique
  *  comme les autres. */
 export function mergeBatches(historyPicked, extraPicked) {
+  // Le dédoublonnage se fait sur la chaîne AJUSTÉE, alors qu'on renvoie
+  // l'ORIGINALE : c'est ce que fait le moteur (`_prompt_axis` strippe puis
+  // dédoublonne), et deux règles différentes ici et là-bas donneraient un
+  // compteur qui promet une cellule que le run ne rendra pas. Renvoyer la
+  // chaîne d'origine garde un lot d'une seule source octet pour octet.
+  const seen = new Set();
   const out = [];
   for (const p of [...(historyPicked || []), ...(extraPicked || [])]) {
-    if (typeof p === 'string' && p !== '' && !out.includes(p)) out.push(p);
+    if (typeof p !== 'string') continue;
+    const key = p.trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
   }
   return out;
 }

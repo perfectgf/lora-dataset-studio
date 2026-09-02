@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-comparison-prompt-batch',
+    date: '2026-09-02',
+    title: 'The multi-LoRA comparison can replay a batch of prompts too',
+    blurb:
+      'Ticking several prompts to replay them in one run worked in the Test '
+      + 'Studio and on the canvas, and did nothing at all on the comparison '
+      + 'screen — its launch simply never carried them. It does now, so saved '
+      + 'prompts, 🎬 scenes and 🌐 Civitai picks all build a batch there as '
+      + 'well: one image set per prompt, across every LoRA you are comparing, '
+      + 'same seed and settings. The cost counter multiplies by the batch '
+      + 'before you launch instead of surprising you afterwards.',
+    to: '/studio',
+  },
+  {
     id: '2026-09-02-free-memory-button',
     date: '2026-09-02',
     title: 'A 🧹 button beside the machine-load numbers gives the RAM back',

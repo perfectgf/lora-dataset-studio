@@ -9,8 +9,11 @@
 //
 // 📝 `picks` / `onTogglePick` — the prompt batch, when the host has one: a
 // tick on a card adds that prompt as one more pass of the next run, without
-// touching the field. Only RunSetupPanel's surfaces own a batch today; the
-// comparison passes nothing and keeps the single ⤵ Use prompt.
+// touching the field. EVERY launch surface owns a batch now — RunSetupPanel's
+// two, and the multi-LoRA comparison, which owned none until POST
+// /api/studio/run started forwarding `prompts` at all. The gate below stays
+// anyway: it is what keeps a host that owns no batch from showing ticks that
+// feed nothing, without anyone having to remember.
 import { useState } from 'react';
 import CivitaiBrowserModal from './CivitaiBrowserModal';
 

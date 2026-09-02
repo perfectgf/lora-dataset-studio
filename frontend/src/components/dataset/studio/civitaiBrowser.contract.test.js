@@ -14,7 +14,7 @@ test('every prompt surface mounts the SAME Civitai browser button', () => {
   // block — a button added to one and not the other is exactly the kind of
   // silent divergence users report as a bug.
   assert.match(promptField, /<CivitaiBrowserButton prompt=\{value\} onPrompt=\{onChange\}\s*\n\s*picks=\{civitaiPicks\} onTogglePick=\{onToggleCivitaiPick\} \/>/);
-  assert.match(comparisonSetup, /<CivitaiBrowserButton prompt=\{prompt\} onPrompt=\{onPrompt\} \/>/);
+  assert.match(comparisonSetup, /<CivitaiBrowserButton prompt=\{prompt\} onPrompt=\{onPrompt\}\s*\n\s*picks=\{civitaiPicks\} onTogglePick=\{onToggleCivitaiPick\} \/>/);
   assert.match(button, /CivitaiBrowserModal/);
 });
 
@@ -26,8 +26,10 @@ test('📝 the browser feeds the prompt batch where a batch exists, and only the
   assert.match(modal, /role="checkbox" aria-checked=\{inBatch\}/);
   assert.match(modal, /onTogglePick\(c\.prompt\)/);
   assert.match(modal, /data-testid="civitai-batch-footer"/);
-  // Without a handler nothing appears: the comparison surface has no batch at
-  // all, so it shows no tick boxes rather than boxes that feed nothing.
+  // Without a handler nothing appears — the gate stays, because a host that
+  // owns no batch must show no tick boxes rather than boxes feeding nothing.
+  // (Every launch surface owns one today; the gate is what keeps that true by
+  // construction rather than by everyone remembering.)
   assert.match(modal, /const batchable = typeof onTogglePick === 'function'/);
   assert.match(button, /picks=\{picks\} onTogglePick=\{onTogglePick\}/);
   // The panel that owns the batch merges the two sources into ONE `prompts`.
@@ -36,6 +38,20 @@ test('📝 the browser feeds the prompt batch where a batch exists, and only the
   assert.match(panel, /onToggleCivitaiPick=\{toggleCivitaiPick\}/);
   // …and says so under the field, where it is read even with an empty history.
   assert.match(promptField, /data-testid="civitai-batch-count"/);
+});
+
+test('📝 the multi-LoRA comparison owns the batch too — it used to own none', () => {
+  /* `create_comparison_run` has always accepted `prompts`, but POST
+     /api/studio/run never forwarded it, so NO source could build a batch on the
+     comparison — not Civitai, not the saved prompts, not the 🎬 scenes — and
+     nothing was red about it. These pins hold the three halves together: the
+     screen that owns the state and posts it, the panel that shows it and
+     multiplies the cost by it, and the route that carries it. */
+  const owner = readFileSync(new URL('./ComparisonStudio.jsx', import.meta.url), 'utf8');
+  assert.match(owner, /mergeBatches\(historyBatch, civitaiPicks\)/);
+  assert.match(owner, /body\.prompts = \[\.\.\.pickedPrompts\]/);
+  assert.match(comparisonSetup, /promptCount: Math\.max\(1, picked\.length\)/);
+  assert.match(comparisonSetup, /batch=\{batchPrompts\} onToggleBatch=\{onToggleBatchPrompt\}/);
 });
 
 test('a typed prompt is never silently replaced', () => {

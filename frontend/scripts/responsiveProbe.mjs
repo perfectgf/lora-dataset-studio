@@ -361,6 +361,11 @@ const PAGES = {
       { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
       { name: 'video-gallery',
         open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
+      /* 🌐 Le navigateur Civitai. Sa rangée d'actions par carte est passée de deux
+         boutons à trois avec le 📝 lot de prompts, dans une colonne qui fait ~250 px
+         à 360 px de large — exactement la forme qui déborde. Aucun état ne l'ouvrait,
+         donc aucune mesure ne l'a jamais vue. */
+      { name: 'civitai', open: ['button:has-text("🌐 Civitai")'] },
     ],
   },
 };

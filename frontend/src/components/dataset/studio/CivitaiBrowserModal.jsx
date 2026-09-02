@@ -122,7 +122,12 @@ export default function CivitaiBrowserModal({ open, onClose, onUse, picks = null
     <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4"
       role="dialog" aria-modal="true" aria-label="Browse top Civitai prompts" ref={ref}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-4xl max-h-[88vh] rounded-2xl border border-border bg-surface-overlay p-4 flex flex-col gap-3 shadow-xl">
+      {/* `data-probe-layer` : cette modale couvre la page PAR DESIGN — non budgétée,
+          appariée avec rien dans le test de chevauchement. Sans marqueur ni état de
+          sonde, la rangée d'actions d'une carte — passée de deux boutons à trois
+          avec le lot — n'est mesurée à aucune taille. */}
+      <div data-probe-layer data-probe-panel="civitai-browser"
+        className="w-full max-w-4xl max-h-[88vh] rounded-2xl border border-border bg-surface-overlay p-4 flex flex-col gap-3 shadow-xl">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-content text-sm font-semibold flex items-center gap-1.5">
             <span aria-hidden>🌐</span> Civitai top prompts
