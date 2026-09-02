@@ -121,7 +121,7 @@ export default function CivitaiPublishModal({ context, onClose }) {
   useEffect(() => {
     let alive = true;
     if (known) {
-      apiFetch(CIVITAI_API.link(target.recordId, target.step, target.filename))
+      apiFetch(CIVITAI_API.link(target.recordId, target.step, target.filename, target.checkpoint))
         .then((d) => { if (alive) setLink(d.link || null); })
         .catch(() => { if (alive) setLink(null); });
     } else {
@@ -133,18 +133,20 @@ export default function CivitaiPublishModal({ context, onClose }) {
         .catch(() => { /* the picker simply stays empty */ });
     }
     return () => { alive = false; };
-  }, [known, isImage, target?.recordId, target?.step, target?.filename, target?.datasetId]);
+  }, [known, isImage, target?.recordId, target?.step, target?.filename, target?.checkpoint,
+    target?.datasetId]);
 
   // The create form is derived server-side (name, base model, trigger,
   // description, the file's facts) — fetched the first time that pane opens.
   useEffect(() => {
     if (pane !== 'create' || !known || defaults || defaultsError) return undefined;
     let alive = true;
-    apiFetch(CIVITAI_API.draftDefaults(target.recordId, target.step, target.filename))
+    apiFetch(CIVITAI_API.draftDefaults(target.recordId, target.step, target.filename, target.checkpoint))
       .then((d) => { if (!alive) return; setDefaults(d); setForm(draftFormFrom(d)); })
       .catch((e) => { if (alive) setDefaultsError(e?.message || 'Could not prepare the page.'); });
     return () => { alive = false; };
-  }, [pane, known, defaults, defaultsError, target?.recordId, target?.step, target?.filename]);
+  }, [pane, known, defaults, defaultsError, target?.recordId, target?.step, target?.filename,
+    target?.checkpoint]);
 
   // The job heartbeat, only while one runs.
   useEffect(() => {
@@ -177,8 +179,10 @@ export default function CivitaiPublishModal({ context, onClose }) {
     if (!known || !ref.trim() || linking) return;
     setLinking(true); setLinkError(null);
     try {
-      const d = await postJson(CIVITAI_API.createLink,
-        { record_id: target.recordId, step: target.step, filename: target.filename, url: ref.trim() });
+      const d = await postJson(CIVITAI_API.createLink, {
+        record_id: target.recordId, step: target.step, filename: target.filename,
+        checkpoint: target.checkpoint, url: ref.trim(),
+      });
       setLink(d.link);
       toast.success(`Checkpoint linked to ${civitaiLinkLine(d.link)}`);
     } catch (e) {
@@ -210,6 +214,7 @@ export default function CivitaiPublishModal({ context, onClose }) {
         trained_words: form.trained_words.split(',').map((s) => s.trim()).filter(Boolean),
         tags: form.tags.split(',').map((s) => s.trim()).filter(Boolean),
         filename: target.filename || undefined,
+        checkpoint: target.checkpoint || undefined,
       });
       setJob({ id: d.job_id, kind: 'model', state: 'running', phase: 'starting', progress: 0 });
     } catch (e) {

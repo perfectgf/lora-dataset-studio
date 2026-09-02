@@ -21,11 +21,18 @@ numbered one and the step-less final) and the step alone cannot tell them
 apart (see models.CivitaiLink). Marking the page first (paste its URL, or
 create it from here) is what makes the image gesture a single press later.
 
-A picture reaches its page through the checkpoint stamped on its row at
-generation time — and that stamp is NULL for every picture made with a run's
-FINAL save (its deployed name carries no step). So "pick one of this dataset's
-linked pages" is the ordinary path for those, not a degraded one, and the link
-store is queried by dataset as much as by checkpoint.
+A picture names its save without a file name: its row carries the checkpoint
+stamped at generation (`record_id`, `step`) and the DEPLOYED LoRA name it ran
+with (`checkpoint`, e.g. `lora_x_000001500_Krea-2-Raw_rc158_v1`). The
+zero-padded step block that name carries is what tells the numbered save from
+the final when both sit at one step, so every entry point takes that name as a
+`hint` and resolves the save server-side — a picture can mark its page, and
+create it, without ever being asked "which file".
+
+That stamp is NULL for every picture made with a run's FINAL save (its deployed
+name carries no step). So "pick one of this dataset's linked pages" is the
+ordinary path for those, not a degraded one, and the link store is queried by
+dataset as much as by checkpoint.
 
 The Civitai side is the site's own tRPC + upload endpoints, authenticated by
 the API key (Bearer, no cookie) — the same key the scraper and the 🌐 prompt
@@ -112,11 +119,14 @@ CIVITAI_BASE_MODELS = (
 _COMMERCIAL_ALL = ['Image', 'RentCivit', 'Rent', 'Sell']
 
 _MODEL_FILE_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._ -]{0,120}\.safetensors$')
-# A numbered save (`…_000002500.safetensors`) as opposed to the step-less final.
-_NUMBERED_RE = re.compile(r'_\d{6,}(?:[_.]|$)')
-# The run tag `import_checkpoint` appends to a deployed name (`_rl<record>_v<N>`):
-# internal ids that a public page has no use for.
-_RUN_TAG_RE = re.compile(r'_rl\d+_v\d+$', re.IGNORECASE)
+# The run tag `import_checkpoint` appends to a deployed name — `_rl<record>_v<N>`
+# for a local run, `_rc<pod run>_v<N>` for a cloud one: internal ids that a
+# public page has no use for.
+_RUN_TAG_RE = re.compile(r'_r[lc]\d+_v\d+$', re.IGNORECASE)
+# The zero-padded step block a save's name carries (`…_000002500…`), kept by
+# the deployed copy (`lora_x_000002500_Krea-2-Raw_rc158_v1`): the one token
+# that tells the numbered save from the step-less final on both sides.
+_STEP_BLOCK_RE = re.compile(r'_(\d{6,})(?:[_.]|$)')
 
 
 class CivitaiPublishError(Exception):
@@ -440,11 +450,54 @@ def _record(record_id):
     return rec
 
 
-def _pick_save(candidates, step, filename):
-    """ONE save out of the run's files: by name when the caller names it, else
-    by step — and a step shared by two files (the numbered save and the final
-    of a run that ended on it) is refused rather than guessed. Returns the
-    candidate or raises."""
+def _step_block(name) -> str | None:
+    """The zero-padded step a save's name carries, or None for a step-less
+    final. A deployed name keeps its source's block, so this is what tells the
+    two files of one step apart on both sides."""
+    m = _STEP_BLOCK_RE.search(str(name or ''))
+    return m.group(1) if m else None
+
+
+def _run_saves(rec) -> list:
+    """Every save of this run on this machine, `[{filename, step, path|None}]`,
+    resolved the way the graph resolves them (never from a client-sent path):
+    a cloud run's saves live in the checkpoint store, a local run's in
+    ai-toolkit's run folder. Raises `checkpoint_missing` when they cannot be
+    listed at all."""
+    from ..extensions import db
+    from ..models import CloudTrainingRun
+    if rec.source == 'cloud' and rec.cloud_run_id:
+        from . import cloud_training as ct
+        from . import video_training
+        run = db.session.get(CloudTrainingRun, int(rec.cloud_run_id))
+        if run is None:
+            raise CivitaiPublishError('checkpoint_missing',
+                                      'This cloud run is not linked on this machine.')
+        out = []
+        for name, path in ct.run_checkpoint_files(run).items():
+            saved_step, _stage = video_training.split_checkpoint_name(name)
+            out.append({'filename': name, 'path': path,
+                        'step': saved_step if saved_step is not None
+                        else int(rec.steps or 0)})
+        return out
+    from . import lora_training as lt
+    try:
+        cks = lt.list_checkpoints(LOCAL_USER, rec.dataset_id, rec.base_model or '',
+                                  rec.family, rec.variant)
+    except Exception as e:  # ai-toolkit not configured, folder gone…
+        raise CivitaiPublishError(
+            'checkpoint_missing', f'The saves of this run cannot be listed: {e}') from e
+    return [{'filename': c['filename'], 'step': int(c.get('step') or -1), 'path': None}
+            for c in cks if c.get('run_source') == 'local' and c.get('run_id') == rec.id]
+
+
+def _pick_save(candidates, step, filename=None, hint=None):
+    """ONE save out of the run's files: by name when the caller names it (a
+    pill always can); else by step — and when two files share the step (the
+    numbered save and the final of a run that ended on it) the `hint` decides:
+    the deployed LoRA name a picture ran with carries the numbered save's step
+    block, or none for the final. Without a hint that can decide, the step is
+    refused rather than guessed."""
     if filename:
         pick = next((c for c in candidates if c['filename'] == filename), None)
         if pick is None:
@@ -455,51 +508,52 @@ def _pick_save(candidates, step, filename):
     if not at_step:
         raise CivitaiPublishError('checkpoint_missing',
                                   f'No save of this run at step {step} is on this machine.')
+    if len(at_step) > 1 and hint:
+        block = _step_block(hint)
+        same = [c for c in at_step if _step_block(c['filename']) == block]
+        if len(same) == 1:
+            return same[0]
     if len(at_step) > 1:
         names = ', '.join(c['filename'] for c in at_step)
         raise CivitaiPublishError(
-            'ambiguous', f'Two saves of this run share step {step} ({names}) - name the file.')
+            'ambiguous', f'Two saves of this run share step {step} ({names}) - open the '
+                         'checkpoint\'s own pill on the Canvas or the run graph to name the file.')
     return at_step[0]
 
 
-def checkpoint_file_for(record_id, step, filename=None):
-    """The `.safetensors` a checkpoint pill stands for, resolved the way the
-    graph resolves it (never from a client-sent path): a cloud run's saves live
-    in the checkpoint store, a local run's in ai-toolkit's run folder, and the
-    file must be one that run really produced. Returns (path, record)."""
-    from ..extensions import db
-    from ..models import CloudTrainingRun
+def checkpoint_file_for(record_id, step, filename=None, hint=None):
+    """The `.safetensors` a checkpoint stands for — by file name, or by step
+    with the deployed name as the tie-breaker. The file must be one the run
+    really produced. Returns (path, record)."""
     rec = _record(record_id)
-    step = int(step)
-    if rec.source == 'cloud' and rec.cloud_run_id:
-        from . import cloud_training as ct
-        from . import video_training
-        run = db.session.get(CloudTrainingRun, int(rec.cloud_run_id))
-        if run is None:
-            raise CivitaiPublishError('checkpoint_missing',
-                                      'This cloud run is not linked on this machine.')
-        candidates = []
-        for name, path in ct.run_checkpoint_files(run).items():
-            saved_step, _stage = video_training.split_checkpoint_name(name)
-            candidates.append({'filename': name, 'path': path,
-                               'step': saved_step if saved_step is not None
-                               else int(rec.steps or 0)})
-        return _pick_save(candidates, step, filename)['path'], rec
-    from . import lora_training as lt
-    try:
-        cks = lt.list_checkpoints(LOCAL_USER, rec.dataset_id, rec.base_model or '',
-                                  rec.family, rec.variant)
-    except Exception as e:  # ai-toolkit not configured, folder gone…
-        raise CivitaiPublishError(
-            'checkpoint_missing', f'The saves of this run cannot be listed: {e}') from e
-    mine = [{'filename': c['filename'], 'step': int(c.get('step') or -1)}
-            for c in cks if c.get('run_source') == 'local' and c.get('run_id') == rec.id]
-    pick = _pick_save(mine, step, filename)
-    path = lt.checkpoint_file_path(LOCAL_USER, rec.dataset_id, pick['filename'],
-                                   rec.base_model or '', rec.family, rec.variant)
+    pick = _pick_save(_run_saves(rec), int(step), filename, hint)
+    path = pick.get('path')
+    if not path:
+        from . import lora_training as lt
+        path = lt.checkpoint_file_path(LOCAL_USER, rec.dataset_id, pick['filename'],
+                                       rec.base_model or '', rec.family, rec.variant)
     if not path:
         raise CivitaiPublishError('checkpoint_missing', 'This save is no longer on disk.')
     return path, rec
+
+
+def resolve_save_filename(rec, step, hint=None):
+    """The name of the run's save at `step`, for a caller that has none (a
+    picture): the listing decides, the hint breaks a shared step. None when
+    the saves cannot be listed or none sits at that step — marking a page
+    needs no file on disk, only a name to remember it by, and '' is the honest
+    name when there is none. A shared step the hint cannot settle stays a
+    refusal: guessing which file would be a lie written into the store."""
+    try:
+        saves = _run_saves(rec)
+    except CivitaiPublishError:
+        return None
+    try:
+        return _pick_save(saves, int(step), None, hint)['filename']
+    except CivitaiPublishError as e:
+        if e.code == 'ambiguous':
+            raise
+        return None
 
 
 _HOME_RE = re.compile(r'[A-Za-z]:\\{1,2}Users\\{1,2}[^\\/:*?"<>|\r\n]+|/(?:home|Users)/[^/\r\n]+',
@@ -604,8 +658,8 @@ def _clean_stem(s) -> str:
 
 
 def _public_stem(s) -> str:
-    """The stem without the app's deploy tag (`_rl<record>_v<N>`): internal ids
-    have no business on a public page."""
+    """The stem without the app's deploy tag (`_rl<record>_v<N>` /
+    `_rc<run>_v<N>`): internal ids have no business on a public page."""
     return _RUN_TAG_RE.sub('', _clean_stem(s))
 
 
@@ -658,27 +712,29 @@ def default_tags(ds, rec) -> list:
     return tags
 
 
-def draft_defaults(record_id, step, filename=None) -> dict:
+def draft_defaults(record_id, step, filename=None, hint=None) -> dict:
     """Everything the "create a model page" form is pre-filled with, derived
     from the dataset and the run — plus the file's own facts, or the reason it
-    cannot be uploaded (said, never a dead Publish button)."""
+    cannot be uploaded (said, never a dead Publish button). `hint` is the
+    deployed name a picture ran with, for the image door that has no file
+    name of its own."""
     from . import face_dataset_service as fds
     rec = _record(record_id)
     ds = fds.get_dataset(LOCAL_USER, rec.dataset_id)
     if ds is None:
         raise CivitaiPublishError('dataset_missing', 'The dataset of this run is gone.')
     base = civitai_base_model(rec.family, rec.variant, rec.base_model)
-    hint = None
+    hint_text = None
     if not base:
-        hint = (f'Trained on a custom base ({_public_stem(rec.base_model)}): pick the lineage '
-                'Civitai files it under (Pony, Illustrious, NoobAI, a Klein base…).')
+        hint_text = (f'Trained on a custom base ({_public_stem(rec.base_model)}): pick the lineage '
+                     'Civitai files it under (Pony, Illustrious, NoobAI, a Klein base…).')
     out = {
         'record_id': rec.id, 'step': int(step), 'dataset_id': rec.dataset_id,
         'filename': filename,
         'name': f'{ds.name} ({_family_label(rec.family)})',
         'version_name': f'v{rec.version} · step {int(step):,}'.replace(',', ' '),
         'base_model': base,
-        'base_model_hint': hint,
+        'base_model_hint': hint_text,
         'base_model_choices': list(CIVITAI_BASE_MODELS),
         'trained_words': [w for w in [(ds.trigger_word or '').strip()] if w],
         'tags': default_tags(ds, rec),
@@ -688,7 +744,7 @@ def draft_defaults(record_id, step, filename=None) -> dict:
         'link': None,
     }
     try:
-        path, _rec = checkpoint_file_for(rec.id, step, filename)
+        path, _rec = checkpoint_file_for(rec.id, step, filename, hint)
         info = inspect_checkpoint(path)
         out['filename'] = os.path.basename(path)
         out['file'] = {
@@ -705,7 +761,7 @@ def draft_defaults(record_id, step, filename=None) -> dict:
     except CivitaiPublishError as e:
         out['file_error'] = e.message
         out['description'] = build_description(ds, rec, step)
-    out['link'] = link_payload(link_for(rec.id, int(step), out['filename']))
+    out['link'] = link_payload(link_for(rec.id, int(step), out['filename'] or None, hint))
     return out
 
 
@@ -724,17 +780,6 @@ def link_payload(link):
         'model_url': model_url(link.model_id, link.version_id),
         'wizard_url': model_wizard_url(link.model_id),
     }
-
-
-_STEP_BLOCK_RE = re.compile(r'_(\d{6,})(?:[_.]|$)')
-
-
-def _step_block(name) -> str | None:
-    """The zero-padded step a save's name carries (`…_000002500…`), or None
-    for a step-less final. A deployed name keeps its source's block, so this
-    is what tells the two files of one step apart on both sides."""
-    m = _STEP_BLOCK_RE.search(str(name or ''))
-    return m.group(1) if m else None
 
 
 def _prefer(candidates, stem=None):
@@ -758,16 +803,17 @@ def _prefer(candidates, stem=None):
     return candidates[0]
 
 
-def link_for(record_id, step, filename=None):
+def link_for(record_id, step, filename=None, hint=None):
     """The link of ONE save: by name when the caller names it (a pill always
-    does), else the step's preferred one (see `_prefer`)."""
+    does), else the step's preferred one — the deployed name a picture ran
+    with (`hint`) breaking a shared step (see `_prefer`)."""
     from ..models import CivitaiLink
     if record_id is None:
         return None
     q = CivitaiLink.query.filter_by(record_id=int(record_id), step=int(step))
     if filename:
         return q.filter_by(filename=filename).first()
-    return _prefer(q.order_by(CivitaiLink.id.asc()).all())
+    return _prefer(q.order_by(CivitaiLink.id.asc()).all(), stem=_clean_stem(hint) if hint else None)
 
 
 def link_for_image(row):
@@ -775,12 +821,9 @@ def link_for_image(row):
     stamped on its row, the one whose file its deployed name was made from
     first. None when the row carries no stamp — the caller then offers the
     dataset's links, which is the ORDINARY path for a final save's pictures."""
-    from ..models import CivitaiLink
     if row is None or row.record_id is None or row.step is None:
         return None
-    rows = (CivitaiLink.query.filter_by(record_id=int(row.record_id), step=int(row.step))
-            .order_by(CivitaiLink.id.asc()).all())
-    return _prefer(rows, stem=_clean_stem(row.checkpoint))
+    return link_for(row.record_id, row.step, hint=row.checkpoint)
 
 
 def links_for_dataset(dataset_id) -> list:
@@ -802,11 +845,14 @@ def links_for_record(record_id) -> dict:
 def save_link(record_id, step, filename, dataset_id, *, model_id, version_id,
               model_name='', version_name='', base_model=None, published=None):
     """Upsert the link of one save. A save IS one Civitai version; linking it
-    again simply retargets it."""
+    again simply retargets it. `filename` '' is a save whose file could not
+    be named (its run's saves are not on this machine) — one such row per
+    step."""
     from ..extensions import db
     from ..models import CivitaiLink
     filename = str(filename or '')
-    row = link_for(record_id, step, filename) if filename else None
+    row = (CivitaiLink.query.filter_by(record_id=int(record_id), step=int(step),
+                                       filename=filename).first())
     if row is None:
         row = CivitaiLink(record_id=int(record_id), step=int(step), filename=filename,
                           dataset_id=int(dataset_id))
@@ -842,12 +888,17 @@ def detach_links_of_run(record_id) -> int:
                .update({'record_id': None}, synchronize_session=False))
 
 
-def link_checkpoint_to_page(record_id, step, ref, key, filename, version_id=None):
+def link_checkpoint_to_page(record_id, step, ref, key, filename=None, version_id=None,
+                            hint=None):
     """"Mark the page": resolve a pasted model URL/id against Civitai, pick the
     version (the URL's, the caller's, else the newest), and remember it for
-    this save. Returns (link, page)."""
+    this save. A caller without a file name (a picture) gets it resolved from
+    the run's saves, the deployed name it ran with breaking a shared step; a
+    run whose saves are not on this machine is remembered under '' — marking
+    needs no file, only a page. Returns (link, page)."""
+    rec = _record(record_id)
     if not str(filename or '').strip():
-        raise CivitaiPublishError('invalid', 'Which save is this? The file name is missing.')
+        filename = resolve_save_filename(rec, step, hint) or ''
     parsed = parse_model_ref(ref)
     if not parsed:
         raise CivitaiPublishError(
@@ -870,7 +921,6 @@ def link_checkpoint_to_page(record_id, step, ref, key, filename, version_id=None
                 'no_version', f'Version {wanted} is not one of that model\'s versions.')
     else:
         version = page['versions'][0]
-    rec = _record(record_id)
     link = save_link(record_id, step, filename, rec.dataset_id, model_id=page['id'],
                      version_id=version['id'], model_name=page['name'],
                      version_name=version['name'], base_model=version.get('base_model'),
@@ -964,7 +1014,8 @@ def _put_part(url, chunk):
     raise last
 
 
-def publish_model(record_id, step, form, key, filename=None, progress=None, user_id=LOCAL_USER):
+def publish_model(record_id, step, form, key, filename=None, hint=None, progress=None,
+                  user_id=LOCAL_USER):
     """Create the model page for one checkpoint — synchronous, the tested seam.
 
     model.upsert (Draft) → modelVersion.upsert → the file → modelFile.upsert →
@@ -975,7 +1026,7 @@ def publish_model(record_id, step, form, key, filename=None, progress=None, user
         raise CivitaiPublishError(
             'no_key', 'No Civitai API key configured - paste one in Settings > Scraping & sources.')
     spec = _validate_model_form(form)
-    path, rec = checkpoint_file_for(record_id, step, filename)
+    path, rec = checkpoint_file_for(record_id, step, filename, hint)
     ds = fds.get_dataset(user_id, rec.dataset_id)
     if ds is None:
         raise CivitaiPublishError('dataset_missing', 'The dataset of this run is gone.')

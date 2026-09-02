@@ -6,12 +6,22 @@ import {
 } from './civitaiPublish.js';
 
 test('the image door reads the checkpoint stamped on the row; the popover door reads node + pill', () => {
-  const fromImage = civitaiTarget({ kind: 'image', img: { id: 9, record_id: 4, step: 2500, dataset_id: 7 } });
-  assert.deepEqual(fromImage, { recordId: 4, step: 2500, datasetId: 7, filename: null, imageId: 9 });
+  // A picture has no file name of its own: it carries the DEPLOYED name it ran
+  // with, which the server resolves to the save (its step block tells the
+  // numbered save from the final).
+  const fromImage = civitaiTarget({ kind: 'image', img: {
+    id: 9, record_id: 4, step: 2500, dataset_id: 7, checkpoint: 'krea\\lora_x_000002500_Krea-2-Raw_rc158_v1.safetensors',
+  } });
+  assert.deepEqual(fromImage, {
+    recordId: 4, step: 2500, datasetId: 7, filename: null,
+    checkpoint: 'krea\\lora_x_000002500_Krea-2-Raw_rc158_v1.safetensors', imageId: 9,
+  });
   const fromPill = civitaiTarget({
     kind: 'checkpoint', node: { record_id: 4, dataset_id: 7 }, pill: { step: 3000, filename: 'lora_x_000003000.safetensors' },
   });
-  assert.deepEqual(fromPill, { recordId: 4, step: 3000, datasetId: 7, filename: 'lora_x_000003000.safetensors', imageId: null });
+  assert.deepEqual(fromPill, {
+    recordId: 4, step: 3000, datasetId: 7, filename: 'lora_x_000003000.safetensors', checkpoint: null, imageId: null,
+  });
   assert.equal(civitaiTarget(null), null);
 });
 
@@ -88,8 +98,13 @@ test('every verb has ONE address', () => {
   // A pill names its file: two saves can share a step (the numbered one and the final).
   assert.equal(CIVITAI_API.link(4, 2500, 'lora_x.safetensors'),
     '/api/civitai/links/4/2500?filename=lora_x.safetensors');
+  // A picture names the deployed LoRA it ran with instead.
+  assert.equal(CIVITAI_API.link(4, 2500, null, 'krea\\lora_x_000002500_rc1_v1.safetensors'),
+    '/api/civitai/links/4/2500?checkpoint=krea%5Clora_x_000002500_rc1_v1.safetensors');
+  assert.equal(CIVITAI_API.draftDefaults(4, 2500, null, 'a b'),
+    '/api/civitai/checkpoint/4/2500/draft-defaults?checkpoint=a+b');
   assert.equal(CIVITAI_API.draftDefaults(4, 2500, 'a b.safetensors'),
-    '/api/civitai/checkpoint/4/2500/draft-defaults?filename=a%20b.safetensors');
+    '/api/civitai/checkpoint/4/2500/draft-defaults?filename=a+b.safetensors');
   assert.equal(CIVITAI_API.publishModel(4, 2500), '/api/civitai/checkpoint/4/2500/publish-model');
   assert.equal(CIVITAI_API.publishImages, '/api/civitai/images/publish');
 });

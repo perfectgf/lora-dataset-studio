@@ -13,17 +13,25 @@ export const CIVITAI_POLL_MS = 1500;
 
 /** Where the link store is asked and written. Kept here so the modal, the
  *  contract test and any future host agree on ONE address per verb. */
+/** `?filename=` names the save exactly (a pill); `?checkpoint=` is the deployed
+ *  LoRA name a picture ran with, which the server resolves to the save. */
+const saveQuery = (filename, checkpoint) => {
+  const q = new URLSearchParams();
+  if (filename) q.set('filename', filename);
+  if (checkpoint) q.set('checkpoint', checkpoint);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+};
+
 export const CIVITAI_API = {
   status: '/api/civitai/status',
-  link: (recordId, step, filename) =>
-    `/api/civitai/links/${recordId}/${step}`
-    + (filename ? `?filename=${encodeURIComponent(filename)}` : ''),
+  link: (recordId, step, filename, checkpoint) =>
+    `/api/civitai/links/${recordId}/${step}${saveQuery(filename, checkpoint)}`,
   datasetLinks: (datasetId) => `/api/civitai/links?dataset_id=${datasetId}`,
   createLink: '/api/civitai/links',
   deleteLink: (id) => `/api/civitai/links/${id}/delete`,
-  draftDefaults: (recordId, step, filename) =>
-    `/api/civitai/checkpoint/${recordId}/${step}/draft-defaults`
-    + (filename ? `?filename=${encodeURIComponent(filename)}` : ''),
+  draftDefaults: (recordId, step, filename, checkpoint) =>
+    `/api/civitai/checkpoint/${recordId}/${step}/draft-defaults${saveQuery(filename, checkpoint)}`,
   publishModel: (recordId, step) => `/api/civitai/checkpoint/${recordId}/${step}/publish-model`,
   publishImages: '/api/civitai/images/publish',
   job: (id) => `/api/civitai/jobs/${id}`,
@@ -31,12 +39,13 @@ export const CIVITAI_API = {
 
 /**
  * The save a modal context is about. The viewer's row carries the checkpoint
- * that generated it (`record_id`/`step`, stamped at generation — no file name:
- * the server picks the step's numbered save); a popover context carries the
- * run node and the pill, file name included. Null ids are kept null — a
- * picture with no stamp is a real case (every picture made with a run's FINAL
- * save, whose deployed name carries no step) that the modal answers with a
- * picker, never by guessing.
+ * that generated it (`record_id`/`step`, stamped at generation) and the
+ * deployed LoRA name it ran with (`checkpoint`) — no file name, the server
+ * resolves the save from those; a popover context carries the run node and
+ * the pill, file name included. Null ids are kept null — a picture with no
+ * stamp is a real case (every picture made with a run's FINAL save, whose
+ * deployed name carries no step) that the modal answers with a picker, never
+ * by guessing.
  */
 export function civitaiTarget(context) {
   if (!context) return null;
@@ -47,6 +56,7 @@ export function civitaiTarget(context) {
       step: img.step ?? null,
       datasetId: img.dataset_id ?? null,
       filename: null,
+      checkpoint: img.checkpoint ?? null,
       imageId: img.id ?? null,
     };
   }
@@ -57,6 +67,7 @@ export function civitaiTarget(context) {
     step: pill.step ?? null,
     datasetId: node.dataset_id ?? null,
     filename: pill.filename ?? null,
+    checkpoint: null,
     imageId: null,
   };
 }

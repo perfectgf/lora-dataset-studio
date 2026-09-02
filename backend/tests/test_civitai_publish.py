@@ -246,7 +246,11 @@ def test_a_pasted_page_address_resolves_to_its_ids(ref, expected):
 
 def test_the_public_stem_drops_the_deploy_tag():
     assert cp._public_stem('krea\\lora_nova_000002500_Krea-2-Raw_rl1_v2.safetensors') == 'lora_nova_000002500_Krea-2-Raw'
+    # A cloud run is tagged `_rc<pod run>` — the tag every real cloud deploy carries.
+    assert cp._public_stem('krea\\lora_sushi_tv_000001500_Krea-2-Raw_rc158_v1.safetensors') == 'lora_sushi_tv_000001500_Krea-2-Raw'
     assert cp._public_stem('lora_nova.safetensors') == 'lora_nova'
+    assert cp._step_block('krea\\lora_sushi_tv_000001500_Krea-2-Raw_rc158_v1.safetensors') == '000001500'
+    assert cp._step_block('lora_nova_Krea-2-Raw_rc158_v1.safetensors') is None
 
 
 def test_the_link_host_setting_never_produces_a_link_to_nowhere(app, monkeypatch):
@@ -346,6 +350,55 @@ def test_a_local_run_that_ended_on_a_numbered_save_refuses_the_bare_step(app, tm
         with pytest.raises(cp.CivitaiPublishError) as e:
             cp.checkpoint_file_for(rec.id, 2500, filename='other.safetensors')
         assert e.value.code == 'checkpoint_missing', 'another run\'s file is not this run\'s'
+        # A PICTURE has no file name, only the deployed LoRA name it ran with:
+        # its step block picks the numbered save, no block picks the final.
+        deployed_numbered = 'krea\\lora_nova_000002500_Krea-2-Raw_rc158_v1.safetensors'
+        deployed_final = 'krea\\lora_nova_Krea-2-Raw_rc158_v1.safetensors'
+        path, _ = cp.checkpoint_file_for(rec.id, 2500, hint=deployed_numbered)
+        assert path.endswith(NUMBERED)
+        path, _ = cp.checkpoint_file_for(rec.id, 2500, hint=deployed_final)
+        assert path.endswith(FINAL)
+        assert cp.resolve_save_filename(rec, 2500, deployed_numbered) == NUMBERED
+        assert cp.resolve_save_filename(rec, 2500, deployed_final) == FINAL
+        with pytest.raises(cp.CivitaiPublishError) as e:
+            cp.resolve_save_filename(rec, 2500, None)
+        assert e.value.code == 'ambiguous'
+        # No save at that step: nothing to name, and that is an answer, not an error.
+        assert cp.resolve_save_filename(rec, 1000, deployed_numbered) is None
+
+
+def test_a_picture_marks_its_page_without_a_file_name(client, app, civitai, monkeypatch):
+    """The refusal the maintainer hit from the viewer ("Which save is this? The
+    file name is missing."): a picture must resolve its save from the deployed
+    name it ran with, and a run whose saves are not on this machine still marks."""
+    from app.extensions import db
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds = _create(client)
+        rec = _record(db, ds, steps=2500)
+        deployed = 'krea\\lora_nova_000002500_Krea-2-Raw_rl1_v2.safetensors'
+        # Saves not listable (no ai-toolkit here): remembered under ''.
+        link, _ = cp.link_checkpoint_to_page(rec.id, 2500, 'https://civitai.red/models/2755270/nova',
+                                             KEY, hint=deployed)
+        assert link.filename == '' and link.model_id == 2755270
+        assert cp.link_for(rec.id, 2500, hint=deployed).id == link.id
+        assert cp.link_for(rec.id, 2500).id == link.id
+        # Saves listable, two at the step: the deployed name's block decides.
+        listed = [
+            {'step': 2500, 'filename': NUMBERED, 'run_source': 'local', 'run_id': rec.id},
+            {'step': 2500, 'filename': FINAL, 'final': True, 'run_source': 'local', 'run_id': rec.id},
+        ]
+        monkeypatch.setattr(lt, 'list_checkpoints', lambda *a, **k: listed)
+        named, _ = cp.link_checkpoint_to_page(rec.id, 2500, '2755270', KEY, hint=deployed)
+        assert named.filename == NUMBERED and named.id != link.id
+        # …and a picture at that step now finds THE numbered save's link.
+        row = _image(db, ds, rec, checkpoint=deployed)
+        assert cp.link_for_image(row).id == named.id
+        assert cp.link_for(rec.id, 2500, hint=deployed).id == named.id
+        # A shared step with nothing to decide it stays a refusal, not a guess.
+        with pytest.raises(cp.CivitaiPublishError) as e:
+            cp.link_checkpoint_to_page(rec.id, 2500, '2755270', KEY)
+        assert e.value.code == 'ambiguous'
 
 
 # --- the draft form -----------------------------------------------------------------
@@ -481,7 +534,7 @@ def test_the_numbered_save_and_the_final_at_one_step_are_two_links(client, app, 
         numbered = _safetensors(str(tmp_path / NUMBERED), {})
         final = _safetensors(str(tmp_path / FINAL), {})
         monkeypatch.setattr(cp, 'checkpoint_file_for',
-                            lambda rid, step, filename=None: (final if filename == FINAL else numbered, rec))
+                            lambda rid, step, filename=None, hint=None: (final if filename == FINAL else numbered, rec))
         cp.publish_model(rec.id, 2500, {'name': 'Nova 2500', 'base_model': 'Krea 2'}, KEY, filename=NUMBERED)
         civitai.version_id = 3100002
         cp.publish_model(rec.id, 2500, {'name': 'Nova final', 'base_model': 'Krea 2'}, KEY, filename=FINAL)
@@ -530,10 +583,6 @@ def test_marking_a_page_resolves_it_and_remembers_the_version(client, app, civit
         assert CivitaiLink.query.count() == 1
         assert cp.links_for_record(rec.id)[NUMBERED]['model_url'].endswith('/models/2755270?modelVersionId=3100001')
         assert [l['id'] for l in cp.links_for_dataset(ds)] == [link.id]
-        # Without the file name there is no save to mark.
-        with pytest.raises(cp.CivitaiPublishError) as e:
-            cp.link_checkpoint_to_page(rec.id, 2500, '2755270', KEY, filename=None)
-        assert e.value.code == 'invalid'
         assert cp.delete_link(link.id) is True
         assert cp.link_for(rec.id, 2500, NUMBERED) is None
 
@@ -753,9 +802,23 @@ def test_link_routes_round_trip(client, app, civitai):
     assert client.get('/api/civitai/links').status_code == 400
     r = client.post('/api/civitai/links', json={'record_id': rid, 'step': 2500, 'filename': NUMBERED, 'url': 'nope'})
     assert r.status_code == 400 and r.get_json()['error_code'] == 'bad_ref'
-    r = client.post('/api/civitai/links', json={'record_id': rid, 'step': 2500, 'url': '2755270'})
-    assert r.status_code == 400 and 'file name' in r.get_json()['error']
+    # The image door: no file name, the deployed name instead. The run's saves
+    # are not listable here, so the save is remembered under '' — and the
+    # picture's own lookup (`?checkpoint=`) finds it.
+    deployed = 'krea\\lora_nova_000002500_Krea-2-Raw_rc158_v1.safetensors'
+    r = client.post('/api/civitai/links', json={'record_id': rid, 'step': 2500, 'url': '2755270',
+                                                'checkpoint': deployed})
+    assert r.status_code == 200, r.get_json()
+    unnamed = r.get_json()['link']
+    assert unnamed['filename'] == '' and unnamed['id'] != link['id']
+    # Two links at the step: the picture's step block picks the NAMED numbered
+    # save's link first; the unnamed one answers once that is gone.
+    r = client.get(f'/api/civitai/links/{rid}/2500?checkpoint={deployed}')
+    assert r.get_json()['link']['id'] == link['id']
     assert client.post(f'/api/civitai/links/{link["id"]}/delete').status_code == 200
+    r = client.get(f'/api/civitai/links/{rid}/2500?checkpoint={deployed}')
+    assert r.get_json()['link']['id'] == unnamed['id']
+    assert client.post(f'/api/civitai/links/{unnamed["id"]}/delete').status_code == 200
     assert client.get(f'/api/civitai/links/{rid}/2500').get_json()['link'] is None
     assert client.post(f'/api/civitai/links/{link["id"]}/delete').status_code == 404
 

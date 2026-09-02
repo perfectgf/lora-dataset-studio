@@ -60,15 +60,18 @@ def civitai_link(record_id, step):
     """The link of one save: `?filename=` names it exactly (a pill always
     can); without it the step's preferred link answers — the numbered save's
     when two files share the step."""
-    link = cp.link_for(record_id, step, request.args.get('filename') or None)
+    link = cp.link_for(record_id, step, request.args.get('filename') or None,
+                       request.args.get('checkpoint') or None)
     return jsonify({'ok': True, 'link': cp.link_payload(link)})
 
 
 @bp.post('/links')
 def civitai_link_create():
-    """"Mark the page": {record_id, step, filename, url|model_id, version_id?}
-    → that save now IS that Civitai version. Resolved against Civitai so a
-    typo or someone else's checkpoint page is refused before it is remembered."""
+    """"Mark the page": {record_id, step, url|model_id, filename?, checkpoint?,
+    version_id?} → that save now IS that Civitai version. A pill names its
+    file; a picture passes the deployed name it ran with (`checkpoint`) and
+    the save is resolved server-side. Resolved against Civitai so a typo or
+    someone else's checkpoint page is refused before it is remembered."""
     key = cp.api_key()
     if not key:
         return _fail(_NO_KEY)
@@ -81,7 +84,7 @@ def civitai_link_create():
     try:
         link, page = cp.link_checkpoint_to_page(
             record_id, step, ref, key, filename=d.get('filename'),
-            version_id=d.get('version_id'))
+            version_id=d.get('version_id'), hint=d.get('checkpoint'))
     except cp.CivitaiPublishError as e:
         return _fail(e, _status_for(e.code))
     return jsonify({'ok': True, 'link': cp.link_payload(link), 'page': page})
@@ -102,7 +105,8 @@ def civitai_draft_defaults(record_id, step):
     """Prefill for the "create a model page" form, derived from the run and
     the dataset; `file_error` names why the upload cannot happen, if it cannot."""
     try:
-        out = cp.draft_defaults(record_id, step, request.args.get('filename') or None)
+        out = cp.draft_defaults(record_id, step, request.args.get('filename') or None,
+                                request.args.get('checkpoint') or None)
     except cp.CivitaiPublishError as e:
         return _fail(e, _status_for(e.code))
     return jsonify({'ok': True, **out})
@@ -118,9 +122,10 @@ def civitai_publish_model(record_id, step):
         return _fail(_NO_KEY)
     form = request.get_json(silent=True) or {}
     filename = form.get('filename') or None
+    hint = form.get('checkpoint') or None
     try:
         cp._validate_model_form(form)
-        path, _rec = cp.checkpoint_file_for(record_id, step, filename)
+        path, _rec = cp.checkpoint_file_for(record_id, step, filename, hint)
         info = cp.inspect_checkpoint(path)
         if info['leaks']:
             raise cp.CivitaiPublishError(
@@ -131,7 +136,8 @@ def civitai_publish_model(record_id, step):
         return _fail(e, _status_for(e.code))
     app = current_app._get_current_object()
     job_id = cp.start_job(app, 'model', lambda progress: cp.publish_model(
-        record_id, step, form, key, filename=filename, progress=progress, user_id=LOCAL_USER))
+        record_id, step, form, key, filename=filename, hint=hint, progress=progress,
+        user_id=LOCAL_USER))
     return jsonify({'ok': True, 'job_id': job_id})
 
 
