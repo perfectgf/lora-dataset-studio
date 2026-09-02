@@ -484,9 +484,9 @@ def video_studio_generate():
     # asked for a clip, not for an essay. The writer gets what the ✨ Enrich
     # button gets: the start frame (only when one will be animated) and the
     # clip length, so the launch and the button write the same prompt.
+    from ..services import video_motion_prompt as vmp
     enrich_skipped = None
     if data.get('enhance') and prompt:
-        from ..services import video_motion_prompt as vmp
         try:
             # The same GPU-exclusive vision window as the ✨ buttons (see
             # `/motion/suggest`): a clip already queued or rendering refuses
@@ -506,6 +506,16 @@ def video_studio_generate():
     if not prompt:
         return jsonify({'ok': False,
                         'error': 'Describe the motion you want to see.'}), 400
+    # The official I2V header, in code, at generation — the reference writer's
+    # own rule: a prompt typed by hand or pasted from elsewhere gets the line
+    # that tells the encoder the picture IS the first frame, and one the ✨
+    # writers wrote, or a clip reused, is never headed twice. Text-to-video is
+    # the mirror: a prompt written for a start frame and then launched without
+    # one names a picture the encoder is not given — the header, the identity
+    # sentence and the tag go. Done before the row is written, so the card
+    # shows the prompt that ran.
+    prompt = (vmp.inject_alignment_header(prompt) if mode == 'i2v'
+              else vmp.strip_picture_references(prompt))
     lora = data.get('lora') or None
     if lora and lts._is_unsafe_external_lora_name(lora):
         # The same guard the image studio applies to a LoRA name: this string

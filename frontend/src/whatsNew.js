@@ -284,7 +284,8 @@ export const WHATS_NEW = [
       + 'the official three-field prompt the model was trained on, paced to '
       + 'the length you set (a 1 s clip and a 15 s one are no longer given the '
       + 'same beat), and — when there is a start frame — name it so the subject '
-      + 'stays who it is. They go through the local model you already run for '
+      + 'stays who it is; a prompt you typed yourself gets that first-frame line '
+      + 'at launch, once. They go through the local model you already run for '
       + 'the image passes, or another one if you pick it under ⚙.',
   },
   {

@@ -3723,8 +3723,9 @@ three-field prompt (`integrated_multimodal_description`, `overall_soundscape`,
 `non_diegetic_music`), paced to the clip length you set: three seconds hold one
 gesture carried to its end, ten seconds get a sequence of beats. With a start
 frame the subject is named `<Picture 1>`, the tag H3 binds to the picture it is
-handed, and the reference line the encoder expects is put in front; a text-only
-prompt carries neither. The ⚙ button chooses **the model that writes the
+handed, and the reference line the encoder expects is put in front — at launch
+too, for a prompt you typed yourself, and never twice; a text-only prompt
+carries neither, even one written for a frame and then launched without it. The ⚙ button chooses **the model that writes the
 motion** from whatever your local server lists — Ollama or LM Studio, whichever
 the app is set to — and it is its own choice: tuning the writer never re-points
 the captioner, and leaving it empty uses the provider's vision model. The

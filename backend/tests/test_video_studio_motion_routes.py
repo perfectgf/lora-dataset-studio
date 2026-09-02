@@ -84,8 +84,11 @@ def test_enrich_at_launch_writes_from_what_the_launch_carries(client, monkeypatc
     assert r.status_code == 200, r.get_json()
     assert seen['image'] == 'staged_1.png'
     assert abs(seen['seconds'] - 55 / 24) < 1e-9        # 56 frames at 24 fps
-    # The clip row records the prompt that ran, not the one that was typed.
-    assert launched['prompt'].startswith('integrated_multimodal_description:')
+    # The clip row records the prompt that ran, not the one that was typed —
+    # headed once for the encoder (the writer's answer here carries no header
+    # of its own; the route adds it at generation).
+    assert launched['prompt'] == vmp.inject_alignment_header(
+        'integrated_multimodal_description: [Shot 1] She turns slowly.')
 
     client.post('/api/video-studio/generate',
                 json={'mode': 't2v', 'image': 'staged_1.png', 'prompt': 'she turns',
@@ -189,7 +192,7 @@ def test_a_launch_whose_enrichment_failed_still_launches_and_says_so(
                           'enhance': True, 'frames': 56})
     assert r.status_code == 200, r.get_json()
     assert r.get_json()['enrich_skipped'] == 'the GPU is already in use outside LDS'
-    assert launched['prompt'] == 'she turns'
+    assert launched['prompt'] == vmp.inject_alignment_header('she turns')
 
     # A launch whose enrichment worked carries no such key at all.
     monkeypatch.setattr(vmp, 'enhance', lambda *a, **kw: 'She turns slowly toward the lens.')
@@ -324,7 +327,7 @@ def test_a_queued_clip_refuses_the_buttons_with_its_reason_and_lets_the_launch_t
                           'enhance': True, 'frames': 56})
     assert r.status_code == 200, r.get_json()
     assert 'queued or active work' in r.get_json()['enrich_skipped']
-    assert launched['prompt'] == 'she turns'
+    assert launched['prompt'] == vmp.inject_alignment_header('she turns')
     # The refusal happened BEFORE the writer, not around a wasted call.
     assert calls == []
 
@@ -356,3 +359,43 @@ def test_an_unusable_enrichment_is_a_sentence_on_the_button_and_a_reason_at_laun
     assert r.status_code == 200, r.get_json()
     assert 'nothing usable' in r.get_json()['enrich_skipped']
     assert launched['prompt'] == 'she turns'
+
+
+def test_a_launch_heads_an_image_to_video_prompt_once_and_unnames_the_picture_in_text_only(
+        client, monkeypatch):
+    """The reference writer's rule, at generation: a prompt typed by hand gets
+    the official I2V header in code; one that already carries it — written by
+    ✨, or reused from a clip — is never headed twice. And a text-to-video
+    launch is the mirror: a prompt written for a start frame, then launched
+    without one, would name a picture the encoder is not given."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    launched = {}
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: launched.update(kw) or
+                        {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 'i2v', 'image': 'staged_1.png',
+                          'prompt': 'she turns toward the window', 'frames': 56})
+    assert r.status_code == 200, r.get_json()
+    headed = launched['prompt']
+    assert vmp.has_alignment_header(headed)
+    assert headed.endswith('she turns toward the window')
+
+    # Reused as it ran: still one header.
+    client.post('/api/video-studio/generate',
+                json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': headed, 'frames': 56})
+    assert launched['prompt'] == headed
+    assert launched['prompt'].count('is fully referenced') == 1
+
+    # The same text launched as text-to-video names no picture.
+    written = vmp.inject_alignment_header(
+        'integrated_multimodal_description: [Shot 1] <Picture 1> turns toward the window.')
+    client.post('/api/video-studio/generate',
+                json={'mode': 't2v', 'prompt': written, 'frames': 56})
+    assert not vmp.has_alignment_header(launched['prompt'])
+    assert 'Picture 1' not in launched['prompt']
+    assert 'turns toward the window' in launched['prompt']
