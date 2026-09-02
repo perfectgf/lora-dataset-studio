@@ -267,3 +267,129 @@ test('unmounting stops the vigil', async () => {
   assert.deepEqual(calls, ['a'])
   assert.equal(polls.length, 0)
 })
+
+/* ── a reply that arrives after the user moved on ──────────────────────────
+   The hook can stop a vigil; it cannot stop a request in flight. The reply
+   comes back to the action, which is what writes into the field — so the
+   action is handed a `run` and asks it. These actions do what the panels do:
+   a request in flight, then a write, guarded — and unguarded when no `run`
+   is handed (the hook before it), which is the defect these prove gone. */
+const defer = () => { let r; const p = new Promise((a) => { r = a }); return { p, r } }
+
+function writer(writes, name, reply, { refusedOnce = false } = {}) {
+  let first = true
+  return async (run) => {
+    if (refusedOnce && first) { first = false; throw fenced() }
+    await reply.p
+    if (!run?.current || run.current()) writes.push(`${name}:written`)
+    else writes.push(`${name}:set aside${run.mounted() ? ', toast' : ', quiet'}`)
+  }
+}
+
+test('an answer that arrives after "stop waiting" is set aside, and the surface is told', async () => {
+  const { fence } = scene()
+  const writes = []
+  const reply = defer()
+  const h = mountHook(useOllamaFence, { onError: () => {} })
+  assert.equal(await h.read().runGuarded(writer(writes, 'a', reply, { refusedOnce: true })), false)
+
+  fence.blocked = false
+  mock.timers.tick(60_000); await flush()
+  assert.deepEqual(writes, [], 'the replay is in flight')
+  // The user changes the frame: the panel's effect stops the vigil.
+  h.read().stopWaiting()
+  assert.equal(h.read().fence, null)
+
+  reply.r(); await flush(); await flush()
+  assert.deepEqual(writes, ['a:set aside, toast'])
+  assert.equal(h.read().fence, null)
+  h.unmount()
+})
+
+test('an answer that arrives after a newer click is set aside; the newer click is written', async () => {
+  const { fence } = scene()
+  const writes = []
+  const replyA = defer()
+  const replyB = defer()
+  const h = mountHook(useOllamaFence, { onError: () => {} })
+  await h.read().runGuarded(writer(writes, 'a', replyA, { refusedOnce: true }))
+
+  fence.blocked = false
+  mock.timers.tick(60_000); await flush()
+  // A's replay is in flight when the user clicks again.
+  const b = h.read().runGuarded(writer(writes, 'b', replyB))
+  replyA.r(); await flush(); await flush()
+  assert.deepEqual(writes, ['a:set aside, toast'])
+  replyB.r(); await flush(); await flush()
+  assert.equal(await b, true)
+  assert.deepEqual(writes, ['a:set aside, toast', 'b:written'])
+  assert.equal(h.read().fence, null)
+
+  mock.timers.tick(60_000); await flush(); await flush()
+  assert.deepEqual(writes, ['a:set aside, toast', 'b:written'])
+  h.unmount()
+})
+
+test('an answer that arrives after the panel went away is set aside, quietly', async () => {
+  const { fence } = scene()
+  const writes = []
+  const reply = defer()
+  const h = mountHook(useOllamaFence, { onError: () => {} })
+  await h.read().runGuarded(writer(writes, 'a', reply, { refusedOnce: true }))
+
+  fence.blocked = false
+  mock.timers.tick(60_000); await flush()
+  h.unmount()
+  reply.r(); await flush(); await flush()
+  assert.deepEqual(writes, ['a:set aside, quiet'])
+})
+
+test('a setup change during the FIRST click sets its answer aside too', async () => {
+  // No refusal at all: the click is simply slow, and the user re-aims the
+  // panel before it comes back.
+  scene()
+  const writes = []
+  const reply = defer()
+  const h = mountHook(useOllamaFence, { onError: () => {} })
+  const a = h.read().runGuarded(writer(writes, 'a', reply))
+  h.read().stopWaiting()
+  reply.r(); await flush(); await flush()
+  assert.equal(await a, true)
+  assert.deepEqual(writes, ['a:set aside, toast'])
+  assert.equal(h.read().fence, null)
+  h.unmount()
+})
+
+test('a click made while the notice is still up takes it down, and the unload has nothing to resume', async () => {
+  // The mirror of "a click made during the unload": here the click comes
+  // FIRST — a's notice is up, b is clicked and still running — and the user
+  // clicks Unload. With a's notice left up under b, the resume that followed
+  // the unload ran b again on top of itself: two model calls, and b's own
+  // answer set aside with a note that told the user nothing true.
+  const { fence } = scene()
+  const writes = []
+  const replyB = defer()
+  const unloads = []
+  fake.postJson = async (url) => { unloads.push(url); return { ok: true } }
+  const h = mountHook(useOllamaFence, { onError: () => {} })
+  await h.read().runGuarded(writer(writes, 'a', defer(), { refusedOnce: true }))
+  assert.equal(h.read().fence.phase, 'waiting')
+
+  fence.blocked = false
+  const b = h.read().runGuarded(writer(writes, 'b', replyB))
+  await flush()
+  const noticeUnderB = h.read().fence
+  const unload = h.read().unloadAndRetry()
+  await flush()
+  replyB.r(); await flush(); await flush()
+  assert.equal(await b, true)
+  assert.deepEqual(writes, ['b:written'], 'b ran once and was written once')
+  assert.equal(noticeUnderB, null, 'a newer click takes the notice down')
+  assert.equal(await unload, false)
+  assert.deepEqual(unloads, [], 'nothing waiting, nothing to unload for')
+  assert.equal(h.read().fence, null)
+
+  mock.timers.tick(60_000); await flush(); await flush()
+  assert.deepEqual(writes, ['b:written'])
+  h.unmount()
+})

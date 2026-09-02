@@ -30,7 +30,10 @@ test('✨ Enhance runs through the fence guard and can show the way out', () => 
 });
 
 test('🔎 Describe replays the SAME file instead of asking for it again', () => {
-  assert.match(describe, /runGuarded\(\(\) => send\(file\)\)/);
+  assert.match(describe, /runGuarded\(\(run\) => send\(file, run\)\)/);
+  // And not after the window was closed: the modal stays mounted while
+  // closed, so the vigil is stopped by hand when `open` goes false.
+  assert.match(describe, /useEffect\(\(\) => \{ if \(!open\) stopWaiting\(\); \}, \[open, stopWaiting\]\)/);
   // The raw-Response path has to carry the code by hand — apiFetch is not
   // involved here, so nothing else would recognise the refusal.
   assert.match(describe, /body\.code === OLLAMA_FENCE_CODE/);
@@ -69,4 +72,20 @@ test('the eviction is never sent without the explicit consent flag', () => {
   // replay, or a catch block.
   const unloadCalls = hook.match(/ollama-fence\/unload/g) || [];
   assert.equal(unloadCalls.length, 1);
+});
+
+test('every action is handed the run handle, and every surface asks it before writing', () => {
+  // The guard cannot stop a request in flight; the reply comes back to the
+  // action, which writes it. So the action is run WITH the handle, on both
+  // paths (the click and the replay), and each surface that writes into a
+  // field asks `keepAnswer(run, …)` first — the handle is RUN in
+  // tests/ollama-fence-hook-replay.test.mjs, the helper in
+  // src/utils/ollamaFence.test.js; this pins that the guard sits on its own
+  // line between the reply and the write (a commented-out one does not).
+  assert.match(hook, /await action\(runOf\(mine\)\)/);
+  assert.match(hook, /await action\(runOf\(vigil\)\)/);
+  assert.match(enhance, /const enhance = async \(run\) =>[\s\S]*?\n[ \t]*if \(!keepAnswer\(run, \(\) => toast\.info\(SUPERSEDED_ANSWER_NOTICE\)\)\) return;[\s\S]*?onResult\(d\.prompt\)/);
+  assert.match(describe, /async function send\(file, run\)[\s\S]*?\n[ \t]*if \(!keepAnswer\(run\)\) return;[\s\S]*?onResult\(body\.prompt\)/);
+  const bar = read('../../bank/DescribeFilterBar.jsx');
+  assert.match(bar, /runGuarded\(async \(run\) =>[\s\S]*?\n[ \t]*if \(!keepAnswer\(run\)\) return\n\s*setRes\(out\)/);
 });

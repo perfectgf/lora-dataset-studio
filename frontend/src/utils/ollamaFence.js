@@ -22,6 +22,28 @@
 /** The structured code the backend puts on a fence 409 (`_map_error`). */
 export const OLLAMA_FENCE_CODE = 'ollama_fence_blocked';
 
+/** What a ✨ writer says when an answer comes back for a click the user has
+ *  moved on from — a newer click, a changed frame, mode or length, "stop
+ *  waiting". The request was in flight and could not be stopped; the answer
+ *  is set aside and the field left as it is. One sentence, on the surfaces
+ *  that write into a field the user can see (the Video Test Studio's ✨ Auto
+ *  and ✨ Enrich, the Studio's ✨ Enhance). The two 🔎 Describe surfaces stay
+ *  quiet: a set-aside reading changes nothing on screen, and the newer
+ *  request answers for itself. */
+export const SUPERSEDED_ANSWER_NOTICE =
+  'The ✨ answer to an earlier click arrived after you moved on — set aside, nothing was written.';
+
+/** Whether an answer is still wanted. `run` is the handle the guard hands
+ *  its action (`useOllamaFence`): `current()` read at the moment of the
+ *  write, never captured. An action run without one (the hook before it)
+ *  keeps every answer. When the click has been moved on from, `tell` says
+ *  so — only while there is still a surface to say it on. */
+export function keepAnswer(run, tell) {
+  if (!run?.current || run.current()) return true;
+  if (tell && run.mounted()) tell();
+  return false;
+}
+
 /** How long the surface keeps waiting before it gives the decision back.
  *  Past Ollama's own ~5 min idle unload with room to spare: if the model is
  *  still there after ten minutes, something is actively using it and waiting

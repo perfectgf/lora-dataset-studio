@@ -30,6 +30,7 @@ import { Clapperboard, Play } from 'lucide-react';
 import { apiFetch, del, postJson } from '../../../../api/fetchClient';
 import { HelpBadge } from '../../../../help/HelpMode';
 import useOllamaFence from '../../../../hooks/useOllamaFence';
+import { SUPERSEDED_ANSWER_NOTICE, keepAnswer } from '../../../../utils/ollamaFence';
 import OllamaFenceNotice from '../../../common/OllamaFenceNotice';
 import { useToast } from '../../../common/Toast';
 import StudioActionBar from '../StudioActionBar';
@@ -215,22 +216,28 @@ export default function VideoTestStudio() {
   const { fence, runGuarded, unloadAndRetry, stopWaiting } = useOllamaFence({
     onError: (e) => toast.error(said(e, 'The motion writer could not answer.')),
   });
-  // A click made for one mode or one frame must not replay for another: the
-  // guard keeps the ACTION, with the frame and the mode it was clicked under,
-  // and a switch while it waits would write that answer into the new setup.
-  useEffect(() => { stopWaiting(); }, [mode, source.image, stopWaiting]);
+  // A click made for one mode, one frame or one length must not replay for
+  // another: the guard keeps the ACTION, with the frame, the mode and the
+  // length it was clicked under, and a switch while it waits would write
+  // that answer — a motion paced for the old length — into the new setup.
+  useEffect(() => { stopWaiting(); }, [mode, source.image, seconds, stopWaiting]);
+  // And a switch while it RUNS: the request is in flight, the guard cannot
+  // stop it, and its answer would land in the new setup all the same — so
+  // each action asks the guard before writing, and says so when told no
+  // (nothing else shows it: the notice is gone, the field unchanged).
+  const setAside = () => toast.info(SUPERSEDED_ANSWER_NOTICE);
 
   const autoMotion = async () => {
     if (!source.image) { toast.warning('Pick a start frame first.'); return; }
     setMotionBusy('auto');
     // The action, not the click: the guard keeps it and replays it verbatim,
     // so the frame, the instruction and the length are captured here.
-    const suggest = async () => {
+    const suggest = async (run) => {
       // What is already written STEERS the proposal instead of being replaced
       // by it: the frame says what is there, this says what should happen in it.
       const r = await postJson(motionSuggestUrl(),
         { image: source.image, instruction: prompt, model: motionModel, seconds });
-      if (r?.prompt) setPrompt(r.prompt);
+      if (keepAnswer(run, setAside) && r?.prompt) setPrompt(r.prompt);
     };
     try {
       await runGuarded(suggest);
@@ -247,12 +254,13 @@ export default function VideoTestStudio() {
      somebody wrote. */
   const enhanceMotion = async () => {
     setMotionBusy('enhance');
-    const enrich = async () => {
+    const enrich = async (run) => {
       // The start frame travels too: an enrichment anchored on the picture
       // that will actually be animated cannot add scenery the frame lacks.
       const r = await postJson(motionEnhanceUrl(),
         { prompt, image: mode === 't2v' ? null : (source.image || null),
           model: motionModel, seconds });
+      if (!keepAnswer(run, setAside)) return;
       // "Nothing to add" and "it worked" look the same in the field; the
       // server says which, so a silent click is never mistaken for a rewrite.
       if (r?.unchanged) toast.info('The model had nothing to add — your text is unchanged.');

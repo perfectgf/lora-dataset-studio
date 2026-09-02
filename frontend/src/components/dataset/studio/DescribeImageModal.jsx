@@ -3,14 +3,14 @@
 // word — the Studio injects the trigger separately). On success the text is handed to
 // `onResult`, which decides whether to overwrite a non-empty field. The model may be
 // cold (a few seconds) so the busy state uses a generous server timeout.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { fetchWithCsrfRetry, getCsrfToken } from '../../../api/fetchClient';
 import useOllamaFence from '../../../hooks/useOllamaFence';
 import OllamaFenceNotice from '../../common/OllamaFenceNotice';
-import { OLLAMA_FENCE_CODE } from '../../../utils/ollamaFence';
+import { OLLAMA_FENCE_CODE, keepAnswer } from '../../../utils/ollamaFence';
 
 const ACCEPT = 'image/png,image/jpeg,image/webp';
 const MAX_BYTES = 20 * 1024 * 1024; // mirror lts.STUDIO_DESCRIBE_MAX_BYTES
@@ -24,6 +24,12 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
   const [fileName, setFileName] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const { fence, runGuarded, unloadAndRetry, stopWaiting } = useOllamaFence();
+  // Closing the window abandons the click. The modal stays mounted while
+  // closed, so a vigil armed by a refusal would otherwise outlive Cancel and
+  // hand its description to the prompt field minutes after the user had
+  // walked away from it — and a reply in flight at close would still count
+  // as current. Same shape as the Video Test Studio's setup effect.
+  useEffect(() => { if (!open) stopWaiting(); }, [open, stopWaiting]);
 
   if (!open) return null;
 
@@ -44,7 +50,7 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
       // The guard keeps this closure and replays it if the local Ollama fence
       // refused: the same file is described again once the model is free,
       // without the user re-picking it.
-      await runGuarded(() => send(file));
+      await runGuarded((run) => send(file, run));
     } catch {
       setError('Describe failed — check that the app can reach Ollama, then try again.');
     } finally {
@@ -52,7 +58,7 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
     }
   }
 
-  async function send(file) {
+  async function send(file, run) {
     const fd = new FormData();
     fd.append('image', file);
     fd.append('csrf_token', getCsrfToken());
@@ -62,6 +68,10 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
       body: fd,
     });
     const body = await res.json().catch(() => ({}));
+    // A reply for a file the user has moved on from — another picked while
+    // this one was in flight, or the modal closed — lands nowhere: neither
+    // in the prompt nor in the error line.
+    if (!keepAnswer(run)) return;
     if (!res.ok) {
       if (body.code === OLLAMA_FENCE_CODE) {
         // Not an error to print: the notice below owns this one, and it will

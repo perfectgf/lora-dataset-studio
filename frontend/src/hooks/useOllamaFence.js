@@ -10,6 +10,15 @@
  * ✨ Enhance and 🔎 Describe, the Video Test Studio's ✨ Auto and ✨ Enrich,
  * captioning), and a per-button copy of this would drift the moment one of
  * them changed.
+ *
+ * The action is handed a `run` handle, and asks it before writing. The hook
+ * can stop a vigil; it cannot stop a request already in flight, and the
+ * reply comes back to the action, which writes it — into a field the user
+ * has since re-aimed (a newer click, a changed frame or mode, "stop
+ * waiting") or a panel that is gone. Measured: the answer for the OLD frame
+ * landed after the switch, with no notice left to explain it. So
+ * `run.current()` says whether the click is still the one the surface is
+ * showing, `run.mounted()` whether there is still a surface to tell.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../api/fetchClient';
@@ -44,6 +53,15 @@ export default function useOllamaFence({ onError } = {}) {
     vigilRef.current += 1;
   }, []);
 
+  /* The handle an action is run with: `current()` is true while the click it
+     answers is still the current one — false once anything stopped the vigil
+     it was started under, or the panel went away. Read at the moment of the
+     write, never captured: the reply is what arrives late. */
+  const runOf = useCallback((stamp) => ({
+    current: () => aliveRef.current && stamp === vigilRef.current,
+    mounted: () => aliveRef.current,
+  }), []);
+
   useEffect(() => {
     aliveRef.current = true;
     return () => { aliveRef.current = false; stopTimer(); };
@@ -61,7 +79,7 @@ export default function useOllamaFence({ onError } = {}) {
     if (!action) { setState(null); return false; }
     setState((s) => (s ? { ...s, phase: 'retrying' } : s));
     try {
-      await action();
+      await action(runOf(vigil));
     } catch (e) {
       if (!aliveRef.current || vigil !== vigilRef.current) return false;
       if (isOllamaFenceError(e)) {
@@ -81,7 +99,7 @@ export default function useOllamaFence({ onError } = {}) {
       setState(null);
     }
     return false;
-  }, []);
+  }, [runOf]);
 
   const tick = useCallback(async () => {
     if (!aliveRef.current) return;
@@ -132,23 +150,29 @@ export default function useOllamaFence({ onError } = {}) {
   }, [stopTimer, tick]);
 
   /**
-   * Run `action`. Returns true when it went through, false when the fence took
-   * over (the notice is now showing and the action will be retried for you).
-   * Every other failure propagates untouched — this hook only knows one story.
+   * Run `action(run)`. Returns true when it went through, false when the fence
+   * took over (the notice is now showing and the action will be retried for
+   * you). Every other failure propagates untouched — this hook only knows one
+   * story. `run` is the handle described at the top: an action that writes
+   * somewhere asks `run.current()` first.
    */
   const runGuarded = useCallback(async (action) => {
     // A new click supersedes whatever an earlier one left waiting. Left armed,
     // the vigil fired after THIS click had gone through and ran it a second
     // time — one click, two answers written into the field — and ran a click
-    // that had failed for another reason again, toasting it twice. And the
-    // cleanup is conditional on the stamp for the same reason in reverse: a
-    // click that comes back after a NEWER one took over must not clear that
-    // one's notice or its kept action.
+    // that had failed for another reason again, toasting it twice. The notice
+    // comes down with it: nothing is waiting while this click runs, and a
+    // notice left up under it offered an Unload whose resume ran THIS click
+    // on top of itself. The action is kept only once the fence has refused
+    // it. And the cleanup is conditional on the stamp for the same reason in
+    // reverse: a click that comes back after a NEWER one took over must not
+    // clear that one's notice or its kept action.
     stopTimer();
     const mine = vigilRef.current;
-    actionRef.current = action;
+    actionRef.current = null;
+    setState(null);
     try {
-      await action();
+      await action(runOf(mine));
     } catch (e) {
       if (!isOllamaFenceError(e)) {
         if (mine === vigilRef.current) { actionRef.current = null; setState(null); }
@@ -159,6 +183,7 @@ export default function useOllamaFence({ onError } = {}) {
       // wants THIS click replayed. Not silently, though: the refusal goes to
       // the caller's catch like any other failure, and shows there.
       if (!aliveRef.current || mine !== vigilRef.current) throw e;
+      actionRef.current = action;
       beginWaiting(e?.message);
       return false;
     }
@@ -167,10 +192,13 @@ export default function useOllamaFence({ onError } = {}) {
       setState(null);
     }
     return true;
-  }, [beginWaiting, stopTimer]);
+  }, [beginWaiting, runOf, stopTimer]);
 
   /** The consent click: evict the other model, then resume. */
   const unloadAndRetry = useCallback(async () => {
+    // Nothing waiting — a newer click took the notice down while its own
+    // request ran — is nothing to unload for, and nothing to resume.
+    if (!actionRef.current) return false;
     setState((s) => (s ? { ...s, phase: 'unloading' } : s));
     stopTimer();
     const mine = vigilRef.current;

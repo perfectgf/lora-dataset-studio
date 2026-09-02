@@ -63,13 +63,22 @@ test('the launch carries the frame count the server paces the enrichment on', ()
 })
 
 test('a click waiting on the fence is dropped when the mode or the frame changes', () => {
-  // The guard keeps the ACTION with the frame and the mode it was clicked
-  // under; a replay after a switch would write that answer into the new setup.
-  // `stopWaiting` is the guard's own way out, wired to the two things a ✨
-  // click is made for. The hook's behaviour is RUN in
-  // tests/ollama-fence-hook-replay.test.mjs; this pins the panel's call.
+  // The guard keeps the ACTION with the frame, the mode and the length it
+  // was clicked under; a replay after a switch would write that answer — a
+  // motion paced for the old length — into the new setup. `stopWaiting` is
+  // the guard's own way out, wired to the three things a ✨ click is made
+  // for. The hook's behaviour is RUN in tests/ollama-fence-hook-replay.test.mjs;
+  // this pins the panel's call.
   assert.match(PANEL,
-    /useEffect\(\(\) => \{ stopWaiting\(\); \}, \[mode, source\.image, stopWaiting\]\)/)
+    /useEffect\(\(\) => \{ stopWaiting\(\); \}, \[mode, source\.image, seconds, stopWaiting\]\)/)
+  // And a switch while the click RUNS: the request cannot be stopped, so
+  // each writer asks the guard's handle before writing — `keepAnswer(run,
+  // setAside)` (RUN in src/utils/ollamaFence.test.js) sits on its own line
+  // between the reply and the field on both ✨ actions, and what it says
+  // when told no is the one notice.
+  assert.match(PANEL, /const suggest = async \(run\) =>[\s\S]*?\n[ \t]*if \(keepAnswer\(run, setAside\) && r\?\.prompt\) setPrompt\(r\.prompt\);/)
+  assert.match(PANEL, /const enrich = async \(run\) =>[\s\S]*?\n[ \t]*if \(!keepAnswer\(run, setAside\)\) return;[\s\S]*?setPrompt\(r\.prompt\)/)
+  assert.match(PANEL, /const setAside = \(\) => toast\.info\(SUPERSEDED_ANSWER_NOTICE\);/)
 })
 
 test('the enrichment names the frame only when one will be animated', () => {

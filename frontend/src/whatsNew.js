@@ -180,8 +180,11 @@ export const WHATS_NEW = [
       + 'the moment it was free — and kept that replay armed after you had already '
       + 'clicked again, so ✨ Enhance could write two answers into the field, or '
       + 'report one failure twice. One click is one answer now, on every surface '
-      + 'the fence guards. And the notice names the server you actually run: on '
-      + 'LM Studio it no longer sends you to look in Ollama.',
+      + 'the fence guards — and an answer that arrives after you moved on (a new '
+      + 'frame, another mode or length, a newer click) is set aside, never '
+      + 'written into the field you are now looking at; the ✨ writers say so '
+      + 'with a note. And the notice names the server you actually run: on LM '
+      + 'Studio it no longer sends you to look in Ollama.',
   },
   {
     id: '2026-09-02-krea-rebalance-and-enhancer-retired',

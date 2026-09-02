@@ -22,6 +22,7 @@ import { apiFetch, postJson } from '../../../api/fetchClient';
 import { useCapabilities } from '../../../context/CapabilitiesContext';
 import { useToast } from '../../common/Toast';
 import useOllamaFence from '../../../hooks/useOllamaFence';
+import { SUPERSEDED_ANSWER_NOTICE, keepAnswer } from '../../../utils/ollamaFence';
 import { modelPickerCopy } from '../../../utils/localLlm.js';
 import OllamaFenceNotice from '../../common/OllamaFenceNotice';
 import { enhanceBlocker } from './enhanceGate';
@@ -140,9 +141,13 @@ export default function EnhancePromptButton({ prompt, onResult, className = '' }
      the model frees up, so `prompt` (and the picked model) are captured here on
      purpose. '' = default → the key stays OUT of the body, byte-identical to the
      request before the ⚙️ existed. */
-  const enhance = async () => {
+  const enhance = async (run) => {
     const d = await postJson('/api/studio/enhance-prompt',
       { prompt, ...(model ? { ollama_model: model } : {}) });
+    // A reply for a click the user has moved on from — a newer click took
+    // over while this one was in flight — is set aside, not written over
+    // the newer one's answer.
+    if (!keepAnswer(run, () => toast.info(SUPERSEDED_ANSWER_NOTICE))) return;
     if (d?.ok && d.prompt) onResult(d.prompt);
     else toast.error(d?.error || 'The model returned nothing');
   };
