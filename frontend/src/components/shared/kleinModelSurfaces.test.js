@@ -27,6 +27,7 @@ const SURFACES = {
   '../dataset/DatasetWorkspace.jsx': true,      // 🧽 Clean, bulk
   '../dataset/WatermarkReviewLightbox.jsx': true,  // 🧽 Clean, one image
   '../bank/BankWatermarkPanel.jsx': false,      // bank inpaint — naming only
+  '../bank/BankEditPanel.jsx': false,           // bank ✨ improve — naming only
 };
 
 for (const [file, scoped] of Object.entries(SURFACES)) {

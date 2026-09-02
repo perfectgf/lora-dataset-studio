@@ -18,6 +18,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createElement, renderToStaticMarkup } from './support/mountJsx.mjs'
+import { readSource } from './support/readSource.mjs'
 
 const { default: KleinImproveNote, _resetKleinImproveNoteCache, _seedKleinImproveNoteCache } =
   await import('../src/components/dataset/KleinImproveNote.jsx')
@@ -144,4 +145,156 @@ test('the anime caution survives the editor being open', () => {
   const html = text(render({}, { subjectType: 'anime', defaultEditorOpen: true }))
   assert.match(html, /subject type is set to anime/,
     'the warning that explains WHY the box needs editing must stay above it')
+})
+
+/* ── The picked preset's chain, ON SCREEN ────────────────────────────────────
+   The pure half (which rows, which index, what a slider writes) lives in
+   kleinImproveEditor.test.js. What only a render can answer is whether the
+   sliders are actually THERE, holding the stored strengths — the panel's whole
+   claim is that you no longer have to open Settings to see them. */
+
+const KLEIN = {
+  improve_lora_preset: 'Real',
+  consistency_lora: 'klein/Flux2-Klein-9B-consistency-V2.safetensors',
+  generation_lora_presets: [
+    { name: 'Real', loras: [
+      { file: 'klein/details.safetensors', strength: 0.15 },
+      { file: '', strength: 0.6 },
+      { file: 'klein/realistic.safetensors', strength: 0.25 },
+    ] },
+    { name: 'Soft', loras: [] },
+  ],
+}
+
+/** Render the note as if /api/settings had answered with this klein section. */
+const renderKlein = (klein, props = {}) => {
+  _seedKleinImproveNoteCache({
+    config: { identity_prompts: {}, klein },
+    identity_prompt_defaults: { klein_improve: SHIPPED },
+  })
+  const html = renderToStaticMarkup(
+    createElement(KleinImproveNote, { subjectType: 'human', ...props }))
+  _resetKleinImproveNoteCache()
+  return html
+}
+
+/** Every rendered slider, as {label, value} — read from the markup, so a row
+ *  that is not drawn cannot be asserted into existence. */
+const sliders = (html) => [...html.matchAll(/<input[^>]*type="range"[^>]*>/g)]
+  .map((m) => ({
+    label: (m[0].match(/aria-label="([^"]*)"/) || [])[1],
+    value: (m[0].match(/value="([^"]*)"/) || [])[1],
+  }))
+
+test('the picked preset shows its LoRAs, each with the strength it will run at', () => {
+  const html = renderKlein(KLEIN)
+  assert.match(html, /data-testid="klein-improve-lora-chain"/)
+  const drawn = sliders(html)
+  // EXERCISED, not counted: each slider is matched to the file it belongs to
+  // and to the number stored for it.
+  assert.deepEqual(drawn.map((s) => s.value), ['0.15', '0.25'])
+  assert.match(drawn[0].label, /klein\/details\.safetensors/)
+  assert.match(drawn[1].label, /klein\/realistic\.safetensors/)
+  assert.equal(drawn.length, 2,
+    'the blank third slot has nothing to tune and must not be drawn')
+  assert.ok(text(html).includes('klein/details.safetensors'),
+    'the file is named, not just a slider with no subject')
+})
+
+test('the chain says whose strengths those are, and where the list is built', () => {
+  const html = text(renderKlein(KLEIN))
+  assert.match(html, /Strengths belong to the preset/,
+    'a dial inside a dataset screen reads as per-dataset until it says otherwise')
+  assert.match(html, /Add or remove LoRAs/)
+  assert.match(renderKlein(KLEIN), /focus=klein-generation-lora-presets/,
+    'the link lands ON the preset card, not at the top of Engines')
+})
+
+test('a row the engine already loads says so where it is being tuned', () => {
+  // The server DROPS that row; a slider that moves nothing, with nothing on
+  // screen to explain it, is the silence the Settings card already warns about.
+  const html = text(renderKlein({
+    ...KLEIN,
+    generation_lora_presets: [{ name: 'Real', loras: [
+      { file: 'klein/Flux2-Klein-9B-consistency-V2.safetensors', strength: 0.5 },
+    ] }],
+  }))
+  assert.match(html, /consistency/i)
+  assert.match(html, /Ignored|already loads/i)
+})
+
+test('an empty preset says where its files come from instead of drawing nothing', () => {
+  const html = renderKlein({ ...KLEIN, improve_lora_preset: 'Soft' })
+  assert.equal(sliders(html).length, 0)
+  assert.match(text(html), /chains no LoRA yet/)
+})
+
+test('no pick, and a pick that no longer exists, draw no chain at all', () => {
+  for (const pick of ['', 'Deleted last week']) {
+    const html = renderKlein({ ...KLEIN, improve_lora_preset: pick })
+    assert.doesNotMatch(html, /data-testid="klein-improve-lora-chain"/,
+      `pick=${JSON.stringify(pick)} must not grow rows`)
+  }
+  // …and the stale one is still visible in the picker, so it can be cleared.
+  assert.match(text(renderKlein({ ...KLEIN, improve_lora_preset: 'Deleted last week' })),
+    /Deleted last week \(missing — runs as None\)/)
+})
+
+test('the chain renders on every host, with and without a dataset', () => {
+  for (const props of [{}, { datasetId: 7 }, { className: 'w-full border-t' }]) {
+    for (const open of [false, true]) {
+      assert.doesNotThrow(() => renderKlein(KLEIN, { ...props, defaultEditorOpen: open }))
+    }
+  }
+})
+
+test('a row is named by the part that tells it apart, at any width', () => {
+  const html = text(renderKlein({ ...KLEIN, generation_lora_presets: [
+    { name: 'Real', loras: [
+      { file: 'klein/very-long-name-alpha.safetensors', strength: 0.5 },
+      { file: 'klein/very-long-name-beta.safetensors', strength: 0.5 },
+    ] },
+  ] }))
+  // The folder is the half that repeats, and `truncate` cuts the other end.
+  assert.match(html, /very-long-name-alpha\.safetensors/)
+  assert.match(html, /very-long-name-beta\.safetensors/)
+  // The whole stored path stays on the row, for the case two folders collide.
+  assert.match(renderKlein(KLEIN), /title="klein\/details\.safetensors"/)
+})
+
+test('the slider writes the row it belongs to, and lands when the finger lifts', () => {
+  /* What a static render cannot execute: the handler. Pinned on the source,
+     and it is worth pinning — the drawn position and the STORED index differ as
+     soon as a preset holds an empty slot, and the 600 ms coalescing meant a
+     drag followed by ✨ Generate rendered with the previous value. */
+  const src = readSource('src/components/dataset/KleinImproveNote.jsx')
+  assert.match(src, /onChange=\{\(e\) => setLoraStrength\(row\.index, e\.target\.value\)\}/,
+    'writing by the drawn position would move the strength onto another LoRA')
+  assert.match(src, /onPointerUp=\{\(\) => saver\.current\.flush\(\)\}/)
+  assert.match(src, /onKeyUp=\{\(\) => saver\.current\.flush\(\)\}/)
+  // A launcher can settle every mounted panel before it starts a run.
+  assert.match(src, /export function flushImproveSettings/)
+  assert.match(src, /export function whenImproveSettingsSettled/)
+})
+
+test('a publish LETS GO of the drafted preset list — the app-wide value cannot be reverted', () => {
+  /* Two copies of this panel are mounted at once (the grid's bulk toolbar and
+     the lightbox modal). The drafted value here is the WHOLE presets array, so
+     a copy that kept its snapshot would rewrite the other copy's saved strength
+     from stale data — silently, app-wide. */
+  const src = readSource('src/components/dataset/KleinImproveNote.jsx')
+  const receive = src.split('const receive =')[1].split('loadSettings()')[0]
+  assert.match(receive, /saver\.current\?\.pending\?\.presets/,
+    'not while a write is still coalescing here: that is a finger on a slider')
+  assert.match(receive, /presets: undefined/)
+})
+
+test('a failed save is reported with the editor CLOSED, where the sliders are', () => {
+  const src = readSource('src/components/dataset/KleinImproveNote.jsx')
+  // From the chain block to the dial that follows it — the error line has to
+  // live INSIDE that span, not in the instruction editor that starts closed.
+  const chain = src.split('data-testid="klein-improve-lora-chain"')[1]
+    .split('Output size, MP')[0]
+  assert.match(chain, /error &&/,
+    'a slider sitting on a value the server never stored must not stay silent')
 })

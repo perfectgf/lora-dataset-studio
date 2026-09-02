@@ -1288,6 +1288,52 @@ class CanvasImageNode(db.Model):
                                           name='uq_canvas_image_node'),)
 
 
+class CanvasLanePlacement(db.Model):
+    """Where a whole LANE sits on the ◉ LoRA Canvas, and how much room it keeps.
+
+    The third and last thing on this board that can be arranged, after the run
+    cards (``CanvasNodePosition``) and the pinned pictures (``CanvasImageNode``)
+    — and the one that was missing. A lane was pinned to x = 0 and stacked by
+    its TREE's height alone, while ``📌 Pin all`` lays its contact sheet BELOW
+    that tree: the sheet landed on the next dataset's header, cards and
+    pictures. Measured on a two-lane board with a four-row band, 894 world units
+    of the lane below were covered.
+
+    ``h`` is the room the lane RESERVES, header excluded — it is what the stack
+    advances by, so changing it moves the lanes underneath. ``x``/``y`` are
+    where the lane is DRAWN. All three are NULLABLE and mean "let the board
+    decide", which is what every lane does until somebody drags something: a row
+    of three NULLs is indistinguishable from no row at all, deliberately, so
+    there is one state and not two.
+
+    ⚠️ Unlike a card's or a picture's, these coordinates are BOARD-absolute —
+    they cannot be lane-local, because they are what puts the lane on the board
+    in the first place. That is why they are bounded on both axes
+    (``CANVAS_LANE_REACH``) and why ``h`` is clamped: ✦ Fit frames the board's
+    whole box, so one corrupt row would collapse every other lane to a scale
+    where nothing is readable.
+
+    ⚠️ The ``dataset`` relationship is not decoration — same reasoning as
+    ``CanvasNodePosition`` above: without a mapper-level relationship the unit
+    of work has no ordering dependency and a legacy database whose FK lacks
+    ON DELETE CASCADE answers HTTP 500. delete_dataset also deletes these rows
+    explicitly and flushes before the parent. New table -> created by
+    db.create_all(), no migration."""
+    __tablename__ = 'canvas_lane_placement'
+    id = db.Column(db.Integer, primary_key=True)
+    dataset_id = db.Column(
+        db.Integer, db.ForeignKey('face_dataset.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    x = db.Column(Float, nullable=True)
+    y = db.Column(Float, nullable=True)
+    h = db.Column(Float, nullable=True)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow,
+                           onupdate=naive_utcnow)
+    dataset = db.relationship('FaceDataset')
+    __table_args__ = (db.UniqueConstraint('dataset_id',
+                                          name='uq_canvas_lane_placement'),)
+
+
 class CanvasLayoutPreset(db.Model):
     """💾 A NAMED snapshot of the whole board's arrangement.
 
@@ -1669,6 +1715,10 @@ class VideoTestClip(db.Model):
     turbo = db.Column(db.Boolean, nullable=False, default=False)
     sparse = db.Column(String(16), nullable=True)        # '' / default / conservative / max
     latent_upscale = db.Column(db.Boolean, nullable=False, default=False)
+    # ↗ The clip this one was interpolated FROM, or NULL. A smoothed clip is a
+    # new artefact with its own frame rate — never an edit of the original,
+    # which would destroy the comparison the studio exists for.
+    vfi_of = db.Column(Integer, nullable=True, index=True)
 
     rating = db.Column(Integer, nullable=False, default=0)  # 1 | -1 | 0, same scale as the image studio
     created_at = db.Column(DateTime, default=db.func.current_timestamp())

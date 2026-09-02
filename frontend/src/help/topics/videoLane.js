@@ -391,9 +391,17 @@ export const VIDEO_LANE_TOPICS = [
      'deployed', 'deployed loras', 'list deployed', 'bulk', 'batch', 'tick',
      'checkboxes', 'select all', 'free space', 'tidy comfyui', 'canvas'],
     '/canvas', 'using-the-app', 'undeploy-several-loras-at-once'),
-  action('canvas-arrange', 'Move run cards & ✦ Tidy up',
+  action('canvas-arrange', 'Move run cards & lanes · resize a lane · ✦ Tidy up',
     ['move a run', 'drag a card', 'arrange the canvas', 'rearrange', 'layout',
      'tidy up', 'reset the layout', 'positions', 'long press', 'pick up a card',
+     // 🛝 The lane itself. People search for the COLLISION, not for the grip:
+     // "my pinned images are on top of the next dataset" is the report, and the
+     // bottom edge (or a double-click on it) is the answer.
+     'move a lane', 'move a dataset block', 'drag a lane', 'resize a lane',
+     'lane height', 'lane overlaps', 'lanes overlap', 'lanes on top of each other',
+     'images cover the next dataset', 'pinned images overlap another dataset',
+     'give a lane more room', 'more space between datasets', 'amber edge',
+     'fit the lane to its content', 'dataset block', 'lane grip', 'lane edge',
      'datasets filter', 'filter is collapsed', 'filter is folded',
      'where is the dataset list', 'show fewer datasets',
      'my board keeps moving', 'new run moved everything', 'organise runs',

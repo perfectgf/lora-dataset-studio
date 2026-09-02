@@ -17,7 +17,8 @@ import {
 } from '../utils/galleryDownload';
 import {
   GALLERY_KINDS, datasetFilterOptions, galleryEmptyMessage, galleryFeedUrl,
-  galleryImproveLaunchMessage, gallerySummaryLine, mergeGalleryPage,
+  galleryImproveLaunchMessage, gallerySummaryLine, liveQueueIds, mergeGalleryHead,
+  mergeGalleryPage, queueDrained,
 } from '../utils/appGallery';
 
 /* 🖼 THE GALLERY — every image the app ever generated, one feed.
@@ -40,6 +41,18 @@ import {
    SELECTION: this feed can span thousands of images, and "download everything"
    is a request the backend deliberately refuses to infer from a missing
    parameter. */
+
+/* How often the feed asks whether the GPU finished something. The dock polls
+   the same endpoint at the same idle rate — one cheap read, and this page is
+   mounted for minutes at a time, so anything faster would be spending requests
+   to shorten a wait nobody is watching with a stopwatch. */
+const QUEUE_POLL_MS = 6000;
+
+/* How many head reads one "a job left the queue" edge is worth. The image
+   appears a moment AFTER the job goes, so a single read can legitimately find
+   nothing; three ticks cover the copy of a large PNG and its retries without
+   turning a finished job into a permanent poller. */
+const QUEUE_DRAIN_READS = 3;
 
 const FILTER_BTN =
   'min-h-10 lg:min-h-0 rounded-md border px-2.5 py-1 text-[0.75rem] font-medium transition-colors';
@@ -111,6 +124,101 @@ export default function GalleryPage() {
   }, [applyPage]);
 
   useEffect(() => { load(filters); }, [filters, load]);
+
+  /* ⟳ THE FEED KEEPS ITSELF CURRENT.
+
+     Reported: generate (or ✨ improve) something, come back to this tab, and
+     the picture is not there until the page is reloaded by hand. The dataset
+     grid never had that problem because it polls while its own tiles are
+     pending — this feed has no pending tiles to watch, so it watched nothing.
+
+     What it watches instead is the QUEUE every surface shares
+     (/api/system/queue, the same reading the dock renders): when a job that was
+     in it is gone, something finished, and the head of the feed is worth
+     re-reading. Idle costs one small GET per tick and no feed query at all.
+
+     The read is QUIET, and every word of that matters: no loading state (the
+     grid must not blink), no cursor rewind (pages already scrolled through stay
+     put — see mergeGalleryHead), no selection pruning (nothing was removed) and
+     no closing of an open lightbox. What it does do is keep that lightbox
+     pointed at the SAME picture: new rows land at the top, so an index into the
+     feed means a different image afterwards unless it moves with them. */
+  const imagesRef = useRef(feed.images);
+  imagesRef.current = feed.images;
+  /* Read inside the async callbacks WITHOUT re-subscribing them: a poll that
+     re-registers on every filter change loses the queue it was watching, and
+     one that closes over a stale `filters` answers for a feed nobody is
+     looking at any more. */
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const readyRef = useRef(false);
+  readyRef.current = status === 'ready';
+
+  /** Re-read page 1 and slip what is new on top. Resolves to how many rows
+   *  landed — 0 means "nothing yet", which is a state the caller must be able
+   *  to tell apart from "done". */
+  const refreshHead = useCallback(async () => {
+    const asked = filtersRef.current;
+    try {
+      // background: this fires on its own schedule, so a server blink must not
+      // toast at someone who did not ask for anything.
+      const d = await apiFetch(galleryFeedUrl(asked), { background: true });
+      // The filters moved while this was in flight: these rows belong to a feed
+      // that is no longer on screen, and merging them would mix two scopes (and
+      // two counts) into one grid.
+      if (!alive.current || filtersRef.current !== asked) return 0;
+      const before = imagesRef.current;
+      const merged = mergeGalleryHead(before, d.images);
+      if (merged === before) return 0;          // nothing new: no state churn
+      const added = merged.length - before.length;
+      setFeed((cur) => ({
+        ...cur,
+        images: mergeGalleryHead(cur.images, d.images),
+        count: d.count ?? cur.count,
+        datasets: d.datasets || cur.datasets,
+        // hasMore / nextBeforeId stay UNTOUCHED on purpose: they belong to the
+        // tail the reader has paged into, and a page-1 cursor would send
+        // "Load more" back over ground already on screen.
+      }));
+      if (added > 0) setZoomIndex((i) => (i == null ? i : i + added));
+      return added;
+    } catch {
+      return 0;                                 // the offline banner owns the outage story
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Starts EMPTY, so the first reading can never look like a completion: the
+    // page has just loaded the feed it is about to be told to reload.
+    let live = new Set();
+    /* Reads still owed. A job leaves the queue BEFORE its image exists: the
+       worker commits the queue row 'completed' and only then links the file and
+       commits the image row (job_queue → link_completed_test_image), which
+       copies the PNG and can retry a Windows sharing violation on the way. A
+       tick landing in that window re-reads a feed that legitimately has nothing
+       new — and spending the edge there is how the reported symptom ("I have to
+       refresh the page") would have survived the fix. So the edge is owed a few
+       reads, not one. */
+    let owed = 0;
+    const tick = async () => {
+      try {
+        const d = await apiFetch('/api/system/queue', { background: true });
+        if (cancelled) return;
+        const now = liveQueueIds(d);
+        if (queueDrained(live, now)) owed = QUEUE_DRAIN_READS;
+        live = now;
+      } catch { /* an older backend without the route, or a server down */ }
+      // Never over a feed that failed to load: the merge would fill the grid
+      // under an error banner, with no action bar and no infinite scroll.
+      if (cancelled || owed <= 0 || !readyRef.current) return;
+      owed -= 1;
+      if (await refreshHead()) owed = 0;
+    };
+    tick();
+    const timer = setInterval(tick, QUEUE_POLL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [refreshHead]);
 
   const loadMore = useCallback(() => {
     if (status !== 'ready' || loadingMore || !feed.hasMore

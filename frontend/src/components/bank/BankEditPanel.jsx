@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from 'react'
 import { postJson } from '../../api/fetchClient'
 import PassDialog from './PassDialog.jsx'
 import KleinModelSetting from '../shared/KleinModelSetting'
+import KleinImproveNote from '../dataset/KleinImproveNote'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
@@ -160,7 +161,7 @@ export default function BankEditPanel({
                 {engines.map((e) => (
                   <button key={e.id} type="button" aria-pressed={picked?.id === e.id}
                     onClick={() => setEngine(e.id)} disabled={e.disabled} title={e.title}
-                    className={`rounded-md px-2.5 py-1 font-semibold disabled:opacity-40 ${
+                    className={`min-h-10 rounded-md px-2.5 py-1 font-semibold disabled:opacity-40 lg:min-h-0 ${
                       picked?.id === e.id
                         ? 'bg-sky-500/25 text-sky-100' : 'text-content-subtle hover:text-content'}`}>
                     {e.label}
@@ -175,7 +176,7 @@ export default function BankEditPanel({
             <button type="button" onClick={() => setImproveOpen(true)}
               disabled={!picked || picked.disabled}
               title={picked?.disabled ? picked.reason : (picked?.title || 'Upscale & improve')}
-              className="rounded-lg border border-sky-400/40 bg-sky-500/15 px-3 py-1.5 text-sm font-semibold text-sky-200 disabled:opacity-40">
+              className="min-h-10 rounded-lg border border-sky-400/40 bg-sky-500/15 px-3 py-1.5 text-sm font-semibold text-sky-200 disabled:opacity-40 lg:min-h-0">
               ✨ Upscale &amp; improve…
             </button>
             <p className="text-[0.6875rem] text-content-subtle">
@@ -211,7 +212,19 @@ export default function BankEditPanel({
           selectionSize={selectedIds.length}
           scope={scope} onScope={setScope}
           onClose={() => setImproveOpen(false)}
-          onLaunch={launchImprove} />
+          onLaunch={launchImprove}>
+          {/* THE SAME DIALS THE DATASET WINDOW CARRIES — instruction, model,
+              LoRA preset with its strengths, output size. They were named here
+              only as "go and read them in Settings", which is the gap the
+              maintainer signed off on closing: a bank improve is the SAME pass
+              (image_bank_service._improve_job goes through the dataset's own
+              _enqueue_improve / _improve_enqueue_profile), so it reads every one
+              of these values. Naming a dial the run obeys and then sending the
+              reader elsewhere to change it is the complaint that put this panel
+              in the dataset window in the first place.
+              Klein only: SeedVR2 is a restoration — no instruction, no LoRA. */}
+          {kleinPicked && <KleinImproveNote className="w-full" />}
+        </PassDialog>
       )}
     </div>
   )

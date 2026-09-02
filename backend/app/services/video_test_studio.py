@@ -726,6 +726,74 @@ def deploy_checkpoint(run_id, filename) -> str:
     return os.path.join(LORA_SUBDIR, os.path.basename(src))
 
 
+# A LoRA is one safetensors file. The extension is not decoration here: it is
+# what ComfyUI's LoraLoader reads, and copying a .ckpt or a .pt into the folder
+# would put an entry in the picker that fails at generation time.
+LORA_EXT = '.safetensors'
+
+
+def import_external_lora(src_path=None, upload=None, filename=None) -> dict:
+    """Copy a LoRA the user already has into ComfyUI's folder, and name it.
+
+    Two ways in, because the two are different situations: a PATH (the file is
+    on this machine — nothing crosses HTTP, which matters at 300 MB) and an
+    UPLOAD (it is on the phone, or on the machine driving the browser).
+
+    Refuses rather than guesses:
+      * anything that is not a .safetensors — the loader reads nothing else,
+        and an entry that fails at generation time is worse than no entry;
+      * a name that could resolve outside the folder (traversal, drive letter,
+        rooted path) — the same sanitizer the canvas uses;
+      * a DIFFERENT file already sitting under that name. Overwriting it would
+        silently change what every clip generated with that name meant, and the
+        picker would keep showing one label for two different weights. Same
+        name AND same size is treated as already imported, so re-importing is
+        free — the idempotence deploy_checkpoint already applies.
+
+    Returns {'filename': 'h3/lds/<name>', 'label': <stem>, 'bytes': n,
+    'already': bool} — the LoraLoader-form name the graph will use.
+    """
+    from .lora_test_studio import _is_unsafe_external_lora_name
+    name = os.path.basename(str(filename or src_path or '')).strip()
+    if not name or _is_unsafe_external_lora_name(name):
+        raise ValueError('that file name cannot be used')
+    if not name.lower().endswith(LORA_EXT):
+        raise ValueError(f'a LoRA is a {LORA_EXT} file — this one is not, and '
+                         f'ComfyUI would not load it')
+    dest_dir = _loras_write_dir()
+    if not dest_dir:
+        raise ValueError('ComfyUI loras folder is not configured')
+    dst = os.path.join(dest_dir, name)
+
+    if src_path is not None:
+        src = os.path.abspath(str(src_path))
+        if not os.path.isfile(src):
+            raise ValueError('that file is not on this machine')
+        size = os.path.getsize(src)
+        if os.path.isfile(dst):
+            if os.path.getsize(dst) == size:
+                return {'filename': os.path.join(LORA_SUBDIR, name),
+                        'label': name[:-len(LORA_EXT)], 'bytes': size,
+                        'already': True}
+            raise ValueError(f'a different {name} is already in the folder — '
+                             f'rename yours, so the two stay tellable apart')
+        shutil.copy2(src, dst)
+    else:
+        if upload is None:
+            raise ValueError('attach a file, or give a path on this machine')
+        if os.path.isfile(dst):
+            # An upload has no size to compare before it is written, so the
+            # collision is refused outright rather than after 300 MB.
+            raise ValueError(f'{name} is already in the folder — rename yours, '
+                             f'or use the one that is there')
+        upload.save(dst)
+        size = os.path.getsize(dst)
+    logger.info('video studio: imported %s into %s', name, LORA_SUBDIR)
+    return {'filename': os.path.join(LORA_SUBDIR, name),
+            'label': name[:-len(LORA_EXT)],
+            'bytes': os.path.getsize(dst), 'already': False}
+
+
 def eros_on_disk() -> bool:
     """Is the 10Eros weight actually on THIS machine?
 
@@ -841,6 +909,131 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     return {'clip_id': clip.id, 'job_id': job_id, 'seed': built['seed'],
             'frames': built['frames'], 'steps': built['steps'],
             'notes': built['notes']}
+
+
+# ↗ VFI. The checkpoint, the multiplier and every dial below are read from the
+# maintainer's image generator (workflows/video-generation/vfi.json) rather than
+# chosen here: the two apps drive the same ComfyUI, and a clip smoothed in one
+# should be the clip smoothed in the other. rife49 is what that graph loads;
+# `fast_mode` and `ensemble` are its settings; the cache is cleared every 16
+# frames, which is what keeps a 200-frame clip inside VRAM.
+VFI_CKPT = 'rife49.pth'
+VFI_MULTIPLIER = 2
+VFI_CLEAR_CACHE_EVERY = 16
+# h264 at crf 19, yuv420p — the same container the generator writes, so the
+# smoothed clip plays anywhere the original did.
+VFI_CRF = 19
+
+N_VFI_LOAD, N_VFI_RIFE, N_VFI_SAVE = 'v1', 'v2', 'v3'
+
+
+def build_vfi_workflow(*, video_path, fps, multiplier=VFI_MULTIPLIER,
+                       filename_prefix=None) -> dict:
+    """The interpolation graph for ONE finished clip. Pure — no disk, no queue.
+
+    The source is given as an ABSOLUTE path: the clip lives in this app's own
+    folder (clips_dir), never in ComfyUI's output, and VHS_LoadVideoPath takes a
+    path rather than a name precisely so a file outside that tree can be read.
+    The output rate is the source's times the multiplier, which is what makes
+    this a SMOOTHING rather than a slow motion — the clip keeps its duration and
+    gains frames.
+    """
+    rate = round(float(fps or 24) * int(multiplier), 3)
+    return {
+        N_VFI_LOAD: {
+            'class_type': 'VHS_LoadVideoPath',
+            'inputs': {'video': str(video_path), 'force_rate': 0,
+                       'custom_width': 0, 'custom_height': 0,
+                       'frame_load_cap': 0, 'skip_first_frames': 0,
+                       'select_every_nth': 1, 'format': 'AnimateDiff'},
+        },
+        N_VFI_RIFE: {
+            'class_type': 'RIFE VFI',
+            'inputs': {'ckpt_name': VFI_CKPT,
+                       'frames': [N_VFI_LOAD, 0],
+                       'clear_cache_after_n_frames': VFI_CLEAR_CACHE_EVERY,
+                       'multiplier': int(multiplier), 'fast_mode': True,
+                       'ensemble': True, 'scale_factor': 2},
+        },
+        N_VFI_SAVE: {
+            'class_type': 'VHS_VideoCombine',
+            'inputs': {'images': [N_VFI_RIFE, 0], 'frame_rate': rate,
+                       'loop_count': 0,
+                       'filename_prefix': filename_prefix or 'lds_vfi',
+                       'format': 'video/h264-mp4', 'pix_fmt': 'yuv420p',
+                       'crf': VFI_CRF, 'save_metadata': True,
+                       'trim_to_audio': False, 'pingpong': False,
+                       'save_output': True},
+        },
+    }
+
+
+def interpolate_clip(user_id, clip_id, multiplier=VFI_MULTIPLIER) -> dict:
+    """↗ Smooth a finished clip: queue a RIFE pass over its own file.
+
+    A NEW row, never an edit of the old one: the smoothed clip is a different
+    artefact with a different frame rate, and overwriting the original would
+    destroy the comparison the studio exists for. It carries the source's
+    settings so the card still says what made it, plus `vfi_of` so the pair
+    stays readable.
+
+    Refused rather than queued when the interpolation nodes are absent — the
+    job would otherwise die inside ComfyUI with a message nobody sees.
+    """
+    from ..extensions import db
+    from ..job_queue import queue_manager
+    from ..models import VideoTestClip
+
+    src = VideoTestClip.query.filter_by(id=int(clip_id)).first()
+    if src is None:
+        raise ValueError('clip not found')
+    if src.status != 'done' or not src.filename:
+        raise ValueError('that clip has not finished rendering yet')
+    path = os.path.join(str(clips_dir()), os.path.basename(src.filename))
+    if not os.path.isfile(path):
+        raise ValueError('that clip is no longer on disk')
+
+    classes = registered_classes()
+    spec = OPTION_NODE_PACKS['vfi']
+    if classes is not None:
+        gone = [c for c in spec['classes'] if c not in classes]
+        if gone:
+            raise ValueError(
+                f"this ComfyUI has no {', '.join(gone)} — install "
+                f"{spec['pack']} ({spec['search']} in ComfyUI-Manager) and "
+                f"try again")
+
+    mult = max(2, min(8, int(multiplier or VFI_MULTIPLIER)))
+    job_id = str(uuid.uuid4())
+    workflow = build_vfi_workflow(video_path=path, fps=src.fps or 24,
+                                  multiplier=mult,
+                                  filename_prefix=new_prefix(user_id))
+    clip = VideoTestClip(
+        run_id=src.run_id, dataset_id=src.dataset_id, job_id=job_id,
+        status='pending', prompt=src.prompt, mode=src.mode,
+        source_image=src.source_image, seed=src.seed, steps=src.steps,
+        # The frame COUNT grows with the rate, so the clip lasts exactly as
+        # long — RIFE inserts between frames, it does not slow anything down.
+        frames=(src.frames or 0) * mult if src.frames else None,
+        megapixels=src.megapixels, fps=float(src.fps or 24) * mult,
+        base_model=src.base_model, lora=src.lora,
+        lora_strength=src.lora_strength, turbo=bool(src.turbo),
+        sparse=src.sparse, latent_upscale=bool(src.latent_upscale),
+        vfi_of=src.id)
+    db.session.add(clip)
+    db.session.flush()
+    queue_manager.add_job(job_type='image', user_id=str(user_id),
+                          workflow_data=workflow, prompt=src.prompt or '',
+                          job_id=job_id,
+                          metadata={'model_name': 'video_lora_test',
+                                    'is_video_test': True,
+                                    'clip_id': clip.id},
+                          commit=False)
+    db.session.commit()
+    logger.info('video studio: queued VFI x%s of clip %s as %s',
+                mult, src.id, clip.id)
+    return {'clip_id': clip.id, 'job_id': job_id, 'multiplier': mult,
+            'fps': clip.fps}
 
 
 def link_completed_clip(job_id, filename, failed=False, reason=None):
@@ -989,6 +1182,14 @@ OPTION_NODE_PACKS = {
         'url': 'https://github.com/Zironic/H3-Optimizations',
         'search': 'H3 Optimizations',
         'classes': ('H3SparseAttentionAdvanced',),
+    },
+    # ↗ VFI is two packs, and both are named: the interpolator and the video
+    # helper that reads a finished mp4 back in and writes the smoothed one out.
+    'vfi': {
+        'pack': 'ComfyUI-Frame-Interpolation + VideoHelperSuite',
+        'url': 'https://github.com/Fannovel16/ComfyUI-Frame-Interpolation',
+        'search': 'Frame Interpolation',
+        'classes': ('RIFE VFI', 'VHS_LoadVideoPath', 'VHS_VideoCombine'),
     },
     'latent_upscale': {
         'pack': 'Comfyui-MMH3-UltimateUpscale',

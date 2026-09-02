@@ -108,6 +108,187 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-09-02-sliders-locked-against-mistaps',
+    date: '2026-09-02',
+    title: 'Dials no longer move when you scroll past them on a phone',
+    blurb:
+      'A slider claims the touch that merely crosses it, so scrolling the '
+      + 'render rail with a thumb dragged whichever dial was under it — '
+      + 'silently, and the next clip rendered on a length nobody chose. Every '
+      + 'slider in the app now hands vertical swipes back to the page, and the '
+      + 'Video Test Studio’s dials (steps, length, resolution, LoRA '
+      + 'strength) carry the padlock the image side already had: locked by '
+      + 'default, one tap to open, and each remembers whether you left it open.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-start-frame-clip-tab-fixed',
+    date: '2026-09-02',
+    title: 'Picking a start frame from a training clip no longer takes the page down',
+    blurb:
+      'In the Video Test Studio, opening the “Dataset clip” tab and choosing a '
+      + 'training set blanked the screen: the clip list was read from the wrong '
+      + 'field and a count arrived where the clips were meant to be. It lists '
+      + 'them properly now, and says so plainly when a set holds none.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-01-motion-auto-instructed',
+    date: '2026-09-01',
+    title: '✨ Auto obeys what you type, and you choose the model behind it',
+    blurb:
+      'Type what should happen — "make her jump twice", "slower" — and ✨ Auto '
+      + 'follows it while keeping the people your start frame actually shows; '
+      + 'leave the field empty and it proposes freely. ✨ Enrich picks the same '
+      + 'two modes by itself. The ⚙ beside them opens the model window: the '
+      + 'motion writer is its own setting, so tuning it never re-points your '
+      + 'image passes.',
+  },
+  {
+    id: '2026-09-01-motion-auto-and-enrich',
+    date: '2026-09-01',
+    title: 'The Motion field writes itself, and can be enriched',
+    blurb:
+      '✨ Auto reads your start frame and proposes the movement; ✨ Enrich '
+      + 'rewrites what you wrote with more of the detail a sampler can use — '
+      + 'both leave the text yours to edit. And a toggle enriches at launch, '
+      + 'recording on the clip the prompt that actually ran. All three go '
+      + 'through the local model you already run for the image passes.',
+  },
+  {
+    id: '2026-09-01-bank-improve-carries-the-dials',
+    date: '2026-09-01',
+    title: 'The bank’s ✨ improve shows the dials it obeys, instead of naming them',
+    blurb:
+      'Improving a whole bank ran on the same instruction, LoRA preset, '
+      + 'strengths and output size as a dataset improve — and its launch window '
+      + 'listed them as things to go and change in Settings. They are in the '
+      + 'window now, exactly as in the dataset one, whenever Klein is the engine.',
+    to: '/bank',
+  },
+  {
+    id: '2026-09-01-saved-prompts-browser',
+    date: '2026-09-01',
+    title: 'Your saved prompts, big enough to recognise and searchable',
+    blurb:
+      'The list of prompts you have launched a test with was a wall of 32-pixel '
+      + 'thumbnails showing the first thirty characters — and test prompts run '
+      + 'to hundreds of characters that all start the same way, so most cards '
+      + 'read alike and the picture that told them apart was too small to see. '
+      + 'The strip now keeps the last few at a size you can actually read, and '
+      + '📚 Browse all opens the whole history: search it by any words you '
+      + 'remember, read each prompt in full, tick them for a batch, delete the '
+      + 'ones you are done with. Same panel on the dataset Test Studio and on '
+      + '“Generate from the board”.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-01-improve-panel-lora-strengths',
+    date: '2026-09-01',
+    title: 'Tune a preset’s LoRAs from the picture they apply to',
+    blurb:
+      'The ✨ Upscale & improve window named which LoRA preset it chains and '
+      + 'then said nothing about what was in it, so the one number you actually '
+      + 'change — how hard a LoRA pulls — still meant a trip to Settings. The '
+      + 'window now lists the preset’s LoRAs with a slider each, saved as you '
+      + 'drag. Building the presets themselves (adding, removing, reordering) '
+      + 'stays in Settings ▸ Engines: those change what a preset IS, for every '
+      + 'surface that runs Klein.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-improve-result-zoom',
+    date: '2026-09-01',
+    title: 'Zoom into the improved picture without leaving the window',
+    blurb:
+      'An upscale is judged on detail that fit-to-window hides. The result now '
+      + 'takes the wheel, a pinch on a touchscreen and a double-tap to fit '
+      + 'again — the same gestures the image viewer has always had, and never '
+      + 'past the picture’s own pixels.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-gallery-refreshes-itself',
+    date: '2026-09-01',
+    title: 'The Gallery shows a new render without a page reload',
+    blurb:
+      'Generate or improve something with the Gallery open and the image only '
+      + 'appeared after refreshing the page by hand. The feed now watches the '
+      + 'shared generation queue and slips whatever finished in at the top — '
+      + 'keeping your scroll, your selection and an open image exactly where '
+      + 'they were.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-video-studio-smooth-vfi',
+    date: '2026-09-01',
+    title: 'Smooth a test clip to twice its frame rate',
+    blurb:
+      'Every finished clip gains a ↗ Smooth button: RIFE frame interpolation, '
+      + 'the same recipe the image generator runs (rife49, ×2, ensemble), so a '
+      + 'clip smoothed here is the clip smoothed there. It makes a NEW clip at '
+      + 'double the rate and the same duration — the original stays, because '
+      + 'comparing the two is the point.',
+  },
+  {
+    id: '2026-09-01-reuse-brings-the-start-frame-back',
+    date: '2026-09-01',
+    title: '↻ Reuse gives the start frame back, and any LoRA can be imported',
+    blurb:
+      'Reusing an image-to-video clip restored every dial — model, steps, '
+      + 'length, seed — and left the start frame empty, so Generate stayed '
+      + 'blocked. It comes back now. And the LoRA picker gained an import: give '
+      + 'it a path on this machine or choose the file, and it lands in '
+      + 'ComfyUI’s folder ready to test — no more moving files by hand.',
+  },
+  {
+    id: '2026-09-01-video-studio-length-to-15s',
+    date: '2026-09-01',
+    title: 'Clips up to 15 seconds, on a slider instead of a 21-row list',
+    blurb:
+      'The length list stopped at 209 frames (8.7s) because it was reading the '
+      + 'TRAINING catalogue — the model renders to 15s and the server always '
+      + 'accepted it. Every legal length from 0.88s to 15.04s is now on one '
+      + 'slider that snaps to what the VAE accepts, with the seconds and the '
+      + 'frame count above it and both ends of the range in view.',
+  },
+  {
+    id: '2026-09-01-video-studio-steps-dial',
+    date: '2026-09-01',
+    title: 'The sampling steps are a dial now, not a decision made for you',
+    blurb:
+      'The Video Test Studio ran 6 steps with Turbo and 20 without, and nothing '
+      + 'on screen let you move that — the one number that plainly trades time '
+      + 'for fidelity. There is now a Sampling steps slider (4 to 40) that says '
+      + 'what auto resolves to, and an explicit count wins over Turbo’s own. '
+      + '↻ Reuse replays the count a clip really ran.',
+  },
+  {
+    id: '2026-09-01-canvas-lanes-move-and-resize',
+    date: '2026-09-01',
+    title: 'Move a dataset’s block on the Canvas, and give it the room it needs',
+    blurb:
+      'Pin a run’s images and the contact sheet hangs below the tree — but the '
+      + 'board never counted it, so it landed on top of the next dataset. Each '
+      + 'lane now has its own two grips: drag its title strip to move the whole '
+      + 'block, drag its bottom edge to set how much room it keeps, and the '
+      + 'datasets below move with it. The edge turns amber when a lane draws '
+      + 'past its own room — double-click it to fit. ✦ Tidy up still hands '
+      + 'everything back to the automatic layout.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-09-01-start-frame-from-the-gallery',
+    date: '2026-09-01',
+    title: 'Animate an image straight from the Gallery',
+    blurb:
+      'The Video Test Studio’s start frame took an upload, a Bank image or '
+      + 'a dataset clip — but not the picture this app had just generated, which '
+      + 'meant exporting it to disk to feed it back in. The Gallery is now a '
+      + 'fourth source: pick any generated image and it is staged at full size.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-01-video-prep-in-one-button',
     date: '2026-09-01',
     title: '▶ Run everything now really runs everything',

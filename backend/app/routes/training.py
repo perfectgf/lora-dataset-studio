@@ -3318,6 +3318,35 @@ def dataset_canvas_positions_clear(dataset_id):
         return jsonify({'error': 'not found'}), 404
 
 
+@bp.get('/train/canvas/lanes')
+def train_canvas_lanes():
+    """◉ LoRA Canvas: every arranged LANE — where it sits and how much room it
+    keeps. Travels with the card positions above and for the same reason: the
+    board must know before its first paint, or it lays itself out twice."""
+    return jsonify(ct.canvas_lane_placements(LOCAL_USER))
+
+
+@bp.put('/dataset/<int:dataset_id>/canvas/lane')
+def dataset_canvas_lane_save(dataset_id):
+    """Remember one lane's placement. Body: {x?, y?, h?}.
+    A MERGE — the client sends only what its gesture changed, so moving a lane
+    keeps the height it was given and resizing it keeps where it was put."""
+    data = request.get_json(silent=True) or {}
+    try:
+        return jsonify(ct.save_canvas_lane_placement(LOCAL_USER, dataset_id, data))
+    except LookupError:
+        return jsonify({'error': 'not found'}), 404
+
+
+@bp.delete('/dataset/<int:dataset_id>/canvas/lane')
+def dataset_canvas_lane_clear(dataset_id):
+    """✦ Tidy up one lane: back to the automatic stack."""
+    try:
+        return jsonify(ct.clear_canvas_lane_placement(LOCAL_USER, dataset_id))
+    except LookupError:
+        return jsonify({'error': 'not found'}), 404
+
+
 @bp.get('/train/canvas/external-loras')
 def canvas_external_loras_get():
     """🔌 The board's external LoRA plugin nodes, as persisted."""
@@ -3404,7 +3433,8 @@ def train_canvas_layouts():
 @bp.post('/train/canvas/layouts')
 def train_canvas_layouts_save():
     """Keep the board's current arrangement under a name.
-    Body: {name, positions:{ds:[{record_id,x,y}]}, images:{ds:[{image_id,...}]}}.
+    Body: {name, positions:{ds:[{record_id,x,y}]}, images:{ds:[{image_id,...}]},
+    lanes:{ds:{x?,y?,h?}}}.
 
     Saving under an existing name overwrites it — "save" on a board you have
     just adjusted means "this is the arrangement now"."""
@@ -3412,7 +3442,8 @@ def train_canvas_layouts_save():
     try:
         return jsonify(ct.save_canvas_layout_preset(
             LOCAL_USER, data.get('name'),
-            positions=data.get('positions'), images=data.get('images')))
+            positions=data.get('positions'), images=data.get('images'),
+            lanes=data.get('lanes')))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
 

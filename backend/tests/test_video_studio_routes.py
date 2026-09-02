@@ -4,6 +4,7 @@ The builder has its own file. These are the questions only the route can answer:
 does it refuse before spending anything, does the clip row carry what the graph
 was actually built from, and does a finished job find its way back to the row.
 """
+from pathlib import Path
 import pytest
 
 
@@ -345,3 +346,86 @@ def test_a_clip_with_no_file_is_a_404_not_a_500(client, app):
     with app.app_context():
         cid = _clip(app, job_id='job-nofile')
     assert client.get(f'/api/video-studio/clip/{cid}/video').status_code == 404
+
+
+# --- the Gallery as a start frame (2026-09-01) --------------------------------
+
+class _FakeReq:
+    """The two things _resolve_source reads off a request."""
+
+    def __init__(self, data):
+        self.files = {}
+        self._data = data
+
+    def get_json(self, silent=False):
+        return self._data
+
+
+def test_a_gallery_image_resolves_to_the_picture_the_user_is_looking_at(app, tmp_path):
+    """Asked for from live use: the picture someone wants to animate is very
+    often one this app just generated, and the picker sent them back through
+    disk to use it. Resolved at FULL size from the folder that SERVES it
+    (/api/dataset/<id>/img/<name>) — a thumbnail fed to a 1 MP generation would
+    blame the LoRA for a softness the source never had."""
+    from PIL import Image
+    from app.extensions import db
+    from app.models import FaceDataset, LoraTestImage
+    from app.routes.video_studio import _resolve_source
+    from app.services.dataset_storage import dataset_path
+
+    with app.app_context():
+        ds = FaceDataset(user_id='local', name='Lola', trigger_word='Lola69382')
+        db.session.add(ds)
+        db.session.commit()
+        folder = Path(dataset_path(ds.id))
+        folder.mkdir(parents=True, exist_ok=True)
+        Image.new('RGB', (64, 48), 'red').save(folder / 'gen_0001.png')
+        row = LoraTestImage(dataset_id=ds.id, filename='gen_0001.png',
+                            prompt='a woman', checkpoint='ckpt.safetensors',
+                            strength=1.0)
+        db.session.add(row)
+        db.session.commit()
+
+        path, temp = _resolve_source(_FakeReq({'gallery_image_id': row.id}))
+        assert path == str(folder / 'gen_0001.png')
+        # Not a temp file: it is the user's own picture, and deleting it after
+        # staging would delete what the Gallery is still showing.
+        assert temp is False
+
+        # A row whose file went away, and an id that never existed: both refuse
+        # in words, never with a path that is not there.
+        (folder / 'gen_0001.png').unlink()
+        with pytest.raises(ValueError, match='disk'):
+            _resolve_source(_FakeReq({'gallery_image_id': row.id}))
+        with pytest.raises(ValueError, match='gallery'):
+            _resolve_source(_FakeReq({'gallery_image_id': 999999}))
+
+
+def test_the_refusal_names_every_way_in(client):
+    """Four sources now; the sentence that lists them is what someone reads
+    when they attached none."""
+    r = client.post('/api/video-studio/source', json={})
+    body = r.get_json()['error'].lower()
+    for word in ('image', 'bank', 'clip', 'gallery'):
+        assert word in body
+
+
+def test_a_clip_publishes_the_start_frame_reuse_needs(app):
+    """↻ Reuse restored every dial of an image-to-video clip and left the start
+    frame empty, so Generate stayed blocked on 'Pick a start frame' — every
+    setting back except the one that decides whether the button works. The row
+    had stored the staged file all along; the payload never published it."""
+    from app.routes.video_studio import _clip_dict
+    from app.extensions import db
+    from app.models import VideoTestClip
+
+    with app.app_context():
+        clip = VideoTestClip(prompt='she turns', mode='i2v', status='done',
+                               source_image='lds_vstudio_abc123.png',
+                               frames=56, fps=24, steps=6, seed=7)
+        db.session.add(clip)
+        db.session.commit()
+        row = _clip_dict(clip)
+
+    assert row['source_image'] == 'lds_vstudio_abc123.png'
+    assert row['mode'] == 'i2v'

@@ -30,7 +30,7 @@
    full payload, so the panel re-reads what was actually stored rather than
    trusting what it sent. */
 
-import { sanitizeGenerationLoraPresets } from '../../utils/generationLoras.js';
+import { LORA_STRENGTH_MAX, sanitizeGenerationLoraPresets } from '../../utils/generationLoras.js';
 
 /** The raw split of the improve setting, read from a /api/settings payload.
  *  `stored` is what config holds ('' = following the default), `shipped` the
@@ -50,7 +50,8 @@ export function improveEditorState(payload) {
     // disabled while loaded:false, but a controlled input must still hold a
     // value or React flips it to uncontrolled mid-flight.
     return { loaded: false, stored: '', shipped: '', enabled: true,
-      loraPreset: '', loraPresets: [], megapixels: 2 };
+      loraPreset: '', loraPresets: [], presets: [], consistencyLora: '',
+      megapixels: 2 };
   }
   const ip = (payload.config && payload.config.identity_prompts) || {};
   const defaults = payload.identity_prompt_defaults || {};
@@ -65,6 +66,18 @@ export function improveEditorState(payload) {
       ? klein.improve_lora_preset : '',
     loraPresets: sanitizeGenerationLoraPresets(klein.generation_lora_presets)
       .map((p) => p.name),
+    // The preset DEFINITIONS, kept exactly as stored rather than sanitized —
+    // the panel writes the array BACK with one strength changed, so a row
+    // Settings left half-built (blank file) has to survive a slider drag here
+    // instead of being deleted by a save it never asked for.
+    presets: Array.isArray(klein.generation_lora_presets)
+      ? klein.generation_lora_presets.filter((p) => p && typeof p === 'object')
+      : [],
+    // The LoRA the engine already loads outside the presets: a preset row
+    // naming it is DROPPED by the server, and a slider that moves nothing is
+    // exactly the silence the Settings card added its own warning for.
+    consistencyLora: typeof klein.consistency_lora === 'string'
+      ? klein.consistency_lora : '',
     // The pass's output budget (klein.improve_megapixels) — the third improve
     // knob this panel answers for. The server merges shipped defaults into the
     // payload, so a finite number is always there; junk degrades to the
@@ -91,6 +104,116 @@ function normalizeImproveMegapixels(value) {
   return Math.min(IMPROVE_MEGAPIXELS_MAX, Math.max(IMPROVE_MEGAPIXELS_MIN, n));
 }
 
+/* ── The picked preset's CHAIN, tunable from here ───────────────────────────
+   Reported the same way the instruction was: the panel named which preset ✨
+   improve chains, and then said nothing about what that preset actually DOES —
+   so the one number people came to change (how hard a LoRA pulls) still meant a
+   trip to Settings, on a screen where the picture it applies to is right there.
+
+   What this half offers is deliberately NARROW: the strengths of the rows the
+   picked preset already has. Adding, removing, reordering or renaming stays in
+   Settings ▸ Engines, because those are the acts that change what a preset IS —
+   and a preset is shared by every surface that runs Klein, not just this one.
+   Turning a dial is the reversible half; rebuilding the chain is not.
+
+   The reach is the same as the rest of the panel: these ARE the app-wide preset
+   rows, not a per-run copy. Two answers to "how strong is this LoRA?" is the
+   failure this whole file exists to avoid, so the UI says so out loud. */
+
+/** The Settings card's own bounds for a preset row (Klein card: 0 → 1.5, step
+ *  0.05, junk reads as 0.6), mirrored so the two editors of ONE value can never
+ *  offer different travel. */
+export const PRESET_LORA_STRENGTH_MIN = 0;
+export const PRESET_LORA_STRENGTH_MAX = LORA_STRENGTH_MAX;
+export const PRESET_LORA_STRENGTH_STEP = 0.05;
+export const PRESET_LORA_STRENGTH_DEFAULT = 0.6;
+
+/** Into the range the Settings card offers and klein_edit_helper enforces. */
+export function clampPresetStrength(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return PRESET_LORA_STRENGTH_DEFAULT;
+  return Math.min(PRESET_LORA_STRENGTH_MAX, Math.max(PRESET_LORA_STRENGTH_MIN, n));
+}
+
+/** The rows of the preset named `name`, in chain order, ready to draw.
+ *
+ *  Each entry carries its ORIGINAL index in the stored list. Rows with no file
+ *  are not drawn — there is nothing to tune on an empty slot — but they still
+ *  occupy their position in config, and a write keyed on the drawn position
+ *  would move the strength onto the wrong LoRA. The index is the join. */
+export function presetChainRows(presets, name) {
+  const wanted = typeof name === 'string' ? name.trim() : '';
+  if (!wanted) return [];
+  const preset = (Array.isArray(presets) ? presets : [])
+    .find((p) => p && typeof p === 'object'
+      && (typeof p.name === 'string' ? p.name.trim() : '') === wanted);
+  if (!preset) return [];
+  const rows = Array.isArray(preset.loras) ? preset.loras : [];
+  const out = [];
+  rows.forEach((row, index) => {
+    const file = row && typeof row.file === 'string' ? row.file.trim() : '';
+    if (!file) return;
+    const n = Number(row.strength);
+    out.push({
+      index,
+      file,
+      // CLAMPED, like the pass: a config holding 3 (hand-edited, or copied from
+      // the Krea card whose ceiling is 6) runs at 1.5, and a panel that showed
+      // "3.00" next to the picture would be naming a strength nothing uses.
+      strength: clampPresetStrength(Number.isFinite(n) ? n : PRESET_LORA_STRENGTH_DEFAULT),
+    });
+  });
+  return withRowLabels(out);
+}
+
+/** Trim a stored path to the part that identifies the LoRA — the folder is the
+ *  half that repeats. `truncate` cuts from the END, so at 360 px two files of
+ *  the same folder became the same ellipsis; the name is what differs.
+ *  When two rows of ONE preset share a filename the folder is the only thing
+ *  telling them apart, so those keep their whole path. The full value is on
+ *  `title` either way. */
+function withRowLabels(rows) {
+  const base = (f) => f.split(/[\\/]/).pop() || f;
+  const seen = new Map();
+  for (const r of rows) seen.set(base(r.file), (seen.get(base(r.file)) || 0) + 1);
+  return rows.map((r) => ({ ...r, label: seen.get(base(r.file)) > 1 ? r.file : base(r.file) }));
+}
+
+/** The same preset list with ONE row's strength replaced, clamped to the range
+ *  the Settings card and the backend both enforce.
+ *
+ *  Everything else is carried through untouched — the other presets, the other
+ *  rows, an empty slot, a key some future version added. This panel edits one
+ *  number; it must not be the reason anything else in that config changes. A
+ *  name matching no preset, or an index naming no row, is returned unchanged
+ *  rather than guessed at. */
+export function withPresetRowStrength(presets, name, index, value) {
+  const list = Array.isArray(presets) ? presets : [];
+  const wanted = typeof name === 'string' ? name.trim() : '';
+  if (!wanted) return list;
+  const n = Number(value);
+  // An input event carries a STRING, and a settings file full of strings is a
+  // file the server has to guess about. Junk changes nothing at all.
+  if (!Number.isFinite(n)) return list;
+  const target = list.findIndex((p) => p && typeof p === 'object'
+    && (typeof p.name === 'string' ? p.name.trim() : '') === wanted);
+  if (target < 0) return list;
+  const rows = Array.isArray(list[target].loras) ? list[target].loras : [];
+  const row = rows[index];
+  if (!row || typeof row !== 'object') return list;
+  const strength = clampPresetStrength(n);
+  // THE SAME REFERENCE BACK whenever there is nothing to change — an impossible
+  // write above, and here a write that stores what is already stored. The
+  // caller schedules a save on whatever this returns, so the identity check is
+  // what keeps a no-op from becoming a request. Said as a promise the code
+  // keeps: the first version of this comment sat above a map that always built
+  // a new array.
+  if (clampPresetStrength(row.strength) === strength) return list;
+  return list.map((preset, i) => (i === target
+    ? { ...preset, loras: rows.map((r, j) => (j === index ? { ...r, strength } : r)) }
+    : preset));
+}
+
 /** The text improve will actually send, given a {stored, shipped} pair.
  *  Mirrors readImproveInstruction's rule byte for byte — a contract test in
  *  kleinImproveEditor.test.js asserts the two agree on real payload shapes, so
@@ -104,7 +227,8 @@ export function effectiveImprovePrompt({ stored = '', shipped = '' } = {}) {
  *  out, they have already re-run every other dataset. */
 export const IMPROVE_SCOPE_NOTE =
   'This is the app-wide instruction — the same one Settings shows. Changing it here '
-  + 'changes every ✨ Upscale & improve from now on, in every dataset.';
+  + 'changes every ✨ Upscale & improve from now on — in every dataset, and in '
+  + 'every bank.';
 
 /** Shown while the toggle is off, in place of the box's usual footer. */
 export const IMPROVE_OFF_NOTE =
@@ -126,6 +250,11 @@ export function improveSettingsPatch(patch = {}) {
   if (patch.loraPreset !== undefined) {
     klein.improve_lora_preset = String(patch.loraPreset ?? '');
   }
+  // The whole preset list, as edited — a list has no partial form: the server
+  // deep-merges sections but REPLACES arrays, which is exactly what a reordered
+  // or shortened list needs. Callers send the array they were given with their
+  // one change applied (withPresetRowStrength), never a rebuilt one.
+  if (Array.isArray(patch.presets)) klein.generation_lora_presets = patch.presets;
   if (patch.megapixels !== undefined) {
     const mp = normalizeImproveMegapixels(patch.megapixels);
     // null means "not a number yet" — a half-typed box is not a write.

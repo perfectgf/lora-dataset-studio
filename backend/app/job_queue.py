@@ -450,9 +450,19 @@ def _poll_outputs(prompt_id, timeout=POLL_TIMEOUT_SECONDS):
             entry = history.get(prompt_id, history) if isinstance(history, dict) else {}
             outputs = (entry or {}).get('outputs') or {}
             for node_output in outputs.values():
-                for img in (node_output or {}).get('images') or []:
-                    if isinstance(img, dict) and img.get('filename') and img.get('type', 'output') != 'temp':
-                        return img['filename'], False
+                # `images` is what SaveImage and SaveVideo report under.
+                # `gifs` is what VideoHelperSuite reports EVERY video under —
+                # the name is a leftover from its AnimateDiff days and covers
+                # mp4 just the same. Without it a VHS_VideoCombine job runs to
+                # completion in ComfyUI, writes its file, and is never claimed
+                # here: the card stays on "Rendering…" until the poll deadline
+                # (measured 2026-09-01 on the ↗ Smooth pass, which is the one
+                # graph in this app that ends on a VHS node).
+                for key in ('images', 'gifs'):
+                    for img in (node_output or {}).get(key) or []:
+                        if (isinstance(img, dict) and img.get('filename')
+                                and img.get('type', 'output') != 'temp'):
+                            return img['filename'], False
             status = (entry or {}).get('status') or {}
             if status.get('status_str') == 'error' or (status.get('completed') and not outputs):
                 detail = _execution_error_detail(status)

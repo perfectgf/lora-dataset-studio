@@ -69,6 +69,28 @@ test('dropping a PICTURE takes the view over — but only if it moved', () => {
   assert.doesNotMatch(imageBranch, /^\s*takeOverView\(\);/m)
 })
 
+test('moving or resizing a LANE takes the view over — but only if it moved', () => {
+  /* The third arrangeable object on this board, and the same rule: a tap on a
+     lane's title strip is not an arrangement, so it must leave a fresh board
+     free to keep fitting itself. Its branch is FIRST in endPointer, which is
+     also what keeps the picture branch below a contiguous slice for the test
+     above — only one gesture can ever be live, so the order is free. */
+  const body = callbackBody('endPointer')
+  const laneBranch = body.slice(body.indexOf('const gl = laneRef.current'),
+    body.indexOf('const gi = imgRef.current'))
+  assert.ok(laneBranch, 'the lane branch is still the first one endPointer answers')
+  const guard = laneBranch.indexOf('if (gl.moved && gl.cur)')
+  assert.ok(guard > 0, 'the lane branch still gates on a gesture that travelled')
+  assert.match(laneBranch.slice(guard), /takeOverView\(\);/,
+    'a lane that was moved or resized must claim the view')
+  // …and the SAME guard decides whether the placement is persisted at all, so a
+  // plain tap can never write a lane's position behind the user's back.
+  assert.match(laneBranch.slice(guard), /onSaveLane\?\./)
+  // Nothing before the guard may take the view over: that is what makes a tap
+  // on a lane's title strip leave a fresh board free to keep fitting itself.
+  assert.doesNotMatch(laneBranch.slice(0, guard), /takeOverView/)
+})
+
 test('dropping a run CARD takes it over too — one rule for the whole board', () => {
   /* Left out at first, out of caution. It is the same gesture on the same
      surface: a board that holds still when you move a picture and jumps when you

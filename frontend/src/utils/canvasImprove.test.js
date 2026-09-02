@@ -104,7 +104,11 @@ test('the engines, their labels and the Klein note are REUSED, not restated', ()
   assert.match(lightbox, /import ImproveModal from '\.\/ImproveModal'/);
   const modal = fs.readFileSync(
     new URL('../components/shared/ImproveModal.jsx', import.meta.url), 'utf8');
-  assert.match(modal, /import KleinImproveNote from '\.\.\/dataset\/KleinImproveNote'/);
+  // One component, imported from where it lives — the modal now also takes
+  // its two module-level handles (flush + settle) from that same file, so a
+  // run cannot start on dials that have not landed yet. Still one source of
+  // the panel; the assertion follows the import, not its shape.
+  assert.match(modal, /import KleinImproveNote[\s\S]{0,120}from '\.\.\/dataset\/KleinImproveNote'/);
   // The pressed engine still travels to the handler for the direct engines.
   assert.match(lightbox, /onImprove\(img\.id, engineId\)/);
   // No second copy of the engine names in this file.

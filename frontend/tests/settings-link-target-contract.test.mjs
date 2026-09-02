@@ -134,21 +134,31 @@ test('a target computed at runtime still resolves — the setup verdict case', (
 
 // ---- the reported link -----------------------------------------------------
 
-test('the two improve pointers land on the two things they name', () => {
-  // Both live in KleinImproveNote now (rendered by the lightbox AND the grid's
-  // bulk toolbar) instead of a lone link in the lightbox: the strength knobs
-  // never answered "why did my anime turn realistic" — the instruction did.
+test('the three improve pointers land on the three things they name', () => {
+  // All three live in KleinImproveNote now (rendered by the lightbox AND the
+  // grid's bulk toolbar) instead of a lone link in the lightbox: the strength
+  // knobs never answered "why did my anime turn realistic" — the instruction
+  // did. The third arrived with the preset chain: the panel tunes a preset's
+  // strengths in place, and BUILDING that preset (adding, removing,
+  // reordering) stays one click away, in the card that owns the list.
   const note = read('src/components/dataset/KleinImproveNote.jsx')
   const tags = [...note.matchAll(/<SettingsLink\b[\s\S]*?>/g)].map((m) => m[0])
-  assert.equal(tags.length, 2, 'the note must offer the instruction AND the strength')
+  assert.equal(tags.length, 3,
+    'the note must offer the instruction, the strength AND the preset list')
   for (const tag of tags) assert.match(tag, /section="engines"/)
   assert.ok(tags.some((t) => /focus="identity-prompt-klein-improve"/.test(t)))
   assert.ok(tags.some((t) => /focus="klein-improve-strength"/.test(t)))
+  assert.ok(tags.some((t) => /focus="klein-generation-lora-presets"/.test(t)))
   // Each target is the thing its label names, not a section that contains it.
   const engines = read('src/components/settings/EnginesSection.jsx')
   assert.match(engines, /id="klein-improve-strength"/)
   assert.match(engines, /id="klein-improve-strength"[^>]*>\s*[\s\S]{0,200}?Upscale &amp; improve — strength/)
   assert.match(engines, /id="identity-prompt-klein-improve"/)
+  // The preset CARD is the half the panel does not do: it is where a row is
+  // added, removed or reordered, which is why the chain points at it by id
+  // rather than at Engines at large.
+  assert.match(engines, /id="klein-generation-lora-presets"/)
+  assert.match(engines, /title="Klein generation LoRA presets/)
 })
 
 // ---- nothing ships targetless by accident ---------------------------------

@@ -185,12 +185,20 @@ test('the stack is measured on the RESTING rows, never on the gesture', () => {
      through it, with the resting rows in the resting slot. */
   const canvas = readFileSync(
     new URL('../src/components/canvas/LineageCanvas.jsx', import.meta.url), 'utf8')
-  const memo = /const world = useMemo\(\(\) => stackLanes\(laneStackEntries\(([\s\S]*?)\)\), \[/
-    .exec(canvas)
-  assert.ok(memo, 'the world is still stacked from laneStackEntries')
-  assert.match(memo[1], /layoutByLane/, 'the reach follows what the lane draws')
-  assert.match(memo[1], /restingByLane/, 'the stack follows the committed rows')
-  assert.doesNotMatch(memo[1], /imagesByLane/,
+  /* The memo gained a body when lanes became arrangeable (a lane being dragged
+     is merged in as a placement override before the stack is computed), so the
+     assertion is on the memo's WHOLE body rather than on a one-expression
+     shape: what is contractual is which lists reach laneStackEntries, never how
+     many lines the memo takes to get there. */
+  const start = canvas.indexOf('const world = useMemo(')
+  assert.ok(start > 0, 'the world is still built in a memo')
+  const memoBody = canvas.slice(start, start + canvas.slice(start).indexOf('}, ['))
+  assert.match(memoBody, /stackLanes\(/, 'the world is still stacked')
+  const call = /laneStackEntries\(([\s\S]*?)\);/.exec(memoBody)
+  assert.ok(call, 'the world is still stacked from laneStackEntries')
+  assert.match(call[1], /layoutByLane/, 'the reach follows what the lane draws')
+  assert.match(call[1], /restingByLane/, 'the stack follows the committed rows')
+  assert.doesNotMatch(call[1], /imagesByLane/,
     'the in-flight list must not reach the stack — that is the bug this undoes')
   // …and `restingByLane` must be the drag-free list, not an alias of the other.
   const resting = /const restingByLane = useMemo\(\(\) => \{([\s\S]*?)\}, \[([^\]]*)\]\)/

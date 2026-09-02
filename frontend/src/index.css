@@ -83,6 +83,15 @@
     background-color: rgb(var(--bg-app));
     color: rgb(var(--text-base));
   }
+  /* A range input claims every touch that starts on it, including the one that
+     was scrolling the page — on a phone, swiping past a settings panel drags
+     whichever dial is under the thumb, silently. `pan-y` hands vertical
+     gestures back to the page and leaves the slider only the sideways ones it
+     actually needs. Padlocks (SliderLock) guard the dials worth guarding; this
+     is the floor under every slider in the app, locked or not. */
+  input[type="range"] {
+    touch-action: pan-y;
+  }
   /* Native <select> dropdown options render with an OS/inherited background
      the page can't style per-element. Theme them globally so they're readable
      in both modes (opaque overlay surface + content text).

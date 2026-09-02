@@ -3800,12 +3800,31 @@ the automatic tree centres each run over its continuations, so one new branch
 re-flows the lane around it. Lanes you have never touched keep following the
 automatic tree, because there is no arrangement to protect there.
 
+**Moving a whole dataset's block, and giving it room.** A lane — the dataset's
+title strip and everything under it — has two grips of its own:
+
+- **its title strip** moves the whole block. Drag `● name  N runs` and the lane
+  goes where you put it, with its cards and its pictures. Every other lane stays
+  exactly where it was; moving one lane moves one lane.
+- **its bottom edge** sets how much **room** the lane keeps, and the datasets
+  below move with it. That edge exists because of one thing: 📌 Pin all hangs a
+  contact sheet *below* the tree, and the board only ever counted the tree — so
+  on a lane with a few dozen pinned pictures the sheet landed on top of the next
+  dataset's cards. The edge turns **amber** when a lane draws past its own room,
+  which is exactly that collision, named where it happens. **Double-click** it
+  to fit the lane to what it actually draws.
+
+A lane you have never dragged keeps following the automatic stack, and pictures
+still hang freely below and beside their lane — a picture you drag somewhere is
+never what decides how much room a dataset takes; you are.
+
 **✦ Tidy up** is the way back: it forgets every card you have moved on the lanes
-currently shown, rebuilds the automatic tree, and brings every pinned picture
-back beside the run that made it — including one you dragged clean off its lane.
-Positions are only ever a display preference — moving a card or a picture never
-changes which run continued which or which checkpoint made which image, and Tidy
-up never deletes a run, a checkpoint, a note or a picture.
+currently shown, hands every lane back to the automatic stack, rebuilds the
+automatic tree, and brings every pinned picture back beside the run that made
+it — including one you dragged clean off its lane. Positions are only ever a
+display preference — moving a card, a lane or a picture never changes which run
+continued which or which checkpoint made which image, and Tidy up never deletes
+a run, a checkpoint, a note or a picture.
 
 **Generating from the board.** Every checkpoint pill carries a small **✓** box.
 Tick one and the run settings open beside the board: the prompt, the seed, the
