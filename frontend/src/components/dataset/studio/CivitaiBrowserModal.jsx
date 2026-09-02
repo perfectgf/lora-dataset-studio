@@ -30,10 +30,17 @@ const readPref = (key, fallback, allowed) => {
   } catch { return fallback; }
 };
 
-export default function CivitaiBrowserModal({ open, onClose, onUse }) {
+// 📝 `picks` / `onTogglePick`: the host's prompt batch. Given a handler, every
+// prompt-bearing card grows a tick box — ticking adds that prompt as one more
+// pass of the next run and leaves the browser OPEN, because the whole point
+// is to collect several. Without a handler (the comparison surface has no
+// batch) the cards keep their two verbs and nothing else appears.
+export default function CivitaiBrowserModal({ open, onClose, onUse, picks = null, onTogglePick = null }) {
   const toast = useToast();
   const ref = useRef(null);
   useFocusTrap(ref, open);
+  const batchable = typeof onTogglePick === 'function';
+  const picked = Array.isArray(picks) ? picks : [];
 
   // Filters survive reopen and restart — new localStorage keys, safe defaults.
   const [period, setPeriod] = useState(() => readPref('civitaiBrowse_period', 'week', PERIODS.map(([v]) => v)));
@@ -213,6 +220,22 @@ export default function CivitaiBrowserModal({ open, onClose, onUse }) {
                   )}
                   {c.prompt && (
                     <span className="ml-auto flex items-center gap-1.5">
+                      {batchable && (() => {
+                        const inBatch = picked.includes(c.prompt);
+                        return (
+                          <button type="button" role="checkbox" aria-checked={inBatch}
+                            onClick={() => onTogglePick(c.prompt)}
+                            data-testid="civitai-batch-toggle"
+                            title={inBatch
+                              ? 'Remove this prompt from the batch'
+                              : 'Add this prompt to the batch — one more pass of the next run, the field stays as it is'}
+                            className={`px-2 py-1 min-h-10 lg:min-h-0 rounded border text-[0.6875rem] ${inBatch
+                              ? 'border-purple-400 bg-purple-500/25 text-purple-100'
+                              : 'border-border bg-app text-content-muted hover:text-content'}`}>
+                            {inBatch ? '☑ In batch' : '☐ Batch'}
+                          </button>
+                        );
+                      })()}
                       <button type="button" onClick={() => copyPrompt(c.prompt)}
                         title="Copy this prompt"
                         className="px-2 py-1 min-h-10 lg:min-h-0 rounded border border-border bg-app text-content-muted text-[0.6875rem] hover:text-content">
@@ -251,6 +274,25 @@ export default function CivitaiBrowserModal({ open, onClose, onUse }) {
             </button>
           )}
         </div>
+
+        {/* 📝 The batch's running count, pinned under the list so it is read
+            without scrolling back: what the next run will replay, and the way
+            out once enough is ticked. */}
+        {batchable && picked.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2"
+            data-testid="civitai-batch-footer">
+            <span className="text-[0.75rem] text-content">
+              <span className="rounded bg-purple-500/20 px-1.5 py-0.5 font-semibold text-purple-200 tabular-nums">
+                {picked.length} prompt{picked.length === 1 ? '' : 's'}
+              </span>
+              {' '}in the batch — one pass each on the next run
+            </span>
+            <button type="button" onClick={onClose}
+              className="px-3 py-1 min-h-10 lg:min-h-0 rounded-lg bg-gradient-primary text-gray-950 text-[0.6875rem] font-semibold">
+              Done
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

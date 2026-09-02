@@ -31,6 +31,20 @@ export function visibleBatch(batch, recentPrompts) {
   return (batch || []).filter((p) => available.includes(p));
 }
 
+/** 🌐 Le lot peut aussi recevoir des prompts qui ne sont PAS (encore) dans
+ *  l'historique — ceux cochés dans le navigateur Civitai. Ils s'ajoutent
+ *  APRÈS les prompts d'historique cochés, sans doublon : un prompt Civitai déjà
+ *  rejoué une fois est dans l'historique, et le cocher des deux côtés doit
+ *  compter UNE passe, pas deux. Après le lancement il entre dans l'historique
+ *  comme les autres. */
+export function mergeBatches(historyPicked, extraPicked) {
+  const out = [];
+  for (const p of [...(historyPicked || []), ...(extraPicked || [])]) {
+    if (typeof p === 'string' && p !== '' && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
 /** Le corps du lancement. La clé `prompts` voyage dans le même objet que les
  *  réglages globaux — les deux hooks (Test Studio et canvas) étalent cet objet
  *  dans leur POST, donc le lot atteint les deux routes sans changer une seule

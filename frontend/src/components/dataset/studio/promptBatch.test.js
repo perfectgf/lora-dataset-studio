@@ -53,3 +53,13 @@ test('the button keeps its surface’s verb and adds what the batch changes', ()
   // a run that looks exactly like the ordinary one.
   assert.equal(launchText(null, ['a']), null);
 });
+
+test('🌐 Civitai picks join the batch after the history picks, once each', async () => {
+  const { mergeBatches } = await import('./promptBatch.js');
+  assert.deepEqual(mergeBatches(['a', 'b'], ['c', 'b', 'd']), ['a', 'b', 'c', 'd'],
+    'a prompt ticked in both places is ONE pass');
+  assert.deepEqual(mergeBatches([], ['x']), ['x']);
+  assert.deepEqual(mergeBatches(['x'], []), ['x']);
+  assert.deepEqual(mergeBatches(null, null), []);
+  assert.deepEqual(mergeBatches(['a', ''], [42, 'a']), ['a'], 'only real prompt texts travel');
+});

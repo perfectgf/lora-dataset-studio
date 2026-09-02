@@ -13,9 +13,29 @@ test('every prompt surface mounts the SAME Civitai browser button', () => {
   // the canvas share PromptField, the multi-LoRA comparison has its own prompt
   // block — a button added to one and not the other is exactly the kind of
   // silent divergence users report as a bug.
-  assert.match(promptField, /<CivitaiBrowserButton prompt=\{value\} onPrompt=\{onChange\} \/>/);
+  assert.match(promptField, /<CivitaiBrowserButton prompt=\{value\} onPrompt=\{onChange\}\s*\n\s*picks=\{civitaiPicks\} onTogglePick=\{onToggleCivitaiPick\} \/>/);
   assert.match(comparisonSetup, /<CivitaiBrowserButton prompt=\{prompt\} onPrompt=\{onPrompt\} \/>/);
   assert.match(button, /CivitaiBrowserModal/);
+});
+
+test('📝 the browser feeds the prompt batch where a batch exists, and only there', () => {
+  // A tick on a card is one more pass of the next run — the same batch the
+  // saved-prompts cards feed, merged without doubles (promptBatch.mergeBatches)
+  // — and the browser stays open, because the gesture is "collect several".
+  assert.match(modal, /data-testid="civitai-batch-toggle"/);
+  assert.match(modal, /role="checkbox" aria-checked=\{inBatch\}/);
+  assert.match(modal, /onTogglePick\(c\.prompt\)/);
+  assert.match(modal, /data-testid="civitai-batch-footer"/);
+  // Without a handler nothing appears: the comparison surface has no batch at
+  // all, so it shows no tick boxes rather than boxes that feed nothing.
+  assert.match(modal, /const batchable = typeof onTogglePick === 'function'/);
+  assert.match(button, /picks=\{picks\} onTogglePick=\{onTogglePick\}/);
+  // The panel that owns the batch merges the two sources into ONE `prompts`.
+  const panel = readFileSync(new URL('./RunSetupPanel.jsx', import.meta.url), 'utf8');
+  assert.match(panel, /mergeBatches\(pickedPrompts, civitaiPicks\)/);
+  assert.match(panel, /onToggleCivitaiPick=\{toggleCivitaiPick\}/);
+  // …and says so under the field, where it is read even with an empty history.
+  assert.match(promptField, /data-testid="civitai-batch-count"/);
 });
 
 test('a typed prompt is never silently replaced', () => {

@@ -516,6 +516,7 @@ export const PAGE_TOPICS = [
      'select several prompts', 'tick prompts', 'checkbox', 'checkboxes',
      'replay prompts', 'rerun prompts', 'run all my prompts', 'queue several prompts',
      'one image per prompt', 'n selected', 'clear selection', 'untick',
+     'civitai prompts in the batch', 'batch civitai prompts', 'civitai batch',
      'how many images will this make', 'too many prompts', 'at most 24 prompts',
      // Ce que quelqu'un tape après avoir été refusé par le plafond qui a existé
      // une journée — et ce qu'il cherche maintenant : le coût, pas la limite.
@@ -544,7 +545,9 @@ export const PAGE_TOPICS = [
      'prompt inspiration', 'find a prompt', 'copy a prompt', 'use prompt',
      'trending images', 'most reactions', 'popular prompts', 'image with prompt',
      'no prompt published', 'prompts missing', 'civitai api key', 'load more',
-     'safe mature everything', 'content level', 'top of the week'],
+     'safe mature everything', 'content level', 'top of the week',
+     'batch', 'add to batch', 'tick several civitai prompts', 'run several civitai prompts',
+     'civitai prompts in one run', 'in batch'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // 📤 One dialog, two doors (the checkpoint popover on the ◉ Canvas / run
   // graph, and the shared image viewer everywhere it opens): one topic.

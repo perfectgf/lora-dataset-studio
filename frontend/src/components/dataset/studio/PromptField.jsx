@@ -16,8 +16,12 @@ import CivitaiBrowserButton from './CivitaiBrowserButton';
 // vit dans RunSetupPanel, qui est le seul à savoir ce qu'un lancement envoie.
 // 🔤 `injectTrigger`/`onInjectTrigger` : la case « Trigger word » (préfixer ou non le
 // trigger du dataset au prompt monté). Même règle : traversant, l'état vit au panneau.
+// 🌐 `civitaiPicks`/`onToggleCivitaiPick`/`onClearCivitaiPicks` : les prompts cochés
+// dans le navigateur Civitai, passes du même lot sans passer par l'historique.
+// Traversant, comme le lot ; sans handler le navigateur garde son seul ⤵ Use prompt.
 export default function PromptField({ value, placeholder, onChange, onReset, isCustom, recentPrompts, datasetId, onDeletePrompt,
   batchPrompts = null, onToggleBatchPrompt = null, onClearBatchPrompts = null,
+  civitaiPicks = null, onToggleCivitaiPick = null, onClearCivitaiPicks = null,
   injectTrigger = true, onInjectTrigger = null }) {
   const [describeOpen, setDescribeOpen] = useState(false);
   // A described prompt replaces the field; if the user already typed one, confirm
@@ -54,9 +58,29 @@ export default function PromptField({ value, placeholder, onChange, onReset, isC
             className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
             <Search aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Describe
           </button>
-          <CivitaiBrowserButton prompt={value} onPrompt={onChange} />
+          <CivitaiBrowserButton prompt={value} onPrompt={onChange}
+            picks={civitaiPicks} onTogglePick={onToggleCivitaiPick} />
         </div>
       </div>
+      {/* 🌐 Ce que le lot tient du navigateur Civitai — visible ICI, sous le
+          champ, parce que l'historique (qui porte son propre compteur) peut
+          être vide sur un dataset neuf, et un lot invisible se lance à
+          l'aveugle. */}
+      {Array.isArray(civitaiPicks) && civitaiPicks.length > 0 && (
+        <p className="m-0 flex flex-wrap items-center gap-1.5 text-[0.625rem] text-content-subtle"
+          data-testid="civitai-batch-count">
+          <span className="rounded bg-purple-500/20 px-1.5 py-0.5 font-semibold text-purple-200 tabular-nums">
+            🌐 {civitaiPicks.length} Civitai prompt{civitaiPicks.length === 1 ? '' : 's'} in the batch
+          </span>
+          <span>— one pass each on the next run</span>
+          {onClearCivitaiPicks && (
+            <button type="button" onClick={onClearCivitaiPicks}
+              className="inline-flex min-h-10 items-center px-1 underline decoration-dotted hover:text-content lg:min-h-0 lg:px-0">
+              Clear
+            </button>
+          )}
+        </p>
+      )}
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}

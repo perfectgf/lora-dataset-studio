@@ -6,10 +6,15 @@
 //
 // Overwrite rule matches 🔎 Describe: a typed prompt is never silently
 // replaced — picking a Civitai prompt over a non-empty field asks first.
+//
+// 📝 `picks` / `onTogglePick` — the prompt batch, when the host has one: a
+// tick on a card adds that prompt as one more pass of the next run, without
+// touching the field. Only RunSetupPanel's surfaces own a batch today; the
+// comparison passes nothing and keeps the single ⤵ Use prompt.
 import { useState } from 'react';
 import CivitaiBrowserModal from './CivitaiBrowserModal';
 
-export default function CivitaiBrowserButton({ prompt, onPrompt }) {
+export default function CivitaiBrowserButton({ prompt, onPrompt, picks = null, onTogglePick = null }) {
   const [open, setOpen] = useState(false);
   const use = (text) => {
     if (prompt && prompt.trim()
@@ -17,15 +22,17 @@ export default function CivitaiBrowserButton({ prompt, onPrompt }) {
     onPrompt(text);
     setOpen(false);
   };
+  const picked = Array.isArray(picks) ? picks.length : 0;
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}
         title="Browse top Civitai images and reuse their prompts"
         className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
-        🌐 Civitai
+        🌐 Civitai{picked > 0 ? ` · ${picked}` : ''}
       </button>
       {open && (
-        <CivitaiBrowserModal open onClose={() => setOpen(false)} onUse={use} />
+        <CivitaiBrowserModal open onClose={() => setOpen(false)} onUse={use}
+          picks={picks} onTogglePick={onTogglePick} />
       )}
     </>
   );

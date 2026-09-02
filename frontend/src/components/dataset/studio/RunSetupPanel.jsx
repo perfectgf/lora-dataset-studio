@@ -11,7 +11,7 @@ import LaunchBar from './LaunchBar';
 import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
 import StudioPreflightBanner from './StudioPreflightBanner';
-import { launchSettings, launchText as batchLaunchText, visibleBatch } from './promptBatch';
+import { launchSettings, launchText as batchLaunchText, mergeBatches, visibleBatch } from './promptBatch';
 import { readInjectTrigger, writeInjectTrigger } from './triggerPref';
 import ScenePromptsPanel from './ScenePromptsPanel';
 import { combinedPromptBatch } from './scenePrompts';
@@ -76,13 +76,20 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   const pickedPrompts = visibleBatch(batchPrompts, d.recent_prompts);
   const toggleBatchPrompt = (p) => setBatchPrompts((cur) => (
     cur.includes(p) ? cur.filter((v) => v !== p) : [...cur, p]));
+  // 🌐 Les prompts cochés dans le navigateur Civitai : des passes du même lot,
+  // sans passer par l'historique (ils y entreront au lancement). Même règle de
+  // non-persistance que le lot d'historique, même raison.
+  const [civitaiPicks, setCivitaiPicks] = useState([]);
+  const toggleCivitaiPick = (p) => setCivitaiPicks((cur) => (
+    cur.includes(p) ? cur.filter((v) => v !== p) : [...cur, p]));
 
   // 🎬 Scenes : les captions d'une banque OU d'un dataset DANS L'ORDRE, chaque
   // scène cochée devenant une passe du même axe 📝. Non persisté, même raison que
   // le lot d'historique ci-dessus. La règle vit dans scenePrompts.js (pur, testé).
   const [sceneBatch, setSceneBatch] = useState({ source: null, scenes: [], picked: [], extras: {} });
   const allPickedPrompts = combinedPromptBatch(
-    pickedPrompts, sceneBatch.scenes, sceneBatch.picked, sceneBatch.extras);
+    mergeBatches(pickedPrompts, civitaiPicks),
+    sceneBatch.scenes, sceneBatch.picked, sceneBatch.extras);
 
   // 🔤 Case « Trigger word » : préfixer (défaut, comportement historique) ou non le
   // trigger du dataset au prompt monté. Préférence de navigateur PARTAGÉE entre les
@@ -241,6 +248,9 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
             batchPrompts={pickedPrompts}
             onToggleBatchPrompt={toggleBatchPrompt}
             onClearBatchPrompts={() => setBatchPrompts([])}
+            civitaiPicks={civitaiPicks}
+            onToggleCivitaiPick={toggleCivitaiPick}
+            onClearCivitaiPicks={() => setCivitaiPicks([])}
             injectTrigger={injectTrigger}
             onInjectTrigger={toggleInjectTrigger}
           />
