@@ -136,3 +136,29 @@ def test_the_column_is_migrated_for_legacy_databases():
     import app as app_pkg
     src = open(os.path.join(os.path.dirname(app_pkg.__file__), '__init__.py'), encoding='utf-8').read()
     assert "('video_test_clip', 'nr_of', 'INTEGER')" in src
+
+
+def test_the_history_page_carries_the_source_of_its_renders_and_pages_back(app, client, tmp_path, monkeypatch):
+    """A render's source is older than the render by construction, so it falls
+    off the newest page after a few renders — and a pair that cannot be seen
+    together reads as "the original was deleted" (reported the first evening).
+    The page appends every listed render's source, whatever its age, and
+    `before` pages further back."""
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    ids = [_clip(app, prompt=f'clip {i}') for i in range(30)]       # 30 plain clips
+    source = ids[0]                                                  # the oldest one
+    render = _clip(app, prompt='render', nr_of=source)               # newest, points at the oldest
+    r = client.get('/api/video-studio/clips?limit=5')
+    body = r.get_json()
+    listed = [c['id'] for c in body['clips']]
+    assert listed[0] == render and listed == sorted(listed, reverse=True)
+    assert source in listed, 'the source rides along even though it is 30 clips older'
+    assert len(listed) == 6 and body['has_more'] is True
+    # Paging back from the oldest id of the page proper (not the carried source).
+    page_proper = [i for i in listed if i != source]
+    r2 = client.get(f'/api/video-studio/clips?limit=5&before={min(page_proper)}')
+    older = [c['id'] for c in r2.get_json()['clips']]
+    assert older and max(older) < min(page_proper)
+    # The last page says so.
+    r3 = client.get(f'/api/video-studio/clips?limit=100&before={ids[3]}')
+    assert r3.get_json()['has_more'] is False

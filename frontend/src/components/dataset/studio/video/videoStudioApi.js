@@ -37,7 +37,11 @@ export const motionModelsUrl = () => '/api/video-studio/motion/models';
 export const motionModelUrl = () => '/api/video-studio/motion/model';
 export const sourceUrl = () => `${VIDEO_STUDIO_BASE}/source`;
 export const generateUrl = () => `${VIDEO_STUDIO_BASE}/generate`;
-export const clipsUrl = (limit = 24) => `${VIDEO_STUDIO_BASE}/clips?limit=${limit}`;
+/** The history, newest first: one page of `limit`, `before` (a clip id) for the
+ * page after it. The server appends the SOURCE of every listed render, so the
+ * pair a comparison needs is always on screen together. */
+export const clipsUrl = (limit = 24, before = null) =>
+  `${VIDEO_STUDIO_BASE}/clips?limit=${limit}${before ? `&before=${before}` : ''}`;
 export const clipUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}`;
 export const clipVideoUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}/video`;
 export const clipRateUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}/rate`;

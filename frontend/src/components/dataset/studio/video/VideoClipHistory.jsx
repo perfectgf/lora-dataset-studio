@@ -19,6 +19,7 @@ const ACTION = 'flex items-center justify-center gap-1 rounded-lg border px-2 py
 
 export default function VideoClipHistory({
   clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy, onCompare,
+  onJumpTo, hasMore = false, loadingMore = false, onLoadMore,
 }) {
   if (!clips.length) {
     return (
@@ -32,7 +33,7 @@ export default function VideoClipHistory({
       {clips.map((clip) => {
         const running = isRunning(clip);
         return (
-          <article key={clip.id}
+          <article key={clip.id} id={`video-clip-${clip.id}`} tabIndex={-1}
             className={`flex flex-col gap-2 rounded-xl border bg-surface p-2 sm:flex-row ${
               running ? 'border-amber-400/40' : clip.status === 'failed' ? 'border-red-500/30' : 'border-border'}`}>
             <div className="w-full shrink-0 sm:w-64">
@@ -51,6 +52,18 @@ export default function VideoClipHistory({
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <p className="line-clamp-2 break-words text-sm text-content">{clip.prompt}</p>
+              {/* Where a render came from, as a link that scrolls to it: the
+                  source is older than its render by construction, and a pair
+                  that cannot be seen together reads as a deleted original. */}
+              {(clip.nr_of || clip.vfi_of) && onJumpTo && (
+                <p className="text-[0.6875rem] text-content-subtle">
+                  {clip.nr_of ? 'neural render of' : 'smoothed from'}{' '}
+                  <button type="button" onClick={() => onJumpTo(clip.nr_of || clip.vfi_of)}
+                    className="underline decoration-dotted underline-offset-2 hover:text-content">
+                    clip #{clip.nr_of || clip.vfi_of}
+                  </button>
+                </p>
+              )}
               {/* The facts that made this clip, one pill each — comparing two
                   cards is reading which pill differs. */}
               <div className="flex flex-wrap gap-1">
@@ -128,6 +141,14 @@ export default function VideoClipHistory({
           </article>
         );
       })}
+      {/* The history is paged: 24 newest, then this. Newest first stays true
+          after a load — the page merges below what is already there. */}
+      {hasMore && onLoadMore && (
+        <button type="button" onClick={onLoadMore} disabled={loadingMore}
+          className="min-h-10 self-center rounded-lg border border-border bg-surface px-3 py-1 text-xs text-content-muted hover:text-content disabled:opacity-50 lg:min-h-0">
+          {loadingMore ? 'Loading…' : 'Load older clips'}
+        </button>
+      )}
     </section>
   );
 }
