@@ -431,7 +431,8 @@ def test_removing_nothing_removes_nothing_rather_than_emptying_the_set(client,
 
     assert r.status_code == 200
     assert r.get_json() == {'ok': True, 'removed': 0, 'clips': 2,
-                            'files_missing': 0, 'files_kept': 0}
+                            'files_missing': 0, 'files_kept': 0,
+                            'delete_mode': 'app_trash'}
 
 
 def test_removing_a_clip_whose_file_a_user_already_deleted_still_clears_the_row(
@@ -461,7 +462,12 @@ def test_removing_a_clip_of_ANOTHER_dataset_does_nothing_at_all(client, tmp_path
     from dataset B and joined to dataset A's output_dir points at a REAL file of
     A. Without the row filter the route deletes A's clip, deletes B's row, and
     un-promotes B's shot — cross-dataset destruction, from a request that named
-    neither. This one assertion kills both mutations."""
+    neither.
+
+    It kills the ROW-scope clause. It cannot reach the other one (the
+    `promoted_dataset_id == ds.id` clause of the un-promote), because a foreign
+    id yields no row at all and the un-promote block is never entered — that
+    clause has its own test further down, on the rowid collision it exists for."""
     bank_a, ds_a = _promote(client, tmp_path)
     bank_b = _ready_bank(client, tmp_path / 'second')
     ds_b = client.post(f'/api/video-bank/{bank_b}/promote',
@@ -530,50 +536,113 @@ def test_a_locked_clip_keeps_its_row_AND_its_caption_file(client, tmp_path, seam
     _bank_id, ds_id = _promote(client, tmp_path)
     body = client.get(f'/api/video-dataset/{ds_id}').get_json()
     item = body['items'][0]
-    real_dispose = trash.dispose
+    real_move = trash.send_to_trash
 
     def refuse_the_mp4(path, context=''):
         if str(path).endswith('clip_0001.mp4'):
-            raise PermissionError(13, 'file is open in another process')
-        return real_dispose(path, context=context)
-    monkeypatch.setattr(trash, 'dispose', refuse_the_mp4)
+            raise trash.TrashLockError(path, PermissionError(13, 'file is open in another process'))
+        return real_move(path, context=context)
+    monkeypatch.setattr(trash, 'send_to_trash', refuse_the_mp4)
 
     r = client.post(f'/api/video-dataset/{ds_id}/clips/remove',
                     json={'ids': [item['id']]})
 
     assert r.status_code == 200, r.get_json()
     assert r.get_json() == {'ok': True, 'removed': 0, 'clips': 2,
-                            'files_missing': 0, 'files_kept': 1}
+                            'files_missing': 0, 'files_kept': 1,
+                            'delete_mode': 'app_trash'}
     # Nothing half-gone: the caption file was never touched, and the row stayed.
     for name in ('clip_0001.mp4', 'clip_0001.txt'):
         assert os.path.isfile(os.path.join(body['output_dir'], name)), name
     assert client.get(f'/api/video-dataset/{ds_id}').get_json()['clips'] == 2
 
 
-def test_a_removed_clip_goes_to_the_TRASH_and_not_into_thin_air(client, tmp_path,
-                                                                seams, monkeypatch):
-    """trash.py: "NOTHING the app deletes is destroyed directly". Both twins of
-    this verb honour it — delete_video_dataset in this same file, and
-    face_dataset_service.delete_image on the image side, which even restores from
-    the trash when the commit fails. What is thrown away here is not only an
-    encode: the caption edited in the dataset's own Captions section lives on
-    that row and in that .txt, and promoting the shot again brings back the
-    BANK's caption, not the one just written."""
+def test_a_removed_clip_goes_to_the_APP_trash_and_can_be_found_there(client, tmp_path,
+                                                                     seams, app):
+    """trash.py: "NOTHING the app deletes is destroyed directly". This verb's true
+    twin — face_dataset_service.delete_image, the per-image delete of an image
+    dataset — moves through send_to_trash, the app's own trash under data/trash,
+    and that is what this one does too. The OUTCOME is asserted, not the
+    argument: both halves of the clip are found in the trash afterwards, under
+    the sandboxed data dir this test owns, and nothing went near the OS recycle
+    bin (which a test must never touch on a developer's machine)."""
     from app.services import trash
-    seen = []
-    real_dispose = trash.dispose
-    monkeypatch.setattr(trash, 'dispose',
-                        lambda path, context='': (seen.append((os.path.basename(str(path)), context)),
-                                                  real_dispose(path, context=context))[1])
     _bank_id, ds_id = _promote(client, tmp_path)
     item = client.get(f'/api/video-dataset/{ds_id}').get_json()['items'][0]
 
-    client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [item['id']]})
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [item['id']]})
 
-    assert [n for n, _ in seen] == ['clip_0001.mp4', 'clip_0001.txt'], \
-        'both halves must go through the trash, and the .mp4 FIRST'
-    assert all('video dataset' in ctx for _, ctx in seen), \
-        'the trash folder has to say what it holds, or it is a heap'
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['delete_mode'] == 'app_trash'
+    with app.app_context():
+        root = trash.trash_root()
+    assert str(root).startswith(str(tmp_path)), 'the trash must be the sandboxed one'
+    trashed = sorted(f.name for f in root.rglob('clip_0001.*'))
+    assert trashed == ['clip_0001.mp4', 'clip_0001.txt'], trashed
+    # Named after what it holds, or the trash is a heap.
+    assert all('video-dataset' in str(f.parent.name) for f in root.rglob('clip_0001.*'))
+
+
+def test_a_commit_that_fails_puts_every_file_of_the_batch_BACK(client, tmp_path, seams,
+                                                              monkeypatch):
+    """The files leave the folder on the strength of a commit that has not
+    happened yet. If that commit is refused — SQLite locked by a promote job, a
+    concurrent poll — the old code answered 500 with the folder already emptied
+    and the rows still there: "could not remove" was true of the database and a
+    lie about the disk. delete_image, the twin, restores from the trash on any
+    exception. So does this now, for the whole batch, and it is asserted on the
+    disk: every .mp4 and .txt is back where it was, and the rows are intact."""
+    from app.extensions import db
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    ids = [i['id'] for i in body['items']]
+    before = sorted(os.listdir(body['output_dir']))
+
+    def refuse(*_a, **_k):
+        raise RuntimeError('database is locked')
+    monkeypatch.setattr(db.session, 'commit', refuse)
+
+    # TESTING propagates the exception instead of rendering the 500 — which is
+    # fine: what matters is what the DISK looks like after the service unwinds.
+    with pytest.raises(RuntimeError, match='database is locked'):
+        client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': ids})
+
+    monkeypatch.undo()
+    assert sorted(os.listdir(body['output_dir'])) == before, 'the files must be back'
+    assert client.get(f'/api/video-dataset/{ds_id}').get_json()['clips'] == len(ids)
+
+
+def test_a_shot_promoted_into_ANOTHER_dataset_keeps_its_mark_on_a_rowid_collision(
+        client, tmp_path, seams, app):
+    """The clause the cross-dataset test cannot reach. source_clip_id is not a
+    foreign key (the bank is a scratch container the user may delete, and SQLite
+    reuses rowids), so a row of dataset A can name a shot id that, today, belongs
+    to a shot promoted into dataset B. Removing A's row must not un-promote B's
+    shot — the second clause of the un-promote filter is the only thing that
+    stops it, and with it removed by hand the whole targeted suite stayed green."""
+    from app.extensions import db
+    from app.models import VideoClip, VideoDatasetClip
+    bank_id, ds_a = _promote(client, tmp_path)
+    bank_b = _ready_bank(client, tmp_path / 'second')
+    ds_b = client.post(f'/api/video-bank/{bank_b}/promote',
+                       json={'name': 'other set', 'target_profile': 'wan22_14b',
+                             'frames': 81}).get_json()['id']
+    with app.app_context():
+        b_shot = VideoClip.query.filter_by(bank_id=bank_b, promoted_dataset_id=ds_b).first()
+        assert b_shot is not None
+        # A row of dataset A that names B's shot — the collision, by hand.
+        a_row = VideoDatasetClip.query.filter_by(dataset_id=ds_a).first()
+        a_row.source_clip_id = b_shot.id
+        db.session.commit()
+        a_row_id, b_shot_id = a_row.id, b_shot.id
+
+    r = client.post(f'/api/video-dataset/{ds_a}/clips/remove', json={'ids': [a_row_id]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 1
+    with app.app_context():
+        assert db.session.get(VideoClip, b_shot_id).promoted_dataset_id == ds_b, \
+            "B's shot must keep B's mark — A never owned it"
 
 
 def test_the_reference_upload_is_reachable_the_way_the_browser_sends_it(app, client,

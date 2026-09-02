@@ -81,14 +81,44 @@ test('the per-clip Saving line RESERVES its space instead of inserting a row', (
     'a conditionally INSERTED status line shifts the page under the pointer')
 })
 
-test('Escape saves the caption before it closes the player', () => {
-  // A focused element removed from the DOM never fires blur, and blur is what
-  // owns the save — so Escape used to drop the typed caption in silence while
-  // the screen went on showing it. Measured in a real browser.
-  assert.match(lightbox, /if \(e\.key === 'Escape'\) \{[\s\S]{0,900}?onSave\(\)\s*\n\s*onClose\(\)/,
-    'Escape must call onSave() BEFORE onClose(), or the caption is lost')
+test('the keydown handler DELEGATES to lightboxKeyAction — the decision is a tested value', () => {
+  // The first version of this guard was a source regex on `onSave()` followed by
+  // `onClose()` inside the Escape branch. One inserted line — an early return
+  // while typing, i.e. the original bug — walked straight through it with the
+  // suite green. So the decision now lives in a pure function with its own
+  // tests (videoDatasetClips.test.js), and this only pins that the handler asks
+  // it, with the typing flag, and does what it answers.
+  assert.match(lightbox, /lightboxKeyAction\(e\.key, \{ typing: typing\.current, hasPrev, hasNext \}\)/,
+    'the handler must ask lightboxKeyAction with the typing flag')
+  assert.match(lightbox, /if \(action === 'save-close'\) \{ onSave\(\); onClose\(\) \}/,
+    'save-close must save BEFORE it closes')
+  assert.ok(!/if \(e\.key === 'Escape'\)/.test(lightbox),
+    'no hand-written Escape branch may sit in front of the delegated decision')
   assert.match(lightbox, /\[onClose, onSave, onPrev, onNext, hasPrev, hasNext\]/,
     'onSave has to be in the effect deps, or Escape saves a stale draft')
+})
+
+test('the player is resolved on the FULL list and walks the FILTERED one, from its last slot', () => {
+  // lightboxTargets is tested as a pure function; this pins the CALL SITE, the
+  // only place a real regression can still happen. `(shown, shown, …)` — the
+  // exact bug the rewire killed — left 4495 tests green until this line.
+  assert.match(workspace, /const player = lightboxTargets\(items, shown, openId, lastIndex\.current\)/,
+    'the clip comes from items, the stepping from shown, the fallback from the ref')
+  assert.match(workspace, /if \(player\.index >= 0\) lastIndex\.current = player\.index/,
+    'the slot has to be remembered while the clip is still in the filtered list')
+})
+
+test('every draft purge goes through purgeDraft with the value that was POSTED', () => {
+  // purgeDraft is tested as a pure function; these pin the two CALL SITES, the
+  // only places an unconditional purge can come back. A single save purges
+  // against the caption it sent; the bulk pass folds purgeDraft over each
+  // (id, after) it wrote. Typing during the round-trip must survive both.
+  assert.match(workspace, /setDrafts\(\(m\) => purgeDraft\(m, clip\.id, caption\)\)/,
+    'saveCaption must purge only if the draft still equals what was posted')
+  assert.match(workspace, /written\.reduce\(\(acc, \{ id, after \}\) => purgeDraft\(acc, id, after\), m\)/,
+    'applyCaptionOp must purge per clip against the value it posted')
+  assert.ok(!/delete next\[clip\.id\]/.test(workspace),
+    'no hand-written unconditional purge may remain')
 })
 
 test('the identity line and the destinations rail cost nothing at rest on a phone', () => {

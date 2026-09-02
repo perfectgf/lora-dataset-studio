@@ -217,27 +217,44 @@ test('an empty set explains where clips come from instead of showing an empty gr
  * the html, and section HEADERS are rendered from the same list: it passed with
  * ZERO rail entries, which is the one regression it existed to catch. So the nav
  * is isolated first and the buttons are counted inside it. */
-const railOf = (html) => {
-  const start = html.indexOf('aria-label="Video dataset sections"')
-  assert.notEqual(start, -1, 'the section rail is not on the page at all')
-  const from = html.lastIndexOf('<nav', start)
-  return html.slice(from, html.indexOf('</nav>', start))
+const railsOf = (html) => {
+  // BOTH rails: the phone chip rail and the desktop side rail carry the same
+  // aria-label, and the first version of this helper took only the first one
+  // — emptying the desktop rail left every assertion green.
+  const out = []
+  let at = html.indexOf('aria-label="Video dataset sections"')
+  assert.notEqual(at, -1, 'the section rail is not on the page at all')
+  while (at !== -1) {
+    const from = html.lastIndexOf('<nav', at)
+    const to = html.indexOf('</nav>', at)
+    out.push(html.slice(from, to))
+    at = html.indexOf('aria-label="Video dataset sections"', to)
+  }
+  assert.equal(out.length, 2, `expected the phone rail AND the desktop rail, found ${out.length}`)
+  return out
 }
+// Every assertion below is made on EACH rail, so a regression in one cannot
+// hide behind the other.
+const railOf = (html) => railsOf(html).join('\n<!-- rail boundary -->\n')
 
 test('the rail really lists every visible section, and the anchors it points at exist', async () => {
   const { VIDEO_DATASET_SECTIONS } = await import(
     '../src/components/videobank/videoDatasetSections.js')
   const html = renderWorkspace({ ds: { ...DS, requires_references: true } })
-  const rail = railOf(html)
+  for (const [which, rail] of railsOf(html).entries()) {
+    for (const section of VIDEO_DATASET_SECTIONS) {
+      assert.ok(rail.includes(`>${section.title}</span>`),
+        `${section.id} has no entry in rail #${which}`)
+    }
+    // One button per section and not one more — a rail that duplicated its
+    // entries would satisfy every assertion above.
+    assert.equal((rail.match(/<button/g) || []).length, VIDEO_DATASET_SECTIONS.length,
+      `rail #${which} does not hold exactly one button per section`)
+  }
   for (const section of VIDEO_DATASET_SECTIONS) {
-    assert.ok(rail.includes(`>${section.title}</span>`),
-      `${section.id} has no entry in the rail itself`)
     assert.ok(html.includes(`id="${section.panels[0].targetId}"`),
       `${section.id}: nothing on the page carries ${section.panels[0].targetId}`)
   }
-  // One button per section and not one more — a rail that duplicated its
-  // entries would satisfy every assertion above.
-  assert.equal((rail.match(/<button/g) || []).length, VIDEO_DATASET_SECTIONS.length)
 })
 
 test('a hidden section is absent from the RAIL, not merely from the page', () => {

@@ -163,13 +163,19 @@ def video_dataset_remove_clips(dataset_id):
     anything. That promise is the reason this is a safe button, so it is stated
     both here and in the confirmation the user reads.
 
-    Answers {removed, clips, files_missing, files_kept}. ``files_kept`` is the
-    one nobody expects and the one that matters: a clip whose .mp4 is held open
-    (an antivirus scan, a player, a training run reading this very folder) keeps
-    its row and stays in the set, because the folder IS the dataset and a row
-    deleted without its file removes the clip from the app while leaving it in
-    the training run. The caller must not report a plain success when it is
-    non-zero.
+    Answers {removed, clips, files_missing, files_kept, delete_mode}.
+    ``files_kept`` is the one nobody expects and the one that matters: a clip
+    whose .mp4 is held open (an antivirus scan, a player, a training run reading
+    this very folder) keeps its row and stays in the set, because the folder IS
+    the dataset and a row deleted without its file removes the clip from the app
+    while leaving it in the training run. The caller must not report a plain
+    success when it is non-zero. ``delete_mode`` names where the files went, in
+    the vocabulary of services.trash, so the toast can say it through the
+    app-wide wording rather than a sentence of its own.
+
+    A 500 here means the commit failed — and the files are back in the folder
+    (the service restores them from the trash before re-raising), so "could not
+    remove" is true of the disk as well as of the database.
     """
     data = request.get_json(silent=True) or {}
     ids = data.get('ids')

@@ -19,7 +19,8 @@ import {
 } from './videoDatasetNavigation'
 import {
   CLIP_FILTERS, CLIP_SORTS, captionCoverageNote, clipCounts, clipFilterCount,
-  hasCaption, lightboxTargets, removeClipsConfirmation, removeClipsReport, visibleClips,
+  hasCaption, lightboxTargets, purgeDraft, removeClipsConfirmation, removeClipsReport,
+  visibleClips,
 } from './videoDatasetClips'
 import {
   captionEditConfirmation, captionEditPlan, captionEditProgressLabel, captionEditReport,
@@ -117,7 +118,10 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
         toast.warning('Caption saved in the app, but its .txt file could not be written — the trainer reads the file.')
       }
       await refresh()
-      setDrafts((m) => { const next = { ...m }; delete next[clip.id]; return next })
+      // Only if the draft is still what was posted: anything typed during the
+      // two awaits above lives in the draft alone, and dropping it would throw
+      // the user's text away in silence (purgeDraft says why in full).
+      setDrafts((m) => purgeDraft(m, clip.id, caption))
     } catch (e) {
       toast.error(e?.message || 'Could not save that caption.')
     } finally {
@@ -131,7 +135,7 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
     // from an image dataset, with no source_bank_id), so the promise that makes
     // this a safe click is not true there and must not be printed there.
     const text = removeClipsConfirmation(doomed.map((c) => c.filename),
-      { fromBank: doomed.some((c) => c.source_clip_id) })
+      { fromBank: doomed.some((c) => c.source_clip_id), mode: ds.delete_mode })
     if (!text || !window.confirm(text)) return
     try {
       const d = await postJson(videoDatasetRemoveClipsUrl(ds.id), { ids })
@@ -140,13 +144,18 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
       // plain "removed" toast over that is the same lie as a caption saved
       // without its sidecar — so it gets the same warning treatment.
       toast[d.files_kept ? 'warning' : 'success'](removeClipsReport(d))
-      setSelected((list) => list.filter((id) => !ids.includes(id)))
-      setOpenId((id) => (ids.includes(id) ? null : id))
+      // The server does not say WHICH clips it kept, so when it kept any the
+      // selection stays as it was: the toast says "try again", and clearing the
+      // selection would take away the very thing to try again with.
+      if (!d.files_kept) {
+        setSelected((list) => list.filter((id) => !ids.includes(id)))
+        setOpenId((id) => (ids.includes(id) ? null : id))
+      }
       await refresh()
     } catch (e) {
       toast.error(e?.message || 'Could not remove those clips.')
     }
-  }, [items, ds.id, refresh, toast])
+  }, [items, ds.id, ds.delete_mode, refresh, toast])
 
   /** Replay a caption plan over the existing per-clip route. One request per
    * clip is the price of not inventing a bulk endpoint this wave, and it buys
@@ -173,7 +182,7 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
         // threw, where nothing moved at all. Counting them together made the
         // report say "the failed ones still hold their previous text" about
         // clips whose row had already changed.
-        written.push(entry.id)
+        written.push({ id: entry.id, after: entry.after })
         if (d.sidecar_written) changed += 1
         else sidecarFailed += 1
       } catch { failed += 1 }
@@ -185,11 +194,10 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
     // in and out of that box reposts the stale text — silently undoing the bulk
     // rewrite on disk. Measured.
     if (written.length) {
-      setDrafts((m) => {
-        const next = { ...m }
-        written.forEach((id) => delete next[id])
-        return next
-      })
+      // Same rule as a single save: a draft is dropped only if it still holds
+      // the value that was posted for it — the user may have typed into a box
+      // while the loop ran (the per-clip textareas are never disabled).
+      setDrafts((m) => written.reduce((acc, { id, after }) => purgeDraft(acc, id, after), m))
     }
     const report = captionEditReport({ changed, sidecarFailed, failed })
     if (failed || sidecarFailed) toast.warning(report)
@@ -198,8 +206,13 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
   }, [selected, items, ds.id, refresh, toast])
 
   // Two lists, one rule, stated once in videoDatasetClips.lightboxTargets: the
-  // clip comes from the FULL set, the stepping comes from the filtered one.
-  const player = lightboxTargets(items, shown, openId)
+  // clip comes from the FULL set, the stepping comes from the filtered one. The
+  // ref remembers the slot the open clip held in that filtered list, so that
+  // once it leaves the list (captioned, under the "No caption" filter) the
+  // arrows resume from where it was instead of going dead.
+  const lastIndex = useRef(-1)
+  const player = lightboxTargets(items, shown, openId, lastIndex.current)
+  if (player.index >= 0) lastIndex.current = player.index
 
   const toggle = (clip, event) => {
     if (event?.shiftKey && anchor.current != null) {

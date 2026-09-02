@@ -14,6 +14,8 @@
  * bank's ranked-search vocabulary for something that does not rank.
  */
 
+import { deleteDestination, isRecoverable } from '../../utils/deletionWording.js';
+
 /** A stills set holds IMAGES under the same route and the same table. Wrapping
  * one in a <video> renders a dead player — found on a phone the day stills
  * shipped — so every surface that draws a clip asks this first. */
@@ -152,22 +154,93 @@ export function captionCoverageNote(counts, triggerWord) {
 }
 
 /** Confirmation for dropping clips out of the set. Names the count and says what
- * survives, because the answer ("the bank keeps every shot") is the whole reason
- * this is a safe thing to click. */
-export function removeClipsConfirmation(names, { fromBank = true } = {}) {
+ * survives, because the answer is the whole reason this is a safe thing to click.
+ *
+ * WHERE the files go comes from the app-wide helper, never from a sentence typed
+ * here. This used to say "the app's Trash — recoverable from Settings" in three
+ * places at once, and it was false: it named one of three possible destinations
+ * as if it were the only one. utils/deletionWording.js exists precisely so that
+ * every destructive confirmation names the destination from the MODE the server
+ * reports, and its own docstring says why a second copy is a second place to
+ * drift. The server sends `delete_mode` on the dataset payload for exactly this.
+ *
+ * The reassuring half depends on where the clips came from. A STILLS set has no
+ * bank at all — its rows are written straight from an image dataset with no
+ * source_bank_id — so "the bank keeps every shot" would promise something that
+ * does not exist. Different behaviour must not wear the same wording. */
+export function removeClipsConfirmation(names, { fromBank = true, mode } = {}) {
   const list = Array.isArray(names) ? names.filter(Boolean) : [];
   if (!list.length) return null;
   const head = list.length === 1
     ? `Remove “${list[0]}” from this dataset?`
     : `Remove ${list.length} clips from this dataset?`;
-  // The reassuring half depends on where the clips came from. A STILLS set has
-  // no bank at all — its rows are written straight from an image dataset with no
-  // source_bank_id — so "the bank keeps every shot" would promise something that
-  // does not exist. Different behaviour must not wear the same wording.
+  const where = `The encoded file and its .txt caption go to ${deleteDestination(mode)}`
+    + (isRecoverable(mode) ? ' — recoverable until you empty it.' : '.');
   const tail = fromBank
     ? 'The bank they were cut from keeps every shot and every decision — you can promote them again without triaging anything.'
     : 'This set was built from an image dataset, so there is no bank to promote them from again. The images are still in that dataset; the captions written here are not.';
-  return `${head}\n\nThe encoded file and its .txt caption go to the app’s Trash — recoverable from Settings until you empty it. ${tail}`;
+  return `${head}\n\n${where} ${tail}`;
+}
+
+/** What the toast says after a removal — and it stops saying “removed” about a
+ * clip whose FILE is still in the folder.
+ *
+ * `files_kept` is the server's answer for a file it could not move: an antivirus
+ * scan, an open player, or a training run reading this very folder. The row is
+ * kept with it, deliberately, because the folder IS the dataset and a row
+ * deleted without its file takes the clip out of the app while leaving it in the
+ * training set. Same register as the sidecar warning, which already settled this
+ * argument for captions.
+ *
+ * The destination is composed from `delete_mode`, the same way the confirmation
+ * did before the click — and "nothing happened" is its own sentence: a green
+ * "0 clips removed" is a success toast about a no-op. */
+export function removeClipsReport({ removed = 0, files_kept: kept = 0, delete_mode: mode } = {}) {
+  const n = `${removed} clip${removed === 1 ? '' : 's'}`;
+  if (!removed && !kept) return 'Nothing was removed — no clip matched.';
+  if (!kept) return `${n} removed — sent to ${deleteDestination(mode)}.`;
+  const k = `${kept} file${kept === 1 ? '' : 's'}`;
+  if (!removed) {
+    return `Nothing was removed: ${k} could not be moved — still open somewhere (a player, an antivirus scan, or a training run reading this folder). Those clips stay in the set.`;
+  }
+  return `${n} removed, but ${k} could not be moved and stay in the folder — the trainer reads the folder, so those clips are still in the set. Close whatever is holding them and try again.`;
+}
+
+/** Whether a caption draft may be dropped after its save landed.
+ *
+ * The posted value is read when the save STARTS; the purge happens two awaits
+ * later (the POST, then the refresh). Anything typed in between lives in the
+ * draft and nowhere else — and the old unconditional purge threw it away in
+ * silence, with a later blur then doing nothing because there was no draft
+ * left to save. The Escape fix made that window trivial to hit: Escape starts
+ * the save and lands the user on the same clip's box in the Captions section.
+ *
+ * So the draft is dropped ONLY if it is still the value that was posted. Pure,
+ * so the decision is a tested value rather than a line in a callback. */
+export function purgeDraft(drafts, id, postedValue) {
+  const map = drafts || {};
+  if (!(id in map)) return map;
+  if (map[id] !== postedValue) return map;          // the user typed on: their text wins
+  const next = { ...map };
+  delete next[id];
+  return next;
+}
+
+/** What a key does in the player, as a VALUE. 'save-close' | 'prev' | 'next' | null.
+ *
+ * Escape SAVES before it closes, and it does so whether or not the caret is in
+ * the caption box — that is the whole point. Closing unmounts the textarea, a
+ * focused element removed from the DOM never fires blur, and blur is what owns
+ * the save; so "Escape while typing" (the only case where there is a caption to
+ * lose) used to drop the text in silence while the screen kept showing it. The
+ * arrows, on the other hand, are exactly what the caret needs while typing, and
+ * they step nowhere until it leaves the box. */
+export function lightboxKeyAction(key, { typing = false, hasPrev = false, hasNext = false } = {}) {
+  if (key === 'Escape') return 'save-close';
+  if (typing) return null;
+  if (key === 'ArrowLeft' && hasPrev) return 'prev';
+  if (key === 'ArrowRight' && hasNext) return 'next';
+  return null;
 }
 
 /** What the player is showing, and what it steps through — TWO different lists,
@@ -180,36 +253,32 @@ export function removeClipsConfirmation(names, { fromBank = true } = {}) {
  * leaves the filter — so the player closed under the user's hands at the exact
  * moment they finished. Measured in a real browser before it was pinned here.
  *
- * `index` is -1 for a clip that has left the filtered list, and BOTH arrows go
- * dead there rather than jumping to the head of a list this clip is not in.
+ * `index` is -1 for a clip that has left the filtered list. The arrows do NOT
+ * go dead there: that stranded the page's own workflow (filter "No caption",
+ * caption a clip, and the next uncaptioned one became unreachable without
+ * closing and reopening). `lastIndex` — the slot the clip occupied before it
+ * left — is where the walk resumes: the clip that took its place is next, the
+ * one before it is prev, both clamped to the list that remains.
  */
-export function lightboxTargets(items, shown, openId) {
+export function lightboxTargets(items, shown, openId, lastIndex = -1) {
   const list = Array.isArray(items) ? items : [];
   const walk = Array.isArray(shown) ? shown : [];
   const index = walk.findIndex((c) => c.id === openId);
+  if (index >= 0) {
+    return {
+      clip: list.find((c) => c.id === openId) || null,
+      index,
+      prevId: index > 0 ? walk[index - 1].id : null,
+      nextId: index < walk.length - 1 ? walk[index + 1].id : null,
+    };
+  }
+  // Left the filtered list: resume from where it was. `at` is the slot that now
+  // holds its successor (or the end, when it was last).
+  const at = Math.max(0, Math.min(Number.isInteger(lastIndex) ? lastIndex : 0, walk.length));
   return {
     clip: list.find((c) => c.id === openId) || null,
-    index,
-    prevId: index > 0 ? walk[index - 1].id : null,
-    nextId: index >= 0 && index < walk.length - 1 ? walk[index + 1].id : null,
+    index: -1,
+    prevId: at > 0 ? walk[at - 1].id : null,
+    nextId: at < walk.length ? walk[at].id : null,
   };
-}
-
-/** What the toast says after a removal — and it stops saying “removed” about a
- * clip whose FILE is still in the folder.
- *
- * `files_kept` is the server's answer for a file it could not move: an antivirus
- * scan, an open player, or a training run reading this very folder. The row is
- * kept with it, deliberately, because the folder IS the dataset and a row
- * deleted without its file takes the clip out of the app while leaving it in the
- * training set. Same register as the sidecar warning, which already settled this
- * argument for captions. */
-export function removeClipsReport({ removed = 0, files_kept: kept = 0 } = {}) {
-  const n = `${removed} clip${removed === 1 ? '' : 's'}`;
-  if (!kept) return `${n} removed — sent to the Trash.`;
-  const k = `${kept} file${kept === 1 ? '' : 's'}`;
-  if (!removed) {
-    return `Nothing was removed: ${k} could not be moved — still open somewhere (a player, an antivirus scan, or a training run reading this folder). Those clips stay in the set.`;
-  }
-  return `${n} removed, but ${k} could not be moved and stay in the folder — the trainer reads the folder, so those clips are still in the set. Close whatever is holding them and try again.`;
 }

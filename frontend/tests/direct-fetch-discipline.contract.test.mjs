@@ -73,38 +73,72 @@ test('a raw fetch never mutates — every POST/PUT/DELETE/PATCH rides the shared
 // rules 1 and 2 above could not either: it was a client call, not a raw fetch,
 // and the client only adds the token for the helpers that build the body.
 //
-// Matched on the OPTIONS OBJECT rather than on a function name, so it holds for
-// apiFetch, fetchWithCsrfRetry and fetch alike.
-// Anchored on `method:` and not on `body:`, which is an ordinary key all over
-// this codebase (markdown blocks, framing labels, a settings form). A request
-// options object is the one place the two appear together.
-const mutatingOptions = (text) => {
-  const out = []
-  const re = /method:\s*['"`](POST|PUT|PATCH|DELETE)['"`]/g
-  for (let m = re.exec(text); m; m = re.exec(text)) {
-    const from = Math.max(0, m.index - 300)
-    const context = text.slice(from, m.index + 300)
-    if (!/body:/.test(context)) continue                    // no payload at all
-    if (/body:\s*JSON\.stringify/.test(context)) continue    // postJson's shape
-    out.push({ line: text.slice(0, m.index).split('\n').length, context })
-  }
-  return out
+// Anchored on the PAYLOAD, not on the verb, and at the scale of the FILE, not
+// of a window of characters. The first version keyed on a literal
+// `method: 'POST'` with a `body:` within 300 characters, and four ways of
+// writing a token-less multipart POST walked through it — an options object
+// built in two statements, a shorthand property, a helper taking the method as
+// an argument, and, purely by accident, a long comment inside the options
+// object pushing `body:` out of the window. This codebase comments inside
+// objects all the time; the corrected call site carries eight lines of it.
+//
+// What a FormData needs is not a shape, it is a TOKEN. So: a file that
+// constructs one must, somewhere in that same file, either hand it to the
+// helper that attaches the token (`postForm(`) or set `X-CSRFToken` by hand
+// (useDataset.js and DescribeImageModal.jsx do, correctly). No window, no
+// verb, nothing a formatting choice can slip past.
+// COMMENTS ARE STRIPPED FIRST, and that is measured, not tidy: the corrected
+// call site carries an eight-line comment that names `X-CSRFToken` while
+// explaining the bug, and a mutation back to the token-less apiFetch stayed
+// green because the rule found the header's name in that comment. Code is what
+// sends the request; only code counts. And the header has to appear as a KEY
+// (`'X-CSRFToken':`), the one shape that actually puts it on the wire.
+const codeOnly = (text) => text
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '')
+const buildsFormData = (text) => /\bnew\s+FormData\s*\(/.test(codeOnly(text))
+const carriesToken = (text) => {
+  const code = codeOnly(text)
+  return /\bpostForm\s*\(/.test(code) || /['"]X-CSRFToken['"]\s*:/.test(code)
 }
 
-test('a multipart body never travels without its CSRF token', () => {
+test('a file that builds a FormData sends it with the CSRF token, whatever the call looks like', () => {
   const offenders = []
   for (const [path, text] of SRC_FILES) {
     if (rel(path) === 'api/fetchClient.js') continue      // postForm lives there
-    for (const call of mutatingOptions(text)) {
-      // Either the helper that attaches both, or the token attached by hand
-      // (DescribeImageModal does the second, correctly, and stays legal).
-      if (/postForm\s*\(/.test(call.context)) continue
-      if (/X-CSRFToken/.test(call.context)) continue
-      offenders.push(`${rel(path)}:${call.line}`)
-    }
+    if (!buildsFormData(text)) continue
+    if (carriesToken(text)) continue
+    offenders.push(rel(path))
   }
   assert.deepEqual(offenders, [],
-    'a FormData POST without the CSRF token is refused with a 400 the view never sees — use postForm')
+    'a FormData without the CSRF token is refused with a 400 the view never sees — send it through postForm')
+})
+
+test('a comment that mentions the token does not count as sending it', () => {
+  const text = "// the retry is keyed on an X-CSRFToken header — postForm( would set it\n"
+    + "const form = new FormData(); apiFetch(url, { method: 'POST', body: form })"
+  assert.ok(buildsFormData(text))
+  assert.equal(carriesToken(text), false, 'prose about the token is not the token')
+  assert.equal(carriesToken("headers: { 'X-CSRFToken': getCsrfToken() }"), true)
+  assert.equal(carriesToken('const r = await postForm(url, form)'), true)
+})
+
+test('the FormData rule catches every shape that slipped past its first version', () => {
+  // Guard of the guard: the four escapes measured on 2026-09-02, as fixtures.
+  // Each is a token-less multipart POST and each MUST be an offender.
+  const escapes = [
+    "const form = new FormData(); const opts = { method: 'POST' }; opts.body = form; apiFetch(url, opts)",
+    "const form = new FormData(); const method = 'POST'; apiFetch(url, { method, body: form })",
+    "const form = new FormData(); const send = (u, method, body) => apiFetch(u, { method, body }); send(url, 'POST', form)",
+    `const form = new FormData(); apiFetch(url, { method: 'POST', /* ${'x'.repeat(480)} */ body: form })`,
+  ]
+  for (const text of escapes) {
+    assert.ok(buildsFormData(text) && !carriesToken(text),
+      `an escape is not caught: ${text.slice(0, 60)}…`)
+  }
+  // …and the two legal shapes stay legal.
+  assert.equal(carriesToken('const fd = new FormData(); postForm(url, fd)'), true)
+  assert.equal(carriesToken("const fd = new FormData(); fetch(u, { headers: { 'X-CSRFToken': t }, body: fd })"), true)
 })
 
 test('the set of files allowed to raw-fetch is closed', () => {

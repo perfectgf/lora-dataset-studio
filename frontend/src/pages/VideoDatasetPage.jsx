@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { apiFetch } from '../api/fetchClient'
 import { videoDatasetUrl } from '../components/videobank/videoBankApi'
 import VideoDatasetWorkspace from '../components/videobank/VideoDatasetWorkspace'
+import { shouldEjectOnLoadError, staleNote } from './videoDatasetLoad'
 
 /** 🎬 One video training set, on its own page.
  *
@@ -21,6 +22,9 @@ export default function VideoDatasetPage() {
   const navigate = useNavigate()
   const [payload, setPayload] = useState(null)
   const [error, setError] = useState(null)
+  // Set when a background refresh failed and the screen is keeping the last
+  // good payload; cleared by the next successful load.
+  const [stale, setStale] = useState(null)
 
   // `payload` is read inside `load` to decide whether a failure may take the
   // screen; a ref keeps `load` (and therefore the effect below) from re-running
@@ -43,14 +47,22 @@ export default function VideoDatasetPage() {
       // The image lane settled this and wrote it down (useDataset.js: "Only an
       // ACTIVE dataset's definitive 404 ejects back to the list. Transient
       // errors and stale responses keep the current workspace"). This page
-      // claims to mirror that lane, so it owes the same rule.
-      const gone = e?.status === 404 || /not found/i.test(e?.message || '')
-      if (gone || !hasPayload.current) {
+      // claims to mirror that lane, so it owes the same rule — and the rule is
+      // a tested value in videoDatasetLoad.js, not a condition typed here.
+      if (shouldEjectOnLoadError(e, hasPayload.current)) {
         setError(e?.message || 'This video dataset could not be loaded.')
+        return false
       }
-      // Otherwise: keep what is on screen. apiFetch already stays silent in
-      // background mode and the app's own offline indicator says the rest.
+      // Keep what is on screen, but SAY it. apiFetch stays silent in background
+      // mode by design, and the offline banner only knows about network
+      // failures — a server that answered 500 counts as reachable to it. A
+      // caption saved and then not refreshed would otherwise show its previous
+      // text with nothing on screen to explain why.
+      setStale(staleNote(e))
+      return false
     }
+    setStale(null)
+    return true
   }, [id])
 
   // The first load is foreground (it may fail, and the failure needs saying);
@@ -76,6 +88,16 @@ export default function VideoDatasetPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-4">
+      {stale && (
+        <p role="status"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100">
+          <span>{stale}</span>
+          <button type="button" onClick={refresh}
+            className="min-h-10 rounded border border-amber-400/60 px-2 py-0.5 font-semibold hover:bg-amber-500/20 lg:min-h-0">
+            Retry
+          </button>
+        </p>
+      )}
       <VideoDatasetWorkspace ds={payload} items={payload.items || []}
         refresh={refresh} onBack={back} />
     </div>

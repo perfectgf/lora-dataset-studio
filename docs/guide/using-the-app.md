@@ -3504,13 +3504,19 @@ order, length, or "uncaptioned first" — which is the working list when you are
 finishing a set. **File order is the default and it is the order the trainer
 reads the folder in.**
 
-**Removing a clip** sends its `.mp4` and its `.txt` to the app's Trash —
-recoverable from Settings until you empty it — and touches nothing else: the bank
-keeps the shot, its bounds and every decision, so you can re-cut and promote it
-again with no triage to redo. It is the exit the promote dialog never had: you
-find the three-frame clip *after* the encode, in the set, not while triaging.
-(A stills set built from an image dataset has no bank behind it, and the
-confirmation says so rather than promising one.)
+**Removing a clip** moves its `.mp4` and its `.txt` into the app's own Trash
+(Settings ▸ Storage, recoverable until you empty it) — the same place a deleted
+image of an image dataset goes — and touches nothing else: the bank keeps the
+shot, its bounds and every decision, so you can re-cut and promote it again with
+no triage to redo. The confirmation names that destination before you click,
+from the same wording every other delete in the app uses. It is the exit the
+promote dialog never had: you find the three-frame clip *after* the encode, in
+the set, not while triaging. (A stills set built from an image dataset has no
+bank behind it, and the confirmation says so rather than promising one.)
+
+If the database refuses the change after the files have moved, they are put
+back where they were before the error is reported — "could not remove" is true
+of the folder as well as of the app.
 
 If a clip's file is **held open** — an antivirus scan, a player, or a training
 run reading this very folder — it is not removed at all, and the app says so

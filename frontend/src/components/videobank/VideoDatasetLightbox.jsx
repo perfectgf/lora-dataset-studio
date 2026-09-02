@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { videoDatasetClipMediaUrl } from './videoBankApi'
-import { clipDurationS, isStillFile } from './videoDatasetClips'
+import { clipDurationS, isStillFile, lightboxKeyAction } from './videoDatasetClips'
 import { clipLabel } from './videoClipFragment'
 
 /** ▶ Watching ONE clip of a dataset — the only <video> this page ever mounts.
@@ -33,21 +33,17 @@ export default function VideoDatasetLightbox({
   // without it every arrow key pressed while writing a caption would jump to
   // another clip and abandon the text mid-word.
   useEffect(() => {
+    // The DECISION lives in lightboxKeyAction, as a tested value; this only
+    // dispatches it. Escape saves before it closes (a focused element removed
+    // from the DOM never fires blur, and blur owns the save — so "Escape while
+    // typing" used to drop the caption in silence), and the arrows are the
+    // caret's while the user types. A source regex used to guard this and a
+    // one-line early return walked straight through it with the suite green.
     const onKey = (e) => {
-      if (e.key === 'Escape') {
-        // SAVE, then close. Closing unmounts the textarea, and a focused element
-        // removed from the DOM never fires blur — so the onBlur that owns the
-        // save was simply never called. Measured in a real browser: type, press
-        // Escape, and the caption is gone at the next reload while the screen
-        // still showed it. The hint under the box says "saved when you click
-        // away"; Escape has to be a way of clicking away, not a trapdoor.
-        onSave()
-        onClose()
-        return
-      }
-      if (typing.current) return
-      if (e.key === 'ArrowLeft' && hasPrev) onPrev()
-      if (e.key === 'ArrowRight' && hasNext) onNext()
+      const action = lightboxKeyAction(e.key, { typing: typing.current, hasPrev, hasNext })
+      if (action === 'save-close') { onSave(); onClose() }
+      else if (action === 'prev') onPrev()
+      else if (action === 'next') onNext()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
