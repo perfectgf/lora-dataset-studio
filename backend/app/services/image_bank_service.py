@@ -8625,11 +8625,13 @@ def _source_size(bank, row):
 def _stage_upright_webp(dst: Path, src_path, *, label: str) -> Path:
     """Create an upright, metadata-free WebP copy of ``src_path`` at ``dst``.
 
-    Crop, LaMa and Klein all consume visual/VLM boxes. They therefore edit a
-    freshly rebuilt WebP in one of the Bank's own working directories, never a
-    byte copy of a raw EXIF-tagged source. The source remains read-only and
-    recoverable; the blob is atomically published only once its staging write
-    succeeded.
+    LaMa and Klein consume visual/VLM boxes and need a FILE to work on. They
+    therefore edit a freshly rebuilt WebP in one of the Bank's own working
+    directories, never a byte copy of a raw EXIF-tagged source. The source
+    remains read-only and recoverable; the blob is atomically published only
+    once its staging write succeeded. The two crops do NOT come through here —
+    a crop only needs pixels, so staging the whole frame first cost a second
+    lossless encode for nothing (see ``_cut_upright_webp``).
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
@@ -8664,31 +8666,30 @@ class _EmptyCropBox(ValueError):
     """The box, once clamped to the image, has no pixel left in it."""
 
 
-def _cut_edited_copy(bank_id, row, src_path, generation, box) -> Path:
-    """The ✂ crop's blob in the Bank's ``edited/``, cut straight from the
-    resolved source: ONE decode, ONE lossless encode — of the box alone.
+def _cut_upright_webp(dst: Path, src_path, box, *, label: str) -> Path:
+    """Cut ``box`` out of ``src_path`` into ``dst`` as ONE metadata-free
+    lossless WebP: one decode, one encode — of the box alone.
 
-    Everything the staging copy used to guarantee still holds. The cut is made
-    on the upright pixels the box was drawn on (``exif_transpose``, as the
-    staging copy did), the box is clamped to the image the same way, the blob
-    carries no metadata (an orientation tag would make the browser turn it a
-    second time), and it is published atomically so the previous generation
-    keeps serving until the new one exists. What is gone is the full-frame
-    lossless WebP that was written, reopened and thrown away in between.
+    The staging copy (``_stage_upright_webp``) exists for the editors that need
+    a FILE to work on (LaMa, Klein). A crop only needs pixels, so writing a
+    full-frame lossless WebP first — to reopen it, cut it and encode the cut a
+    second time — paid for the whole frame and threw it away: about a second
+    per megapixel written on a Windows desktop, half that on Linux. Both crops
+    of the Bank come through here instead: the manual ✂ (``_cut_edited_copy``)
+    and the auto-crop level of the watermark clean (``_cut_clean_copy``).
 
-    Measured through the real route (Flask test client, a real photograph,
-    Pillow 12.3 / libwebp 1.6, best of three, on a Windows desktop): the POST
-    went from 3.4 s to 0.7 s at 2 MP and from 7.0 s to 1.6 s at 6 MP — the
-    encoder was 97 % of it before and after, two calls then one. Linux runs
-    both halves about twice as fast; the ratio is the same.
-
-    Raises ``_EmptyCropBox`` when the clamped box has no pixel (nothing is
-    written) and lets the source's own errors through."""
-    dst = edited_image_path(bank_id, row.id, generation)
+    Same contract as the staging copy followed by ``_apply_watermark_crop``:
+    the cut is made on the upright pixels the box was drawn on
+    (``exif_transpose``), the box is clamped to the image the same way, the
+    blob carries no metadata (an orientation tag would make the browser turn it
+    a second time), and it is published atomically so whatever ``dst`` held
+    keeps serving until the new bytes exist. Raises ``_EmptyCropBox`` when the
+    clamped box has no pixel (nothing is written) and lets the source's own
+    errors through."""
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
     try:
-        with safe_bank_source(src_path, label='bank image edit') as source:
+        with safe_bank_source(src_path, label=label) as source:
             source.load()
             oriented = ImageOps.exif_transpose(source)
             box = (max(0, int(box[0])), max(0, int(box[1])),
@@ -8713,6 +8714,36 @@ def _cut_edited_copy(bank_id, row, src_path, generation, box) -> Path:
             pass   # rollback is best-effort: the temp may never have landed
         raise
     return dst
+
+
+def _cut_edited_copy(bank_id, row, src_path, generation, box) -> Path:
+    """The ✂ crop's blob in the Bank's ``edited/``, cut straight from the
+    resolved source — the previous generation keeps serving until this one
+    exists.
+
+    nofaceman came back about the speed ("sometimes takes 3-5 seconds or more
+    to do the cropping"): the crop used to stage the whole image first.
+    Measured through the real route (Flask test client, a real photograph,
+    Pillow 12.3 / libwebp 1.6, best of three, on a Windows desktop): the POST
+    went from 3.4 s to 0.7 s at 2 MP and from 7.0 s to 1.6 s at 6 MP — the
+    encoder was 97 % of it before and after, two calls then one. Linux runs
+    both halves about twice as fast; the ratio is the same."""
+    return _cut_upright_webp(edited_image_path(bank_id, row.id, generation),
+                             src_path, box, label='bank image edit')
+
+
+def _cut_clean_copy(bank_id, row, src_path, box) -> Path:
+    """The auto-crop level's cleaned blob in the Bank's ``clean/``: the border
+    band cut straight from the source.
+
+    The same two-pass waste as the manual crop, found by the refutation of that
+    fix, and worse placed: this is a BATCH pass (one click, the whole bank), so
+    the full-frame encode was paid once per image. Measured through the real
+    route on the same photograph, per image: 3.5 s → 1.4 s at 2 MP, 7.0 s →
+    3.2 s at 6 MP (the band kept is most of the frame, so what remains is the
+    one encode of the kept pixels)."""
+    return _cut_upright_webp(clean_image_path(bank_id, row.id), src_path, box,
+                             label='bank watermark clean')
 
 
 def start_watermark_crop(app, user_id, bank_id, statuses=None, ids=None):
@@ -8753,7 +8784,7 @@ def start_watermark_crop(app, user_id, bank_id, statuses=None, ids=None):
 
 def _watermark_crop_job(bank_id, statuses=None, ids=None):
     def run(job):
-        from .face_dataset_service import _apply_watermark_crop, _route_watermark
+        from .face_dataset_service import _route_watermark
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
         if not bank:
             return
@@ -8794,15 +8825,19 @@ def _watermark_crop_job(bank_id, statuses=None, ids=None):
                     left += 1              # level 2's job — stays 'detected'
                     bank_jobs.bump(job)
                     continue
+                # One cut straight from the source — no full-frame staging copy
+                # (that is the inpainters' need, not the crop's).
                 try:
-                    dst = _stage_clean_copy(bank_id, row, src)
+                    _cut_clean_copy(bank_id, row, src, box)
+                    cleaned_ok = True
+                except _EmptyCropBox:
+                    cleaned_ok = False     # the box has no pixel: an unusable result, judged below
                 except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
                         Image.DecompressionBombWarning):
                     _discard_clean_blob(bank_id, row)
                     failed += 1
                     bank_jobs.bump(job)
                     continue
-                cleaned_ok = _apply_watermark_crop(str(dst), box)
                 generation_ok = _prepare_watermark_write(
                     row, src, expected_raw_fingerprint)
                 if cleaned_ok and generation_ok:

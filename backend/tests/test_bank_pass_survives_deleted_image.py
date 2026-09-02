@@ -296,19 +296,22 @@ def test_the_auto_crop_level_skips_an_image_deleted_under_it(bank_ctx, monkeypat
 
     bank_id, ids = bank_ctx
     _flag_watermarks(ids)
-    real_crop = fds._apply_watermark_crop
+    # The deletion fires from inside the cut itself — the level's one engine
+    # call, since it cuts straight from the source (no staging copy any more).
+    real_cut = banks._cut_clean_copy
     calls = {'n': 0}
 
-    def fake_crop(path, box):
+    def cut_then_delete(bank_id_, row, src_path, box):
         if calls['n'] == 0:
             _delete_image(ids[1])
         calls['n'] += 1
-        return real_crop(path, box)
+        return real_cut(bank_id_, row, src_path, box)
 
-    monkeypatch.setattr(fds, '_apply_watermark_crop', fake_crop)
+    monkeypatch.setattr(banks, '_cut_clean_copy', cut_then_delete)
     monkeypatch.setattr(fds, '_route_watermark',
                         lambda bbox, w, h, allow_crop=True: ('crop', bbox))
     job = _run(banks._watermark_crop_job(bank_id), _new_job('watermark_crop'))
+    assert calls['n'] >= 1, 'the hook never fired — the level no longer cuts through _cut_clean_copy'
     _assert_survived(job)
     assert all(db.session.get(BankImage, i).watermark_state == 'cleaned'
                for i in (ids[0], ids[2])), (
