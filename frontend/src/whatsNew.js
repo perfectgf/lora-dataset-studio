@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-studio-active-state-painted',
+    date: '2026-09-02',
+    title: 'The Video Test Studio shows which tab, mode, LoRA and lane are active',
+    blurb:
+      'The start frame tabs, the image/text toggle, the chosen LoRA and '
+      + 'presets, the selected take and the Images/Video switch were styled '
+      + 'with a colour the theme never defined, so their active state never '
+      + 'showed. They take the app’s amber now, like every other picker.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-02-video-studio-dataset-clip-posters',
     date: '2026-09-02',
     title: 'Dataset clip in the Video Test Studio shows its clips as pictures — and works',

@@ -20,10 +20,10 @@ import { clipSeconds, SPARSE_CHOICES, studioFrameChoices } from './videoStudioAp
 function Toggle({ checked, onChange, icon: Icon, label, cost, hint, disabled, disabledHint }) {
   return (
     <label className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 min-h-10 lg:min-h-0 ${
-      disabled ? 'border-border opacity-60' : `cursor-pointer ${checked ? 'border-accent/60 bg-accent/5' : 'border-border hover:border-accent/50'}`}`}>
+      disabled ? 'border-border opacity-60' : `cursor-pointer ${checked ? 'border-primary/60 bg-primary/5' : 'border-border hover:border-primary/50'}`}`}>
       <input type="checkbox" checked={!!checked} disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 shrink-0 accent-accent" />
+        className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-sm text-content">
           <Icon aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />
@@ -107,7 +107,7 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
             disabled={off('latent_upscale')} disabledHint={need('latent_upscale')}
             hint="Enlarges before decoding, audio untouched. This is the pass that costs the time." />
           <label className={`flex flex-col gap-1 rounded-lg border px-2.5 py-2 ${
-            off('sparse') ? 'border-border opacity-60' : value.sparse ? 'border-accent/60 bg-accent/5' : 'border-border'}`}>
+            off('sparse') ? 'border-border opacity-60' : value.sparse ? 'border-primary/60 bg-primary/5' : 'border-border'}`}>
             <span className="flex items-center gap-1.5 text-sm text-content">
               <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />
               <span className="min-w-0 flex-1">Sparse attention</span>
@@ -162,7 +162,7 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
         <input type="range" min="4" max="40" step="1" value={steps}
           onChange={(e) => set({ steps: Number(e.target.value) })}
           {...stepsLock.rangeProps}
-          className={`mt-1 accent-accent ${stepsLock.rangeProps.className}`} />
+          className={`mt-1 accent-primary ${stepsLock.rangeProps.className}`} />
         <span className="text-[0.6875rem] leading-snug text-content-subtle">
           {value.turbo
             ? 'Turbo\u2019s distillation is trained for 6 — going far above it '
@@ -203,7 +203,7 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
               onChange={(e) => set({ frames: frames[Number(e.target.value)] })}
               aria-label="Clip length"
               {...lengthLock.rangeProps}
-              className={`mt-1 accent-accent ${lengthLock.rangeProps.className}`} />
+              className={`mt-1 accent-primary ${lengthLock.rangeProps.className}`} />
             <span className="flex justify-between text-[0.625rem] tabular-nums text-content-subtle">
               <span>{clipSeconds(frames[0], fps)}s</span>
               <span>{clipSeconds(frames[frames.length - 1], fps)}s</span>
@@ -223,7 +223,7 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
               onChange={(e) => set({ megapixels: Number(e.target.value) })}
               aria-label="Resolution"
               {...mpLock.rangeProps}
-              className={`mt-1 accent-accent ${mpLock.rangeProps.className}`} />
+              className={`mt-1 accent-primary ${mpLock.rangeProps.className}`} />
           </label>
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             Seed

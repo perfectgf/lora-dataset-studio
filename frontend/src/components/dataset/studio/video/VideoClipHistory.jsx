@@ -67,7 +67,7 @@ export default function VideoClipHistory({ clips, onRate, onDelete, onReuse, onV
               <div className="mt-auto flex flex-wrap items-center gap-1">
                 <button type="button" onClick={() => onRate(clip, clip.rating === 1 ? 0 : 1)}
                   title="Keep this one" aria-pressed={clip.rating === 1}
-                  className={`${ACTION} ${clip.rating === 1 ? 'border-accent bg-accent/10 text-content' : 'border-border text-content-muted hover:text-content'}`}>
+                  className={`${ACTION} ${clip.rating === 1 ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted hover:text-content'}`}>
                   <ThumbsUp aria-hidden="true" className="h-3.5 w-3.5" />
                 </button>
                 <button type="button" onClick={() => onRate(clip, clip.rating === -1 ? 0 : -1)}

@@ -160,7 +160,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
           {[['i2v', 'From an image'], ['t2v', 'Text only']].map(([id, label]) => (
             <button key={id} type="button" onClick={() => onMode(id)}
               className={`rounded-md px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
-                mode === id ? 'bg-accent text-accent-contrast' : 'text-content-muted hover:text-content'}`}>
+                mode === id ? 'bg-primary text-white' : 'text-content-muted hover:text-content'}`}>
               {id === 't2v' && <Type aria-hidden="true" className="mr-1 inline h-3 w-3" />}
               {label}
             </button>
@@ -174,7 +174,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
           {[['landscape', '16:9'], ['portrait', '9:16'], ['square', '1:1']].map(([id, label]) => (
             <button key={id} type="button" onClick={() => onAspect(id)}
               className={`rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
-                aspect === id ? 'border-accent bg-accent/10 text-content' : 'border-border text-content-muted'}`}>
+                aspect === id ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted'}`}>
               {label}
             </button>
           ))}
@@ -192,7 +192,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
               <button key={id} type="button" onClick={() => setTab(id)}
                 data-testid={`video-source-${id}`}
                 className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
-                  tab === id ? 'border-accent bg-accent/10 text-content' : 'border-border text-content-muted'}`}>
+                  tab === id ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted'}`}>
                 <Icon aria-hidden="true" className="h-3.5 w-3.5" />{label}
               </button>
             ))}
@@ -202,7 +202,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
               middle: a centred icon plus a centred sentence measured 2 % of the
               row, which the probe reads as an empty box — correctly. */}
           {tab === 'upload' && (
-            <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted hover:border-accent/60">
+            <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted hover:border-primary/60">
               <Upload aria-hidden="true" className="h-4 w-4 shrink-0" />
               <span className="flex-1">
                 {busy ? 'Preparing…' : 'Drop an image here, or choose one from this machine'}
@@ -230,7 +230,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                         ...(await postJson(sourceUrl(), { bank_id: bankId, image_id: im.id })),
                         preview: `/api/bank/${bankId}/thumb/${im.id}`,
                       }))}
-                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent">
+                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-primary">
                       <img src={`/api/bank/${bankId}/thumb/${im.id}`} alt=""
                         loading="lazy" className="h-full w-full object-cover" />
                     </button>
@@ -256,7 +256,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                         ...(await postJson(sourceUrl(), { gallery_image_id: g.id })),
                         preview: g.url,
                       }))}
-                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-accent">
+                      className="aspect-square overflow-hidden rounded-md border border-border hover:border-primary">
                       <img src={g.url} alt="" loading="lazy"
                         className="h-full w-full object-cover" />
                     </button>
@@ -276,7 +276,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                 </p>
                 {more?.more && (
                   <button type="button" onClick={showMore} disabled={paging}
-                    className="shrink-0 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:border-accent hover:text-content disabled:opacity-50 min-h-10 lg:min-h-0">
+                    className="shrink-0 rounded-lg border border-border px-2 py-1 text-[0.6875rem] text-content-muted hover:border-primary hover:text-content disabled:opacity-50 min-h-10 lg:min-h-0">
                     {paging ? 'Loading…' : 'Show older'}
                   </button>
                 )}
@@ -312,7 +312,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                           ...(await postJson(sourceUrl(), { dataset_id: datasetId, filename: c.filename })),
                           preview: poster,
                         }))}
-                        className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border hover:border-accent">
+                        className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border hover:border-primary">
                         <Poster src={poster} className="aspect-square w-full object-cover"
                           fallback={(
                             <span aria-hidden="true"

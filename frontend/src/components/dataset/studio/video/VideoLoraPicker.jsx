@@ -29,8 +29,8 @@ import { groupTrained, shortLoraName, splitDeployed } from './videoLoraGroups';
 import SliderLock, { useSliderLock } from '../../../shared/SliderLock';
 
 const ROW = 'flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left min-h-10 lg:min-h-0';
-const ROW_IDLE = 'border-border bg-surface-raised hover:border-accent/50';
-const ROW_ON = 'border-accent bg-accent/10';
+const ROW_IDLE = 'border-border bg-surface-raised hover:border-primary/50';
+const ROW_ON = 'border-primary bg-primary/10';
 const PILL = 'rounded-full border px-2 py-0.5 text-[0.6875rem] min-h-10 lg:min-h-0 lg:py-0.5';
 
 export default function VideoLoraPicker({ value, onChange, strength, onStrength }) {
@@ -187,8 +187,8 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
                           ? pick({ lora: c.deployed_as, runId: g.run_id, datasetId: g.dataset_id })
                           : deployAndPick(c, g))}
                         className={`${PILL} flex items-center gap-1 ${
-                          on ? 'border-accent bg-accent/15 text-content'
-                            : 'border-border text-content-muted hover:border-accent/60 hover:text-content'}`}>
+                          on ? 'border-primary bg-primary/15 text-content'
+                            : 'border-border text-content-muted hover:border-primary/60 hover:text-content'}`}>
                         {c.final ? 'Final' : `Step ${c.step}`}
                         {!c.deployed_as && (
                           <Download aria-hidden="true" className="h-3 w-3 opacity-70" />
@@ -262,7 +262,7 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
                   </button>
                 </span>
               </label>
-              <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-xs text-content-muted hover:border-accent/60 lg:min-h-0">
+              <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-xs text-content-muted hover:border-primary/60 lg:min-h-0">
                 <span className="flex-1">…or choose the file (copied over the network)</span>
                 <span className="shrink-0 rounded-md border border-border px-2 py-1">Browse</span>
                 <input type="file" accept=".safetensors" className="hidden"
@@ -299,7 +299,7 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
             onChange={(e) => onStrength(Number(e.target.value))}
             aria-label="LoRA strength"
             {...strengthLock.rangeProps}
-            className={`min-w-0 flex-1 accent-accent ${strengthLock.rangeProps.className}`} />
+            className={`min-w-0 flex-1 accent-primary ${strengthLock.rangeProps.className}`} />
           <span className="w-9 text-right tabular-nums text-content">{Number(strength).toFixed(2)}</span>
           {/* The dial that decides whether the LoRA speaks at all — and the one
               a thumb crosses on the way down the rail. */}

@@ -75,3 +75,10 @@ test('the clip list empties when the set changes, and a late reply is dropped', 
   assert.match(effect, /return \(\) => \{ stale = true; \};/)
   assert.match(clipTab(PICKER), /datasetId && !clipsLoading && clips\.length === 0 &&/)
 })
+
+test('the picker paints its active tab with a colour the theme defines', () => {
+  // `accent` was never a Tailwind colour token in this app — `border-accent`,
+  // `bg-accent/10` and friends generated no CSS, so the active tab and the
+  // picked mode were never highlighted. The app's idiom is `primary`.
+  assert.doesNotMatch(PICKER, /(?<![\w-])[\w:]*-accent(?![\w-])/, 'a class on the undefined `accent` colour')
+})
