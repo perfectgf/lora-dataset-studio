@@ -1,6 +1,5 @@
-import { videoClipThumbUrl, videoDatasetClipMediaUrl } from './videoBankApi'
 import { clipLabel } from './videoClipFragment'
-import { clipDurationS, hasCaption, isStillFile } from './videoDatasetClips'
+import { clipDurationS, datasetClipPoster, hasCaption, isStillFile } from './videoDatasetClips'
 
 /** 🎞 The clips of a built dataset — and, exactly like the bank's gallery, NOT
  * ONE <video>.
@@ -14,7 +13,9 @@ import { clipDurationS, hasCaption, isStillFile } from './videoDatasetClips'
  * load and never error. A promoted set of 128 clips would fail on the second
  * screen of scroll, on someone else's machine, with nothing in the console.
  *
- * So a tile is a still image, and the poster is resolved in this order:
+ * So a tile is a still image, and the poster is resolved in this order
+ * (datasetClipPoster — the one rule the Video Test Studio's start-frame
+ * picker follows too, so both pages agree on every clip):
  *
  *   · a STILLS set serves images through the media route itself — that is the
  *     real frame, at no extra cost;
@@ -44,11 +45,7 @@ export default function VideoDatasetGrid({
         const isChosen = chosen.has(clip.id)
         const still = isStillFile(clip.filename)
         const seconds = clipDurationS(clip)
-        const poster = still
-          ? videoDatasetClipMediaUrl(datasetId, clip.id)
-          : (clip.source_bank_id && clip.source_clip_id
-            ? videoClipThumbUrl(clip.source_bank_id, clip.source_clip_id)
-            : null)
+        const poster = datasetClipPoster(datasetId, clip)
         return (
           <li key={clip.id}
             className={`relative flex min-w-0 flex-col overflow-hidden rounded-lg border bg-surface transition-colors ${

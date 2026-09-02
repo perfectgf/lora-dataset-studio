@@ -361,6 +361,12 @@ const PAGES = {
       { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
       { name: 'video-gallery',
         open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
+      /* The Dataset clip tab: its select and footnote. The clip grid behind
+         the select cannot be opened by a click (a native <select> takes a
+         choice, not a click), so the grid is measured by hand at 400 px — it
+         shares its classes with the Gallery grid the state above measures. */
+      { name: 'video-clip',
+        open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-clip"]'] },
       /* 🌐 Le navigateur Civitai. Sa rangée d'actions par carte est passée de deux
          boutons à trois avec le 📝 lot de prompts, dans une colonne qui fait ~250 px
          à 360 px de large — exactement la forme qui déborde. Aucun état ne l'ouvrait,

@@ -15,6 +15,7 @@
  */
 
 import { deleteDestination, isRecoverable } from '../../utils/deletionWording.js';
+import { videoClipThumbUrl, videoDatasetClipMediaUrl } from './videoBankApi.js';
 
 /** A stills set holds IMAGES under the same route and the same table. Wrapping
  * one in a <video> renders a dead player — found on a phone the day stills
@@ -24,6 +25,29 @@ const STILL_EXTS = ['.png', '.jpg', '.jpeg', '.webp'];
 export function isStillFile(name) {
   const n = String(name || '').toLowerCase();
   return STILL_EXTS.some((ext) => n.endsWith(ext));
+}
+
+/** The picture a surface shows for a clip — ONE rule for the training set's
+ * grid and the Video Test Studio's start-frame picker, so a clip never has a
+ * poster on one page and none on the other:
+ *
+ *   · a STILL is served by the media route itself — the real frame;
+ *   · a clip cut from a bank borrows the bank's JPEG thumbnail through its
+ *     provenance columns — already generated, a middle frame of the shot;
+ *   · anything else has no picture on the server, and the tile says so with a
+ *     placeholder rather than a broken image. Never a <video> per tile — Chrome
+ *     caps media players at about sixty across the browser.
+ *
+ * Null, not '', for "no poster": tiles branch on it. A thumbnail that 404s
+ * (the bank was deleted, the thumbnails pass never ran) is an ordinary state,
+ * and the surface falls back to its placeholder rather than a broken glyph. */
+export function datasetClipPoster(datasetId, clip) {
+  if (!clip || datasetId == null) return null;
+  if (isStillFile(clip.filename)) return videoDatasetClipMediaUrl(datasetId, clip.id);
+  if (clip.source_bank_id && clip.source_clip_id) {
+    return videoClipThumbUrl(clip.source_bank_id, clip.source_clip_id);
+  }
+  return null;
 }
 
 /** Seconds of source this clip was cut from, or null for a still (which has no

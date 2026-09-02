@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  isStillFile, clipDurationS, hasCaption, filterClipsByCaption, clipFilterCount,
+  isStillFile, datasetClipPoster, clipDurationS, hasCaption, filterClipsByCaption, clipFilterCount,
   searchClips, sortClips, visibleClips, clipCounts, captionCoverageNote,
   removeClipsConfirmation, removeClipsReport, lightboxTargets, lightboxKeyAction, purgeDraft,
   CLIP_FILTERS, CLIP_SORTS,
@@ -300,4 +300,25 @@ test('when the open clip leaves the filtered list, the walk resumes from its old
   assert.deepEqual((({ prevId, nextId }) => [prevId, nextId])(lightboxTargets(items, shown, 2, 5)), [3, null])
   // No memory of a slot at all (-1): behaves as "it was first".
   assert.deepEqual((({ prevId, nextId }) => [prevId, nextId])(lightboxTargets(items, shown, 2)), [null, 1])
+})
+
+test('a clip has one poster, the same on the training set page and in the studio picker', () => {
+  // Keys as the live detail answers them: a stills set is served by the media
+  // route; a clip cut from a bank borrows the bank's thumbnail; a clip
+  // imported from disk has no picture on the server.
+  const still = { id: 4, filename: 'portrait_004.webp', source_bank_id: null, source_clip_id: null }
+  const cut = { id: 5, filename: 'walk_012.mp4', source_bank_id: 3, source_clip_id: 88 }
+  const imported = { id: 6, filename: 'walk_013.mp4', source_bank_id: null, source_clip_id: null }
+  assert.equal(datasetClipPoster(1, still), '/api/video-dataset/1/clip/4/media')
+  assert.equal(datasetClipPoster(1, cut), '/api/video-bank/3/clip/88/thumb')
+  assert.equal(datasetClipPoster(1, imported), null)
+  // A still keeps its own frame even when it was cut from a bank: the media
+  // route serves the real picture, the bank thumb is a JPEG of it.
+  assert.equal(datasetClipPoster(1, { ...cut, filename: 'a.PNG' }), '/api/video-dataset/1/clip/5/media')
+  // Half a provenance is no provenance, whichever half is missing — a URL
+  // with `null` in it 404s loudly.
+  assert.equal(datasetClipPoster(1, { ...cut, source_clip_id: null }), null)
+  assert.equal(datasetClipPoster(1, { ...cut, source_bank_id: null }), null)
+  assert.equal(datasetClipPoster(1, null), null)
+  assert.equal(datasetClipPoster(null, still), null)
 })

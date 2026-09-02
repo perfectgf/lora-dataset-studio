@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-studio-dataset-clip-posters',
+    date: '2026-09-02',
+    title: 'Dataset clip in the Video Test Studio shows its clips as pictures — and works',
+    blurb:
+      'The start frame picker’s Dataset clip tab listed the clips of a '
+      + 'training set as a column of file names that a set of any size '
+      + 'squashed into unreadable slivers. It is a grid of posters now, the '
+      + 'same frame the training set’s own page shows for each clip, with '
+      + 'the file name under it — pick the shot by eye, and the picked frame '
+      + 'appears beside “Ready” instead of a blank icon.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-02-comparison-prompt-batch',
     date: '2026-09-02',
     title: 'The multi-LoRA comparison can replay a batch of prompts too',

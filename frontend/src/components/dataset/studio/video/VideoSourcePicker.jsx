@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Image as ImageIcon, Upload, Film, Type, Sparkles } from 'lucide-react';
 import { apiFetch, postJson, postForm } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
+import { datasetClipPoster } from '../../../videobank/videoDatasetClips';
 import { appendImages, datasetClips, galleryPage } from './videoPickerFeeds';
 import { sourceUrl } from './videoStudioApi';
 
@@ -37,6 +38,18 @@ const TABS = [
    the feed you are, so a picture further back is reachable rather than absent. */
 const GALLERY_PAGE = 60;
 
+/** An <img> that becomes its placeholder when the picture cannot load — not a
+ * broken-image glyph, not a blank. A bank thumbnail 404s in the ordinary course
+ * of things (the bank was deleted, the thumbnails pass never ran), and the tile
+ * must still be a tile. The verdict resets with the source, so a tile reused
+ * for another clip does not inherit a stale "broken". */
+function Poster({ src, className, fallback }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [src]);
+  if (!src || broken) return fallback;
+  return <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className={className} />;
+}
+
 export default function VideoSourcePicker({ mode, onMode, image, preview, onPicked, aspect, onAspect }) {
   const toast = useToast();
   const [tab, setTab] = useState('upload');
@@ -50,6 +63,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
   const [more, setMore] = useState(null);   // {before, more} — the feed's cursor
   const [paging, setPaging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [clipsLoading, setClipsLoading] = useState(false);
 
   /* Lists are fetched when their tab is opened, never on mount: a bank walk is
      the most expensive GET in the app and this panel is not the bank. */
@@ -72,17 +86,31 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
       })
       .catch(() => { setGallery([]); setMore(null); });
   }, [tab, gallery.length]);
+  // A list empties the moment its source changes, and a reply that lands
+  // after the source moved on is dropped. Without both, the previous bank's or
+  // set's tiles stayed up under the new name until the new reply arrived — and
+  // a slow first reply could overwrite a fast second one for good.
   useEffect(() => {
-    if (!bankId) return;
+    if (!bankId) return undefined;
+    let stale = false;
+    setImages([]);
     apiFetch(`/api/bank/${bankId}/images?limit=60`)
-      .then((d) => setImages(d.images || [])).catch(() => setImages([]));
+      .then((d) => { if (!stale) setImages(d.images || []); })
+      .catch(() => { if (!stale) setImages([]); });
+    return () => { stale = true; };
   }, [bankId]);
   useEffect(() => {
-    if (!datasetId) return;
+    if (!datasetId) return undefined;
+    let stale = false;
+    setClips([]);
+    setClipsLoading(true);
     // `items`, never `clips` — see videoPickerFeeds: on that payload `clips` is
     // the count, and rendering a number took the whole page down.
     apiFetch(`/api/video-dataset/${datasetId}`)
-      .then((d) => setClips(datasetClips(d))).catch(() => setClips([]));
+      .then((d) => { if (!stale) setClips(datasetClips(d)); })
+      .catch(() => { if (!stale) setClips([]); })
+      .finally(() => { if (!stale) setClipsLoading(false); });
+    return () => { stale = true; };
   }, [datasetId]);
 
   /* The next page of the Gallery feed, appended. Failure leaves what is
@@ -263,22 +291,41 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                 <option value="">Pick a video training set…</option>
                 {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
-              {datasetId && clips.length === 0 && (
+              {datasetId && !clipsLoading && clips.length === 0 && (
                 <p className="rounded-lg border border-dashed border-border px-3 py-4 text-xs text-content-muted">
                   No clip in that training set — or it could not be read.
                 </p>
               )}
-              {datasetId && (
-                <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
-                  {clips.map((c) => (
-                    <button key={c.id} type="button"
-                      onClick={() => stage(async () => postJson(sourceUrl(), {
-                        dataset_id: datasetId, filename: c.filename,
-                      }))}
-                      className="truncate rounded-lg border border-border px-2 py-1.5 text-left text-xs text-content-muted hover:border-accent min-h-10 lg:min-h-0">
-                      {c.filename}
-                    </button>
-                  ))}
+              {/* A GRID, like the Bank and Gallery tabs — not a flex column: capped
+                  at max-h-72, a flex column shrinks its rows to fit instead of
+                  scrolling (truncate's overflow:hidden zeroes their min-height),
+                  and 21 clips arrived as 21 unreadable 12 px slivers. Grid rows
+                  keep their size; the box scrolls. And a picture per tile, the
+                  training set's own poster, so the clip is chosen by eye. */}
+              {datasetId && clips.length > 0 && (
+                <div className="grid max-h-72 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
+                  {clips.map((c) => {
+                    const poster = datasetClipPoster(datasetId, c);
+                    return (
+                      <button key={c.id} type="button" title={c.filename}
+                        onClick={() => stage(async () => ({
+                          ...(await postJson(sourceUrl(), { dataset_id: datasetId, filename: c.filename })),
+                          preview: poster,
+                        }))}
+                        className="flex min-w-0 flex-col overflow-hidden rounded-md border border-border hover:border-accent">
+                        <Poster src={poster} className="aspect-square w-full object-cover"
+                          fallback={(
+                            <span aria-hidden="true"
+                              className="grid aspect-square w-full place-items-center bg-app text-xl text-content-subtle">
+                              🎞
+                            </span>
+                          )} />
+                        <span className="w-full truncate px-1 text-left text-[0.625rem] text-content-muted">
+                          {c.filename}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <p className="text-[0.6875rem] text-content-subtle">
@@ -290,11 +337,12 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
 
           {image && (
             <div className="flex items-center gap-2 rounded-lg border border-border bg-app p-1.5">
-              {preview
-                ? <img src={preview} alt="" className="h-14 w-14 rounded-md object-cover" />
-                : <span className="flex h-14 w-14 items-center justify-center rounded-md bg-surface text-content-subtle">
+              <Poster src={preview} className="h-14 w-14 rounded-md object-cover"
+                fallback={(
+                  <span className="flex h-14 w-14 items-center justify-center rounded-md bg-surface text-content-subtle">
                     <ImageIcon aria-hidden="true" className="h-5 w-5" />
-                  </span>}
+                  </span>
+                )} />
               <span className="min-w-0 flex-1 text-[0.6875rem] text-content-muted">
                 Ready — staged into ComfyUI as
                 <code className="ml-1 break-all">{image}</code>

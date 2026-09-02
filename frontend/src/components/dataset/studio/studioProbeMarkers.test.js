@@ -57,6 +57,7 @@ test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () =
   assert.match(picker, /data-testid=\{`video-source-\$\{id\}`\}/);
   assert.match(probe, /\{ name: 'video', open: \['\[data-testid="studio-lane-video"\]'\] \}/);
   assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
+  assert.match(probe, /'\[data-testid="video-source-clip"\]'/);
 });
 
 test('the probe opens the 🌐 Civitai browser, whose action row grew a third button', () => {
