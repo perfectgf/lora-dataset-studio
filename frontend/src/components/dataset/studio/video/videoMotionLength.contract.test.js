@@ -76,7 +76,7 @@ test('a click waiting on the fence is dropped when the mode or the frame changes
   // setAside)` (RUN in src/utils/ollamaFence.test.js) sits on its own line
   // between the reply and the field on both ✨ actions, and what it says
   // when told no is the one notice.
-  assert.match(PANEL, /const suggest = async \(run\) =>[\s\S]*?\n[ \t]*if \(keepAnswer\(run, setAside\) && r\?\.prompt\) setPrompt\(r\.prompt\);/)
+  assert.match(PANEL, /const suggest = async \(run\) =>[\s\S]*?\n[ \t]*if \(r\?\.prompt && keepAnswer\(run, setAside\)\) setPrompt\(r\.prompt\);/)
   assert.match(PANEL, /const enrich = async \(run\) =>[\s\S]*?\n[ \t]*if \(!keepAnswer\(run, setAside\)\) return;[\s\S]*?setPrompt\(r\.prompt\)/)
   assert.match(PANEL, /const setAside = \(\) => toast\.info\(SUPERSEDED_ANSWER_NOTICE\);/)
 })

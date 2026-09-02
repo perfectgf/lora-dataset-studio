@@ -237,7 +237,9 @@ export default function VideoTestStudio() {
       // by it: the frame says what is there, this says what should happen in it.
       const r = await postJson(motionSuggestUrl(),
         { image: source.image, instruction: prompt, model: motionModel, seconds });
-      if (keepAnswer(run, setAside) && r?.prompt) setPrompt(r.prompt);
+      // Nothing came back: nothing to write, nothing to set aside — the
+      // notice is for an answer, not for an empty reply.
+      if (r?.prompt && keepAnswer(run, setAside)) setPrompt(r.prompt);
     };
     try {
       await runGuarded(suggest);
