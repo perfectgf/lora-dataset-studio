@@ -391,11 +391,17 @@ _NOT_END = r'(?:[^.!?\n]|[.!?](?!["\')\]]*(?:\s|$)))'
 # line glued after a sentence, or pasted behind U+00A0, was not seen, and an
 # image-to-video launch headed it twice. What follows the full stop is taken
 # only up to and with a line break: removed from the middle of a line, the
-# sentence leaves the space between its neighbours.
+# sentence leaves the space between its neighbours. Between the words of
+# the opening, any blank run: a header pasted from a mail or a terminal
+# arrives reflowed — a no-break space for a space, two spaces, a line break
+# after the timecode — and read for its exact spaces it was not seen, and an
+# image-to-video launch headed it twice. The body after the opening still
+# ends at a line break: a typed line in the opening's English, with a
+# picture named on its NEXT line, is not one sentence.
 _HEADER_LINE = re.compile(
     rf'(?im)(?:^|(?<=[.!?:\]\n]))[^\S\n]*'
-    rf'(?:For the target video, at [0-9.]+ seconds?\b'
-    rf'|How the reference pictures align with the target video\b)'
+    rf'(?:For\s+the\s+target\s+video,\s+at\s+[0-9.]+\s+seconds?\b'
+    rf'|How\s+the\s+reference\s+pictures\s+align\s+with\s+the\s+target\s+video\b)'
     rf'{_NOT_END}*?picture{_NOT_END}*[.!?]?["\')\]]*(?:[^\S\n]*\n+)?')
 
 

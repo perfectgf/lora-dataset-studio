@@ -992,6 +992,45 @@ def test_the_header_is_known_by_its_shape_not_by_its_english():
         assert once.count(vmp._ALIGNMENT_HEADER) == 1, p
 
 
+def test_the_header_is_known_reflowed_a_blank_run_between_its_words():
+    """Refuted on the exact spaces: the official line pasted from a mail, a
+    terminal or a chat arrives reflowed — a no-break space for a space, two
+    spaces, a line break after the timecode — and read for its exact spaces
+    it was not the header: kept, and an image-to-video launch headed the
+    text twice. Any blank run between the opening's words is the opening.
+    The body still ends at a line break, on purpose: a typed line in the
+    opening's English whose NEXT line names a picture is two sentences, not
+    one header — the case the shape rule exists for."""
+    official = vmp._ALIGNMENT_HEADER
+    reflowed = [
+        official.replace('For the', 'For\u00a0the'),
+        official.replace('0.00 seconds', '0.00\u00a0seconds'),
+        official.replace('the target video, at', 'the target  video, at'),
+        official.replace('at 0.00 seconds', 'at 0.00\nseconds'),
+        official.replace('For the target video,', 'For the target\nvideo,'),
+    ]
+    for h in reflowed:
+        assert h != official
+        text = h + '\n\nShe turns.'
+        assert vmp.has_alignment_header(text), text
+        assert vmp.strip_picture_references(text) == 'She turns.', text
+        once = vmp.inject_alignment_header(text)
+        assert once == official + '\n\nShe turns.', text
+        assert once.count('is fully referenced') == 1, text
+    end_frame = ('How the\u00a0reference pictures align  with the target\nvideo — <Picture 1> '
+                 '(from [Shot 1]) aligns with the 5.00-second mark of the target video.\n\nShe turns.')
+    assert vmp.has_alignment_header(end_frame)
+    assert vmp.strip_picture_references(end_frame) == 'She turns.'
+    assert vmp.inject_alignment_header(end_frame) == official + '\n\nShe turns.'
+    # The opening's words with a blank run, and no picture in the sentence:
+    # prompt English, kept whole — the line break after the timecode ends
+    # the sentence before the picture named on the next line.
+    typed = 'For the target video, at 3\nseconds she turns toward the camera.\nThe picture on the wall falls.'
+    assert not vmp.has_alignment_header(typed)
+    assert vmp.strip_picture_references(typed) == typed
+    assert vmp.inject_alignment_header(typed) == official + '\n\n' + typed
+
+
 def test_a_model_s_header_is_lifted_by_phrase_and_picture_and_written_official():
     """The writers copy the header from the text they enrich, and a copy may
     be paraphrased and land anywhere — so a MODEL's answer is still read by
