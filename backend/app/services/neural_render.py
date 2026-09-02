@@ -58,11 +58,12 @@ greys pure whites; at 0 the tones stay and only structure is added, which is
 what the "keep tones" preset in the UI sets.
 
 ``temporal`` keeps the model's history across frames with motion vectors the
-driver estimates. It needs a frame at least ``TEMPORAL_MIN_WIDTH`` px wide
+driver estimates. A scene cut resets the history so the previous shot is never
+smeared into the next (threshold re-measured on this app's clips: Merserk's
+0.24 fired on nothing here). It needs a frame at least ``TEMPORAL_MIN_WIDTH`` px wide
 (bisected: 700 fails, 704 passes, whatever the height) — ``auto`` picks it
 when the clip allows it and falls back to still mode otherwise, and the
-choice is reported. A scene cut resets the history so the previous shot is
-never smeared into the next.
+choice is reported.
 
 Credits: the scene-cut reset and the "video-only encode, then mux the source's
 audio and metadata back" shape follow Merserk's dlss5-visual-enhancer (MIT,
@@ -119,7 +120,7 @@ MODEL_MIN_BYTES = 50 * 1024 * 1024
 # Optical Flow's width floor — measured on the bridge, see the module docstring.
 # Mirrored in infer/dlss5nr_infer.py; test_neural_render pins the two together.
 TEMPORAL_MIN_WIDTH = 704
-SCENE_CUT_DEFAULT = 0.24
+SCENE_CUT_DEFAULT = 0.10   # see infer/dlss5nr_infer.py for the measurement behind it
 CRF_DEFAULT = 17
 
 DEFAULT_PARAMS = {'tone': 1.0, 'structure': 1.0, 'automask': False,

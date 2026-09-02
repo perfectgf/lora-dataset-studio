@@ -330,3 +330,30 @@ def test_the_capability_payload_carries_the_lane():
     assert re.search(r"^\s+'dlss5nr': dlss5nr,", src, re.M), 'the probe payload must carry dlss5nr'
     assert re.search(r"^\s+dlss5nr = probe_dlss5nr\(\)", src, re.M)
     assert callable(capabilities.probe_dlss5nr)
+
+
+# ── the child's stderr pump ─────────────────────────────────────────────────
+
+def test_the_child_drains_ffmpeg_stderr_so_a_chatty_encoder_cannot_block():
+    """A pipe nobody reads fills at 4 KB on Windows and the writer blocks; ffmpeg
+    crosses that after ~35 s of libx264 output (measured). The pump keeps the
+    tail and never lets the child stall — proven with a writer that emits far
+    more than a pipe holds."""
+    import importlib.util
+    import subprocess
+    import sys
+    spec = importlib.util.spec_from_file_location(
+        'dlss5nr_infer', str(nr.cfg.BACKEND_DIR / 'infer' / 'dlss5nr_infer.py'))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    code = ("import sys" + chr(10)
+            + "for i in range(4000): sys.stderr.write('line %d ' % i + 'x' * 60 + chr(10))" + chr(10)
+            + "sys.stdout.write('ok')")
+    proc = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    tail = []
+    pump = mod.pump_stderr(proc.stderr, tail, limit=10)
+    out = proc.stdout.read()
+    assert proc.wait(timeout=30) == 0, 'the writer must finish — it would hang on an undrained pipe'
+    pump.join(timeout=10)
+    assert out == b'ok'
+    assert len(tail) == 10 and tail[-1].startswith('line 3999')

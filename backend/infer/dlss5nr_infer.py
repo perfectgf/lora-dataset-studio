@@ -51,6 +51,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 # NVIDIA's Optical Flow session refuses anything narrower than this; measured by
@@ -59,10 +60,36 @@ import time
 # contract test pins both to the same number.
 TEMPORAL_MIN_WIDTH = 704
 # Scene-cut threshold on the mean absolute difference of the downscaled grey
-# frame (0..1). Merserk's value, kept as the default: above it the temporal
-# history is reset so the model does not smear the previous shot into this one.
-SCENE_CUT_DEFAULT = 0.24
+# frame (0..1): above it the temporal history is reset so the model does not
+# smear the previous shot into this one. Merserk's 0.24 was measured on a
+# different grey (full-res, RGBA): on THIS thumbnail a real cut between two
+# witness clips scored 0.12 and the busiest single-shot frame pair 0.072, so
+# 0.24 fired on nothing. 0.10 sits between the two — one witness pair, so it is
+# a dial (`--scene-cut`), not a law. A cut missed smears a few frames; a reset
+# fired for nothing costs one frame of history.
+SCENE_CUT_DEFAULT = 0.10
 FLOW_WIDTH = 160   # the grey thumbnail used for the cut test (width; height follows)
+
+
+def pump_stderr(stream, sink, limit=40):
+    """Drain a child's stderr on its own thread, keeping the last ``limit``
+    lines. NOT optional: a pipe nobody reads fills at 4 KB on Windows and the
+    child then blocks on its next write — ffmpeg's encoder does exactly that
+    after ~35 s of libx264 at crf 17 (measured), and the render hangs with a
+    truncated file on disk. ``shot_detect.py`` drains the same way."""
+    def _run():
+        try:
+            for raw in iter(stream.readline, b''):
+                line = raw.decode('utf-8', 'replace').rstrip()
+                if line:
+                    sink.append(line)
+                    if len(sink) > limit:
+                        del sink[:-limit]
+        except (OSError, ValueError):
+            pass
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
 
 
 def emit(event, **fields):
@@ -221,6 +248,9 @@ def main():
          '-c:v', 'libx264', '-preset', 'medium', '-crf', str(int(args.crf)),
          '-pix_fmt', 'yuv420p', '-movflags', '+faststart', video_only],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    dec_log, enc_log = [], []
+    dec_pump = pump_stderr(dec.stderr, dec_log)
+    enc_pump = pump_stderr(enc.stderr, enc_log)
 
     order = None
     prev_grey = None
@@ -284,10 +314,12 @@ def main():
         except OSError:
             pass
 
-    dec_err = (dec.stderr.read() or b'').decode('utf-8', 'replace').strip()
     dec.wait()
-    enc_err = (enc.stderr.read() or b'').decode('utf-8', 'replace').strip()
     enc.wait()
+    dec_pump.join(timeout=5)
+    enc_pump.join(timeout=5)
+    dec_err = '\n'.join(dec_log).strip()
+    enc_err = '\n'.join(enc_log).strip()
     if done == 0:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         fail('no frame could be decoded from the source' + (f': {dec_err[-300:]}' if dec_err else ''))
