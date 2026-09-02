@@ -14,6 +14,7 @@
  * is a length the VAE accepts.
  */
 import { Sparkles, Flame, Zap, Maximize2 } from 'lucide-react';
+import SliderLock, { useSliderLock } from '../../../shared/SliderLock';
 import { clipSeconds, SPARSE_CHOICES, studioFrameChoices } from './videoStudioApi';
 
 function Toggle({ checked, onChange, icon: Icon, label, cost, hint, disabled, disabledHint }) {
@@ -64,6 +65,14 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
   const frames = studioFrameChoices(options);
   const fps = options?.fps || 24;
   const mp = options?.megapixels || { min: 0.1, max: 2, default: 0.3 };
+  /* 🔒 Locked by default, the same guard the image lane's dials wear. This
+     panel is scrolled past on a phone with a thumb, and a range input takes
+     the gesture that crosses it: the dial moves, nothing says so, and the next
+     clip renders on a length nobody chose. Each keeps its own memory — the one
+     you unlock is the one you are working on. */
+  const stepsLock = useSliderLock('videoStudio.lock.steps');
+  const lengthLock = useSliderLock('videoStudio.lock.length');
+  const mpLock = useSliderLock('videoStudio.lock.megapixels');
   /* What "auto" resolves to, from the server's own constants rather than a
      second copy of them here: turbo grafts a distillation LoRA with its own
      six-step schedule, dense sampling runs twenty. An explicit count wins over
@@ -144,11 +153,16 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
                 Auto
               </button>
             ) : null}
+            {/* The padlock guards the TRACK, not this row: Auto is a small
+                deliberate tap, never what a scrolling thumb lands on. */}
+            <SliderLock locked={stepsLock.locked} onToggle={stepsLock.toggle}
+              label="sampling steps" />
           </span>
         </span>
         <input type="range" min="4" max="40" step="1" value={steps}
           onChange={(e) => set({ steps: Number(e.target.value) })}
-          className="mt-1 accent-accent" />
+          {...stepsLock.rangeProps}
+          className={`mt-1 accent-accent ${stepsLock.rangeProps.className}`} />
         <span className="text-[0.6875rem] leading-snug text-content-subtle">
           {value.turbo
             ? 'Turbo\u2019s distillation is trained for 6 — going far above it '
@@ -175,16 +189,21 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             <span className="flex items-baseline justify-between gap-2">
               Length
-              <span className="tabular-nums text-content">
-                {seconds}s
-                <span className="ml-1 text-content-subtle">· {value.frames} frames</span>
+              <span className="flex items-center gap-2">
+                <span className="tabular-nums text-content">
+                  {seconds}s
+                  <span className="ml-1 text-content-subtle">· {value.frames} frames</span>
+                </span>
+                <SliderLock locked={lengthLock.locked} onToggle={lengthLock.toggle}
+                  label="clip length" />
               </span>
             </span>
             <input type="range" min="0" max={Math.max(0, frames.length - 1)} step="1"
               value={Math.max(0, frames.indexOf(value.frames))}
               onChange={(e) => set({ frames: frames[Number(e.target.value)] })}
               aria-label="Clip length"
-              className="mt-1 accent-accent" />
+              {...lengthLock.rangeProps}
+              className={`mt-1 accent-accent ${lengthLock.rangeProps.className}`} />
             <span className="flex justify-between text-[0.625rem] tabular-nums text-content-subtle">
               <span>{clipSeconds(frames[0], fps)}s</span>
               <span>{clipSeconds(frames[frames.length - 1], fps)}s</span>
@@ -193,12 +212,18 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             <span className="flex items-baseline justify-between">
               Resolution
-              <span className="tabular-nums text-content">{Number(value.megapixels).toFixed(2)} MP</span>
+              <span className="flex items-center gap-2">
+                <span className="tabular-nums text-content">{Number(value.megapixels).toFixed(2)} MP</span>
+                <SliderLock locked={mpLock.locked} onToggle={mpLock.toggle}
+                  label="resolution" />
+              </span>
             </span>
             <input type="range" min={mp.min} max={mp.max} step="0.05"
               value={value.megapixels}
               onChange={(e) => set({ megapixels: Number(e.target.value) })}
-              className="mt-1 accent-accent" />
+              aria-label="Resolution"
+              {...mpLock.rangeProps}
+              className={`mt-1 accent-accent ${mpLock.rangeProps.className}`} />
           </label>
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             Seed

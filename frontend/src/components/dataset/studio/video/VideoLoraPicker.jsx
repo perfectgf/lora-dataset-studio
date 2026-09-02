@@ -26,6 +26,7 @@ import { apiFetch, postForm, postJson } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
 import { deployUrl, lorasUrl, loraImportUrl } from './videoStudioApi';
 import { groupTrained, shortLoraName, splitDeployed } from './videoLoraGroups';
+import SliderLock, { useSliderLock } from '../../../shared/SliderLock';
 
 const ROW = 'flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left min-h-10 lg:min-h-0';
 const ROW_IDLE = 'border-border bg-surface-raised hover:border-accent/50';
@@ -33,6 +34,7 @@ const ROW_ON = 'border-accent bg-accent/10';
 const PILL = 'rounded-full border px-2 py-0.5 text-[0.6875rem] min-h-10 lg:min-h-0 lg:py-0.5';
 
 export default function VideoLoraPicker({ value, onChange, strength, onStrength }) {
+  const strengthLock = useSliderLock('videoStudio.lock.loraStrength');
   const toast = useToast();
   const [deployed, setDeployed] = useState([]);
   const [trained, setTrained] = useState([]);
@@ -295,8 +297,14 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
           Strength
           <input type="range" min="0" max="2" step="0.05" value={strength}
             onChange={(e) => onStrength(Number(e.target.value))}
-            className="min-w-0 flex-1 accent-accent" />
+            aria-label="LoRA strength"
+            {...strengthLock.rangeProps}
+            className={`min-w-0 flex-1 accent-accent ${strengthLock.rangeProps.className}`} />
           <span className="w-9 text-right tabular-nums text-content">{Number(strength).toFixed(2)}</span>
+          {/* The dial that decides whether the LoRA speaks at all — and the one
+              a thumb crosses on the way down the rail. */}
+          <SliderLock locked={strengthLock.locked} onToggle={strengthLock.toggle}
+            label="LoRA strength" />
         </label>
       )}
       {value && (

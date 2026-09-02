@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-sliders-locked-against-mistaps',
+    date: '2026-09-02',
+    title: 'Dials no longer move when you scroll past them on a phone',
+    blurb:
+      'A slider claims the touch that merely crosses it, so scrolling the '
+      + 'render rail with a thumb dragged whichever dial was under it — '
+      + 'silently, and the next clip rendered on a length nobody chose. Every '
+      + 'slider in the app now hands vertical swipes back to the page, and the '
+      + 'Video Test Studio’s dials (steps, length, resolution, LoRA '
+      + 'strength) carry the padlock the image side already had: locked by '
+      + 'default, one tap to open, and each remembers whether you left it open.',
+    to: '/studio',
+  },
+  {
     id: '2026-09-02-start-frame-clip-tab-fixed',
     date: '2026-09-02',
     title: 'Picking a start frame from a training clip no longer takes the page down',
