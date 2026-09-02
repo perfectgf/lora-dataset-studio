@@ -475,8 +475,12 @@ DEFAULTS = {
     #   user already operates), 'transformers', or 'local_llm'. Which local
     #   server and which model are NOT new settings: local_llm.provider and the
     #   provider's vision_model already say it for the image passes.
+    # motion_model: which local LLM writes or enriches the ✨ Motion field in
+    #   the Video Test Studio (empty = the provider's own vision model). Its own
+    #   key because it answers a different question from the image passes' one:
+    #   a user who tunes the writer must not re-point the captioner.
     'video_caption': {'model': '', 'style': '', 'tokenizer_dir': '',
-                      'backend': ''},
+                      'backend': '', 'motion_model': ''},
     # Optional second semantic space for Image Bank. Its interpreter is recorded
     # separately so ✨ Score may borrow a user's CUDA Python without making the
     # SigLIP2 installer mutate that environment. Existing configs without this
@@ -844,6 +848,36 @@ DEFAULTS = {
         # the edit models start to drift (output_geometry.MAX_OUTPUT_MP).
         'output_megapixels': 2.0,
     },
+    # Krea hi-res fix — the optional SECOND latent pass on the Krea GENERATION
+    # graph (workflows/krea2_turbo.json: the Test Studio grid and the LoRA Canvas).
+    # Its own namespace for the same reason `variations` has one: the `krea`
+    # block below is the Krea 2 Identity EDIT engine, a hand-built graph that
+    # never loads this file, so a key there would read as a dial of the wrong
+    # engine — and be silently ignored by it.
+    #
+    # WHAT IT BUYS: Krea composes at the resolution it samples. One pass asked
+    # for the final size loses framing and starts duplicating subjects; one pass
+    # kept small caps the detail no upscaler can invent afterwards. Sampling
+    # small then re-sampling an upscaled latent lets the model DRAW that detail.
+    'krea_hires': {
+        # Latent upscale between the two passes. 1.0 = OFF, and OFF adds no node
+        # to the graph at all — an install that leaves this alone renders exactly
+        # what it rendered before the setting existed. 1.5 is the value measured
+        # on the reference workflow this was ported from; the ceiling is 2.0
+        # (utils/comfyui.KREA_HIRES_MAX_SCALE) because x2 on a latent is x4 the
+        # pixels, and the second pass pays that in both VRAM and time.
+        'scale': 1.0,
+        # How much of the first pass the second one is allowed to rewrite. THE
+        # dial of the feature: at 1.0 pass 2 ignores pass 1 and renders a
+        # different picture at the larger size, defeating the point; too low and
+        # it costs a full second pass to change nothing. 0.5 keeps the
+        # composition and rewrites the texture.
+        'denoise': 0.5,
+        # Sampler steps for pass 2. 0 = inherit pass 1's count, which is the
+        # right default: a refinement pass at denoise 0.5 only walks half the
+        # schedule anyway. Set it to spend fewer (or more) than the first pass.
+        'steps': 0,
+    },
     # Krea 2 Identity Edit — the second LOCAL generation engine (services/
     # krea_edit_helper.py). Every value here is a RESOLUTION HINT or a sampler
     # knob, never a hardcoded machine path: blank/absent means "find it yourself"
@@ -898,7 +932,44 @@ DEFAULTS = {
     # that the pass is no longer Klein-only: 'klein' rewrites detail, 'seedvr2'
     # restores it without reinterpreting. 'klein' is the default because it is
     # what every improve did before this setting existed.
-    'improve': {'engine': 'klein'},
+    'improve': {
+        'engine': 'klein',
+        # --- The finishing pass -------------------------------------------
+        # Three pixel operations run by the APP on the result of ✨ Upscale &
+        # improve (utils/photo_finish.py), not by ComfyUI. The reference
+        # workflow they are ported from does them with three third-party packs;
+        # shipping that dependency would break the rule the installer is built
+        # on — it downloads models, never node packs, and the graphs this app
+        # builds must run on a bare ComfyUI. None of the three needs a model or
+        # a GPU, so they belong on this side of the wire.
+        #
+        # All three ship at 0 = off: an install that leaves them alone keeps the
+        # exact bytes ComfyUI wrote, and the pass does not even re-encode.
+        #
+        # How much of the source's grade to put back after the pass. An edit at
+        # denoise 1.0 keeps the content and loses the colours — skin warms or
+        # cools and a dataset ends up holding two colour worlds depending on
+        # which images went through. 0.8 is the reference value; 1.0 forbids the
+        # pass any colour change at all, which is usually too strict.
+        # KLEIN ONLY, deliberately: SeedVR2 already grades back onto its source
+        # inside the node (seedvr2.color_correction), and doing it twice is two
+        # transforms fighting over the same statistics.
+        'colour_match': 0.0,
+        # Unsharp amount. 0.55 is the reference value. This is local contrast at
+        # a 1 px radius — the finest octave, the one diffusion leaves empty —
+        # not a global "sharpness" slider.
+        'sharpen': 0.0,
+        # Film-grain standard deviation, in [0, 1] units: 0.01 (the reference
+        # value) is about +-2.5 levels of an 8-bit image. It reads as texture,
+        # never as noise, and it is what stops a render looking plastic — the
+        # eye reads a refilled top octave as "photograph". Values that look
+        # sensible by analogy with other sliders (0.1, 0.3) are heavy noise.
+        'grain': 0.0,
+        # How much of that grain is coloured. 0 = luminance-only (film-like),
+        # 1 = independent per channel (reads as sensor noise). 0.2 is the
+        # reference value.
+        'grain_saturation': 0.2,
+    },
     # 📷 Camera angles — the lane that moves the CAMERA rather than the subject
     # (services/camera_angles.py explains why that needs its own base model).
     # Same discipline as every other engine block: blank means "find it
@@ -1028,6 +1099,13 @@ DEFAULTS = {
     # Each: {filename (loras-relative), strength [0..2], x, y (board coords)}.
     # Cap 16, deduped by filename — sanitized in the PUT route.
     'canvas': {'external_loras': []},
+    # 📤 Publish to Civitai. The API is always civitai.com; `link_host` is the
+    # domain the app OPENS links on (civitai.red is the same site and account
+    # behind a second domain, and the session cookie is per domain — a user
+    # signed in on the mirror lands on a 404 for their own draft otherwise).
+    # The key itself is CIVITAI_API_KEY, shared with the scraper and the 🌐
+    # prompt browser.
+    'civitai': {'link_host': 'civitai.com'},                  # 'civitai.com' | 'civitai.red'
 }
 
 _lock = threading.Lock()

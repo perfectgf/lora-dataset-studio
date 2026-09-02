@@ -27,7 +27,11 @@ import { preflightUrl } from '../components/dataset/preflightLane.js';
 // files; the mode contract spans all three, so it reads them as one text.
 const panel = readFileSync(new URL('../components/dataset/TrainingPanel.jsx', import.meta.url), 'utf8')
   + readFileSync(new URL('../components/dataset/FullTransformerRecipe.jsx', import.meta.url), 'utf8')
-  + readFileSync(new URL('../components/dataset/CloudLaunchDialog.jsx', import.meta.url), 'utf8');
+  + readFileSync(new URL('../components/dataset/CloudLaunchDialog.jsx', import.meta.url), 'utf8')
+  // The estimate line moved to a SHARED component the video launch window mounts
+  // too (cloud-tier-estimate-contract.test.mjs); its user-facing copy is still
+  // the image dialog's copy, and still owes the same words.
+  + readFileSync(new URL('../components/shared/CloudTierEstimate.jsx', import.meta.url), 'utf8');
 const datasetHook = readFileSync(new URL('../hooks/useDataset.js', import.meta.url), 'utf8');
 const runsPage = readFileSync(new URL('../pages/CloudRunsPage.jsx', import.meta.url), 'utf8');
 const stopDialog = readFileSync(new URL('../pages/cloudStopDialog.js', import.meta.url), 'utf8');

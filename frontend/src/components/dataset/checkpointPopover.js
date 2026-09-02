@@ -30,7 +30,8 @@ import {
    screen with margins to spare; the height is the tallest the column gets (every
    row present at once). */
 export const POPOVER_W = 210;
-export const POPOVER_H = 232;
+// One row taller since 📤 Civitai joined the column (every row present at once).
+export const POPOVER_H = 264;
 
 /* WHY a checkpoint cannot be deployed into ComfyUI, or null when it can. The
    payload builder answers only yes/no (it returns a body or null), and "no" has

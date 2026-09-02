@@ -7450,6 +7450,18 @@ def checkpoint_notes_for(record_id):
             if r.note}
 
 
+def _civitai_links_for(record_id):
+    """{step: link} of this run's checkpoints already on Civitai — the pill's
+    📤 badge. Best-effort like the notes: a pill only GAINS a badge here, and a
+    failure in the link store must never blank a node of the tree."""
+    try:
+        from .civitai_publish import links_for_record
+        return links_for_record(record_id)
+    except Exception:
+        logger.debug('civitai links unavailable for record %s', record_id, exc_info=True)
+        return {}
+
+
 def training_activity() -> dict:
     """🏋️ Is anything training RIGHT NOW — locally or on a rented pod.
 
@@ -8360,7 +8372,20 @@ def run_deletion_impact(record_id) -> dict | None:
         'canvas_positions': _count(CanvasNodePosition),
         'children_detached': _count_children(rec),
         'archived_images_released': released,
+        # 📤 Civitai links are DETACHED, not deleted (the page stays on the
+        # site and stays offered to the dataset's pictures). Counted so the
+        # confirmation can say so; additive, the dialog ignores what it does
+        # not know.
+        'civitai_links_detached': _count_civitai_links(rec),
     }
+
+
+def _count_civitai_links(rec) -> int:
+    try:
+        from ..models import CivitaiLink
+        return int(CivitaiLink.query.filter_by(record_id=rec.id).count())
+    except Exception:
+        return 0
 
 
 def _count_children(rec) -> int:
@@ -8439,6 +8464,11 @@ def delete_run_record(record_id, cascade=False) -> str:
         (LoraTestImage.query
          .filter_by(record_id=rec.id)
          .update({'record_id': None, 'step': None}, synchronize_session=False))
+        # 📤 Its Civitai links survive the same way: the page still exists on
+        # the site, and the dataset's pictures can still be posted under it —
+        # they only lose the record (see models.CivitaiLink).
+        from .civitai_publish import detach_links_of_run
+        detach_links_of_run(rec.id)
         # Delete FK children first and flush, so deleting the parent row can't hit
         # an IntegrityError (the "delete 500" trap — no cascade on these tables).
         CheckpointNote.query.filter_by(record_id=rec.id).delete(
@@ -8528,6 +8558,7 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
             node['checkpoint_ready'] = None
     _cnotes = checkpoint_notes_for(rec.id)
     _cprev = checkpoint_previews_for(rec.id)
+    _clinks = _civitai_links_for(rec.id)
     # Deployment (testable + the deployed copy's own name) comes from the SHARED
     # annotator, so the graph pills and the Checkpoints panel rows answer "is this
     # deployed, and which ComfyUI file is it?" with the same join. Scoped to THIS
@@ -8547,6 +8578,13 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
             _ck['preview_url'] = _pv.get('url')
             _ck['preview_status'] = _pv.get('status')
             _ck['preview_count'] = _pv.get('count') or 0
+        # 📤 The Civitai page this save IS — keyed by the FILE, not the step:
+        # the numbered save and the final of a run that ended on it share a
+        # step, and each is its own version on the site. The popover says
+        # "On Civitai" from this, without a request per pill.
+        _cl = _clinks.get(_ck.get('filename') or '')
+        if _cl:
+            _ck['civitai'] = _cl
     return node
 
 
@@ -8897,6 +8935,112 @@ def _clamp_image_box(x, y, w, h):
             min(CANVAS_IMAGE_MAX, max(CANVAS_IMAGE_MIN, h)))
 
 
+# A LANE's own bounds, in board units. `h` is the room a lane reserves, header
+# excluded: the floor keeps a lane grabbable (a lane shorter than its own title
+# strip could never be dragged bigger again — the trap a resize handle must not
+# be able to build), and the ceiling protects ✦ Fit exactly as the image one
+# does. Mirrors LANE_MIN_H / LANE_MAX_H in frontend/src/utils/canvasLanePlacement.js.
+CANVAS_LANE_MIN_H = 96.0
+CANVAS_LANE_MAX_H = 40000.0
+# …and how far from the board's ORIGIN a lane may be parked, in either
+# direction on either axis. Board-absolute, unlike everything else on this
+# board: a lane's position is what defines lane-local for its own contents, so
+# it has nothing to be measured relative to. Mirrors LANE_REACH.
+CANVAS_LANE_REACH = 100000.0
+
+
+def _clamp_lane_placement(row) -> dict:
+    """One lane placement, sanitised: {x?, y?, h?} — possibly empty.
+
+    Absent, NaN and infinite all mean the SAME thing here and it is not zero:
+    "let the board decide". A lane silently teleported to the origin would be
+    worse than a lane the stack places itself, and there is no UI to fix a lane
+    parked at NaN.
+
+    x and y travel together: half a position is not a position."""
+    def num(v):
+        if v is None or v == '':
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if (f != f or abs(f) == float('inf')) else f
+
+    def reach(v):
+        return min(CANVAS_LANE_REACH, max(-CANVAS_LANE_REACH, v))
+
+    src = row if isinstance(row, dict) else {}
+    x, y, h = num(src.get('x')), num(src.get('y')), num(src.get('h'))
+    out = {}
+    if x is not None and y is not None:
+        out['x'], out['y'] = reach(x), reach(y)
+    if h is not None:
+        out['h'] = min(CANVAS_LANE_MAX_H, max(CANVAS_LANE_MIN_H, h))
+    return out
+
+
+def canvas_lane_placements(user_id, dataset_ids=None) -> dict:
+    """Every arranged LANE of `user_id`. One request for the whole board, like
+    the card positions it travels with — the lanes need their overrides before
+    the first paint or the board lays itself out twice."""
+    from ..models import CanvasLanePlacement
+    owned = {d.id for d in fds.list_datasets(user_id)}
+    if dataset_ids is not None:
+        owned &= {int(i) for i in dataset_ids}
+    if not owned:
+        return {'lanes': []}
+    rows = (CanvasLanePlacement.query
+            .filter(CanvasLanePlacement.dataset_id.in_(list(owned))).all())
+    out = []
+    for r in rows:
+        placement = _clamp_lane_placement({'x': r.x, 'y': r.y, 'h': r.h})
+        if placement:
+            out.append({'dataset_id': r.dataset_id, **placement})
+    out.sort(key=lambda p: p['dataset_id'])
+    return {'lanes': out}
+
+
+def save_canvas_lane_placement(user_id, dataset_id, placement) -> dict:
+    """Remember where ONE lane sits and how much room it keeps.
+
+    A MERGE, not a replace: moving a lane must not forget the height its owner
+    set, and resizing it must not forget where they put it. The client sends
+    only what its gesture changed, so a partial body is the normal case rather
+    than an error. Sending nothing usable at all DELETES the row — that is what
+    "back to automatic" means, and it keeps "no placement" a single state."""
+    from ..models import CanvasLanePlacement
+    if not fds.get_dataset(user_id, dataset_id):
+        raise LookupError('dataset not found')
+    row = CanvasLanePlacement.query.filter_by(dataset_id=dataset_id).first()
+    current = ({'x': row.x, 'y': row.y, 'h': row.h} if row is not None else {})
+    merged = _clamp_lane_placement({**_clamp_lane_placement(current),
+                                    **(placement if isinstance(placement, dict) else {})})
+    if not merged:
+        if row is not None:
+            db.session.delete(row)
+            db.session.commit()
+        return {'saved': 0, 'placement': None}
+    if row is None:
+        row = CanvasLanePlacement(dataset_id=dataset_id)
+        db.session.add(row)
+    row.x, row.y = merged.get('x'), merged.get('y')
+    row.h = merged.get('h')
+    db.session.commit()
+    return {'saved': 1, 'placement': merged}
+
+
+def clear_canvas_lane_placement(user_id, dataset_id) -> dict:
+    """✦ Tidy up for one lane: hand it back to the automatic stack."""
+    from ..models import CanvasLanePlacement
+    if not fds.get_dataset(user_id, dataset_id):
+        raise LookupError('dataset not found')
+    removed = CanvasLanePlacement.query.filter_by(
+        dataset_id=dataset_id).delete(synchronize_session=False)
+    db.session.commit()
+    return {'cleared': int(removed or 0)}
+
+
 def _clean_group(node) -> tuple:
     """🖼🖼 One row's group membership, sanitised: (group_id, group_pos).
 
@@ -9059,7 +9203,7 @@ CANVAS_PRESET_MAX = 24
 CANVAS_PRESET_NAME_MAX = 80
 
 
-def _preset_payload(positions, images) -> dict:
+def _preset_payload(positions, images, lanes=None) -> dict:
     """The stored shape, sanitised on the way IN as well as on the way out.
 
     Sanitising here is belt and braces — the restore re-validates everything
@@ -9094,7 +9238,18 @@ def _preset_payload(positions, images) -> dict:
                          'group_id': gid, 'group_pos': gpos})
         if lane:
             out_img[str(int(ds_id))] = lane
-    return {'positions': out_pos, 'images': out_img}
+    # 🛝 And where each LANE sat. A preset that put the cards and the pictures
+    # back on a board whose lanes had since been rearranged would restore an
+    # arrangement into the wrong room — the geometry is only half the memory.
+    out_lanes = {}
+    for ds_id, placement in (lanes or {}).items():
+        clean = _clamp_lane_placement(placement)
+        if clean:
+            try:
+                out_lanes[str(int(ds_id))] = clean
+            except (TypeError, ValueError):
+                continue   # malformed client key: dropped, the rest of the board lands
+    return {'positions': out_pos, 'images': out_img, 'lanes': out_lanes}
 
 
 def _preset_row(row) -> dict:
@@ -9104,13 +9259,14 @@ def _preset_row(row) -> dict:
         payload = {}
     positions = payload.get('positions') or {}
     images = payload.get('images') or {}
+    lanes = payload.get('lanes') or {}
     return {
         'id': row.id,
         'name': row.name,
         # The counts are what the picker shows: "3 lanes · 12 cards · 8 pictures"
         # says whether this is the arrangement you meant far better than a name
         # typed in a hurry three weeks ago.
-        'lanes': len(set(positions) | set(images)),
+        'lanes': len(set(positions) | set(images) | set(lanes)),
         'cards': sum(len(v) for v in positions.values()),
         'images': sum(len(v) for v in images.values()),
         'updated_at': row.updated_at.isoformat() if row.updated_at else None,
@@ -9126,7 +9282,8 @@ def canvas_layout_presets(user_id) -> dict:
     return {'presets': [_preset_row(r) for r in rows], 'max': CANVAS_PRESET_MAX}
 
 
-def save_canvas_layout_preset(user_id, name, positions=None, images=None) -> dict:
+def save_canvas_layout_preset(user_id, name, positions=None, images=None,
+                              lanes=None) -> dict:
     """Keep the board as it is, under a name.
 
     Saving under a name that already exists OVERWRITES it, deliberately: "save"
@@ -9137,8 +9294,8 @@ def save_canvas_layout_preset(user_id, name, positions=None, images=None) -> dic
     clean = (name or '').strip()[:CANVAS_PRESET_NAME_MAX]
     if not clean:
         raise ValueError('a preset needs a name')
-    payload = _preset_payload(positions, images)
-    if not payload['positions'] and not payload['images']:
+    payload = _preset_payload(positions, images, lanes)
+    if not (payload['positions'] or payload['images'] or payload['lanes']):
         raise ValueError('there is nothing arranged on the board to save')
     row = CanvasLayoutPreset.query.filter_by(user_id=user_id, name=clean).first()
     if row is None:
@@ -9179,7 +9336,15 @@ def apply_canvas_layout_preset(user_id, preset_id) -> dict:
             pictures += save_canvas_image_nodes(user_id, int(ds_id), rows).get('saved', 0)
         except (LookupError, ValueError):
             continue   # that lane is gone: the rest of the board still lands
-    return {'applied': {'cards': cards, 'images': pictures}, 'preset': _preset_row(row)}
+    placed = 0
+    for ds_id, placement in (payload.get('lanes') or {}).items():
+        try:
+            placed += save_canvas_lane_placement(
+                user_id, int(ds_id), placement).get('saved', 0)
+        except (LookupError, ValueError):
+            continue   # that dataset is gone: the rest of the board still lands
+    return {'applied': {'cards': cards, 'images': pictures, 'lanes': placed},
+            'preset': _preset_row(row)}
 
 
 def delete_canvas_layout_preset(user_id, preset_id) -> dict:

@@ -65,10 +65,24 @@ test('what is ticked really reaches the request body', () => {
 
 test('the cost counter carries the new axes', () => {
   // A panel announcing 6 cells while the queue receives 18 is the failure mode.
-  assert.match(STACK, /axisTotal = 1 \}\)/)
-  assert.match(SETUP, /axisTotal,\s*\}\);/)
+  assert.match(STACK, /axisTotal = 1[,\s]/)
+  assert.match(SETUP, /axisTotal,/)
   assert.match(SETUP, /axisTotal > 1 &&/)
   assert.match(COMPARISON, /axisTotal=\{axisTotal\(\{ cfgs: effectiveCfgs/)
+})
+
+test('the cost counter carries the 📝 prompt batch, which is an axis too', () => {
+  // Same failure mode, newer axis: the server renders each configuration ONCE
+  // PER ticked prompt, so a batch of 5 multiplies the grid by 5. The rule is
+  // pinned in the three places it can be dropped — the formula, the panel that
+  // feeds it, and the screen that owns the batch and posts it.
+  assert.match(STACK, /promptCount = 1/)
+  assert.match(STACK, /\* prompts/)
+  assert.match(SETUP, /promptCount: Math\.max\(1, picked\.length\)/)
+  assert.match(SETUP, /picked\.length > 1 &&/)
+  assert.match(COMPARISON, /pickedPrompts=\{pickedPrompts\}/)
+  // …and what the counter announces is what the POST actually carries.
+  assert.match(COMPARISON, /body\.prompts = \[\.\.\.pickedPrompts\]/)
 })
 
 test('a leftover SDXL second pass does not follow into a Z-Image run', () => {

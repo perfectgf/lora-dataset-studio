@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ..extensions import db
-from ..models import (CanvasImageNode, CanvasNodePosition, FaceDataset,
+from ..models import (CanvasImageNode, CanvasLanePlacement, CanvasNodePosition, FaceDataset,
                       FaceDatasetImage, LoraTestImage)
 from .. import config as cfg
 from . import (bank_transfer_metadata, caption_origin, dataset_activity,
@@ -2896,6 +2896,13 @@ def delete_dataset(user_id, dataset_id):
     # 🖼 Pinned-image nodes: same story, same trap. They reference
     # lora_test_image rows that are being deleted in this very transaction.
     canvas_imgs = CanvasImageNode.query.filter_by(dataset_id=dataset_id).all()
+    # Where the lane itself sat and how much room it kept: same story again, and
+    # at most one row.
+    canvas_lane = CanvasLanePlacement.query.filter_by(dataset_id=dataset_id).all()
+    # 📤 Civitai links of its checkpoints: nothing left to post under them once
+    # the dataset's pictures are gone (the pages on the site are untouched).
+    from ..models import CivitaiLink
+    civitai_links = CivitaiLink.query.filter_by(dataset_id=dataset_id).all()
     dataset_path = _dataset_path(dataset_id)
     trashed_path = None
     try:
@@ -2928,6 +2935,10 @@ def delete_dataset(user_id, dataset_id):
             db.session.delete(pos)
         for pin in canvas_imgs:
             db.session.delete(pin)
+        for placement in canvas_lane:
+            db.session.delete(placement)
+        for link in civitai_links:
+            db.session.delete(link)
         # Force the child DELETEs to reach the DB BEFORE the parent's. The child
         # models declare only a table-level ForeignKey (no relationship()), so the
         # unit of work has no ordering dependency between them and would otherwise
@@ -12440,6 +12451,93 @@ def generate_variations_nanobanana(app, user_id, dataset_id, variations, multipl
 
 
 # --- Completion linking (called from the job queue) -------------------------
+def _finishing_profile(engine) -> dict:
+    """The finishing pass's dials for ONE improve engine, from `improve.*`.
+
+    Colour matching is Klein-only and that is not a policy, it is arithmetic:
+    SeedVR2 already grades its result back onto its source inside the node
+    (`seedvr2.color_correction`), so running ours as well is two transforms
+    estimated from the same statistics fighting over the same image. Sharpening
+    and grain apply to both — neither engine does either.
+
+    Every value degrades to 0 (= that stage does not run) rather than to a
+    default, because a malformed setting must not silently start altering
+    finished renders."""
+    def _num(key, ceiling):
+        try:
+            value = float(cfg.get(f'improve.{key}'))
+        except (TypeError, ValueError):
+            return 0.0
+        # NaN has to be rejected BEFORE the clamp, not by it. Every comparison
+        # against NaN is False, so `min(ceiling, nan)` returns the CEILING and
+        # `max(0.0, ...)` keeps it: a corrupt config.json would not turn the dial
+        # off, it would turn it up to maximum. Measured, not theorised.
+        if not math.isfinite(value):
+            return 0.0
+        return max(0.0, min(ceiling, value))
+    return {
+        'colour_strength': _num('colour_match', 1.0) if engine != 'seedvr2' else 0.0,
+        'sharpen': _num('sharpen', 3.0),
+        'grain': _num('grain', 0.2),
+        'grain_saturation': _num('grain_saturation', 1.0),
+    }
+
+
+def _finish_improved_image(img, dst):
+    """Run the app-side finishing pass over a just-linked ✨ improve result.
+
+    Only for `KLEIN_IMAGE_IMPROVE` rows: this callback links every dataset image
+    job — variations, reference edits, the small-image rescue — and a finishing
+    pass on a freshly GENERATED variation is not what any of these dials mean.
+
+    The colour reference is the improve's own source (its parent row's file on
+    disk), which is the only image whose grade this result is supposed to keep.
+    No readable parent -> the colour stage drops out and the other two still run;
+    `photo_finish.apply_to_file` decides that, so the rule lives in one place.
+
+    Wrapped whole: a finishing pass is a nicety, and it may never be the reason a
+    render the user waited for is lost."""
+    if getattr(img, 'derivation_kind', None) != KLEIN_IMAGE_IMPROVE:
+        return
+    try:
+        # The engine that RAN, read off the row's own stamp — never the
+        # `improve.engine` setting, which is only the default the single-tile
+        # button starts on: the lightbox offers one button per engine and the
+        # bulk toolbar names its engine on the button, so a SeedVR2 lot on an
+        # install whose setting says 'klein' is an ordinary path, and it must
+        # not receive the Klein colour match on top of the node's own grading.
+        # The setting remains the fallback for rows that predate the stamp.
+        meta = parsed_generation_meta(getattr(img, 'generation_meta', None)) or {}
+        engine = meta.get('engine') or cfg.get('improve.engine') or 'klein'
+        profile = _finishing_profile(engine)
+        if not any(profile[k] > 0 for k in ('colour_strength', 'sharpen', 'grain')):
+            return
+        reference_path = None
+        if profile['colour_strength'] > 0 and getattr(img, 'parent_image_id', None):
+            parent = db.session.get(FaceDatasetImage, img.parent_image_id)
+            if parent is not None and parent.filename:
+                candidate = os.path.join(_dataset_dir(parent.dataset_id), parent.filename)
+                if os.path.isfile(candidate):
+                    reference_path = candidate
+        try:
+            from ..utils import photo_finish
+        except ImportError as exc:
+            # numpy lives in requirements-ml, not in the base install. A user who
+            # turned finishing on without it gets ONE plain line, not a trace.
+            logger.warning('dataset link: finishing pass skipped for image %s — %s '
+                           '(install the ML requirements to enable it)', img.id, exc)
+            return
+        # Seeded on the row id: the same image re-finished gives the same grain,
+        # so a re-run is comparable to what it replaced instead of differing by
+        # noise nobody asked to change.
+        photo_finish.apply_to_file(
+            dst, reference_path=reference_path, seed=int(img.id or 0),
+            colour_strength=profile['colour_strength'], sharpen=profile['sharpen'],
+            grain=profile['grain'], grain_saturation=profile['grain_saturation'])
+    except Exception:
+        logger.exception('dataset link: finishing pass failed for image %s', img.id)
+
+
 def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
     """Attach a finished fan-out job to its FaceDatasetImage row.
 
@@ -12516,6 +12614,12 @@ def link_completed_dataset_image(job_id, filename, failed=False, reason=None):
                 img.fail_reason = ('The finished image could not be retrieved from ComfyUI '
                                    '(not on disk, and the /view API fetch failed).')
                 logger.warning(f"dataset link: file not on disk and /view API fetch failed (job {job_id})")
+        # The app-side finishing pass (colour match / unsharp / grain), on the
+        # file now sitting at `dst`. Before _unkeep_parent_for_kept_improvement,
+        # so the parent is still readable as the colour reference whatever that
+        # helper decides; off by default, and a no-op for every derivation kind
+        # but the ✨ improve.
+        _finish_improved_image(img, dst)
         # A user may have marked this in-flight improvement Keep while waiting.
         # Only the freshly linked, on-disk result may now replace its parent;
         # the helper also preserves a later explicit return to Pending.

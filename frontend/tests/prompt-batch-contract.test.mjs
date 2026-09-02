@@ -61,8 +61,8 @@ test('each card gets a real checkbox, and the count and a way out are on screen'
   assert.match(RECENT, /onClick=\{onClearBatch\}/)
   // Ticking must not write into the prompt field: that is what CLICKING the card
   // does, and conflating the two would clobber a typed prompt on every tick.
-  assert.match(RECENT, /onClick=\{\(\) => onToggleBatch\(pr\.prompt\)\}/)
-  assert.match(RECENT, /onClick=\{\(\) => onPick\(pr\.prompt\)\}/)
+  assert.match(RECENT, /onClick=\{\(\) => onToggleBatch\(p\.prompt\)\}/)
+  assert.match(RECENT, /onClick=\{\(\) => onPick\(p\.prompt\)\}/)
 })
 
 test('a caller that does not want the batch gets the component it had before', () => {

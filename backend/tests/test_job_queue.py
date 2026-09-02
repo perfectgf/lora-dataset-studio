@@ -455,6 +455,48 @@ def test_poll_outputs_skips_temp_images_returns_output_type(app):
     assert (filename, failed) == ('final.png', False)
 
 
+def test_poll_outputs_claims_a_video_helper_output_too(app):
+    """VideoHelperSuite reports EVERY video under `gifs` — a leftover name from
+    its AnimateDiff days that covers mp4 just the same. Reading only `images`
+    let a VHS_VideoCombine job run to completion in ComfyUI, write its file,
+    and never be claimed: the card stayed on "Rendering…" until the deadline
+    (measured on the ↗ Smooth pass, 2026-09-01)."""
+    from app.job_queue import _poll_outputs
+    history = {
+        'prompt-vfi': {
+            'outputs': {
+                '5': {'gifs': [{'filename': 'lds_vfi_00001.mp4', 'subfolder': '',
+                                'type': 'output', 'format': 'video/h264-mp4'}]},
+            },
+            'status': {'status_str': 'success', 'completed': True},
+        }
+    }
+    with app.app_context():
+        with patch('app.utils.comfyui.get_comfyui_history_probe',
+                   return_value=_ready_history(history)):
+            filename, failed = _poll_outputs('prompt-vfi', timeout=1)
+    assert (filename, failed) == ('lds_vfi_00001.mp4', False)
+
+
+def test_poll_outputs_skips_a_temp_video_the_same_way(app):
+    """The temp/output rule is the one that keeps a preview from being taken
+    for the result, and it must not weaken on the new key."""
+    from app.job_queue import _poll_outputs
+    history = {
+        'p': {
+            'outputs': {
+                '4': {'gifs': [{'filename': 'preview.webp', 'type': 'temp'}]},
+                '5': {'gifs': [{'filename': 'real.mp4', 'type': 'output'}]},
+            },
+            'status': {'status_str': 'success', 'completed': True},
+        }
+    }
+    with app.app_context():
+        with patch('app.utils.comfyui.get_comfyui_history_probe',
+                   return_value=_ready_history(history)):
+            assert _poll_outputs('p', timeout=1) == ('real.mp4', False)
+
+
 def test_poll_outputs_fails_fast_on_comfyui_error_status(app):
     from app.job_queue import _poll_outputs
     history = {'prompt-1': {'outputs': {}, 'status': {'status_str': 'error', 'completed': True}}}

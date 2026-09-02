@@ -18,6 +18,7 @@ Two of them are not about symmetry at all:
 
 No ffmpeg, no PyAV, no torch: the four media seams are monkeypatched.
 """
+import io
 import os
 
 import pytest
@@ -373,6 +374,318 @@ def test_clearing_a_caption_leaves_an_empty_file_never_a_missing_one(client,
                 json={'caption': ''})
 
     assert os.path.isfile(os.path.join(body['output_dir'], 'clip_0001.txt'))
+
+
+def test_removing_a_clip_deletes_its_mp4_AND_its_sidecar(client, tmp_path, seams):
+    """A dataset is a FLAT FOLDER read by os.walk — an orphan .txt whose .mp4 is
+    gone is not inert there. ai-toolkit pairs by basename and diffusion-pipe walks
+    the directory, so the half that survives is either dropped in silence or read
+    as a caption for nothing."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    item = body['items'][0]
+    client.post(f'/api/video-dataset/{ds_id}/clip/{item["id"]}/caption',
+                json={'caption': 'a woman walking'})
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                    json={'ids': [item['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 1
+    assert r.get_json()['clips'] == 1
+    for name in ('clip_0001.mp4', 'clip_0001.txt'):
+        assert not os.path.exists(os.path.join(body['output_dir'], name)), name
+    # And the row is gone from the payload, not merely from disk.
+    assert [i['filename'] for i in
+            client.get(f'/api/video-dataset/{ds_id}').get_json()['items']] \
+        == ['clip_0002.mp4']
+
+
+def test_removing_a_clip_UN_PROMOTES_its_shot_instead_of_touching_the_bank(
+        client, tmp_path, seams):
+    """The promise the confirmation makes, and the reason this is a safe button:
+    the bank keeps every shot, every bound and every decision. Only the claim
+    "this one is already in a dataset" is withdrawn — which is what lets the user
+    promote it again after re-cutting, with no triage to redo."""
+    bank_id, ds_id = _promote(client, tmp_path)
+    item = client.get(f'/api/video-dataset/{ds_id}').get_json()['items'][0]
+    before = _clips(client, bank_id)
+    promoted = [c for c in before if c['promoted_dataset_id'] == ds_id]
+    assert len(promoted) == 2, 'the fixture no longer promotes two shots'
+
+    client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [item['id']]})
+
+    after = _clips(client, bank_id)
+    assert len(after) == len(before)                     # no shot was deleted
+    assert [c['status'] for c in after] == [c['status'] for c in before]
+    assert sum(1 for c in after if c['promoted_dataset_id'] == ds_id) == 1
+
+
+def test_removing_nothing_removes_nothing_rather_than_emptying_the_set(client,
+                                                                       tmp_path, seams):
+    """The `triagePayload` footgun, on this route: an empty list must never be
+    read as "all". A dataset is an encode that cost real minutes."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': []})
+
+    assert r.status_code == 200
+    assert r.get_json() == {'ok': True, 'removed': 0, 'clips': 2,
+                            'files_missing': 0, 'files_kept': 0,
+                            'delete_mode': 'app_trash'}
+
+
+def test_removing_a_clip_whose_file_a_user_already_deleted_still_clears_the_row(
+        client, tmp_path, seams):
+    """Refusing here would leave the dataset permanently claiming a clip nobody can
+    play — the row IS the thing that has to go."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    item = body['items'][0]
+    os.remove(os.path.join(body['output_dir'], 'clip_0001.mp4'))
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                    json={'ids': [item['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 1
+    assert r.get_json()['files_missing'] == 1
+    assert client.get(f'/api/video-dataset/{ds_id}').get_json()['clips'] == 1
+
+
+def test_removing_a_clip_of_ANOTHER_dataset_does_nothing_at_all(client, tmp_path, seams):
+    """THE test the first five were missing, and it is not hypothetical: with the
+    two scope clauses removed by hand, 104 targeted tests stayed green. All five
+    worked on a single dataset, so neither guard was ever exercised.
+
+    What they guard: every set names its files `clip_0001.mp4`, so a row loaded
+    from dataset B and joined to dataset A's output_dir points at a REAL file of
+    A. Without the row filter the route deletes A's clip, deletes B's row, and
+    un-promotes B's shot — cross-dataset destruction, from a request that named
+    neither.
+
+    It kills the ROW-scope clause. It cannot reach the other one (the
+    `promoted_dataset_id == ds.id` clause of the un-promote), because a foreign
+    id yields no row at all and the un-promote block is never entered — that
+    clause has its own test further down, on the rowid collision it exists for."""
+    bank_a, ds_a = _promote(client, tmp_path)
+    bank_b = _ready_bank(client, tmp_path / 'second')
+    ds_b = client.post(f'/api/video-bank/{bank_b}/promote',
+                       json={'name': 'other set', 'target_profile': 'wan22_14b',
+                             'frames': 81}).get_json()['id']
+    other = client.get(f'/api/video-dataset/{ds_b}').get_json()['items'][0]
+    a_dir = client.get(f'/api/video-dataset/{ds_a}').get_json()['output_dir']
+
+    r = client.post(f'/api/video-dataset/{ds_a}/clips/remove',
+                    json={'ids': [other['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 0, 'a foreign id must match nothing'
+    # A keeps its files and its rows…
+    assert os.path.isfile(os.path.join(a_dir, 'clip_0001.mp4'))
+    assert client.get(f'/api/video-dataset/{ds_a}').get_json()['clips'] == 2
+    # …and B is untouched, row AND provenance.
+    assert [i['filename'] for i in
+            client.get(f'/api/video-dataset/{ds_b}').get_json()['items']] \
+        == ['clip_0001.mp4', 'clip_0002.mp4']
+    assert all(c['promoted_dataset_id'] == ds_b for c in _clips(client, bank_b))
+    assert all(c['promoted_dataset_id'] == ds_a for c in _clips(client, bank_a))
+
+
+def test_a_shot_stays_promoted_while_ONE_of_its_slices_is_still_in_the_set(
+        client, tmp_path, seams):
+    """With `slice_long`, one bank shot yields SEVERAL rows sharing a
+    source_clip_id. Un-promoting on the first removal is not a cosmetic bug:
+    `promoted_dataset_id IS NULL` is exactly what lets a later re-cut DELETE the
+    shot (_drop_clips_of — "PROMOTED CLIPS ARE NEVER TOUCHED"), and the dataset
+    would keep slices of a shot that no longer exists."""
+    bank_id = _ready_bank(client, tmp_path)
+    ds_id = client.post(f'/api/video-bank/{bank_id}/promote',
+                        json={'name': 'sliced', 'target_profile': 'wan22_14b',
+                              'frames': 33, 'slice_long': True}).get_json()['id']
+    items = client.get(f'/api/video-dataset/{ds_id}').get_json()['items']
+    by_source = {}
+    for i in items:
+        by_source.setdefault(i['source_clip_id'], []).append(i)
+    sliced = max(by_source.values(), key=len)
+    assert len(sliced) > 1, 'the fixture no longer slices a shot into several clips'
+    shot_id = sliced[0]['source_clip_id']
+
+    client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                json={'ids': [sliced[0]['id']]})
+
+    still_here = [c for c in _clips(client, bank_id) if c['id'] == shot_id]
+    assert still_here[0]['promoted_dataset_id'] == ds_id, \
+        'a shot with surviving slices must keep the shield that stops a re-cut deleting it'
+
+    # And it DOES let go once the last slice leaves.
+    client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                json={'ids': [c['id'] for c in sliced[1:]]})
+    freed = [c for c in _clips(client, bank_id) if c['id'] == shot_id]
+    assert freed[0]['promoted_dataset_id'] is None
+
+
+def test_a_locked_clip_keeps_its_row_AND_its_caption_file(client, tmp_path, seams,
+                                                          monkeypatch):
+    """The folder IS the dataset — every trainer reads the directory, not our
+    database. So a row deleted while its .mp4 stays on disk removes the clip from
+    the app and leaves it in the training set. And the old order deleted the two
+    files independently, so the .mp4 could survive while its caption left: the
+    exact orphan write_sidecar exists to prevent."""
+    from app.services import trash
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    item = body['items'][0]
+    real_move = trash.send_to_trash
+
+    def refuse_the_mp4(path, context=''):
+        if str(path).endswith('clip_0001.mp4'):
+            raise trash.TrashLockError(path, PermissionError(13, 'file is open in another process'))
+        return real_move(path, context=context)
+    monkeypatch.setattr(trash, 'send_to_trash', refuse_the_mp4)
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                    json={'ids': [item['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json() == {'ok': True, 'removed': 0, 'clips': 2,
+                            'files_missing': 0, 'files_kept': 1,
+                            'delete_mode': 'app_trash'}
+    # Nothing half-gone: the caption file was never touched, and the row stayed.
+    for name in ('clip_0001.mp4', 'clip_0001.txt'):
+        assert os.path.isfile(os.path.join(body['output_dir'], name)), name
+    assert client.get(f'/api/video-dataset/{ds_id}').get_json()['clips'] == 2
+
+
+def test_a_removed_clip_goes_to_the_APP_trash_and_can_be_found_there(client, tmp_path,
+                                                                     seams, app):
+    """trash.py: "NOTHING the app deletes is destroyed directly". This verb's true
+    twin — face_dataset_service.delete_image, the per-image delete of an image
+    dataset — moves through send_to_trash, the app's own trash under data/trash,
+    and that is what this one does too. The OUTCOME is asserted, not the
+    argument: both halves of the clip are found in the trash afterwards, under
+    the sandboxed data dir this test owns, and nothing went near the OS recycle
+    bin (which a test must never touch on a developer's machine)."""
+    from app.services import trash
+    _bank_id, ds_id = _promote(client, tmp_path)
+    item = client.get(f'/api/video-dataset/{ds_id}').get_json()['items'][0]
+
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [item['id']]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['delete_mode'] == 'app_trash'
+    with app.app_context():
+        root = trash.trash_root()
+    assert str(root).startswith(str(tmp_path)), 'the trash must be the sandboxed one'
+    trashed = sorted(f.name for f in root.rglob('clip_0001.*'))
+    assert trashed == ['clip_0001.mp4', 'clip_0001.txt'], trashed
+    # Named after what it holds, or the trash is a heap.
+    assert all('video-dataset' in str(f.parent.name) for f in root.rglob('clip_0001.*'))
+
+
+def test_a_commit_that_fails_puts_every_file_of_the_batch_BACK(client, tmp_path, seams,
+                                                              monkeypatch):
+    """The files leave the folder on the strength of a commit that has not
+    happened yet. If that commit is refused — SQLite locked by a promote job, a
+    concurrent poll — the old code answered 500 with the folder already emptied
+    and the rows still there: "could not remove" was true of the database and a
+    lie about the disk. delete_image, the twin, restores from the trash on any
+    exception. So does this now, for the whole batch, and it is asserted on the
+    disk: every .mp4 and .txt is back where it was, and the rows are intact."""
+    from app.extensions import db
+    _bank_id, ds_id = _promote(client, tmp_path)
+    body = client.get(f'/api/video-dataset/{ds_id}').get_json()
+    ids = [i['id'] for i in body['items']]
+    before = sorted(os.listdir(body['output_dir']))
+
+    def refuse(*_a, **_k):
+        raise RuntimeError('database is locked')
+    monkeypatch.setattr(db.session, 'commit', refuse)
+
+    # TESTING propagates the exception instead of rendering the 500 — which is
+    # fine: what matters is what the DISK looks like after the service unwinds.
+    with pytest.raises(RuntimeError, match='database is locked'):
+        client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': ids})
+
+    monkeypatch.undo()
+    assert sorted(os.listdir(body['output_dir'])) == before, 'the files must be back'
+    assert client.get(f'/api/video-dataset/{ds_id}').get_json()['clips'] == len(ids)
+
+
+def test_a_shot_promoted_into_ANOTHER_dataset_keeps_its_mark_on_a_rowid_collision(
+        client, tmp_path, seams, app):
+    """The clause the cross-dataset test cannot reach. source_clip_id is not a
+    foreign key (the bank is a scratch container the user may delete, and SQLite
+    reuses rowids), so a row of dataset A can name a shot id that, today, belongs
+    to a shot promoted into dataset B. Removing A's row must not un-promote B's
+    shot — the second clause of the un-promote filter is the only thing that
+    stops it, and with it removed by hand the whole targeted suite stayed green."""
+    from app.extensions import db
+    from app.models import VideoClip, VideoDatasetClip
+    bank_id, ds_a = _promote(client, tmp_path)
+    bank_b = _ready_bank(client, tmp_path / 'second')
+    ds_b = client.post(f'/api/video-bank/{bank_b}/promote',
+                       json={'name': 'other set', 'target_profile': 'wan22_14b',
+                             'frames': 81}).get_json()['id']
+    with app.app_context():
+        b_shot = VideoClip.query.filter_by(bank_id=bank_b, promoted_dataset_id=ds_b).first()
+        assert b_shot is not None
+        # A row of dataset A that names B's shot — the collision, by hand.
+        a_row = VideoDatasetClip.query.filter_by(dataset_id=ds_a).first()
+        a_row.source_clip_id = b_shot.id
+        db.session.commit()
+        a_row_id, b_shot_id = a_row.id, b_shot.id
+
+    r = client.post(f'/api/video-dataset/{ds_a}/clips/remove', json={'ids': [a_row_id]})
+
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['removed'] == 1
+    with app.app_context():
+        assert db.session.get(VideoClip, b_shot_id).promoted_dataset_id == ds_b, \
+            "B's shot must keep B's mark — A never owned it"
+
+
+def test_the_reference_upload_is_reachable_the_way_the_browser_sends_it(app, client,
+                                                                        tmp_path, seams):
+    """The whole backend suite runs with CSRF DISABLED (conftest builds the app
+    with WTF_CSRF_ENABLED=False), so it is blind to every machine caller: a
+    frontend that forgets the token ships green and answers 400 to the only
+    people who will ever use it — which is exactly what happened here. The
+    References section could not attach a single image.
+
+    So this one test turns CSRF back ON and sends the multipart exactly as
+    `postForm` builds it (token as a form FIELD, which is what flask_wtf looks
+    for first). Reaching the view at all is the assertion; what the view then
+    answers about the payload is other tests' business."""
+    _bank_id, ds_id = _promote(client, tmp_path)
+    app.config.update(WTF_CSRF_ENABLED=True)
+    token = client.get('/api/csrf-token').get_json()['csrf_token']
+
+    without = client.post(f'/api/video-dataset/{ds_id}/references',
+                          data={'files': (io.BytesIO(b'x'), 'ref.png')},
+                          content_type='multipart/form-data')
+    with_token = client.post(f'/api/video-dataset/{ds_id}/references',
+                             data={'files': (io.BytesIO(b'x'), 'ref.png'),
+                                   'csrf_token': token},
+                             content_type='multipart/form-data')
+
+    assert without.status_code == 400, 'CSRF is supposed to be enforced here'
+    # The view IS entered: it refuses the payload on its own terms (this target
+    # accepts no references), in JSON, which a 400 from CSRF never is.
+    assert with_token.status_code == 400
+    assert with_token.is_json and 'error' in with_token.get_json()
+    assert not without.is_json, 'the CSRF refusal never reaches the view'
+
+
+def test_removing_clips_refuses_a_body_that_is_not_a_list(client, tmp_path, seams):
+    _bank_id, ds_id = _promote(client, tmp_path)
+
+    assert client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                       json={'ids': 'all'}).status_code == 400
+    assert client.post(f'/api/video-dataset/{ds_id}/clips/remove',
+                       json={}).status_code == 400
+    assert client.post('/api/video-dataset/9999/clips/remove',
+                       json={'ids': [1]}).status_code == 404
 
 
 def test_deleting_a_dataset_is_a_404_when_it_is_not_yours(client):

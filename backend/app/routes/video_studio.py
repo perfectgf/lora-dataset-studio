@@ -20,7 +20,9 @@ import uuid
 from flask import Blueprint, jsonify, request, send_file
 
 from ..config import LOCAL_USER
+from ..gpu_window import gpu_exclusive_vision_window
 from ..services import lora_test_studio as lts
+from ..services import neural_render as _nr
 from ..services import video_test_studio as vts
 from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
                       _studio_missing_response)
@@ -40,6 +42,15 @@ def _clip_dict(clip):
     return {
         'id': clip.id, 'status': clip.status, 'error': clip.error,
         'filename': clip.filename, 'prompt': clip.prompt, 'mode': clip.mode,
+        # The staged start frame, so ↻ Reuse can hand it back: without it a
+        # reused image-to-video clip lands in i2v mode with nothing to animate
+        # and Generate stays blocked — every dial restored except the one that
+        # decides whether the button works at all.
+        'source_image': clip.source_image,
+        # ↗ The clip this one was smoothed from, so the card can say so.
+        'vfi_of': getattr(clip, 'vfi_of', None),
+        # ✨ The clip this one was neural-rendered from, same reading.
+        'nr_of': getattr(clip, 'nr_of', None),
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
@@ -97,6 +108,12 @@ def video_studio_options():
         'turbo_steps': vts.TURBO_STEPS, 'default_steps': vts.DEFAULT_STEPS,
         'base_official': vts.BASE_OFFICIAL, 'base_eros': vts.BASE_EROS,
         'eros_available': vts.eros_on_disk(),
+        # ✨ DLSS 5 neural rendering — ready + the sentences naming what is
+        # missing, so the clip history's button can refuse in words.
+        'neural_render': _nr.status(),
+        # How the running ComfyUI was started, judged against this machine's
+        # RAM: None, or the flag that turns minutes per clip into seconds.
+        'launch_advice': vts.launch_advice(*vts.comfyui_launch_facts()),
     })
 
 
@@ -128,6 +145,161 @@ def video_studio_deploy():
     return jsonify({'ok': True, 'filename': name})
 
 
+@bp.post('/clip/<int:clip_id>/vfi')
+def video_studio_clip_vfi(clip_id):
+    """↗ Smooth a finished clip — RIFE frame interpolation, as a new clip.
+
+    The same recipe the maintainer's image generator uses (rife49, x2, ensemble)
+    so a clip smoothed here is the clip smoothed there. A new row, never an edit
+    of the original: the studio exists to compare, and overwriting the thing
+    being compared would end that.
+    """
+    data = request.get_json(silent=True) or {}
+    try:
+        out = vts.interpolate_clip(LOCAL_USER, clip_id,
+                                   multiplier=data.get('multiplier'))
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    return jsonify({'ok': True, **out})
+
+
+def _clip_seconds(data: dict):
+    """How long the clip the panel is set to will be, for the motion writer.
+
+    The panel sends `seconds` — its own readback of the Length dial. A body
+    that carries only `frames` (the launch itself) is converted here with the
+    SAME arithmetic the readback uses: the snapped count, N-1 intervals at the
+    target's fps. Either way the writer paces the action to the clip that
+    will actually render, which is the whole point of passing it. None when
+    neither is known: the writer then paces nothing rather than guessing.
+    """
+    if data.get('seconds') is not None:
+        try:
+            return float(data.get('seconds'))
+        except (TypeError, ValueError):
+            return None
+    if data.get('frames') is None:
+        return None
+    fps = float(vts._profile().get('fps') or 24.0)
+    return (vts.snap_frames(data.get('frames')) - 1) / fps
+
+
+@bp.post('/motion/suggest')
+def video_studio_motion_suggest():
+    """✨ Propose the movement, by looking at the staged start frame.
+
+    A PROPOSAL and the wording says so: the model sees a still, so it can read
+    who is there and how they are posed, never what happens next. The user
+    edits it like any other text. `seconds` (or `frames`) is the clip length
+    the dials are set to — the proposal is paced to fill exactly that.
+
+    Runs inside the GPU-exclusive vision window, like the image studio's
+    twin (`/api/studio/describe`): the writer is a vision pass, and a vision
+    pass that fights a queued clip for VRAM loses — H3 alone fills most of
+    the card. The window refuses while ComfyUI has work queued or rendering
+    (503, the reason in `detail`), and on entry asks ComfyUI to let go of its
+    models, so the NEXT clip pays H3's load again. That cost is the app's
+    standing GPU arbitration, paid once per ✨ click, not a choice of this
+    route; the two routes below share it.
+    """
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    try:
+        with gpu_exclusive_vision_window(flag_ttl=600):
+            out = vmp.suggest_from_frame(
+                data.get('image'),
+                instruction=data.get('instruction'),
+                model=data.get('model'),
+                seconds=_clip_seconds(data),
+                shots=data.get('shots', 1))
+    except Exception as exc:
+        # Like the image studio's twin: a bad ask is 400, the Ollama/LM Studio
+        # fence 409 with its code (the panel offers the unload), the window's
+        # refusal 503 with its reason, any other transport failure a 409
+        # sentence. The narrow clause this replaced let the fence through as
+        # a bare 500 with no message to show.
+        return _map_error(exc)
+    return jsonify({'ok': True, 'prompt': out})
+
+
+@bp.post('/motion/enhance')
+def video_studio_motion_enhance():
+    """✨ The same intent, with more of the detail a sampler can use.
+
+    Never destructive: the field is only written on success, and a model
+    that answers nothing usable is a 409 with the sentence to show — never
+    an empty prompt handed back as if it had worked.
+
+    `image` — the staged start frame, when the panel has one — anchors the
+    rewrite on the picture that will actually be animated, so an instruction
+    cannot enrich the prompt with scenery the frame does not contain. Without
+    one the clip is text-to-video and the writer is told so: no picture is
+    referenced. `seconds` (or `frames`) paces the rewrite to the clip length.
+    Same GPU-exclusive vision window as `/motion/suggest` (see there).
+    """
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    original = str(data.get('prompt') or '').strip()
+    try:
+        with gpu_exclusive_vision_window(flag_ttl=600):
+            out = vmp.enhance(data.get('prompt'), image=data.get('image'),
+                              model=data.get('model'), seconds=_clip_seconds(data),
+                              shots=data.get('shots', 1))
+    except Exception as exc:
+        return _map_error(exc)
+    # `unchanged` is how the panel tells "the model had nothing to add" from
+    # "the request worked": the two look identical in the field.
+    return jsonify({'ok': True, 'prompt': out,
+                    'unchanged': str(out or '').strip() == original})
+
+
+@bp.get('/motion/models')
+def video_studio_motion_models():
+    """⚙ Which local models can write the motion, and which one does today."""
+    from ..services import video_motion_prompt as vmp
+    return jsonify(vmp.model_choices())
+
+
+@bp.put('/motion/model')
+def video_studio_motion_model_set():
+    """⚙ Remember the model that writes the motion. Empty returns to the
+    provider's own vision model."""
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    return jsonify({'ok': True, 'model': vmp.set_model(data.get('model'))})
+
+
+@bp.post('/lora/import')
+def video_studio_lora_import():
+    """Bring a LoRA the user already has into the picker.
+
+    Multipart `file`, or JSON `{path}` for a file on this machine — the second
+    is the one that matters for a 300 MB weight, since nothing crosses HTTP.
+    The picker listed only what this app trained and what was already in
+    ComfyUI's folder, so anything downloaded had to be moved there by hand with
+    the app open beside a file explorer.
+
+    400 for every refusal, because all of them are things the user can fix: the
+    wrong extension, an unusable name, a file that is not there, or a DIFFERENT
+    weight already under that name (never overwritten — that would silently
+    change what every clip made with that name meant).
+    """
+    upload = request.files.get('file')
+    data = request.get_json(silent=True) or {}
+    try:
+        out = vts.import_external_lora(
+            src_path=(str(data.get('path')).strip() if data.get('path') else None),
+            upload=upload,
+            filename=(upload.filename if upload is not None else None))
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    except OSError as exc:
+        logger.exception('video studio: lora import failed')
+        return jsonify({'ok': False,
+                        'error': f'Could not copy that LoRA into ComfyUI: {exc}'}), 500
+    return jsonify({'ok': True, **out})
+
+
 @bp.post('/source')
 def video_studio_source():
     """Stage the i2v start image into ComfyUI's input folder.
@@ -138,6 +310,8 @@ def video_studio_source():
       * an UPLOAD (multipart `image`) — the general case;
       * a BANK image (`bank_id` + `image_id`) — animating the very portrait the
         LoRA was trained from;
+      * an image from the app's own GALLERY (`gallery_image_id`) — the picture
+        someone just generated, animated without a round trip through disk;
       * the FIRST FRAME of a dataset clip (`dataset_id` + `filename`) — the
         honest baseline, since that frame is material the LoRA actually saw.
 
@@ -207,7 +381,25 @@ def _resolve_source(req):
     if data.get('dataset_id') and data.get('filename'):
         return _dataset_clip_frame(int(data['dataset_id']), data['filename']), True
 
-    raise ValueError('attach an image, or name a bank image or a dataset clip')
+    if data.get('gallery_image_id'):
+        # An image the app itself generated — the Gallery feed's own row id.
+        # Served at full size from the dataset folder it lives in, exactly as
+        # /api/dataset/<id>/img/<name> serves it, so what gets animated is the
+        # picture the user is looking at rather than a thumbnail of it.
+        from ..extensions import db
+        from ..models import LoraTestImage
+        from ..services.dataset_storage import dataset_path
+        row = db.session.get(LoraTestImage, int(data['gallery_image_id']))
+        if row is None or not row.filename or not row.dataset_id:
+            raise ValueError('that generated image is not in the gallery any more')
+        path = os.path.join(str(dataset_path(int(row.dataset_id))),
+                            os.path.basename(str(row.filename)))
+        if not os.path.isfile(path):
+            raise ValueError('that generated image is no longer on disk')
+        return path, False
+
+    raise ValueError('attach an image, or name a bank image, a dataset clip or '
+                     'a gallery image')
 
 
 def _dataset_clip_frame(dataset_id, filename):
@@ -243,6 +435,27 @@ def _dataset_clip_frame(dataset_id, filename):
     raise ValueError('that clip has no decodable frame')
 
 
+def _staged_image_ratio(name):
+    """width / height of an ALREADY staged start frame, by its staged name.
+
+    The ratio travels with the pick; a caller replaying a past clip has only
+    the name. Reading it back costs one PIL open of a file this app wrote
+    itself, and returns None on anything unreadable — the same fine answer
+    _image_ratio gives, with the same single consumer.
+    """
+    safe = os.path.basename(str(name or ''))
+    if not safe:
+        return None
+    try:
+        from .. import config as cfg
+        folder = cfg.comfyui_dir('input')
+    except Exception:  # noqa: BLE001 — no input folder is "no ratio", not a 500
+        return None
+    if not folder:
+        return None
+    return _image_ratio(os.path.join(str(folder), safe))
+
+
 def _image_ratio(path):
     """width / height of the staged picture, or None when it cannot be read.
 
@@ -265,6 +478,12 @@ def video_studio_generate():
     not be sitting on a stalled prompt, because a job queued behind a wedged one
     looks exactly like a job that is simply slow — and here "simply slow" is a
     plausible five minutes.
+
+    The answer names the `prompt` that ran (the rewrite when ✨ Enrich at
+    launch worked, the text as typed when it did not) next to the `seed` the
+    graph got: a batch of start frames launches its first clip, then sends
+    the rest with THAT prompt and THAT seed, since the vision window is shut
+    to it as soon as this clip sits in ComfyUI's queue.
     """
     blocked = _require_comfyui() or _require_no_stalled_comfyui()
     if blocked:
@@ -273,12 +492,54 @@ def video_studio_generate():
     prompt = str(data.get('prompt') or '').strip()
     mode = 't2v' if str(data.get('mode') or 'i2v').lower() == 't2v' else 'i2v'
     image = data.get('image')
+    # ✨ Enrich at launch. Done HERE, before the graph is built, so the clip row
+    # records the prompt that actually ran — a card naming a prompt the sampler
+    # never read would be the one lie this screen cannot afford. A failed
+    # enrichment keeps the original rather than refusing the launch: the user
+    # asked for a clip, not for an essay. The writer gets what the ✨ Enrich
+    # button gets: the start frame (only when one will be animated) and the
+    # clip length, so the launch and the button write the same prompt.
+    from ..services import video_motion_prompt as vmp
+    enrich_skipped = None
+    if data.get('enhance') and prompt:
+        try:
+            # The same GPU-exclusive vision window as the ✨ buttons (see
+            # `/motion/suggest`): a clip already queued or rendering refuses
+            # it, and that refusal is one more reason to launch un-enriched.
+            with gpu_exclusive_vision_window(flag_ttl=600):
+                prompt = vmp.enhance(prompt, image=(image if mode == 'i2v' else None),
+                                     seconds=_clip_seconds(data),
+                                     shots=data.get('shots', 1))
+        except Exception as exc:
+            # Every failure, the fence and the window included: the clip still
+            # launches, and the answer carries the reason so the panel can say it.
+            enrich_skipped = str(exc) or exc.__class__.__name__
+            logger.warning('video studio: launch enrichment skipped: %s', exc)
     if mode == 'i2v' and not image:
         return jsonify({'ok': False,
                         'error': 'Pick a start image, or switch to text-to-video.'}), 400
     if not prompt:
         return jsonify({'ok': False,
                         'error': 'Describe the motion you want to see.'}), 400
+    # The official I2V header, in code, at generation — the reference writer's
+    # own rule: a prompt typed by hand or pasted from elsewhere gets the line
+    # that tells the encoder the picture IS the first frame, and one the ✨
+    # writers wrote, or a clip reused, is never headed twice. Text-to-video is
+    # the mirror: a prompt written for a start frame and then launched without
+    # one names a picture the encoder is not given — the header, the identity
+    # sentence and the tag go. Done before the row is written, so the card
+    # shows the prompt that ran.
+    prompt = (vmp.inject_alignment_header(prompt) if mode == 'i2v'
+              else vmp.strip_picture_references(prompt))
+    if not vmp.has_motion(prompt):
+        # Judged AFTER the rewrite, on the description alone: a prompt that
+        # was nothing but the header, or labels around nothing — a clip's
+        # prompt pasted back with its motion deleted — passed the check above
+        # and reached the sampler empty.
+        return jsonify({'ok': False,
+                        'error': 'The prompt carries no motion once its header and '
+                                 'labels are set aside — describe what you want to '
+                                 'see move.'}), 400
     lora = data.get('lora') or None
     if lora and lts._is_unsafe_external_lora_name(lora):
         # The same guard the image studio applies to a LoRA name: this string
@@ -296,12 +557,20 @@ def video_studio_generate():
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
-            source_ratio=data.get('ratio'))
+            # The ratio only sizes the latent upscale, and a client that has
+            # the staged NAME but not the shape (↻ Reuse) would otherwise fall
+            # back to the node's landscape defaults — turning a reused portrait
+            # clip into a wide one on the upscale pass. Re-read here from the
+            # file itself, which is still where the staging put it.
+            source_ratio=(data.get('ratio')
+                          or (_staged_image_ratio(image) if mode == 'i2v' else None)))
     except lts.StudioAssetsMissing as exc:
         return _studio_missing_response(exc)
     except (ValueError, TypeError) as exc:
         return _map_error(exc)
-    return jsonify({'ok': True, **out})
+    if enrich_skipped:
+        out = {**out, 'enrich_skipped': enrich_skipped}
+    return jsonify({'ok': True, 'prompt': prompt, **out})
 
 
 @bp.get('/clips')
@@ -384,3 +653,21 @@ def video_studio_delete(clip_id):
     db.session.delete(clip)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@bp.post('/clip/<int:clip_id>/neural-render')
+def video_studio_clip_neural_render(clip_id):
+    """✨ Re-render a finished clip through DLSS 5 Neural Rendering — as a new
+    clip, never an edit (the studio exists to compare). Body: the dials
+    (tone, structure, automask, temporal). The row appears at once in
+    ``pending`` and the list's own poll shows it land; a refusal (the model
+    is not set up, the clip is gone, a render of it is already running) is a
+    400 with the sentence to show."""
+    from flask import current_app
+    from ..services import neural_render as nr
+    data = request.get_json(silent=True) or {}
+    try:
+        out = nr.start_studio_render(current_app._get_current_object(), LOCAL_USER, clip_id, data)
+    except nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify({'ok': True, **out})

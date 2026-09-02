@@ -3,6 +3,7 @@ import { MessagesSquare } from 'lucide-react';
 import { postJson } from '../../api/fetchClient'
 import { toFilterPatch, describeSummary, headline } from './bankDescribe.js'
 import useOllamaFence from '../../hooks/useOllamaFence'
+import { keepAnswer } from '../../utils/ollamaFence'
 import OllamaFenceNotice from '../common/OllamaFenceNotice'
 
 /* Say what you want; the app sets ITS OWN filters and you read the result.
@@ -37,8 +38,12 @@ export default function DescribeFilterBar({ bankId, onApply }) {
       // runGuarded keeps this closure and REPLAYS it once the model is freed. The
       // one refusal that carries its own remedy travels by CODE, not by
       // string-matching a sentence: a model held outside the app can be unloaded.
-      await runGuarded(async () => {
+      await runGuarded(async (run) => {
         const out = await postJson(`/api/bank/${bankId}/describe-filter`, { request })
+        // A reading for a request the user has moved on from — a newer one
+        // sent while this was in flight — is set aside: the chips follow the
+        // latest request, never an older answer that happened to arrive last.
+        if (!keepAnswer(run)) return
         setRes(out)
         // Applied even when the reading is partial: the chips are the honest place
         // to see how far it got, and refusing to move them would hide a correct

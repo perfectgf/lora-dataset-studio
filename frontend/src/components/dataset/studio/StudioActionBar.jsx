@@ -16,9 +16,14 @@
  * `note` (optionnel, 2026-08-31) : la raison pour laquelle le bouton est gris,
  * affichée à sa gauche — la lane vidéo l'utilise (« Pick a start frame… ») ;
  * sans la prop, la barre est byte-identique à ce qu'elle a toujours été.
+ *
+ * `runningLabel` (optionnel, 2026-09-02) : le texte du bouton PENDANT la
+ * marche, à la place du « … » historique — la lane vidéo y met « Queueing 2
+ * of 3… », le compte d'un lot de start frames que le rail affiche déjà ; sans
+ * la prop, « … » comme toujours.
  */
 
-export default function StudioActionBar({ shortcuts = [], canRun, running, onRun, runLabel = '🚀 Run the test', note = null }) {
+export default function StudioActionBar({ shortcuts = [], canRun, running, onRun, runLabel = '🚀 Run the test', note = null, runningLabel = null }) {
   const jump = (id) => {
     try { window.dispatchEvent(new CustomEvent('studio:reveal', { detail: id })); } catch { /* ignore */ }
     // Laisse la section s'ouvrir (setState) avant de scroller vers elle.
@@ -46,7 +51,7 @@ export default function StudioActionBar({ shortcuts = [], canRun, running, onRun
         )}
         <button type="button" onClick={onRun} disabled={!canRun}
           className={`min-h-10 lg:min-h-0 ${note ? '' : 'ml-auto'} shrink-0 px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40`}>
-          {running ? '…' : runLabel}
+          {running ? (runningLabel || '…') : runLabel}
         </button>
       </div>
     </nav>

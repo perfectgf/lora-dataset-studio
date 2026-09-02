@@ -54,8 +54,11 @@ const SCRAPE_SECRETS = [
   {
     key: 'CIVITAI_API_KEY',
     label: 'Civitai API key',
-    help: 'Only needed for adult content: without a key, Civitai scans return SFW results only. '
-      + 'Create one under civitai.com → Account settings → API Keys.',
+    help: 'One key, three uses: adult content in Civitai scans (without it they return SFW results only), '
+      + 'the prompts of the 🌐 Civitai browser, and 📤 publishing your checkpoints and generated images '
+      + 'from the app. Create one under civitai.com → Account settings → API Keys.',
+    // Test = the key shown to Civitai, answering with the account it opens.
+    testTarget: 'civitai',
   },
   {
     key: 'PEXELS_API_KEY',
@@ -97,6 +100,34 @@ export default function ScrapingSection(props) {
         help="Credentials used when scanning image sources for concept datasets. Reddit and Civitai keys are optional; Pexels requires its API key. Keys are write-only: fields stay blank even when a key is already saved."
       >
         {SCRAPE_SECRETS.map((f) => <SecretField key={f.key} field={f} {...props} />)}
+      </Card>
+      {/* 📤 The publisher reads the SAME key as the scraper; the only thing it
+          asks of Settings is which domain to open links on. civitai.red is the
+          same site and the same account behind a second domain, but the sign-in
+          is per domain — a draft page opened on the domain you are not signed
+          in on shows a 404 for your own model. */}
+      <Card
+        id="civitai-publishing"
+        title="Civitai publishing"
+        help="📤 Publish a checkpoint as a Civitai model page and post generated images under it — from a checkpoint's popover (◉ Canvas, run graph) and from the image viewer. Uses the Civitai API key above; this card only chooses which domain the links open on."
+      >
+        <div>
+          <label htmlFor="civitai-link-host" className="text-sm font-medium text-content">
+            Open Civitai links on
+          </label>
+          <select id="civitai-link-host"
+            value={props.config?.civitai?.link_host ?? 'civitai.com'}
+            onChange={(e) => props.setField('civitai', 'link_host', e.target.value)}
+            className={INPUT_CLASS}>
+            <option value="civitai.com">civitai.com</option>
+            <option value="civitai.red">civitai.red — the same site and account, second domain</option>
+          </select>
+          <p className="mt-1 text-xs text-content-muted">
+            The API always talks to civitai.com. Pick the domain you are signed in on: a draft model page
+            is private to its owner and the sign-in is per domain, so opened on the other one your own
+            draft answers a 404.
+          </p>
+        </div>
       </Card>
       <Card
         title="Klein rescue — small scraped images"

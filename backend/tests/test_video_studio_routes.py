@@ -4,6 +4,7 @@ The builder has its own file. These are the questions only the route can answer:
 does it refuse before spending anything, does the clip row carry what the graph
 was actually built from, and does a finished job find its way back to the row.
 """
+from pathlib import Path
 import pytest
 
 
@@ -345,3 +346,171 @@ def test_a_clip_with_no_file_is_a_404_not_a_500(client, app):
     with app.app_context():
         cid = _clip(app, job_id='job-nofile')
     assert client.get(f'/api/video-studio/clip/{cid}/video').status_code == 404
+
+
+# --- the Gallery as a start frame (2026-09-01) --------------------------------
+
+class _FakeReq:
+    """The two things _resolve_source reads off a request."""
+
+    def __init__(self, data):
+        self.files = {}
+        self._data = data
+
+    def get_json(self, silent=False):
+        return self._data
+
+
+def test_a_gallery_image_resolves_to_the_picture_the_user_is_looking_at(app, tmp_path):
+    """Asked for from live use: the picture someone wants to animate is very
+    often one this app just generated, and the picker sent them back through
+    disk to use it. Resolved at FULL size from the folder that SERVES it
+    (/api/dataset/<id>/img/<name>) — a thumbnail fed to a 1 MP generation would
+    blame the LoRA for a softness the source never had."""
+    from PIL import Image
+    from app.extensions import db
+    from app.models import FaceDataset, LoraTestImage
+    from app.routes.video_studio import _resolve_source
+    from app.services.dataset_storage import dataset_path
+
+    with app.app_context():
+        ds = FaceDataset(user_id='local', name='Lola', trigger_word='Lola69382')
+        db.session.add(ds)
+        db.session.commit()
+        folder = Path(dataset_path(ds.id))
+        folder.mkdir(parents=True, exist_ok=True)
+        Image.new('RGB', (64, 48), 'red').save(folder / 'gen_0001.png')
+        row = LoraTestImage(dataset_id=ds.id, filename='gen_0001.png',
+                            prompt='a woman', checkpoint='ckpt.safetensors',
+                            strength=1.0)
+        db.session.add(row)
+        db.session.commit()
+
+        path, temp = _resolve_source(_FakeReq({'gallery_image_id': row.id}))
+        assert path == str(folder / 'gen_0001.png')
+        # Not a temp file: it is the user's own picture, and deleting it after
+        # staging would delete what the Gallery is still showing.
+        assert temp is False
+
+        # A row whose file went away, and an id that never existed: both refuse
+        # in words, never with a path that is not there.
+        (folder / 'gen_0001.png').unlink()
+        with pytest.raises(ValueError, match='disk'):
+            _resolve_source(_FakeReq({'gallery_image_id': row.id}))
+        with pytest.raises(ValueError, match='gallery'):
+            _resolve_source(_FakeReq({'gallery_image_id': 999999}))
+
+
+def test_the_refusal_names_every_way_in(client):
+    """Four sources now; the sentence that lists them is what someone reads
+    when they attached none."""
+    r = client.post('/api/video-studio/source', json={})
+    body = r.get_json()['error'].lower()
+    for word in ('image', 'bank', 'clip', 'gallery'):
+        assert word in body
+
+
+def test_a_clip_publishes_the_start_frame_reuse_needs(app):
+    """↻ Reuse restored every dial of an image-to-video clip and left the start
+    frame empty, so Generate stayed blocked on 'Pick a start frame' — every
+    setting back except the one that decides whether the button works. The row
+    had stored the staged file all along; the payload never published it."""
+    from app.routes.video_studio import _clip_dict
+    from app.extensions import db
+    from app.models import VideoTestClip
+
+    with app.app_context():
+        clip = VideoTestClip(prompt='she turns', mode='i2v', status='done',
+                               source_image='lds_vstudio_abc123.png',
+                               frames=56, fps=24, steps=6, seed=7)
+        db.session.add(clip)
+        db.session.commit()
+        row = _clip_dict(clip)
+
+    assert row['source_image'] == 'lds_vstudio_abc123.png'
+    assert row['mode'] == 'i2v'
+
+
+def test_options_carry_the_launch_advice_the_running_comfyui_earns(client, monkeypatch):
+    from app.services import video_test_studio as vts
+    # Started without the flag on a 48 GB machine, on a ComfyUI that knows it: told.
+    monkeypatch.setattr(vts, 'comfyui_launch_facts',
+                        lambda timeout=3: (['main.py', '--listen', '127.0.0.1'], 47.7, '0.30.1'))
+    body = client.get('/api/video-studio/options').get_json()
+    assert body['launch_advice'] == {'flag': '--fast-disk', 'add': True, 'remove': None,
+                                     'ram_total_gb': 47.7, 'weights_gb': vts.H3_HOST_RAM_GB}
+    # Started by LDS's own launcher (which passes the flag): nothing to say.
+    monkeypatch.setattr(vts, 'comfyui_launch_facts',
+                        lambda timeout=3: (['main.py', '--fast-disk'], 47.7, '0.30.1'))
+    assert client.get('/api/video-studio/options').get_json()['launch_advice'] is None
+    # Unreachable, or too old to echo its argv: silence, never a guess.
+    monkeypatch.setattr(vts, 'comfyui_launch_facts', lambda timeout=3: (None, None, None))
+    assert client.get('/api/video-studio/options').get_json()['launch_advice'] is None
+
+
+class _Resp:
+    def __init__(self, payload, status=200, raises=None):
+        self.status_code = status
+        self._payload = payload
+        self._raises = raises
+
+    def json(self):
+        if self._raises:
+            raise self._raises
+        return self._payload
+
+
+def _facts_with(app, monkeypatch, response=None, raising=None):
+    from app.services import video_test_studio as vts
+    import requests
+    seen = {}
+
+    def fake_get(*args, **kwargs):
+        seen.update(kwargs)
+        if raising:
+            raise raising
+        return response
+
+    monkeypatch.setattr(requests, 'get', fake_get)
+    with app.app_context():
+        from app import config as cfg
+        monkeypatch.setattr(cfg, 'get', lambda key, default=None: (
+            'http://127.0.0.1:8188' if key == 'comfyui.api_url' else default))
+        return vts.comfyui_launch_facts(), seen
+
+
+def test_launch_facts_read_argv_ram_and_version_from_system_stats(app, monkeypatch):
+    # A raw, unaligned byte count: the GiB figure is handed on as a float and
+    # rounded ONCE, by the advice, so the seam bytes → GiB is really crossed.
+    payload = {'system': {'argv': ['main.py', '--fast-disk'], 'ram_total': 50465476608,
+                          'comfyui_version': '0.30.1'}}
+    facts, seen = _facts_with(app, monkeypatch, _Resp(payload))
+    assert facts == (['main.py', '--fast-disk'], 50465476608 / 1024 ** 3, '0.30.1')
+    # The call is bounded and never follows a redirect off the configured host:
+    # it sits in the synchronous body of the options route the panel fetches on mount.
+    assert seen['timeout'] == 3
+    assert seen['allow_redirects'] is False
+
+
+def test_launch_facts_keep_the_argv_when_an_older_server_sends_no_ram(app, monkeypatch):
+    facts, _ = _facts_with(app, monkeypatch, _Resp({'system': {'argv': ['main.py']}}))
+    assert facts == (['main.py'], None, None)
+
+
+@pytest.mark.parametrize('response', [
+    _Resp({'system': {}}),                       # a server that echoes nothing useful
+    _Resp({}),                                   # no system block at all
+    _Resp([]),                                   # not even an object
+    _Resp({'system': {'argv': ['main.py']}}, status=500),
+    _Resp(None, raises=ValueError('not json')),
+])
+def test_launch_facts_answer_none_for_every_shape_of_nothing(app, monkeypatch, response):
+    facts, _ = _facts_with(app, monkeypatch, response)
+    assert facts == (None, None, None)
+
+
+def test_launch_facts_never_raise_when_the_request_fails(app, monkeypatch):
+    import requests
+    for exc in (requests.ConnectionError('down'), requests.Timeout('slow')):
+        facts, _ = _facts_with(app, monkeypatch, raising=exc)
+        assert facts == (None, None, None)

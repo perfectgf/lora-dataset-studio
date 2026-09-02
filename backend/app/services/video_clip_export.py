@@ -73,6 +73,38 @@ def clip_duration_s(frames, fps):
     return (frames - 1) / float(fps)
 
 
+def slice_spans(start_s, end_s, frames, fps, *, inset_s=0.0, limit=None):
+    """A long shot as CONSECUTIVE clip-length spans, in order.
+
+    The export takes `frames` frames from a shot's start and leaves the rest, so
+    a fifteen-second shot promoted at 209 frames trains on its first 8.7 s only.
+    This cuts the same shot into whole clips end to end — never overlapping, so
+    no two clips of the dataset show the same frames, and never partial: a tail
+    too short for the profile is dropped exactly as the encoder would refuse it.
+
+    `inset_s` is applied ONCE at each end of the shot, not per slice: it exists
+    because a shot boundary is where a dissolve lives, and the joins between
+    slices are not shot boundaries. `limit` caps how many one shot may yield —
+    a single very long take must not become half the dataset on its own.
+
+    Returns [(start, end), ...]; a shot that cannot fill one clip returns [],
+    which is the same verdict `fits_frames` gives.
+    """
+    lo = float(start_s) + float(inset_s or 0.0)
+    hi = float(end_s) - float(inset_s or 0.0)
+    need = clip_duration_s(frames, fps)
+    if need <= 0 or hi - lo + _EPSILON < need:
+        return []
+    out = []
+    cursor = lo
+    while hi - cursor + _EPSILON >= need:
+        out.append((round(cursor, 6), round(cursor + need, 6)))
+        cursor += need
+        if limit and len(out) >= int(limit):
+            break
+    return out
+
+
 def fits_frames(span_s, frames, fps):
     """Can a segment of `span_s` seconds supply `frames` frames at `fps`?
 

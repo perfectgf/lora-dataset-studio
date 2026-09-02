@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiFetch, del, postJson } from '../../api/fetchClient'
+import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import {
   videoDatasetCloudUrl, videoDatasetCloudProgressUrl,
-  videoDatasetCloudCheckpointsUrl, videoDatasetCheckpointUrl,
+  videoDatasetCloudCheckpointsUrl,
   videoDatasetCloudRetryUrl, videoDatasetCloudContinueUrl,
-  videoDatasetCloudRunUrl,
 } from './videoBankApi'
 import {
-  isActive, launchBlockedReason, runSummary, canRetry, canContinue, stepLabel,
+  isActive, launchBlockedReason, runSummary, canRetry, canContinue,
 } from './videoCloudStatus'
 import { ensureLicenceAck } from './licenceAck'
+import { postWithConfirmations } from '../../utils/trainingRefusals'
+import VideoCloudLaunchDialog from './VideoCloudLaunchDialog'
+import { CLOUD_STATUS_URL, preflightGate, videoPreflightUrl } from './videoCloudLaunch'
 
 /** Targets that have been trained end to end at least once — locally or on a
  * rented pod, it does not matter which: what the note below cares about is
@@ -56,7 +58,7 @@ const PROVEN_TARGETS = new Set(['wan22_14b', 'minimax_h3', 'minimax_h3_ref2va'])
  * clock, and GPU offers are fetched on click, never on mount — a library page
  * with a dozen datasets must not fan out a vast.ai search per card.
  */
-export default function VideoTrainingBlock({ ds }) {
+export default function VideoTrainingBlock({ ds, onSaveCount, refreshKey = 0 }) {
   const toast = useToast()
   // ONE dial set for both destinations. Prefilled with the server's
   // dataset-sized suggestion (steps scale with the clip count — measured, not
@@ -73,9 +75,13 @@ export default function VideoTrainingBlock({ ds }) {
   const [run, setRun] = useState(null)
   const [groups, setGroups] = useState([])
   const [busyCloud, setBusyCloud] = useState(false)
-  const [tiers, setTiers] = useState(null)
-  const [gpuName, setGpuName] = useState('')
-  const [tiersBusy, setTiersBusy] = useState(false)
+  // The launch WINDOW — the image lane's dialog, for video: one radio per GPU
+  // class with its price, the rough duration and total for this set, the
+  // runtime-cap warning, and the month's spend. It replaced an inline <select>
+  // that rented a pod on a click with the cost hidden in a closed dropdown.
+  const [cloudDialog, setCloudDialog] = useState(false)
+  const [cloudStatus, setCloudStatus] = useState(null)
+  const [opening, setOpening] = useState(false)
 
   const pollLocal = useCallback(async () => {
     try {
@@ -108,17 +114,21 @@ export default function VideoTrainingBlock({ ds }) {
     return () => clearInterval(t)
   }, [run?.status, refreshCloud])
 
-  const fetchTiers = async () => {
-    setTiersBusy(true)
-    try {
-      const d = await apiFetch(`${videoDatasetCloudUrl(ds.id)}/offers?steps=${steps}`)
-      setTiers(d.tiers || [])
-    } catch (e) {
-      toast.error(e?.message || 'Could not list GPU offers.')
-    } finally {
-      setTiersBusy(false)
-    }
-  }
+  // Told, rather than guessed at from outside: these two polls are the only
+  // things that know when a save lands, and the workspace's Checkpoints & LoRAs
+  // section re-reads on the number they report. A COUNT of steps (cloud) and
+  // files (local), so a caller passing an inline arrow does not re-fire it on
+  // every render — and a harvest that adds a step changes it.
+  const saveCount = groups.reduce((n, g) => n + (g.steps?.length || 0), 0)
+    + (progress?.checkpoints?.length || 0)
+  useEffect(() => { onSaveCount?.(saveCount) }, [saveCount, onSaveCount])
+  // The other direction: that section deleted a run or a save, and this card's
+  // "Train further" must not offer what is gone.
+  useEffect(() => {
+    if (!refreshKey) return
+    refreshCloud()
+    pollLocal()
+  }, [refreshKey, refreshCloud, pollLocal])
 
   const startLocal = async (acceptDownload = false) => {
     // The licence question comes BEFORE anything is spent — not after the
@@ -180,30 +190,59 @@ export default function VideoTrainingBlock({ ds }) {
     })) return
     setBusyCloud(true)
     try {
-      await postJson(url, body)
+      // The guardrails' `PARALLEL_RUN:` refusal is a QUESTION by contract
+      // ("second pod, billed separately — launch anyway?"). Posting bare turned
+      // it into a dead error on this lane; the loop relays the answer as
+      // allow_parallel_run, exactly as the image lane does.
+      const d = await postWithConfirmations((b) => postJson(url, b), body, 'Launch anyway (force)')
+      if (d === null) return false                 // declined: nothing rented
       toast.success(okMessage)
       refreshCloud()
+      return true
     } catch (e) {
       toast.error(e?.message || 'The cloud run could not be started.')
+      return false
     } finally {
       setBusyCloud(false)
     }
   }
 
-  const deleteRun = async (g) => {
-    const n = g.steps.reduce((sum, s) => sum + (s.files?.length || 0), 0)
-    if (!window.confirm(
-      `Delete run #${g.run_id} and its ${n} LoRA file(s) from disk?\n\n`
-      + 'The dataset and its clips are untouched — only this run’s '
-      + 'checkpoints and its history line go. This cannot be undone.')) return
+  /** ☁ Open the launch window — AFTER the preflight, BEFORE the money.
+   *
+   * Order matters and each step is a different question: the licence (does
+   * the user accept this model's terms — once per profile), the cloud-lane
+   * preflight (a blocker stops here and is shown; warnings become ONE confirm,
+   * the image lane's rule), then the window with the offers. A preflight that
+   * cannot be reached never blocks: the server re-decides on launch. */
+  const openCloudDialog = async () => {
+    if (!ensureLicenceAck(ds, {
+      storage: window.localStorage, confirmFn: window.confirm,
+    })) return
+    setOpening(true)
     try {
-      const d = await del(videoDatasetCloudRunUrl(ds.id, g.run_id))
-      toast.success(`Run #${d.deleted} deleted — ${d.files} file(s) removed.`)
-      refreshCloud()
-    } catch (e) {
-      toast.error(e?.message || 'Could not delete that run.')
+      const report = await apiFetch(videoPreflightUrl(ds.id, 'cloud'), { background: true })
+        .catch(() => null)
+      const gate = preflightGate(report, { lane: 'cloud' })
+      if (!gate.ok) {
+        toast.error(`Not ready for the cloud — ${gate.blockers.join(' · ')}`)
+        return
+      }
+      if (gate.confirmText && !window.confirm(gate.confirmText)) return
+      // Account-wide, for the footer's "this month: $x of $y". Best effort.
+      apiFetch(CLOUD_STATUS_URL, { background: true })
+        .then((d) => setCloudStatus(d)).catch(() => setCloudStatus(null))
+      setCloudDialog(true)
+    } finally {
+      setOpening(false)
     }
   }
+
+  /** The dialog's own launch: the chosen GPU class rides as gpu_name, and the
+   * dialog closes only on a real success (a declined question or a refusal
+   * keeps it open, next to the offers that were being compared). */
+  const launchCloud = (gpuName) => postCloud(videoDatasetCloudUrl(ds.id),
+    { steps, ...(doI2v ? { do_i2v: true } : {}), ...(gpuName ? { gpu_name: gpuName } : {}) },
+    'Renting a pod — the panel follows it from here.')
 
   if (!ds.training_verified) return null
 
@@ -257,40 +296,18 @@ export default function VideoTrainingBlock({ ds }) {
               {busyLocal ? 'Starting…' : '▶ Train on this PC'}
             </button>
             <HelpBadge topic="video-train-local" />
-            <button type="button" disabled={busyCloud || Boolean(blocked)}
-              onClick={() => postCloud(videoDatasetCloudUrl(ds.id),
-                {
-                  steps,
-                  ...(doI2v ? { do_i2v: true } : {}),
-                  ...(gpuName ? { gpu_name: gpuName } : {}),
-                },
-                'Renting a pod — the panel follows it from here.')}
+            <button type="button" disabled={busyCloud || opening || Boolean(blocked)}
+              onClick={openCloudDialog}
+              title={blocked || (opening
+                ? 'Checking the set and the account before the offers open…'
+                : 'Compare GPU offers with their price, duration and total before renting one')}
               className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-40">
+              {/* Bare text on purpose: the exact label is an inventoried surface
+                  (bankSurfaceInventory reads literal button text). It opens a
+                  window now, and it stays "☁ Train in the cloud". */}
               ☁ Train in the cloud
             </button>
             <HelpBadge topic="video-cloud-training" />
-            {tiers === null ? (
-              <button type="button" disabled={tiersBusy}
-                onClick={fetchTiers}
-                className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:bg-surface disabled:opacity-40">
-                {tiersBusy ? 'Fetching offers…' : '🔍 Choose a GPU'}
-              </button>
-            ) : (
-              <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
-                GPU
-                <select value={gpuName} onChange={(e) => setGpuName(e.target.value)}
-                  className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content">
-                  <option value="">Cheapest suitable</option>
-                  {tiers.map((t) => (
-                    <option key={t.gpu_name} value={t.gpu_name}>
-                      {t.gpu_name} — ${t.dph_total}/h
-                      {t.est_minutes != null ? ` · ~${t.est_minutes} min · ~$${t.est_cost}` : ''}
-                      {t.exceeds_cap ? ' ⚠ over runtime cap' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             {canRetry(run) && (
               <button type="button" disabled={busyCloud}
                 onClick={() => postCloud(videoDatasetCloudRetryUrl(ds.id), { run_id: run.run_id },
@@ -360,48 +377,10 @@ export default function VideoTrainingBlock({ ds }) {
         </p>
       )}
 
-      {groups.map((g) => (
-        <div key={g.run_id} className="space-y-1">
-          {/* Deliberately NOT a second copy of the run line above: that one says
-              where the newest run is and what it costs, this one only labels
-              which run these files came from — and, when there is one, the run
-              they grew out of. */}
-          <p className="flex items-center gap-1.5 font-mono text-[0.625rem] text-content-subtle">
-            <span>
-              Checkpoints — run #{g.run_id}
-              {g.parent_run_id ? ` · continued from #${g.parent_run_id}` : ''}
-            </span>
-            {/* The exit this card never had: four runs deep (smokes, a
-                contaminated continuation, superseded step counts) with no way
-                to clear one. Confirm names the file count — this deletes
-                weights from disk. */}
-            <button type="button" onClick={() => deleteRun(g)}
-              aria-label={`Delete run ${g.run_id} and its checkpoints`}
-              title="Delete this run and its LoRA files"
-              className="rounded border border-border px-1 py-0.5 text-content-subtle hover:border-rose-500/60 hover:text-rose-300">
-              🗑
-            </button>
-          </p>
-          <ul className="flex flex-wrap gap-1.5">
-            {g.steps.map((s) => (
-              <li key={`${g.run_id}-${s.step}-${s.final ? 'f' : 'i'}`}
-                className="flex items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.625rem] text-content">
-                <span>{stepLabel(s)}</span>
-                {/* One link per FILE, because both experts of a Wan pair have
-                    to land side by side for the LoRA to load at all. */}
-                {s.files.map((f, i) => (
-                  <a key={f} href={videoDatasetCheckpointUrl(ds.id, g.run_id, f)}
-                    download title={f}
-                    aria-label={`Download ${f}`}
-                    className="rounded border border-border px-1 py-0.5 text-content-subtle hover:bg-surface hover:text-content">
-                    ⬇{s.files.length > 1 ? ` ${i + 1}` : ''}
-                  </a>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+      {cloudDialog && (
+        <VideoCloudLaunchDialog ds={ds} steps={steps} cloudStatus={cloudStatus}
+          onClose={() => setCloudDialog(false)} onLaunch={launchCloud} />
+      )}
     </section>
   )
 }

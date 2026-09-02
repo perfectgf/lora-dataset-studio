@@ -87,9 +87,9 @@ export default function StudioPage() {
           { id: 'video', label: 'Video', icon: Clapperboard },
         ].map(({ id, label, icon: Icon }) => (
           <button key={id} type="button" onClick={() => pickLane(id)}
-            aria-pressed={lane === id}
+            aria-pressed={lane === id} data-testid={`studio-lane-${id}`}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold min-h-10 lg:min-h-0 ${
-              lane === id ? 'bg-accent text-accent-contrast' : 'text-content-muted hover:text-content'}`}>
+              lane === id ? 'bg-primary text-white' : 'text-content-muted hover:text-content'}`}>
             <Icon aria-hidden="true" className="h-4 w-4" />{label}
           </button>
         ))}

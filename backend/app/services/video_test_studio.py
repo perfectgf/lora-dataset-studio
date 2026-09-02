@@ -33,6 +33,7 @@ reason the pitfalls below can be pinned by tests at all.
 import json
 import os
 import random
+import re
 import uuid
 
 from . import video_targets
@@ -714,6 +715,16 @@ def deploy_checkpoint(run_id, filename) -> str:
     src = ct.run_checkpoint_path(run, filename)
     if not src or not os.path.isfile(src):
         raise ValueError('checkpoint file not found')
+    return deploy_file(src)
+
+
+def deploy_file(src) -> str:
+    """The copy itself — one resolved checkpoint file into the app's folder
+    under ComfyUI's loras root. Split from `deploy_checkpoint` so the dataset
+    workspace can deploy a LOCAL run's save (which no CloudTrainingRun row can
+    resolve) through the exact same folder and naming the Studio lists."""
+    if not src or not os.path.isfile(src):
+        raise ValueError('checkpoint file not found')
     dest_dir = _loras_write_dir()
     if not dest_dir:
         raise ValueError('ComfyUI loras folder is not configured')
@@ -724,6 +735,98 @@ def deploy_checkpoint(run_id, filename) -> str:
         logger.info('video studio: deployed %s into %s',
                     os.path.basename(src), LORA_SUBDIR)
     return os.path.join(LORA_SUBDIR, os.path.basename(src))
+
+
+def undeploy_lora(deployed_as) -> str:
+    """⏏ Move one deployed copy OUT of ComfyUI's loras folder, into the trash.
+
+    Takes the LoraLoader-form name `deploy_file` answered (`h3/lds/<file>`)
+    and nothing else: a name outside the app's own subfolder is refused, so a
+    LoRA the user dropped by hand under `h3/` — which the picker lists as
+    deployed on purpose — can never be trashed by a click in a dataset list.
+    Basename-only inside that folder, for the same reason every resolver here
+    is. Returns the trashed path."""
+    from . import comfy_model_paths, trash
+    rel = os.path.normpath(str(deployed_as or ''))
+    sub, name = os.path.split(rel)
+    own = os.path.normcase(os.path.normpath(LORA_SUBDIR))
+    if (not name or os.path.normcase(sub) != own
+            or not name.lower().endswith('.safetensors')):
+        raise ValueError('only a LoRA the app deployed itself can be undeployed '
+                         'from here')
+    for root in comfy_model_paths.search_roots('loras'):
+        path = os.path.join(str(root), LORA_SUBDIR, name)
+        if os.path.isfile(path):
+            return trash.send_to_trash(path, context='video_lora_undeploy')
+    raise ValueError('that LoRA is not in ComfyUI\'s loras folder any more')
+
+
+# A LoRA is one safetensors file. The extension is not decoration here: it is
+# what ComfyUI's LoraLoader reads, and copying a .ckpt or a .pt into the folder
+# would put an entry in the picker that fails at generation time.
+LORA_EXT = '.safetensors'
+
+
+def import_external_lora(src_path=None, upload=None, filename=None) -> dict:
+    """Copy a LoRA the user already has into ComfyUI's folder, and name it.
+
+    Two ways in, because the two are different situations: a PATH (the file is
+    on this machine — nothing crosses HTTP, which matters at 300 MB) and an
+    UPLOAD (it is on the phone, or on the machine driving the browser).
+
+    Refuses rather than guesses:
+      * anything that is not a .safetensors — the loader reads nothing else,
+        and an entry that fails at generation time is worse than no entry;
+      * a name that could resolve outside the folder (traversal, drive letter,
+        rooted path) — the same sanitizer the canvas uses;
+      * a DIFFERENT file already sitting under that name. Overwriting it would
+        silently change what every clip generated with that name meant, and the
+        picker would keep showing one label for two different weights. Same
+        name AND same size is treated as already imported, so re-importing is
+        free — the idempotence deploy_checkpoint already applies.
+
+    Returns {'filename': 'h3/lds/<name>', 'label': <stem>, 'bytes': n,
+    'already': bool} — the LoraLoader-form name the graph will use.
+    """
+    from .lora_test_studio import _is_unsafe_external_lora_name
+    name = os.path.basename(str(filename or src_path or '')).strip()
+    if not name or _is_unsafe_external_lora_name(name):
+        raise ValueError('that file name cannot be used')
+    if not name.lower().endswith(LORA_EXT):
+        raise ValueError(f'a LoRA is a {LORA_EXT} file — this one is not, and '
+                         f'ComfyUI would not load it')
+    dest_dir = _loras_write_dir()
+    if not dest_dir:
+        raise ValueError('ComfyUI loras folder is not configured')
+    dst = os.path.join(dest_dir, name)
+
+    if src_path is not None:
+        src = os.path.abspath(str(src_path))
+        if not os.path.isfile(src):
+            raise ValueError('that file is not on this machine')
+        size = os.path.getsize(src)
+        if os.path.isfile(dst):
+            if os.path.getsize(dst) == size:
+                return {'filename': os.path.join(LORA_SUBDIR, name),
+                        'label': name[:-len(LORA_EXT)], 'bytes': size,
+                        'already': True}
+            raise ValueError(f'a different {name} is already in the folder — '
+                             f'rename yours, so the two stay tellable apart')
+        shutil.copy2(src, dst)
+    else:
+        if upload is None:
+            raise ValueError('attach a file, or give a path on this machine')
+        if os.path.isfile(dst):
+            # An upload has no size to compare before it is written, so the
+            # collision is refused outright rather than after 300 MB.
+            raise ValueError(f'{name} is already in the folder — rename yours, '
+                             f'or use the one that is there')
+        upload.save(dst)
+        size = os.path.getsize(dst)
+    logger.info('video studio: imported %s into %s', name, LORA_SUBDIR)
+    return {'filename': os.path.join(LORA_SUBDIR, name),
+            'label': name[:-len(LORA_EXT)],
+            'bytes': os.path.getsize(dst), 'already': False}
 
 
 def eros_on_disk() -> bool:
@@ -841,6 +944,131 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     return {'clip_id': clip.id, 'job_id': job_id, 'seed': built['seed'],
             'frames': built['frames'], 'steps': built['steps'],
             'notes': built['notes']}
+
+
+# ↗ VFI. The checkpoint, the multiplier and every dial below are read from the
+# maintainer's image generator (workflows/video-generation/vfi.json) rather than
+# chosen here: the two apps drive the same ComfyUI, and a clip smoothed in one
+# should be the clip smoothed in the other. rife49 is what that graph loads;
+# `fast_mode` and `ensemble` are its settings; the cache is cleared every 16
+# frames, which is what keeps a 200-frame clip inside VRAM.
+VFI_CKPT = 'rife49.pth'
+VFI_MULTIPLIER = 2
+VFI_CLEAR_CACHE_EVERY = 16
+# h264 at crf 19, yuv420p — the same container the generator writes, so the
+# smoothed clip plays anywhere the original did.
+VFI_CRF = 19
+
+N_VFI_LOAD, N_VFI_RIFE, N_VFI_SAVE = 'v1', 'v2', 'v3'
+
+
+def build_vfi_workflow(*, video_path, fps, multiplier=VFI_MULTIPLIER,
+                       filename_prefix=None) -> dict:
+    """The interpolation graph for ONE finished clip. Pure — no disk, no queue.
+
+    The source is given as an ABSOLUTE path: the clip lives in this app's own
+    folder (clips_dir), never in ComfyUI's output, and VHS_LoadVideoPath takes a
+    path rather than a name precisely so a file outside that tree can be read.
+    The output rate is the source's times the multiplier, which is what makes
+    this a SMOOTHING rather than a slow motion — the clip keeps its duration and
+    gains frames.
+    """
+    rate = round(float(fps or 24) * int(multiplier), 3)
+    return {
+        N_VFI_LOAD: {
+            'class_type': 'VHS_LoadVideoPath',
+            'inputs': {'video': str(video_path), 'force_rate': 0,
+                       'custom_width': 0, 'custom_height': 0,
+                       'frame_load_cap': 0, 'skip_first_frames': 0,
+                       'select_every_nth': 1, 'format': 'AnimateDiff'},
+        },
+        N_VFI_RIFE: {
+            'class_type': 'RIFE VFI',
+            'inputs': {'ckpt_name': VFI_CKPT,
+                       'frames': [N_VFI_LOAD, 0],
+                       'clear_cache_after_n_frames': VFI_CLEAR_CACHE_EVERY,
+                       'multiplier': int(multiplier), 'fast_mode': True,
+                       'ensemble': True, 'scale_factor': 2},
+        },
+        N_VFI_SAVE: {
+            'class_type': 'VHS_VideoCombine',
+            'inputs': {'images': [N_VFI_RIFE, 0], 'frame_rate': rate,
+                       'loop_count': 0,
+                       'filename_prefix': filename_prefix or 'lds_vfi',
+                       'format': 'video/h264-mp4', 'pix_fmt': 'yuv420p',
+                       'crf': VFI_CRF, 'save_metadata': True,
+                       'trim_to_audio': False, 'pingpong': False,
+                       'save_output': True},
+        },
+    }
+
+
+def interpolate_clip(user_id, clip_id, multiplier=VFI_MULTIPLIER) -> dict:
+    """↗ Smooth a finished clip: queue a RIFE pass over its own file.
+
+    A NEW row, never an edit of the old one: the smoothed clip is a different
+    artefact with a different frame rate, and overwriting the original would
+    destroy the comparison the studio exists for. It carries the source's
+    settings so the card still says what made it, plus `vfi_of` so the pair
+    stays readable.
+
+    Refused rather than queued when the interpolation nodes are absent — the
+    job would otherwise die inside ComfyUI with a message nobody sees.
+    """
+    from ..extensions import db
+    from ..job_queue import queue_manager
+    from ..models import VideoTestClip
+
+    src = VideoTestClip.query.filter_by(id=int(clip_id)).first()
+    if src is None:
+        raise ValueError('clip not found')
+    if src.status != 'done' or not src.filename:
+        raise ValueError('that clip has not finished rendering yet')
+    path = os.path.join(str(clips_dir()), os.path.basename(src.filename))
+    if not os.path.isfile(path):
+        raise ValueError('that clip is no longer on disk')
+
+    classes = registered_classes()
+    spec = OPTION_NODE_PACKS['vfi']
+    if classes is not None:
+        gone = [c for c in spec['classes'] if c not in classes]
+        if gone:
+            raise ValueError(
+                f"this ComfyUI has no {', '.join(gone)} — install "
+                f"{spec['pack']} ({spec['search']} in ComfyUI-Manager) and "
+                f"try again")
+
+    mult = max(2, min(8, int(multiplier or VFI_MULTIPLIER)))
+    job_id = str(uuid.uuid4())
+    workflow = build_vfi_workflow(video_path=path, fps=src.fps or 24,
+                                  multiplier=mult,
+                                  filename_prefix=new_prefix(user_id))
+    clip = VideoTestClip(
+        run_id=src.run_id, dataset_id=src.dataset_id, job_id=job_id,
+        status='pending', prompt=src.prompt, mode=src.mode,
+        source_image=src.source_image, seed=src.seed, steps=src.steps,
+        # The frame COUNT grows with the rate, so the clip lasts exactly as
+        # long — RIFE inserts between frames, it does not slow anything down.
+        frames=(src.frames or 0) * mult if src.frames else None,
+        megapixels=src.megapixels, fps=float(src.fps or 24) * mult,
+        base_model=src.base_model, lora=src.lora,
+        lora_strength=src.lora_strength, turbo=bool(src.turbo),
+        sparse=src.sparse, latent_upscale=bool(src.latent_upscale),
+        vfi_of=src.id)
+    db.session.add(clip)
+    db.session.flush()
+    queue_manager.add_job(job_type='image', user_id=str(user_id),
+                          workflow_data=workflow, prompt=src.prompt or '',
+                          job_id=job_id,
+                          metadata={'model_name': 'video_lora_test',
+                                    'is_video_test': True,
+                                    'clip_id': clip.id},
+                          commit=False)
+    db.session.commit()
+    logger.info('video studio: queued VFI x%s of clip %s as %s',
+                mult, src.id, clip.id)
+    return {'clip_id': clip.id, 'job_id': job_id, 'multiplier': mult,
+            'fps': clip.fps}
 
 
 def link_completed_clip(job_id, filename, failed=False, reason=None):
@@ -990,6 +1218,14 @@ OPTION_NODE_PACKS = {
         'search': 'H3 Optimizations',
         'classes': ('H3SparseAttentionAdvanced',),
     },
+    # ↗ VFI is two packs, and both are named: the interpolator and the video
+    # helper that reads a finished mp4 back in and writes the smoothed one out.
+    'vfi': {
+        'pack': 'ComfyUI-Frame-Interpolation + VideoHelperSuite',
+        'url': 'https://github.com/Fannovel16/ComfyUI-Frame-Interpolation',
+        'search': 'Frame Interpolation',
+        'classes': ('RIFE VFI', 'VHS_LoadVideoPath', 'VHS_VideoCombine'),
+    },
     'latent_upscale': {
         'pack': 'Comfyui-MMH3-UltimateUpscale',
         'url': 'https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale',
@@ -1116,3 +1352,136 @@ def studio_ready(missing=None) -> bool:
     if missing is None:
         missing = missing_weights()
     return not any(m['required'] for m in missing)
+
+
+# ⏱ How ComfyUI was STARTED decides more than any dial on this screen.
+#
+# The H3 set the graph loads weighs about 43 GB (DiT int8 21 + text encoder
+# nvfp4 16 + the two VAEs 6), and ComfyUI's default loader keeps a copy of every
+# weight it offloads in system RAM. On a machine whose RAM cannot hold that set
+# beside the OS and the desktop, the models page through the swap file at every
+# node change — measured per node on a 48 GB machine: a 56-frame clip took
+# 348 s (319 s of them decoding the VAE), the next one 302-315 s. Started with
+# `--fast-disk`, ComfyUI reads the weights back from the safetensors files
+# instead: the same clip took 30 s cold and 21-24 s warm, RAM left alone.
+#
+# LDS's own launcher passes the flag (`comfyui_control._spawn`). A ComfyUI the
+# user starts some other way — a .bat, a Desktop install, another machine —
+# is not ours to configure, so the Studio asks the running instance what it
+# was started with (`/system_stats` echoes its argv, its RAM and its version)
+# and SAYS so when the flag is missing on a machine that needs it. Every
+# "cannot tell" case stays silent: advice built on a guess would name a flag
+# the user may already be passing, or one their ComfyUI does not know.
+H3_HOST_RAM_GB = 43
+# psutil reports the RAM the OS can use, a little under the nominal size: the
+# 48 GB machine above reads 47.7, a 64 GB one about 63.7. The floor sits under
+# the nominal 64 GB it means, or that class of machine would get the card the
+# comment above says it should not. Calibrated on one point (48 GB of RAM,
+# 43 GB of weights); nothing in between has been measured.
+FAST_DISK_RAM_FLOOR_GB = 60
+# `--fast-disk` was declared in ComfyUI v0.23.0 (2026-06-01). argparse answers
+# an unknown flag with an exit before the server exists, so advising it to an
+# older instance would stop that ComfyUI from starting — the exact failure the
+# launcher guards against by reading cli_args.py. Below this version, or
+# without one, the advice stays silent.
+FAST_DISK_MIN_COMFYUI = (0, 23, 0)
+_FAST_DISK_FLAG = '--fast-disk'
+# `--high-ram` is the user saying "I prefer the page file to model loading" —
+# the opposite choice, made on purpose, whatever the loader. Never argued with.
+_HIGH_RAM_FLAG = '--high-ram'
+# `--fast-disk` only steers ComfyUI's DYNAMIC loader (its whole effect runs
+# through the vbar path). With that loader off the flag is inert, so advising
+# it alone would send the user to a change that changes nothing. ComfyUI's own
+# rule (`enables_dynamic_vram`): `--enable-dynamic-vram` forces the loader on;
+# otherwise `--disable-dynamic-vram` or any of the memory modes below turns it
+# off. The switch is what a launcher tuned for an older ComfyUI still carries
+# (the maintainer's own did, calibrated on a 20 GB image model, and ComfyUI now
+# announces it as "will be removed soon") — that one is named, to be removed.
+# The modes are a choice, and the advice stays silent rather than argue.
+_DYNAMIC_VRAM_SWITCH = '--disable-dynamic-vram'
+_DYNAMIC_VRAM_FORCE = '--enable-dynamic-vram'
+_DYNAMIC_VRAM_OFF_MODES = ('--novram', '--highvram', '--gpu-only', '--cpu')
+
+_VERSION_RE = re.compile(r'(\d+)\.(\d+)(?:\.(\d+))?')
+
+
+def knows_fast_disk(comfyui_version) -> bool:
+    """Does a ComfyUI reporting this version string declare `--fast-disk`?
+
+    Reads the leading `major.minor[.patch]` out of whatever the server sent
+    ("0.30.1", "v0.23.0", "0.30.1+16"); anything else is "cannot tell" = False.
+    """
+    m = _VERSION_RE.search(str(comfyui_version or ''))
+    if not m:
+        return False
+    return tuple(int(g or 0) for g in m.groups()) >= FAST_DISK_MIN_COMFYUI
+
+
+def launch_advice(argv, ram_total_gb, comfyui_version=None):
+    """What to change on the command that starts ComfyUI, or None. Pure.
+
+    {flag, add, remove, ram_total_gb, weights_gb}: `flag` is `--fast-disk`;
+    `add` says whether it is missing from the line (False = already there);
+    `remove` names `--disable-dynamic-vram` when the launcher carries it and
+    nothing forces the loader back on, because the flag does nothing until that
+    switch is gone — a card that only said "add --fast-disk" to such a launcher
+    would send the user to a change that changes nothing.
+
+    None covers every case where nothing should be said: no argv (an instance
+    too old to echo it, or unreachable), a ComfyUI that predates the flag, no
+    RAM figure or enough RAM, `--high-ram`, a memory mode with no dynamic
+    loader, and a line that already has what it needs.
+    """
+    if not isinstance(argv, (list, tuple)) or not argv:
+        return None
+    if not knows_fast_disk(comfyui_version):
+        return None
+    if not isinstance(ram_total_gb, (int, float)) or isinstance(ram_total_gb, bool):
+        return None
+    if ram_total_gb <= 0 or ram_total_gb >= FAST_DISK_RAM_FLOOR_GB:
+        return None
+    flags = {str(a).split('=', 1)[0].strip() for a in argv}
+    if _HIGH_RAM_FLAG in flags:
+        return None
+    forced_on = _DYNAMIC_VRAM_FORCE in flags
+    if not forced_on and any(m in flags for m in _DYNAMIC_VRAM_OFF_MODES):
+        return None
+    switched_off = (not forced_on) and _DYNAMIC_VRAM_SWITCH in flags
+    has_flag = _FAST_DISK_FLAG in flags
+    if has_flag and not switched_off:
+        return None
+    return {'flag': _FAST_DISK_FLAG, 'add': not has_flag,
+            'remove': _DYNAMIC_VRAM_SWITCH if switched_off else None,
+            'ram_total_gb': round(float(ram_total_gb), 1),
+            'weights_gb': H3_HOST_RAM_GB}
+
+
+def comfyui_launch_facts(timeout=3):
+    """(argv, ram_total_gb, version) of the RUNNING ComfyUI, from /system_stats.
+
+    NETWORK — one short GET, kept out of the pure `launch_advice` so the
+    decision stays testable without a server. Each field is None on its own
+    when the server did not send it (an older instance echoes its argv without
+    a RAM figure, and that argv is still worth having); all three are None when
+    ComfyUI is not configured, does not answer, or answers nonsense. Never
+    raises.
+    """
+    from .. import config as cfg
+    import requests
+    api = (cfg.get('comfyui.api_url') or '').rstrip('/')
+    if not api:
+        return None, None, None
+    try:
+        r = requests.get(f'{api}/system_stats', timeout=timeout, allow_redirects=False)
+        if r.status_code != 200:
+            return None, None, None
+        payload = r.json()
+        system = (payload.get('system') if isinstance(payload, dict) else None) or {}
+    except Exception:
+        return None, None, None
+    argv = system.get('argv')
+    ram = system.get('ram_total')
+    version = system.get('comfyui_version')
+    ram_gb = (ram / 1024 ** 3) if isinstance(ram, (int, float)) and not isinstance(ram, bool) and ram > 0 else None
+    return ((list(argv) if isinstance(argv, (list, tuple)) else None), ram_gb,
+            (str(version) if version else None))

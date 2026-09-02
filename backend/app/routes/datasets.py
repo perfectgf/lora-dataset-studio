@@ -2500,4 +2500,9 @@ def index_config():
         # and it isn't there" into an actionable 409, and hiding the option instead
         # would leave someone who wants it with nothing to click and no explanation.
         'krea_sampler_presets': list(KREA_SAMPLER_PRESETS),
+        # The krea_hires.* setting as numbers, so the Studio panel's "Settings
+        # default" option can SAY what it is ("off" / "1.5x") instead of being a
+        # blind deferral. Numbers, not the injector's resolved form: a panel
+        # needs the 1.0 to print "off", not a None it would have to translate.
+        'krea_hires_defaults': lts.krea_hires_defaults(),
     })

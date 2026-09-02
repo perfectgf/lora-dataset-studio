@@ -383,6 +383,28 @@ export const PAGE_TOPICS = [
      // The optional preset sampler is installed from this same card.
      'preset sampler', 'krea preset sampler', 'sampler preset', 'install the sampler',
      'neutral', 'balanced', 'detailed', 'multistep', 'optional sampler']),
+  setting('krea_hires.scale', 'engines', 'krea-hires-scale', 'Krea hi-res fix (second pass)',
+    ['hi-res fix', 'hires fix', 'highres', 'second pass', 'two pass', '2 pass',
+     'latent upscale', 'upscale latent', 'krea detail', 'more detail', 'duplicated subject',
+     'two heads', 'framing', 'krea second pass', 'off', '1.5x', '2x']),
+  setting('krea_hires.denoise', 'engines', 'krea-hires-denoise', 'How much the second pass may rewrite',
+    ['hires denoise', 'second pass denoise', 'rewrite', 'denoise', 'keeps the composition',
+     'different picture', 'texture', 'krea denoise']),
+  setting('krea_hires.steps', 'engines', 'krea-hires-steps', 'Second-pass steps',
+    ['hires steps', 'second pass steps', 'steps', 'inherit', 'same as the first',
+     'krea steps second pass']),
+  setting('improve.colour_match', 'engines', 'improve-colour-match', "Put the source's colours back",
+    ['colour match', 'color match', 'colour shift', 'color shift', 'skin warms', 'skin cools',
+     'grade', 'mkl', 'two colour worlds', 'klein colours', 'finishing', 'finish']),
+  setting('improve.sharpen', 'engines', 'improve-sharpen', 'Sharpen (finishing pass)',
+    ['sharpen', 'unsharp', 'sharpness', 'soft', 'blurry', 'halo', 'finest detail',
+     'finishing', 'finish', 'after improve']),
+  setting('improve.grain', 'engines', 'improve-grain', 'Film grain (finishing pass)',
+    ['grain', 'film grain', 'noise', 'plastic', 'smooth', 'waxy', 'photographic',
+     'looks like a render', 'finishing', 'finish']),
+  setting('improve.grain_saturation', 'engines', 'improve-grain-sat', 'How coloured the grain is',
+    ['grain saturation', 'coloured grain', 'colored grain', 'luminance grain', 'sensor noise',
+     'chroma noise', 'grain colour']),
   setting('seedvr2.tiling', 'engines', 'seedvr2-tiling', 'High-resolution tiling',
     ['tiling', 'tile', 'tiles', 'seedvr2 tiling', 'TTP', 'Comfyui_TTP_Toolset',
      'high resolution', '4k', 'detail', 'artifacts', 'seam', 'seams', 'vram',
@@ -494,12 +516,25 @@ export const PAGE_TOPICS = [
      'select several prompts', 'tick prompts', 'checkbox', 'checkboxes',
      'replay prompts', 'rerun prompts', 'run all my prompts', 'queue several prompts',
      'one image per prompt', 'n selected', 'clear selection', 'untick',
+     'civitai prompts in the batch', 'batch civitai prompts', 'civitai batch',
      'how many images will this make', 'too many prompts', 'at most 24 prompts',
      // Ce que quelqu'un tape après avoir été refusé par le plafond qui a existé
      // une journée — et ce qu'il cherche maintenant : le coût, pas la limite.
      'prompt limit', 'maximum prompts', 'why was my batch refused', 'no limit',
      'how long will this take', 'estimated time', 'duration', 'at your current pace',
      'this run will queue', 'confirmation before a long run', 'seconds per image'],
+    '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // 📚 La bande d'historique et sa fenêtre sont UN composant, monté par le Studio
+  // de test ET par « Generate from the board » : un seul sujet d'aide pour les deux.
+  action('studio-saved-prompts', '📚 Saved prompts: find one again among hundreds',
+    ['studio', 'test studio', 'canvas', 'generate from the board', 'prompt', 'prompts',
+     'saved prompts', 'recent prompts', 'prompt history', 'browse prompts',
+     'search prompts', 'find a prompt', 'find my prompt', 'search my prompts',
+     'too many prompts', 'long list of prompts', 'where are my old prompts',
+     'reuse a prompt', 'reload a prompt', 'use prompt', 'copy a prompt',
+     'delete a prompt', 'remove a prompt', 'thumbnail too small', 'preview too small',
+     'cannot see the thumbnails', 'browse all prompts', 'never run', 'no image yet',
+     'full prompt', 'show the whole prompt', 'expand the prompt'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
   // 🌐 Un seul composant (bouton + navigateur) monté par les TROIS surfaces de
   // génération — Studio du dataset, comparaison multi-LoRA, « Generate from the
@@ -510,8 +545,18 @@ export const PAGE_TOPICS = [
      'prompt inspiration', 'find a prompt', 'copy a prompt', 'use prompt',
      'trending images', 'most reactions', 'popular prompts', 'image with prompt',
      'no prompt published', 'prompts missing', 'civitai api key', 'load more',
-     'safe mature everything', 'content level', 'top of the week'],
+     'safe mature everything', 'content level', 'top of the week',
+     'batch', 'add to batch', 'tick several civitai prompts', 'run several civitai prompts',
+     'civitai prompts in one run', 'in batch'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // 📤 One dialog, two doors (the checkpoint popover on the ◉ Canvas / run
+  // graph, and the shared image viewer everywhere it opens): one topic.
+  action('civitai-publish', '📤 Publish a LoRA and its images to Civitai',
+    ['civitai', 'civitai.red', 'publish', 'publish lora', 'upload lora', 'upload checkpoint',
+     'model page', 'draft', 'post image', 'post to civitai', 'share image', 'share lora',
+     'link checkpoint', 'mark the page', 'trigger words', 'base model', 'generation data',
+     'prompt', 'seed', 'metadata', 'api key', 'not linked', 'wizard', 'nsfw'],
+    '/gallery', 'using-the-app', 'publish-a-lora-and-its-images-to-civitai'),
   // 🎬 Les scènes vivent dans le même rail que le lot d'historique, monté par le
   // Studio de test ET par « Generate from the board » : un seul sujet pour les deux.
   // Les DEUX sources (banque et dataset) partagent ce sujet : c'est le même

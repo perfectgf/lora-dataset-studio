@@ -178,6 +178,18 @@ const PAGES = {
          would measure the drawer and report it as the dup panel. Each variant
          is skipped (and said so) on the viewports where its first control is
          absent, which is how the two split the five devices between them. */
+      /* ✨ The bank's improve launch window. It carries the SAME Klein dials
+         the dataset one does (instruction editor, model, preset with its LoRA
+         strengths, output size) since the pass was proved to read them here
+         too — which makes it the densest dialog on this page, over a phone
+         screen, and exactly what a source test cannot see. Two clicks, as a
+         user does it: open ✂ Edits, then the improve button. Skipped, and said
+         so, when Klein is not installed (the button is disabled) or the bank
+         holds nothing to improve. */
+      { name: 'improve', open: ['[aria-controls="bank-passes-panel"]',
+        '?summary:has-text("Edits")',
+        '#bank-edits button:visible',
+        'button:visible:has-text("Upscale & improve")'] },
       { name: 'dups', open: ['button:has-text("≈ Duplicates")'] },
       { name: 'dups-drawer', open: ['[aria-controls="bank-filter-rail"]',
         'button:has-text("≈ Duplicates")', '[aria-label="Close the filters"]'] },
@@ -298,8 +310,43 @@ const PAGES = {
       // tile refuses the verb (an improve result, or a candidate waiting).
       { name: 'improve', open: ['[data-testid="gallery-zoom"]',
         '[data-testid="lightbox-improve-klein"]'] },
+      // 📤 The Civitai dialog, reached the same way: open the viewer, press
+      // the Civitai verb. One state on ONE page for a dialog two doors share
+      // (the viewer everywhere it opens, the checkpoint popover on the Canvas
+      // and the run graph) — measured here because this page's path to it is
+      // the shortest. It stacks a thumbnail, the page section (link line or
+      // the mark/create tabs) and the post section over a phone screen.
+      { name: 'civitai', open: ['[data-testid="gallery-zoom"]',
+        '[data-testid="lightbox-civitai"]'] },
     ],
   },
+  /* 🎬 One video training set's workspace. Needs an id, like the Studio above —
+     `npm run probe:responsive -- --url http://127.0.0.1:5173/#/video-dataset/1`
+     — and matches by longest prefix, so any id lands here.
+
+     The two states are the two densest things this page can put on a phone: the
+     Captions section stacks a textarea per clip under the caption tools (four
+     inputs and three buttons on one row), and the lightbox is a full-screen
+     layer with a player, a provenance line, four controls and an editor. */
+  '#/video-dataset': {
+    label: 'Video dataset',
+    states: [
+      { name: 'resting', open: [] },
+      { name: 'captions', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Captions")'] },
+      { name: 'lightbox', open: ['[aria-label^="Play "]:visible, [aria-label^="View "]:visible'] },
+      // The clip toolbar folds away on a ≤500 px fold and comes back from this
+      // button. Measuring only the folded state would report a page that had
+      // hidden its furniture rather than fitted it — this is where the search,
+      // the sort and the three filter chips are really charged for.
+      { name: 'clip-tools', open: ['button:has-text("Filter & sort")'] },
+      // The two sections the image rail always had: a list of saves with
+      // five verbs per row (deploy, undeploy, continue, details, delete) that
+      // wraps on a phone, and the Studio launcher.
+      { name: 'checkpoints', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Checkpoints")'] },
+      { name: 'studio', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Studio")'] },
+    ],
+  },
+
   '#/dataset/studio': {
     label: 'Test Studio',
     states: [
@@ -307,6 +354,24 @@ const PAGES = {
       // The bottom bar's first shortcut: it reveals and scrolls to a section —
       // the page in the state a shortcut leaves it in.
       { name: 'shortcut', open: ['[data-probe-chrome="action-bar"] button'] },
+      /* The VIDEO lane. It is a tab, so every run measured the Images lane and
+         the video panels were never seen at 360 px at all — a whole surface
+         that could only be checked by hand. The gallery state opens the tab
+         whose grid and "Show older" row live one level deeper still. */
+      { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
+      { name: 'video-gallery',
+        open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
+      /* The Dataset clip tab: its select and footnote. The clip grid behind
+         the select cannot be opened by a click (a native <select> takes a
+         choice, not a click), so the grid is measured by hand at 400 px — it
+         shares its classes with the Gallery grid the state above measures. */
+      { name: 'video-clip',
+        open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-clip"]'] },
+      /* 🌐 Le navigateur Civitai. Sa rangée d'actions par carte est passée de deux
+         boutons à trois avec le 📝 lot de prompts, dans une colonne qui fait ~250 px
+         à 360 px de large — exactement la forme qui déborde. Aucun état ne l'ouvrait,
+         donc aucune mesure ne l'a jamais vue. */
+      { name: 'civitai', open: ['button:has-text("🌐 Civitai")'] },
     ],
   },
 };
@@ -731,7 +796,24 @@ async function main() {
           // Wait for the chrome rather than for a fixed sleep: a fixed sleep is
           // either too short on a cold load or wasted on a warm one, and this
           // now runs thirty times instead of six.
-          await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          try {
+            await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          } catch (first) {
+            /* ONE retry, and only for a page whose spec says chrome exists.
+               The very first load of a run pays for everything at once — a cold
+               browser, a bundle nobody has parsed, a server that has just been
+               restarted — and when it overran, the fallback below measured the
+               page with ZERO chrome surfaces and reported "the probe measured
+               nothing" as a violation. Twice in one session, both times on the
+               narrowest viewport (the first one measured) and never on the same
+               page a second time: a red that says "slow", not "broken", is a
+               red the next person learns to ignore. A page that genuinely has
+               no chrome after two loads still reports. */
+            if (!pageSpec.states || pageSpec === UNKNOWN_PAGE) throw first;
+            await page.goto('about:blank');
+            await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForSelector('[data-probe-chrome]', { timeout: 20000 });
+          }
           // A page whose chrome paints BEFORE its data (the Gallery's filter
           // rail) names the element that proves the data arrived; without it
           // the 900 ms settle below is a race against the fetch.
@@ -760,10 +842,21 @@ async function main() {
         if (!reachable) continue;
 
         let opened = true;
-        for (const selector of state.open) {
+        for (const raw of state.open) {
+          /* A step prefixed with '?' is OPTIONAL: absent is not a failure, it is
+             a different shape of the same screen. The bank's panels are bare
+             sections on a desktop and <details> folds on a phone, so the click
+             that opens a fold exists at one width and not at the other — and a
+             state that demanded it everywhere would have skipped, in silence,
+             at exactly the width worth measuring. */
+          const optional = raw.startsWith('?');
+          const selector = optional ? raw.slice(1) : raw;
           const el = page.locator(selector).first();
           try {
-            if (!(await el.count()) || !(await el.isVisible())) { opened = false; break; }
+            if (!(await el.count()) || !(await el.isVisible())) {
+              if (optional) continue;
+              opened = false; break;
+            }
             await el.click({ timeout: 4000 });
             await page.waitForTimeout(350);
           } catch { opened = false; break; }

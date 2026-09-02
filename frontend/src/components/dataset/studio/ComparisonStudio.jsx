@@ -22,6 +22,7 @@ import { flipOrder } from './flipOrder';
 import { DEFAULT_STRENGTHS, FAMILY_LABELS } from './constants';
 import { blendConfigCount, buildSelectionsPayload, combineBlocker } from './loraStack';
 import { axisPayload, axisTotal, effectiveAxis, toggleAxisValue } from './studioAxes';
+import { mergeBatches } from './promptBatch';
 import AxisPickers from './AxisPickers';
 import { isStackRun, stackMembers } from './stackResults';
 import StudioRunSetup from './StudioRunSetup';
@@ -62,6 +63,19 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
     writeInjectTrigger(v);
   };
   const [seed, setSeed] = useState(() => rollSeed());
+
+  // 📝 LE LOT DE PROMPTS de cette surface. Il vit ICI et pas dans le panneau parce
+  // que c'est ce composant qui construit le corps du POST — même règle que
+  // RunSetupPanel sur les deux autres surfaces de lancement.
+  // Délibérément NON persisté : un lot est l'intention d'UN lancement ; le
+  // retrouver coché après un rechargement multiplierait un run qu'on croyait simple.
+  const [historyBatch, setHistoryBatch] = useState([]);
+  const [civitaiPicks, setCivitaiPicks] = useState([]);
+  const toggleIn = (set) => (v) => set((cur) => (
+    cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
+  // Dédoublonné : un prompt Civitai déjà lancé est DANS l'historique, donc
+  // cochable des deux côtés — deux cellules identiques seraient du GPU perdu.
+  const pickedPrompts = mergeBatches(historyBatch, civitaiPicks);
   // 'compare' (historique : un LoRA seul par cellule) ou 'combine' (pile : tous les
   // LoRA cochés dans la MÊME image, chacun à son poids). Persisté comme le reste.
   const [mode, setMode] = useState(() => {
@@ -262,7 +276,7 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
         // Base du run : '' (entrée « Official », Krea) ou rien de coché → absent,
         // le backend garde alors le défaut de la famille (UNET câblé / 1er modèle).
         z_model: selectedBase || undefined,
-        // Réglages globaux (resolution_tier, negative/sampler/detail/rebalance/…),
+        // Réglages globaux (resolution_tier, negative/sampler/detail/…),
         // déjà gatés PAR FAMILLE côté backend — champs vides absents = défauts gardés.
         ...genSettings,
         // 🎛 CFG / steps / 2e passe, EN DERNIER : ce que l'utilisateur vient de
@@ -272,6 +286,9 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
         ...axisPayload({ cfgs: effectiveCfgs, steps: effectiveSteps, steps2: effectiveSteps2 }),
       };
       if (prompt.trim()) body.prompt = prompt.trim();
+      // 📝 L'axe lot. Rien de coché ⇒ clé absente : le corps reste octet pour
+      // octet celui d'avant cette feature.
+      if (pickedPrompts.length) body.prompts = [...pickedPrompts];
       // Case « Trigger word » décochée → prompt envoyé tel quel. Absent quand
       // cochée : le corps reste octet pour octet celui d'avant.
       if (!injectTrigger) body.inject_trigger = false;
@@ -366,6 +383,13 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
             secondsPerImage={axes?.seconds_per_image ?? null}
             injectTrigger={injectTrigger}
             onInjectTrigger={toggleInjectTrigger}
+            batchPrompts={historyBatch}
+            onToggleBatchPrompt={toggleIn(setHistoryBatch)}
+            onClearBatchPrompts={() => setHistoryBatch([])}
+            civitaiPicks={civitaiPicks}
+            onToggleCivitaiPick={toggleIn(setCivitaiPicks)}
+            onClearCivitaiPicks={() => setCivitaiPicks([])}
+            pickedPrompts={pickedPrompts}
             /* 🎛 Les axes de rendu, dans le panneau de réglage du run et pas dans
                un bloc à part : c'est le même geste que choisir une strength. Le
                MÊME composant que le studio mono-LoRA et le canvas — base et format

@@ -219,6 +219,9 @@ _SCHEMA_ADDITIONS = (
     ('video_dataset', 'trigger_word', 'VARCHAR(100)'),
     ('video_clip', 'caption_fields', 'TEXT'),
     ('video_clip', 'caption_tokens', 'INTEGER'),
+    ('video_test_clip', 'vfi_of', 'INTEGER'),
+    # The clip a studio clip was neural-rendered FROM (DLSS 5), same reading as vfi_of.
+    ('video_test_clip', 'nr_of', 'INTEGER'),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),
@@ -302,6 +305,13 @@ _SCHEMA_ADDITIONS = (
     ('lora_test_image', 'error', 'TEXT'),
     ('lora_test_image', 'resolution_multiplier', 'REAL'),
     ('lora_test_image', 'sampler_preset', 'VARCHAR(24)'),
+    # Per-run Krea hi-res fix and app-side finishing (models.LoraTestImage).
+    # NULL on every cell that predates them = "the setting / off", so a 🔄 resume
+    # of an old cell renders exactly what it rendered.
+    ('lora_test_image', 'hires_scale', 'REAL'),
+    ('lora_test_image', 'hires_denoise', 'REAL'),
+    ('lora_test_image', 'finish_sharpen', 'REAL'),
+    ('lora_test_image', 'finish_grain', 'REAL'),
     # WHICH checkpoint produced this image, written at generation time instead of
     # re-parsed from the filename on every render. Existing rows stay NULL until
     # services.checkpoint_link_backfill attributes the ones it can prove.
@@ -492,6 +502,14 @@ _INDEX_ADDITIONS = (
     ('bank_image', 'medium'),
     ('lora_test_image', 'record_id'),
     ('lora_test_image', 'parent_image_id'),
+    # Both lineage pointers of the video studio are declared index=True; vfi_of
+    # shipped without this line, so a database older than it had no index —
+    # the additive ALTER creates the column, only this list creates the index.
+    ('video_test_clip', 'vfi_of'),
+    ('video_test_clip', 'nr_of'),
+    # Same gap, found by the same crossing (an additive column declared
+    # index=True with no index line): closed while the list was open.
+    ('training_run_record', 'parent_record_id'),
 )
 
 

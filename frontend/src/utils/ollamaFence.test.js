@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AUTO_RETRY_CAP_MS, OLLAMA_FENCE_CODE, blockingModelsLabel, fenceNoticeModel,
-  isOllamaFenceError, nextPollDelay, waitedLabel,
+  isOllamaFenceError, keepAnswer, nextPollDelay, waitedLabel,
 } from './ollamaFence.js';
 
 test('only the structured code identifies a fence refusal', () => {
@@ -15,6 +15,26 @@ test('only the structured code identifies a fence refusal', () => {
   // matching on prose would offer to evict a model over a coincidence.
   assert.equal(isOllamaFenceError(
     new Error('A local Ollama model is already in use outside LDS.')), false);
+});
+
+test('an answer is kept while its click is current, set aside once the user moved on', () => {
+  // Every surface stands between the reply and the field with this; a panel
+  // that answered `true` on both sides would write a stale answer with a
+  // note beside it — so the helper is run, not read.
+  const handle = (current, mounted = true) => ({ current: () => current, mounted: () => mounted });
+  let told = 0;
+  const tell = () => { told += 1; };
+  // No handle (an action run outside the guard) keeps every answer.
+  assert.equal(keepAnswer(undefined, tell), true);
+  assert.equal(keepAnswer({}, tell), true);
+  assert.equal(keepAnswer(handle(true), tell), true);
+  assert.equal(told, 0, 'a current click is written without a word');
+  assert.equal(keepAnswer(handle(false), tell), false);
+  assert.equal(told, 1, 'a superseded click is set aside, and the surface is told');
+  assert.equal(keepAnswer(handle(false, false), tell), false);
+  assert.equal(told, 1, 'nobody is told once the panel went away');
+  // The quiet surfaces (🔎 Describe) pass nothing to say.
+  assert.equal(keepAnswer(handle(false)), false);
 });
 
 test('the vigil backs off instead of hammering a local daemon for ten minutes', () => {
@@ -81,4 +101,19 @@ test('a block with no model name still says something true', () => {
   const m = fenceNoticeModel({ phase: 'waiting', models: [], elapsedMs: 0,
                               message: 'A local Ollama model is already in use outside LDS.' });
   assert.match(m.detail, /already in use outside LDS/);
+});
+
+test('the notice names the server the fence state reports', () => {
+  // Someone on LM Studio told to look in Ollama looks at a daemon that holds
+  // nothing. The provider comes from the fence state, not from the refusal.
+  const lm = fenceNoticeModel({ phase: 'waiting', models: ['qwen/qwen3-vl-4b'], elapsedMs: 0,
+                               provider: 'lmstudio' });
+  assert.match(lm.detail, /qwen\/qwen3-vl-4b in LM Studio/);
+  assert.doesNotMatch(lm.detail, /Ollama/);
+  const gaveUp = fenceNoticeModel({ phase: 'gave-up', models: [], elapsedMs: AUTO_RETRY_CAP_MS,
+                                   provider: 'lmstudio' });
+  assert.match(gaveUp.detail, /a model in LM Studio/);
+  // No provider yet (the first poll has not answered): Ollama, the default.
+  const first = fenceNoticeModel({ phase: 'waiting', models: ['other:8b'], elapsedMs: 0 });
+  assert.match(first.detail, /other:8b in Ollama/);
 });

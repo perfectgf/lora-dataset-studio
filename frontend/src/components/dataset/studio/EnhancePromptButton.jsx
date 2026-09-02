@@ -17,10 +17,12 @@
  * pas) : le serveur vérifie le modèle choisi et son 409 le nomme.
  */
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { apiFetch, postJson } from '../../../api/fetchClient';
 import { useCapabilities } from '../../../context/CapabilitiesContext';
 import { useToast } from '../../common/Toast';
 import useOllamaFence from '../../../hooks/useOllamaFence';
+import { SUPERSEDED_ANSWER_NOTICE, keepAnswer } from '../../../utils/ollamaFence';
 import { modelPickerCopy } from '../../../utils/localLlm.js';
 import OllamaFenceNotice from '../../common/OllamaFenceNotice';
 import { enhanceBlocker } from './enhanceGate';
@@ -60,7 +62,11 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
   // A model pulled elsewhere (or picked before Ollama went down) stays selectable —
   // silently dropping the user's choice is worse than offering an unconfirmed name.
   const choices = model && !models.includes(model) ? [model, ...models] : models;
-  return (
+  /* Portaillée : montée sous un ancêtre qui ouvre un contexte d'empilement
+     (`lg:sticky` de l'aside du Studio, ou le `transform` du canvas), un
+     z-index posé ici est PLAFONNÉ par cet ancêtre et un `overflow-auto`
+     le découpe. Voir studioModalsArePortaled.contract.test.js. */
+  return createPortal(
     <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/80 p-3"
       onClick={(e) => { e.stopPropagation(); onClose(); }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}>
@@ -103,6 +109,8 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
         </div>
       </div>
     </div>
+    ,
+    document.body,
   );
 }
 
@@ -133,9 +141,13 @@ export default function EnhancePromptButton({ prompt, onResult, className = '' }
      the model frees up, so `prompt` (and the picked model) are captured here on
      purpose. '' = default → the key stays OUT of the body, byte-identical to the
      request before the ⚙️ existed. */
-  const enhance = async () => {
+  const enhance = async (run) => {
     const d = await postJson('/api/studio/enhance-prompt',
       { prompt, ...(model ? { ollama_model: model } : {}) });
+    // A reply for a click the user has moved on from — a newer click took
+    // over while this one was in flight — is set aside, not written over
+    // the newer one's answer.
+    if (!keepAnswer(run, () => toast.info(SUPERSEDED_ANSWER_NOTICE))) return;
     if (d?.ok && d.prompt) onResult(d.prompt);
     else toast.error(d?.error || 'The model returned nothing');
   };

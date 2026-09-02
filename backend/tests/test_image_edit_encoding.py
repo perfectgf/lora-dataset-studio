@@ -407,6 +407,7 @@ def test_every_edit_states_its_own_encoding_policy(app):
     root = pathlib.Path(__file__).resolve().parents[1]
     sites = []
     for rel in ('app/services/face_dataset_service.py',
+                'app/services/image_bank_service.py',   # the Bank's own three: clean, crop, improve
                 'app/services/watermark_klein.py',
                 'infer/lama_infer.py'):
         text = (root / rel).read_text(encoding='utf-8')

@@ -233,14 +233,20 @@ export function blendSweepCost({ configCount, count = 1, batchMult = 1,
 /* `axisTotal` = le produit des axes de rendu (CFG × steps × 2e passe) que le
    panneau propose désormais aussi en comparaison/blend. 1 par défaut : un appelant
    qui ne balaye aucun de ces axes obtient le compte d'avant, à l'identique. */
+/* `promptCount` = la taille du 📝 lot de prompts, qui est un axe de PLUS : le
+   serveur rend chaque configuration une fois par prompt coché. Il est à part de
+   `axisTotal` exprès — l'infobulle du compteur nomme les axes un par un, et
+   ranger les prompts dans « CFG / steps » lui ferait dire une chose fausse.
+   1 par défaut (aucun lot) = le compte d'avant, à l'identique. */
 export function cellCount({ selectionCount, strengthCount, count, batchMult = 1,
-  combine = false, configCount = 1, axisTotal = 1 }) {
+  combine = false, configCount = 1, axisTotal = 1, promptCount = 1 }) {
   const n = Math.max(0, Number(count) || 0);
   const mult = Math.max(1, Number(batchMult) || 1);
   const axes = Math.max(1, Number(axisTotal) || 1);
+  const prompts = Math.max(1, Number(promptCount) || 1);
   if (combine) {
     return selectionCount >= 2
-      ? Math.max(0, Number(configCount) || 0) * n * mult * axes : 0;
+      ? Math.max(0, Number(configCount) || 0) * n * mult * axes * prompts : 0;
   }
-  return Math.max(0, selectionCount) * Math.max(0, strengthCount) * n * mult * axes;
+  return Math.max(0, selectionCount) * Math.max(0, strengthCount) * n * mult * axes * prompts;
 }

@@ -83,6 +83,481 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-studio-start-frame-batch',
+    date: '2026-09-02',
+    title: 'Test a video LoRA on several start frames in one click',
+    blurb:
+      'The Test Studio’s start frame is now a strip: pick several pictures '
+      + '(several files at once, or tiles from a bank, the Gallery or a training '
+      + 'set) and Generate queues one clip per frame on the same seed and the '
+      + 'same prompt — ✨ Enrich rewrites it once, for the first clip — so the '
+      + 'clips differ by their picture and nothing else. Each frame has its ✕, '
+      + 'the button says how many clips a click queues, and dropping a file '
+      + 'onto the picker works again.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-02-video-studio-fast-disk',
+    date: '2026-09-02',
+    title: 'Video clips in seconds instead of minutes on machines whose RAM cannot hold the H3 weights',
+    blurb:
+      'The Video Test Studio loads about 43 GB of weights, and ComfyUI keeps a '
+      + 'copy of everything it offloads in system RAM — on a 48 GB machine a '
+      + '56-frame clip took five to six minutes, nearly all of it swapping '
+      + 'models. ComfyUI started from the Setup screen now runs with '
+      + '--fast-disk, which reads the weights from disk instead: the same clip '
+      + 'takes 20 to 30 seconds. When ComfyUI was started some other way, the '
+      + 'Studio says so and names the flag to add — or the one to drop, when a '
+      + 'launcher still switches the dynamic loader off.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-02-video-neural-render',
+    date: '2026-09-02',
+    title: 'Re-render video clips with DLSS 5 Neural Rendering',
+    blurb:
+      'A Neural render button on the clips of a video dataset and on the finished '
+      + 'clips of the Test Studio runs the NVIDIA DLSS 5 model over them: skin, hair '
+      + 'and fabric gain structure the source only implied. In a dataset the render '
+      + 'replaces the clip and the original is kept (Restore); in the studio it is a '
+      + 'new clip to compare. A ⇔ Compare button plays the original and the render '
+      + 'side by side, in step, with a 1:1 zoom. Strength, passes and a 2× working size '
+      + 'push the effect well past the model\'s default. Windows + NVIDIA only; Setup '
+      + 'installs the bridge, you bring the model file.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-02-video-studio-preview-size',
+    date: '2026-09-02',
+    title: 'A Preview size slider in the Video Test Studio’s start frame picker',
+    blurb:
+      'The Bank and Gallery tabs showed their pictures at one small size, '
+      + 'and a face in a tile that small is a smudge. A 🔍 slider '
+      + 'above the grid now enlarges the tiles more than three times over — one size for '
+      + 'the three tabs, remembered by your browser — so the frame is chosen '
+      + 'by eye, not by file name.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-02-video-studio-active-state-painted',
+    date: '2026-09-02',
+    title: 'The Video Test Studio shows which tab, mode, LoRA and lane are active',
+    blurb:
+      'The start frame tabs, the image/text toggle, the chosen LoRA and '
+      + 'presets, the selected take and the Images/Video switch were styled '
+      + 'with a colour the theme never defined, so their active state never '
+      + 'showed. They take the app’s amber now, like every other picker.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-02-video-studio-dataset-clip-posters',
+    date: '2026-09-02',
+    title: 'Dataset clip in the Video Test Studio shows its clips as pictures — and works',
+    blurb:
+      'The start frame picker’s Dataset clip tab listed the clips of a '
+      + 'training set as a column of file names that a set of any size '
+      + 'squashed into unreadable slivers. It is a grid of posters now, the '
+      + 'same frame the training set’s own page shows for each clip, with '
+      + 'the file name under it — pick the shot by eye, and the picked frame '
+      + 'appears beside “Ready” instead of a blank icon.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-02-comparison-prompt-batch',
+    date: '2026-09-02',
+    title: 'The multi-LoRA comparison can replay a batch of prompts too',
+    blurb:
+      'Ticking several prompts to replay them in one run worked in the Test '
+      + 'Studio and on the canvas, and did nothing at all on the comparison '
+      + 'screen — its launch simply never carried them. It does now, so saved '
+      + 'prompts, 🎬 scenes and 🌐 Civitai picks all build a batch there as '
+      + 'well: one image set per prompt, across every LoRA you are comparing, '
+      + 'same seed and settings. The cost counter multiplies by the batch '
+      + 'before you launch instead of surprising you afterwards.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-free-memory-button',
+    date: '2026-09-02',
+    title: 'A 🧹 button beside the machine-load numbers gives the RAM back',
+    blurb:
+      'ComfyUI keeps every model of the day cached in RAM after it leaves the '
+      + 'card (measured: 34 GB on an idle ComfyUI), and the vision model stays '
+      + 'warm for captioning — neither returns it by itself. 🧹 next to the '
+      + 'CPU · GPU · VRAM · RAM readout (top bar and Canvas toolbar) unloads '
+      + 'both and re-reads the machine; the toast says what actually came back. '
+      + 'Refused while something is rendering or training, and a model another '
+      + 'tool loaded is never touched.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-09-02-civitai-prompts-in-the-batch',
+    date: '2026-09-02',
+    title: 'Tick several Civitai prompts straight into the batch',
+    blurb:
+      'In the 🌐 Civitai browser every prompt-bearing card now has a ☐ Batch '
+      + 'box: tick as many as you like without leaving the browser, and the '
+      + 'next Run test replays them all — one pass per prompt, same checkpoints, '
+      + 'same settings, same seed, alongside the saved prompts you ticked. The '
+      + 'count shows under the prompt field and on the 🌐 button; ⤵ Use prompt '
+      + 'still drops a single one into the field. On the Test Studio and the '
+      + 'board’s 🎨 Generate alike.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-video-checkpoints-and-loras',
+    date: '2026-09-02',
+    title: 'A video set gets its Checkpoints & LoRAs section — deploy, continue, clear, step by step',
+    blurb:
+      'Every save a video training brought back — from this PC or from a rented '
+      + 'pod — now has its own section in the video workspace, listed by step so '
+      + 'both experts of a Wan 2.2 pair travel together. Each step offers what an '
+      + 'image dataset’s does: ⬇ download, 📦 deploy into ComfyUI’s loras folder '
+      + '(the Video Test Studio lists it as deployed right away), ⏏ undeploy, '
+      + '▶ continue training from that exact step on a fresh pod, ⓘ the run’s '
+      + 'details, and 🗑 delete — to the app’s Trash, recoverable. A Studio section '
+      + 'opens the Video tab of the Test Studio next door.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-02-publish-to-civitai',
+    date: '2026-09-02',
+    title: 'Publish a checkpoint and its images to Civitai without leaving the app',
+    blurb:
+      'A checkpoint pill now has a 📤 Civitai row: create its model page from '
+      + 'here (name, trigger words, base model and description pre-filled, the '
+      + '.safetensors uploaded, as a draft to finish on Civitai or published at '
+      + 'once), or mark the page it already has by pasting its address. Once a '
+      + 'checkpoint is linked, the image viewer’s 📤 button posts a picture '
+      + 'under that page in one press, with its prompt, seed, sampler and LoRA '
+      + 'weight as Civitai generation data. Every image leaves as a fresh PNG '
+      + 'with no embedded metadata, and the checkpoint’s own metadata is '
+      + 'checked for a machine path before anything is sent. Same key as the '
+      + 'scraper and the 🌐 prompt browser.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-02-video-cloud-launch-window',
+    date: '2026-09-02',
+    title: 'See the price, the time and the total before renting a GPU for a video run',
+    blurb:
+      'A video set used to rent a pod on one click, with the cost hidden inside a '
+      + 'closed dropdown. ☁ Train in the cloud now opens the same window as an image '
+      + 'dataset: every GPU class with its price per hour, a rough duration and total '
+      + 'for this set, a warning when the run would outlive the runtime cap, and this '
+      + 'month’s spend against your budget. A readiness card above the launch says what '
+      + 'still stands in the way — no clips, no references, a missing key — before '
+      + 'anything is spent, and “second pod, billed separately?” is a question you can '
+      + 'answer instead of an error.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-02-fence-one-click-one-answer',
+    date: '2026-09-02',
+    title: 'A click that waited for a busy local model runs once — and the notice names your server',
+    blurb:
+      'When another tool held your local model, LDS waited and replayed the click '
+      + 'the moment it was free — and kept that replay armed after you had already '
+      + 'clicked again, so ✨ Enhance could write two answers into the field, or '
+      + 'report one failure twice. One click is one answer now, on every surface '
+      + 'the fence guards — and an answer that arrives after you moved on (a new '
+      + 'frame, another mode or length, a newer click) is set aside, never '
+      + 'written into the field you are now looking at; the ✨ writers say so '
+      + 'with a note. And the notice names the server you actually run: on LM '
+      + 'Studio it no longer sends you to look in Ollama.',
+  },
+  {
+    id: '2026-09-02-krea-rebalance-and-enhancer-retired',
+    date: '2026-09-02',
+    title: 'Krea grids start on a bare ComfyUI — the rebalance and the enhancer are gone',
+    blurb:
+      'The Krea Studio graph now uses core ComfyUI nodes only: nothing to install, '
+      + 'and no more "custom node missing" at launch on a fresh setup. The NSFW / '
+      + 'texture rebalance toggle is retired — measured at a fixed seed, x4 did not '
+      + 'refine skin, it re-decided the whole picture (94% of pixels moved) — and so '
+      + 'is the experimental Krea2T Enhancer, which nobody used. Cells rendered with '
+      + 'either keep their record in the database; a resume renders them without.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-krea-hires-fix-and-finishing',
+    date: '2026-09-02',
+    title: 'A second pass for Krea, and a finishing touch after Upscale & improve',
+    blurb:
+      'Krea can now sample small and re-sample an upscaled latent — the model draws '
+      + 'the detail instead of interpolating it. Set the default in Settings ▸ Image '
+      + 'engines ▸ Krea 2, or pick it per run from the Studio\'s Sampling section. '
+      + 'And ✨ Upscale & improve gets a finishing pass the app runs itself: put the '
+      + 'source\'s colours back after a Klein pass, sharpen the finest detail, add a '
+      + 'touch of film grain — nothing to install, all off until you turn them on. '
+      + 'Sharpen and grain are also per run, in the Studio\'s Engine section.',
+    to: '/settings/engines',
+  },
+  {
+    id: '2026-09-01-video-dataset-workspace',
+    date: '2026-09-01',
+    title: 'Your video training sets finally have a screen of their own',
+    blurb:
+      'A video set used to be a card at the bottom of the library: a list of file '
+      + 'names, one caption box each, and nothing else. Opening one now opens a full '
+      + 'workspace — a grid of every clip with the rush and timecode it came from, a '
+      + 'player you can step through with the arrow keys, a search, and caption tools '
+      + 'that rewrite the .txt files in bulk. Same shape as an image dataset, because '
+      + 'it is the same job.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-01-remove-a-clip-from-a-video-set',
+    date: '2026-09-01',
+    title: 'Drop a bad clip without re-cutting the whole set',
+    blurb:
+      'The three-frame clip of somebody’s hand is only visible after the encode, and '
+      + 'until now the only way out was deleting the dataset and promoting it again. '
+      + 'Remove it from the set instead: its .mp4 and .txt go, and the bank keeps the '
+      + 'shot, its bounds and every decision — so you can re-cut and promote it again '
+      + 'with no triage to redo.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-02-sliders-locked-against-mistaps',
+    date: '2026-09-02',
+    title: 'Dials no longer move when you scroll past them on a phone',
+    blurb:
+      'A slider claims the touch that merely crosses it, so scrolling the '
+      + 'render rail with a thumb dragged whichever dial was under it — '
+      + 'silently, and the next clip rendered on a length nobody chose. Every '
+      + 'slider in the app now hands vertical swipes back to the page, and the '
+      + 'Video Test Studio’s dials (steps, length, resolution, LoRA '
+      + 'strength) carry the padlock the image side already had: locked by '
+      + 'default, one tap to open, and each remembers whether you left it open.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-start-frame-clip-tab-fixed',
+    date: '2026-09-02',
+    title: 'Picking a start frame from a training clip no longer takes the page down',
+    blurb:
+      'In the Video Test Studio, opening the “Dataset clip” tab and choosing a '
+      + 'training set blanked the screen: the clip list was read from the wrong '
+      + 'field and a count arrived where the clips were meant to be. It lists '
+      + 'them properly now, and says so plainly when a set holds none.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-01-motion-auto-instructed',
+    date: '2026-09-01',
+    title: '✨ Auto obeys what you type, and you choose the model behind it',
+    blurb:
+      'Type what should happen — "make her jump twice", "slower" — and ✨ Auto '
+      + 'follows it while keeping the people your start frame actually shows; '
+      + 'leave the field empty and it proposes freely. ✨ Enrich picks the same '
+      + 'two modes by itself. The ⚙ beside them opens the model window: the '
+      + 'motion writer is its own setting, so tuning it never re-points your '
+      + 'image passes.',
+  },
+  {
+    id: '2026-09-01-motion-auto-and-enrich',
+    date: '2026-09-01',
+    title: 'The Motion field writes itself, in H3’s own words and paced to your clip',
+    blurb:
+      '✨ Auto reads your start frame and proposes the movement; ✨ Enrich '
+      + 'rewrites what you wrote with more of the detail a sampler can use — '
+      + 'both leave the text yours to edit. And a toggle enriches at launch, '
+      + 'recording on the clip the prompt that actually ran. All three write '
+      + 'the official three-field prompt the model was trained on, paced to '
+      + 'the length you set (a 1 s clip and a 15 s one are no longer given the '
+      + 'same beat), and — when there is a start frame — name it so the subject '
+      + 'stays who it is; a prompt you typed yourself gets that first-frame line '
+      + 'at launch, once. They go through the local model you already run for '
+      + 'the image passes, or another one if you pick it under ⚙.',
+  },
+  {
+    id: '2026-09-01-bank-improve-carries-the-dials',
+    date: '2026-09-01',
+    title: 'The bank’s ✨ improve shows the dials it obeys, instead of naming them',
+    blurb:
+      'Improving a whole bank ran on the same instruction, LoRA preset, '
+      + 'strengths and output size as a dataset improve — and its launch window '
+      + 'listed them as things to go and change in Settings. They are in the '
+      + 'window now, exactly as in the dataset one, whenever Klein is the engine.',
+    to: '/bank',
+  },
+  {
+    id: '2026-09-01-saved-prompts-browser',
+    date: '2026-09-01',
+    title: 'Your saved prompts, big enough to recognise and searchable',
+    blurb:
+      'The list of prompts you have launched a test with was a wall of 32-pixel '
+      + 'thumbnails showing the first thirty characters — and test prompts run '
+      + 'to hundreds of characters that all start the same way, so most cards '
+      + 'read alike and the picture that told them apart was too small to see. '
+      + 'The strip now keeps the last few at a size you can actually read, and '
+      + '📚 Browse all opens the whole history: search it by any words you '
+      + 'remember, read each prompt in full, tick them for a batch, delete the '
+      + 'ones you are done with. Same panel on the dataset Test Studio and on '
+      + '“Generate from the board”.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-01-improve-panel-lora-strengths',
+    date: '2026-09-01',
+    title: 'Tune a preset’s LoRAs from the picture they apply to',
+    blurb:
+      'The ✨ Upscale & improve window named which LoRA preset it chains and '
+      + 'then said nothing about what was in it, so the one number you actually '
+      + 'change — how hard a LoRA pulls — still meant a trip to Settings. The '
+      + 'window now lists the preset’s LoRAs with a slider each, saved as you '
+      + 'drag. Building the presets themselves (adding, removing, reordering) '
+      + 'stays in Settings ▸ Engines: those change what a preset IS, for every '
+      + 'surface that runs Klein.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-improve-result-zoom',
+    date: '2026-09-01',
+    title: 'Zoom into the improved picture without leaving the window',
+    blurb:
+      'An upscale is judged on detail that fit-to-window hides. The result now '
+      + 'takes the wheel, a pinch on a touchscreen and a double-tap to fit '
+      + 'again — the same gestures the image viewer has always had, and never '
+      + 'past the picture’s own pixels.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-gallery-refreshes-itself',
+    date: '2026-09-01',
+    title: 'The Gallery shows a new render without a page reload',
+    blurb:
+      'Generate or improve something with the Gallery open and the image only '
+      + 'appeared after refreshing the page by hand. The feed now watches the '
+      + 'shared generation queue and slips whatever finished in at the top — '
+      + 'keeping your scroll, your selection and an open image exactly where '
+      + 'they were.',
+    to: '/gallery',
+  },
+  {
+    id: '2026-09-01-video-studio-smooth-vfi',
+    date: '2026-09-01',
+    title: 'Smooth a test clip to twice its frame rate',
+    blurb:
+      'Every finished clip gains a ↗ Smooth button: RIFE frame interpolation, '
+      + 'the same recipe the image generator runs (rife49, ×2, ensemble), so a '
+      + 'clip smoothed here is the clip smoothed there. It makes a NEW clip at '
+      + 'double the rate and the same duration — the original stays, because '
+      + 'comparing the two is the point.',
+  },
+  {
+    id: '2026-09-01-reuse-brings-the-start-frame-back',
+    date: '2026-09-01',
+    title: '↻ Reuse gives the start frame back, and any LoRA can be imported',
+    blurb:
+      'Reusing an image-to-video clip restored every dial — model, steps, '
+      + 'length, seed — and left the start frame empty, so Generate stayed '
+      + 'blocked. It comes back now. And the LoRA picker gained an import: give '
+      + 'it a path on this machine or choose the file, and it lands in '
+      + 'ComfyUI’s folder ready to test — no more moving files by hand.',
+  },
+  {
+    id: '2026-09-01-video-studio-length-to-15s',
+    date: '2026-09-01',
+    title: 'Clips up to 15 seconds, on a slider instead of a 21-row list',
+    blurb:
+      'The length list stopped at 209 frames (8.7s) because it was reading the '
+      + 'TRAINING catalogue — the model renders to 15s and the server always '
+      + 'accepted it. Every legal length from 0.88s to 15.04s is now on one '
+      + 'slider that snaps to what the VAE accepts, with the seconds and the '
+      + 'frame count above it and both ends of the range in view.',
+  },
+  {
+    id: '2026-09-01-video-studio-steps-dial',
+    date: '2026-09-01',
+    title: 'The sampling steps are a dial now, not a decision made for you',
+    blurb:
+      'The Video Test Studio ran 6 steps with Turbo and 20 without, and nothing '
+      + 'on screen let you move that — the one number that plainly trades time '
+      + 'for fidelity. There is now a Sampling steps slider (4 to 40) that says '
+      + 'what auto resolves to, and an explicit count wins over Turbo’s own. '
+      + '↻ Reuse replays the count a clip really ran.',
+  },
+  {
+    id: '2026-09-01-canvas-lanes-move-and-resize',
+    date: '2026-09-01',
+    title: 'Move a dataset’s block on the Canvas, and give it the room it needs',
+    blurb:
+      'Pin a run’s images and the contact sheet hangs below the tree — but the '
+      + 'board never counted it, so it landed on top of the next dataset. Each '
+      + 'lane now has its own two grips: drag its title strip to move the whole '
+      + 'block, drag its bottom edge to set how much room it keeps, and the '
+      + 'datasets below move with it. The edge turns amber when a lane draws '
+      + 'past its own room — double-click it to fit. ✦ Tidy up still hands '
+      + 'everything back to the automatic layout.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-09-01-start-frame-from-the-gallery',
+    date: '2026-09-01',
+    title: 'Animate an image straight from the Gallery',
+    blurb:
+      'The Video Test Studio’s start frame took an upload, a Bank image or '
+      + 'a dataset clip — but not the picture this app had just generated, which '
+      + 'meant exporting it to disk to feed it back in. The Gallery is now a '
+      + 'fourth source: pick any generated image and it is staged at full size.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-01-video-prep-in-one-button',
+    date: '2026-09-01',
+    title: '▶ Run everything now really runs everything',
+    blurb:
+      'The chain stopped after thumbnails while its own tooltip promised more. '
+      + 'It now offers every preparation pass — measure, embeddings, duplicates '
+      + 'and camera — in a launch window where you tick what you want, in the '
+      + 'order each one needs the previous. Describe shots stays its own button: '
+      + 'its wording changes what the captions say.',
+  },
+  {
+    id: '2026-09-01-slice-long-shots',
+    date: '2026-09-01',
+    title: 'Long shots can give several training clips instead of one',
+    blurb:
+      'A 15-second shot built at 209 frames used to train on its first 8.7 '
+      + 'seconds and the rest was never used. Tick “Slice shots longer than one '
+      + 'clip” when building a set and it gives whole clips end to end instead — '
+      + 'up to 8 per shot. Each slice carries its shot’s caption, so the window '
+      + 'says it plainly.',
+  },
+  {
+    id: '2026-09-01-max-shot-length-cut',
+    date: '2026-09-01',
+    title: 'A maximum shot length, next to the minimum',
+    blurb:
+      'The Quality cuts had a floor and no ceiling, so the shots your target '
+      + 'will truncate were invisible. Set a maximum and they are flagged '
+      + '“Longer than a clip” — filter them, cut them by hand, or slice them at '
+      + 'build time. It flags and sorts; it never rejects anything.',
+  },
+  {
+    id: '2026-09-01-clip-length-suggestion',
+    date: '2026-09-01',
+    title: 'The clip-length picker tells you what each length costs',
+    blurb:
+      'Building a set now says how long your kept shots actually run and how '
+      + 'many of them each length keeps whole — “141 frames keeps 87% of them”. '
+      + 'It never changes your choice, it just stops the default from being a '
+      + 'guess.',
+  },
+  {
+    id: '2026-09-01-recut-keeps-what-did-not-move',
+    date: '2026-09-01',
+    title: 'Changing the shot threshold no longer throws away your triage',
+    blurb:
+      'A re-cut used to replace every shot of a file — decisions, captions and '
+      + 'measurements with them — so trying a different threshold cost an '
+      + 'afternoon of work. Now a shot whose bounds do not change keeps its row: '
+      + 'its Keep/Reject, its caption and its scores stay. Only genuinely new or '
+      + 'merged shots start clean, and the result line says how many were kept.',
+  },
+  {
     id: '2026-09-01-video-bank-wears-the-bank-shell',
     date: '2026-09-01',
     title: 'The video bank now looks and works like the image bank',

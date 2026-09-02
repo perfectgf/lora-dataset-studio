@@ -20,8 +20,12 @@ const VERDICT = {
 const ROW_ICON = { ok: '✓', warn: '⚠', fail: '✕' };
 const ROW_CLS = { ok: 'text-emerald-400', warn: 'text-amber-300', fail: 'text-red-300' };
 
+// `endpoint` (optional): the preflight URL to read. Default = the image lane's,
+// byte for byte, so nothing that already mounts this card changes. The video
+// workspace passes its own — the report has the same shape (`checks` +
+// `verdict`), and one card rendering both is the parity rule made literal.
 export default function TrainingReadiness({ datasetId, trainType, variant, refreshKey, onJump,
-                                            onOverrideChange }) {
+                                            onOverrideChange, endpoint = null }) {
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
   // « Continue anyway » : ack de l'utilisateur pour lever un blocker QUALITÉ. Se
@@ -39,14 +43,15 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
         if (trainType) params.set('train_type', trainType);
         if (variant) params.set('variant', variant);
         const qs = params.size ? `?${params.toString()}` : '';
-        const r = await fetch(`/api/dataset/${datasetId}/train/preflight${qs}`, { credentials: 'include' });
+        const url = endpoint || `/api/dataset/${datasetId}/train/preflight${qs}`;
+        const r = await fetch(url, { credentials: 'include' });
         if (!r.ok) { if (alive) setData(null); return; }   // 409 ai-toolkit absent → rien
         const d = await r.json();
         if (alive && d.ok) setData(d);
       } catch { /* transient — le prochain changement de compteur retentera */ }
     }, 400);
     return () => { alive = false; clearTimeout(timer.current); };
-  }, [datasetId, trainType, variant, refreshKey]);
+  }, [datasetId, trainType, variant, refreshKey, endpoint]);
 
   // Reset the ack whenever the blocking state changes (a new blocker, a fixed one,
   // an override that just became unavailable) so a stale tick never rides forward.

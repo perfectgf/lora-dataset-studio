@@ -14,15 +14,16 @@
  * is a length the VAE accepts.
  */
 import { Sparkles, Flame, Zap, Maximize2 } from 'lucide-react';
-import { clipSeconds, SPARSE_CHOICES } from './videoStudioApi';
+import SliderLock, { useSliderLock } from '../../../shared/SliderLock';
+import { clipSeconds, SPARSE_CHOICES, studioFrameChoices } from './videoStudioApi';
 
 function Toggle({ checked, onChange, icon: Icon, label, cost, hint, disabled, disabledHint }) {
   return (
     <label className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 min-h-10 lg:min-h-0 ${
-      disabled ? 'border-border opacity-60' : `cursor-pointer ${checked ? 'border-accent/60 bg-accent/5' : 'border-border hover:border-accent/50'}`}`}>
+      disabled ? 'border-border opacity-60' : `cursor-pointer ${checked ? 'border-primary/60 bg-primary/5' : 'border-border hover:border-primary/50'}`}`}>
       <input type="checkbox" checked={!!checked} disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 shrink-0 accent-accent" />
+        className="mt-0.5 h-4 w-4 shrink-0 accent-primary" />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-sm text-content">
           <Icon aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />
@@ -58,9 +59,28 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
       ? `Needs the ${a.pack} node pack in ComfyUI (ComfyUI-Manager: “${a.search}”), then a restart.`
       : 'Needs a ComfyUI node pack that is not installed.';
   };
-  const frames = options?.frame_choices?.length ? options.frame_choices : [39, 56, 73, 107];
+  /* The STUDIO's ladder, not the training catalogue's: that one stops at 209
+     frames (8.7 s) because that is where training lengths stop being useful,
+     while this model renders to ~15 s and the server accepts it. */
+  const frames = studioFrameChoices(options);
   const fps = options?.fps || 24;
   const mp = options?.megapixels || { min: 0.1, max: 2, default: 0.3 };
+  /* 🔒 Locked by default, the same guard the image lane's dials wear. This
+     panel is scrolled past on a phone with a thumb, and a range input takes
+     the gesture that crosses it: the dial moves, nothing says so, and the next
+     clip renders on a length nobody chose. Each keeps its own memory — the one
+     you unlock is the one you are working on. */
+  const stepsLock = useSliderLock('videoStudio.lock.steps');
+  const lengthLock = useSliderLock('videoStudio.lock.length');
+  const mpLock = useSliderLock('videoStudio.lock.megapixels');
+  /* What "auto" resolves to, from the server's own constants rather than a
+     second copy of them here: turbo grafts a distillation LoRA with its own
+     six-step schedule, dense sampling runs twenty. An explicit count wins over
+     both — including over turbo's — which is why the panel must show WHICH
+     number is in force rather than implying the checkbox decides. */
+  const autoSteps = value.turbo
+    ? (options?.turbo_steps || 6) : (options?.default_steps || 20);
+  const steps = value.steps ? Number(value.steps) : autoSteps;
   const seconds = clipSeconds(value.frames, fps);
   const sparseHint = off('sparse')
     ? need('sparse')
@@ -87,7 +107,7 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
             disabled={off('latent_upscale')} disabledHint={need('latent_upscale')}
             hint="Enlarges before decoding, audio untouched. This is the pass that costs the time." />
           <label className={`flex flex-col gap-1 rounded-lg border px-2.5 py-2 ${
-            off('sparse') ? 'border-border opacity-60' : value.sparse ? 'border-accent/60 bg-accent/5' : 'border-border'}`}>
+            off('sparse') ? 'border-border opacity-60' : value.sparse ? 'border-primary/60 bg-primary/5' : 'border-border'}`}>
             <span className="flex items-center gap-1.5 text-sm text-content">
               <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />
               <span className="min-w-0 flex-1">Sparse attention</span>
@@ -116,27 +136,94 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
         )}
       </div>
 
+      {/* Steps — the plainest time-for-fidelity dial there is, and the only
+          one that was decided for you. It sits with the render options rather
+          than with the shot because it is what turbo overrides, and turning it
+          is how you find out whether turbo's six are enough for YOUR motion. */}
+      <label className="flex flex-col gap-1 border-t border-border pt-3 text-xs text-content-muted">
+        <span className="flex items-baseline justify-between gap-2">
+          Sampling steps
+          <span className="flex items-baseline gap-2">
+            <span className="tabular-nums text-content">
+              {value.steps ? steps : `auto · ${autoSteps}`}
+            </span>
+            {value.steps ? (
+              <button type="button" onClick={() => set({ steps: '' })}
+                className="rounded-md border border-border px-1.5 py-0.5 text-[0.625rem] text-content-muted hover:text-content">
+                Auto
+              </button>
+            ) : null}
+            {/* The padlock guards the TRACK, not this row: Auto is a small
+                deliberate tap, never what a scrolling thumb lands on. */}
+            <SliderLock locked={stepsLock.locked} onToggle={stepsLock.toggle}
+              label="sampling steps" />
+          </span>
+        </span>
+        <input type="range" min="4" max="40" step="1" value={steps}
+          onChange={(e) => set({ steps: Number(e.target.value) })}
+          {...stepsLock.rangeProps}
+          className={`mt-1 accent-primary ${stepsLock.rangeProps.className}`} />
+        <span className="text-[0.6875rem] leading-snug text-content-subtle">
+          {value.turbo
+            ? 'Turbo\u2019s distillation is trained for 6 — going far above it '
+              + 'costs minutes without buying detail, and below 4 it ghosts on '
+              + 'fast motion. An explicit count wins over turbo\u2019s own.'
+            : 'Dense sampling: more steps, more time, diminishing returns past '
+              + 'about 30. This is the dial to move when a clip looks mushy '
+              + 'rather than wrong.'}
+        </span>
+      </label>
+
       <div className="flex flex-col gap-1.5 border-t border-border pt-3">
         <h3 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">Shot</h3>
         <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+          {/* A SLIDER, not a 21-row dropdown. The legal lengths are a ladder
+              (H3's VAE packs 17 frames per chunk, so every rung is ≡ 5 mod 17)
+              and a ladder is what a discrete slider is for: it snaps, so an
+              illegal count cannot be picked, and the whole range is legible
+              without opening anything. The live value sits ABOVE the track —
+              below it is where a finger lands (NN/g) — and reads in SECONDS
+              first, because that is the unit the shot is thought in; the frame
+              count follows as the technical truth. Same shape as Resolution
+              underneath: one kind of dial, one look. */}
           <label className="flex flex-col gap-1 text-xs text-content-muted">
-            Length
-            <select value={value.frames} onChange={(e) => set({ frames: Number(e.target.value) })}
-              className="rounded-lg border border-border bg-app px-2 py-1.5 text-content min-h-10 lg:min-h-0">
-              {frames.map((f) => (
-                <option key={f} value={f}>{f} frames · {clipSeconds(f, fps)}s</option>
-              ))}
-            </select>
+            <span className="flex items-baseline justify-between gap-2">
+              Length
+              <span className="flex items-center gap-2">
+                <span className="tabular-nums text-content">
+                  {seconds}s
+                  <span className="ml-1 text-content-subtle">· {value.frames} frames</span>
+                </span>
+                <SliderLock locked={lengthLock.locked} onToggle={lengthLock.toggle}
+                  label="clip length" />
+              </span>
+            </span>
+            <input type="range" min="0" max={Math.max(0, frames.length - 1)} step="1"
+              value={Math.max(0, frames.indexOf(value.frames))}
+              onChange={(e) => set({ frames: frames[Number(e.target.value)] })}
+              aria-label="Clip length"
+              {...lengthLock.rangeProps}
+              className={`mt-1 accent-primary ${lengthLock.rangeProps.className}`} />
+            <span className="flex justify-between text-[0.625rem] tabular-nums text-content-subtle">
+              <span>{clipSeconds(frames[0], fps)}s</span>
+              <span>{clipSeconds(frames[frames.length - 1], fps)}s</span>
+            </span>
           </label>
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             <span className="flex items-baseline justify-between">
               Resolution
-              <span className="tabular-nums text-content">{Number(value.megapixels).toFixed(2)} MP</span>
+              <span className="flex items-center gap-2">
+                <span className="tabular-nums text-content">{Number(value.megapixels).toFixed(2)} MP</span>
+                <SliderLock locked={mpLock.locked} onToggle={mpLock.toggle}
+                  label="resolution" />
+              </span>
             </span>
             <input type="range" min={mp.min} max={mp.max} step="0.05"
               value={value.megapixels}
               onChange={(e) => set({ megapixels: Number(e.target.value) })}
-              className="mt-1 accent-accent" />
+              aria-label="Resolution"
+              {...mpLock.rangeProps}
+              className={`mt-1 accent-primary ${mpLock.rangeProps.className}`} />
           </label>
           <label className="flex flex-col gap-1 text-xs text-content-muted">
             Seed

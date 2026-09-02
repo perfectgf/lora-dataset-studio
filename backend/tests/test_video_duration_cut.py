@@ -165,3 +165,30 @@ def test_the_dry_run_sees_clips_the_metrics_pass_never_touched(
                        json={'min_duration_s': 1.0}).get_json()
 
     assert body['brief'] == 1
+
+
+# --- the ceiling the floor never had (2026-09-01) ------------------------------------
+
+def test_a_shot_longer_than_the_cut_is_flagged_lengthy_and_only_then():
+    """The maintainer asked it plainly: there is a minimum length, why no
+    maximum? Because nothing showed the shots the export TRUNCATES — it takes
+    the first N frames of a shot and the rest never trains. `lengthy` names
+    them; like every flag in this lane it describes, it never rejects."""
+    from app.services.video_metrics import verdicts
+    cuts = {'max_duration_s': 8.0}
+    assert 'lengthy' in verdicts({}, cuts, duration_s=15.0)
+    assert 'lengthy' not in verdicts({}, cuts, duration_s=8.0)     # equal fits
+    assert 'lengthy' not in verdicts({}, cuts, duration_s=2.0)
+    # No cut set, or no duration known: no flag invented.
+    assert 'lengthy' not in verdicts({}, {}, duration_s=15.0)
+    assert 'lengthy' not in verdicts({}, cuts, duration_s=None)
+
+
+def test_the_two_length_cuts_are_independent_and_can_both_fire_on_a_bank():
+    """They are the two ends of one question and must not collapse into each
+    other: a bank can hold slivers AND overlong takes at the same time."""
+    from app.services.video_metrics import verdicts
+    cuts = {'min_duration_s': 1.0, 'max_duration_s': 8.0}
+    assert verdicts({}, cuts, duration_s=0.5) == {'brief'}
+    assert verdicts({}, cuts, duration_s=20.0) == {'lengthy'}
+    assert verdicts({}, cuts, duration_s=4.0) == set()

@@ -331,6 +331,13 @@ def studio_run():
             LOCAL_USER, d.get('selections') or [], d.get('strengths') or [],
             # Réglages partagés (parité Generate) : un objet, mêmes clés wire.
             lts.StudioGenSettings.from_payload(d),
+            # 📝 Lot : une passe par prompt coché. `create_comparison_run` accepte
+            # l'argument depuis toujours — c'est CETTE route qui ne le transmettait
+            # pas, et l'axe était donc inatteignable sur la seule surface de
+            # comparaison, alors que les deux autres routes de lancement
+            # (datasets.studio_run, training.canvas_generate) le passent. Absent du
+            # corps ⇒ None ⇒ comportement d'avant, à l'identique.
+            prompts=d.get('prompts'),
             external_loras=d.get('external_loras'), combine=d.get('combine'))
     except Exception as e:
         from ..services.lora_test_studio import StudioArchMismatch, StudioAssetsMissing

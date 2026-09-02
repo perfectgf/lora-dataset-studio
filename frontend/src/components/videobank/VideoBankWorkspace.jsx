@@ -29,6 +29,7 @@ import VideoClipGrid from './VideoClipGrid'
 import VideoClipLightbox from './VideoClipLightbox'
 import VideoFilterRail from './VideoFilterRail'
 import VideoPassesPanel from './VideoPassesPanel'
+import RunEverythingDialog from './RunEverythingDialog'
 import { matchLine } from './videoClipSearch'
 import { filterByFlag, flagChips, flagFilterNote } from './videoMetricsFilter'
 import { cameraChips, filterByCamera } from './videoCameraMotion'
@@ -112,6 +113,8 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   const [railIsColumnNow, setRailIsColumnNow] = useState(() => railIsColumn(viewportWidth()))
   const [railOpen, setRailOpen] = useState(() => loadRailOpen(viewportWidth()))
   const [passesOpen, setPassesOpen] = useState(false)
+  // ▶ The pipeline's launch window: which preparation passes the chain runs.
+  const [runningAll, setRunningAll] = useState(false)
   const passesAutoOpened = useRef(false)
   useEffect(() => {
     const onResize = () => setRailIsColumnNow(railIsColumn(window.innerWidth))
@@ -585,9 +588,11 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
   const recutSource = (src) => perSource(
     src, videoSourceRecutUrl(bankId, src.id),
     `Find the shots in ${src.relpath} again?\n\n`
-    + 'This replaces every shot on this file, INCLUDING any you cut by hand. '
-    + 'Shots already promoted into a dataset are kept.',
-    (d) => `${d.clips} shots`
+    + 'Shots whose bounds do not change keep their triage and captions. The '
+    + 'others are replaced, INCLUDING any you cut by hand. Shots already '
+    + 'promoted into a dataset are kept.',
+    (d) => `${d.clips} shot(s)`
+      + (d.kept ? `, ${d.kept} unchanged (triage and captions kept)` : '')
       + (d.replaced_manual ? `, replacing ${d.replaced_manual} hand-made.` : '.'))
 
   if (!bank) return <p className="text-sm text-content-muted">Loading…</p>
@@ -648,10 +653,10 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
             {passesButtonLabel(busy)}
           </button>
           <span className="inline-flex items-center gap-1">
-            <button type="button" onClick={() => startPass('pipeline')}
+            <button type="button" onClick={() => setRunningAll(true)}
               disabled={busy || !!passBlockedBy(capability, 'pipeline')}
               title={passBlockedBy(capability, 'pipeline')?.why
-                || 'Run the whole lane in one go — probe, find shots, thumbnails, measure, embeddings and the rest. Start it and walk away.'}
+                || 'Chain the preparation passes — scan, find shots, thumbnails, and whichever of measure, embeddings, duplicates and camera you tick. Start it and walk away.'}
               className="min-h-10 lg:min-h-0 rounded-md bg-gradient-primary px-4 py-2 text-sm font-bold text-gray-950 shadow disabled:opacity-50">
               ▶ {PASS_LABELS.pipeline}
             </button>
@@ -861,6 +866,15 @@ export default function VideoBankWorkspace({ bankId, onBack, onGone }) {
           keepCount={counts.keep || 0} selectedIds={selected}
           onClose={() => setPromoting(false)}
           onDone={() => { setSelected([]); loadBank(false) }} />
+      )}
+
+      {runningAll && (
+        <RunEverythingDialog capability={capability}
+          onClose={() => setRunningAll(false)}
+          onLaunch={async (steps) => {
+            await startPass('pipeline', { steps })
+            setRunningAll(false)
+          }} />
       )}
 
       {describing && (

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
-import KleinImproveNote from '../dataset/KleinImproveNote';
+import KleinImproveNote, {
+  flushImproveSettings, whenImproveSettingsSettled,
+} from '../dataset/KleinImproveNote';
+import ImproveResultView from './ImproveResultView';
 
 /* ✨ The improve MODAL — settings on demand, result in place.
 
@@ -79,8 +82,23 @@ export default function ImproveModal({ img, host = 'library', datasetId = null,
   const generate = async (e) => {
     e.stopPropagation();
     setError(null);
+    /* A candidate from a FAILED attempt must not survive into the next one: the
+       poll effect restarts on 'settings' → 'generating' and ticks immediately,
+       so a stale id answers 'failed' (it always will) and wins the race against
+       the POST — the dialog then shows an error for a run that was queued fine,
+       and never reaches the result. */
+    setCandidateId(null);
+    setResult(null);
     setPhase('generating');
     try {
+      /* The dials are read SERVER-SIDE at enqueue time (the chain is resolved
+         from config.json), so a slider dropped a beat ago must have landed
+         before this POST — otherwise the render uses the previous value while
+         the panel shows the new one. Flush what is coalescing, wait for what is
+         in flight; a settings write that FAILED does not block the run (the
+         panel reports it on its own). */
+      flushImproveSettings();
+      await whenImproveSettingsSettled();
       const d = await postJson(routes.post(img.id), { engine: 'klein' });
       if (!d?.ok) throw new Error(d?.error || 'Could not queue the improve');
       setCandidateId(d.candidate_id);
@@ -108,7 +126,10 @@ export default function ImproveModal({ img, host = 'library', datasetId = null,
          with focus elsewhere reach the hosts' own stand-down branches. */
       onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) close(e); }}
       onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') close(e); }}>
-      <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-white/10 bg-surface-overlay shadow-2xl">
+      {/* In the result phase the dialog takes the height it can: the picture IS
+          the content, and a body that scrolls under a `touch-none` frame hides
+          the bottom of the render behind a gesture that was taken away. */}
+      <div className={`flex w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-white/10 bg-surface-overlay shadow-2xl ${phase === 'done' ? 'h-full max-h-full' : 'max-h-full'}`}>
         <header className="flex items-start gap-3 border-b border-white/10 px-4 py-3">
           <span aria-hidden className="mt-0.5">✨</span>
           <div className="min-w-0 flex-1">
@@ -125,7 +146,7 @@ export default function ImproveModal({ img, host = 'library', datasetId = null,
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className={`min-h-0 flex-1 p-4 ${phase === 'done' ? 'flex overflow-hidden' : 'overflow-y-auto'}`}>
           {phase === 'settings' && (
             <KleinImproveNote subjectType={subjectType} datasetId={datasetId} className="w-full" />
           )}
@@ -138,9 +159,10 @@ export default function ImproveModal({ img, host = 'library', datasetId = null,
               </p>
             </div>
           )}
+          {/* Zoomable: an upscale is judged on detail that fit-to-dialog hides.
+              Same engine as the lightbox — see ImproveResultView. */}
           {phase === 'done' && result && (
-            <img src={result.url} alt="Improved result"
-              className="mx-auto max-h-[62vh] w-auto max-w-full rounded-lg border border-white/15 object-contain" />
+            <ImproveResultView url={result.url} />
           )}
           {phase === 'failed' && (
             <p role="alert" className="m-0 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[0.85rem] text-amber-100">
@@ -151,7 +173,13 @@ export default function ImproveModal({ img, host = 'library', datasetId = null,
 
         <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-white/10 px-4 py-3">
           {phase === 'failed' && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); setPhase('settings'); }}
+            <button type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                // With the id left behind, the next Generate polls the OLD
+                // candidate and flips straight back to this same error.
+                setCandidateId(null); setResult(null); setError(null); setPhase('settings');
+              }}
               className="min-h-10 lg:min-h-0 rounded-lg border border-white/10 px-3 py-1.5 text-[0.78rem] text-gray-300 hover:border-white/25">
               Back to settings
             </button>

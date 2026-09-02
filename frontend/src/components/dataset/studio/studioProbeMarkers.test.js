@@ -45,3 +45,35 @@ test('the probe reaches the Studio through its id-carrying route', () => {
 test('the shortcut state drives the bar the users drive', () => {
   assert.match(probe, /\{ name: 'shortcut', open: \['\[data-probe-chrome="action-bar"\] button'\] \}/);
 });
+
+test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () => {
+  /* The lane is a tab: every run before this measured the Images lane and
+     called the page clean, while the video panels had never been seen at
+     360 px. The selectors are pinned on both sides — a renamed testid would
+     otherwise put the lane back out of sight with the probe still green. */
+  const lanes = read('../../../pages/StudioPage.jsx');
+  const picker = read('./video/VideoSourcePicker.jsx');
+  assert.match(lanes, /data-testid=\{`studio-lane-\$\{id\}`\}/);
+  assert.match(picker, /data-testid=\{`video-source-\$\{id\}`\}/);
+  assert.match(probe, /\{ name: 'video', open: \['\[data-testid="studio-lane-video"\]'\] \}/);
+  assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
+  assert.match(probe, /'\[data-testid="video-source-clip"\]'/);
+});
+
+test('the probe opens the 🌐 Civitai browser, whose action row grew a third button', () => {
+  /* Le lot de prompts a fait passer la rangée d'actions d'une carte de deux
+     boutons à trois, dans une colonne qui fait ~250 px à 360 px de large à côté
+     de la vignette. Aucun état de sonde n'ouvrait cette modale : la rangée
+     n'avait donc jamais été mesurée à aucune taille. Les deux côtés sont
+     épinglés — un bouton renommé remettrait la surface hors de portée avec la
+     sonde toujours verte, ce qui est exactement le trou que ce fichier existe
+     pour fermer. */
+  const modal = read('./CivitaiBrowserModal.jsx');
+  const button = read('./CivitaiBrowserButton.jsx');
+  // La modale couvre la page par design : layer (non budgétée), et un panneau
+  // nommé pour que la mesure de remplissage la voie.
+  assert.match(modal, /data-probe-layer data-probe-panel="civitai-browser"/);
+  // Le texte du bouton EST le sélecteur de la sonde.
+  assert.match(button, /🌐 Civitai/);
+  assert.match(probe, /\{ name: 'civitai', open: \['button:has-text\("🌐 Civitai"\)'\] \}/);
+});

@@ -11,13 +11,15 @@
  * talking the moment it loads is a list nobody leaves open. The controls are
  * there for whoever wants to hear it.
  */
-import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, Loader2 } from 'lucide-react';
+import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, Loader2, Waves, Sparkles } from 'lucide-react';
 import { clipVideoUrl, isRunning } from './videoStudioApi';
 import { clipTags } from './videoClipTags';
 
 const ACTION = 'flex items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[0.6875rem] min-h-10 lg:min-h-0';
 
-export default function VideoClipHistory({ clips, onRate, onDelete, onReuse }) {
+export default function VideoClipHistory({
+  clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy, onCompare,
+}) {
   if (!clips.length) {
     return (
       <p className="rounded-xl border border-dashed border-border bg-surface px-3 py-6 text-center text-sm text-content-subtle">
@@ -67,7 +69,7 @@ export default function VideoClipHistory({ clips, onRate, onDelete, onReuse }) {
               <div className="mt-auto flex flex-wrap items-center gap-1">
                 <button type="button" onClick={() => onRate(clip, clip.rating === 1 ? 0 : 1)}
                   title="Keep this one" aria-pressed={clip.rating === 1}
-                  className={`${ACTION} ${clip.rating === 1 ? 'border-accent bg-accent/10 text-content' : 'border-border text-content-muted hover:text-content'}`}>
+                  className={`${ACTION} ${clip.rating === 1 ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted hover:text-content'}`}>
                   <ThumbsUp aria-hidden="true" className="h-3.5 w-3.5" />
                 </button>
                 <button type="button" onClick={() => onRate(clip, clip.rating === -1 ? 0 : -1)}
@@ -80,6 +82,43 @@ export default function VideoClipHistory({ clips, onRate, onDelete, onReuse }) {
                   className={`${ACTION} border-border text-content-muted hover:text-content`}>
                   <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />Reuse
                 </button>
+                {/* ↗ VFI — the same RIFE pass the image generator runs, on a
+                    clip that has finished. Offered only there: interpolating a
+                    file that does not exist yet is the one thing this button
+                    cannot mean. It makes a NEW clip, so the pair can be
+                    compared — which is what this whole screen is for. */}
+                {clip.status === 'done' && !clip.vfi_of && onVfi && (
+                  <button type="button" onClick={() => onVfi(clip)}
+                    disabled={vfiBusy === clip.id}
+                    title={`Smooth this clip — interpolate to ${Math.round((clip.fps || 24) * 2)} fps, as a new clip`}
+                    className={`${ACTION} border-border text-content-muted hover:text-content disabled:opacity-40`}>
+                    <Waves aria-hidden="true" className="h-3.5 w-3.5" />
+                    {vfiBusy === clip.id ? '…' : 'Smooth'}
+                  </button>
+                )}
+                {/* ✨ DLSS 5 Neural Rendering over a finished clip — a NEW clip,
+                    same rule as Smooth: the studio compares, it never edits.
+                    Offered on every finished clip, a render included: a second
+                    pass with other dials is a legitimate comparison. */}
+                {clip.status === 'done' && onNeuralRender && (
+                  <button type="button" onClick={() => onNeuralRender(clip)}
+                    disabled={nrBusy === clip.id}
+                    title="Re-render this clip with DLSS 5 Neural Rendering, as a new clip"
+                    className={`${ACTION} border-border text-content-muted hover:text-content disabled:opacity-40`}>
+                    <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
+                    {nrBusy === clip.id ? '…' : 'Neural'}
+                  </button>
+                )}
+                {/* ⇔ A rendered clip against the clip it was rendered from, in
+                    step — the comparison this whole screen exists for, on the
+                    one pair where nothing but the render differs. */}
+                {clip.status === 'done' && clip.nr_of && onCompare && (
+                  <button type="button" onClick={() => onCompare(clip)}
+                    title={`Play clip #${clip.nr_of} (the source) next to this render, in step`}
+                    className={`${ACTION} border-border text-content-muted hover:text-content`}>
+                    ⇔ Compare
+                  </button>
+                )}
                 <button type="button" onClick={() => onDelete(clip)} title="Delete this clip"
                   className={`${ACTION} ml-auto border-border text-content-muted hover:border-red-500/50 hover:text-red-300`}>
                   <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />

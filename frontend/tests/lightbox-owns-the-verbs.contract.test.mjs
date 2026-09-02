@@ -98,3 +98,21 @@ test('while the picker is open, the viewer stands down its window keys', () => {
   // arrows must not walk the list under the open dial.
   assert.match(viewer, /if \(cameraOpen\) \{\s*if \(e\.key === 'Escape'\) setCameraOpen\(false\);\s*return;/);
 });
+
+test('📤 Civitai is the viewer\'s verb too — drawn here, addressed by the row\'s own checkpoint stamp', () => {
+  assert.match(viewer, /data-testid="lightbox-civitai"/);
+  assert.match(viewer, /import CivitaiPublishModal from '.\/CivitaiPublishModal'/);
+  // The image door: the modal is told it is about THIS row, nothing else.
+  assert.match(viewer, /<CivitaiPublishModal context=\{\{ kind: 'image', img \}\}/);
+  // Disabled-with-reason, like 📷.
+  assert.match(viewer, /civitaiVerbRefusal\(img\)/);
+  // A layer like ✦ / 📷 / ✨: the window keys stand down under it.
+  assert.match(viewer, /if \(repairOpen \|\| improveOpen \|\| civitaiOpen\) return;/);
+  for (const h of HOSTS) {
+    const src = read(h);
+    assert.ok(!src.includes('lightbox-civitai'), `${h}: the Civitai button belongs to the viewer`);
+    // A host may open the CHECKPOINT door of the same dialog (the popover's
+    // row); the IMAGE door is the viewer's alone.
+    assert.ok(!src.includes("kind: 'image'"), `${h}: the image door of the Civitai dialog is the viewer's`);
+  }
+});

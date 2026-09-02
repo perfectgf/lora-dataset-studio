@@ -33,7 +33,7 @@
     "inputs": {
       "seed": 0, "steps": 8, "cfg": 1.0,
       "sampler_name": "er_sde", "scheduler": "simple", "denoise": 1.0,
-      "model": ["20", 0], "positive": ["30", 0], "negative": ["24", 0], "latent_image": ["25", 0]
+      "model": ["20", 0], "positive": ["23", 0], "negative": ["24", 0], "latent_image": ["25", 0]
     },
     "class_type": "KSampler",
     "_meta": { "title": "KSampler (Krea Turbo)" }
@@ -47,16 +47,5 @@
     "inputs": { "filename_prefix": "Krea2_GeneratedImage", "images": ["27", 0] },
     "class_type": "SaveImage",
     "_meta": { "title": "Save Image" }
-  },
-  "30": {
-    "inputs": {
-      "preset": "custom",
-      "multiplier": 4.0,
-      "per_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0",
-      "renormalize": false,
-      "conditioning": ["23", 0]
-    },
-    "class_type": "ConditioningKrea2Rebalance",
-    "_meta": { "title": "Conditioning Krea 2 Rebalance" }
   }
 }

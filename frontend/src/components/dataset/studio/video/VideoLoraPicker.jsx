@@ -22,22 +22,30 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, Download, FlaskConical, RefreshCw } from 'lucide-react';
-import { apiFetch, postJson } from '../../../../api/fetchClient';
+import { apiFetch, postForm, postJson } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
-import { deployUrl, lorasUrl } from './videoStudioApi';
+import { deployUrl, lorasUrl, loraImportUrl } from './videoStudioApi';
 import { groupTrained, shortLoraName, splitDeployed } from './videoLoraGroups';
+import SliderLock, { useSliderLock } from '../../../shared/SliderLock';
 
 const ROW = 'flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left min-h-10 lg:min-h-0';
-const ROW_IDLE = 'border-border bg-surface-raised hover:border-accent/50';
-const ROW_ON = 'border-accent bg-accent/10';
+const ROW_IDLE = 'border-border bg-surface-raised hover:border-primary/50';
+const ROW_ON = 'border-primary bg-primary/10';
 const PILL = 'rounded-full border px-2 py-0.5 text-[0.6875rem] min-h-10 lg:min-h-0 lg:py-0.5';
 
 export default function VideoLoraPicker({ value, onChange, strength, onStrength }) {
+  const strengthLock = useSliderLock('videoStudio.lock.loraStrength');
   const toast = useToast();
   const [deployed, setDeployed] = useState([]);
   const [trained, setTrained] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(null);
+  // ⇧ Importing a LoRA from anywhere else. Two ways in because they are two
+  // different situations: a PATH (the file is on this machine — nothing
+  // crosses HTTP, which matters at 300 MB) and a FILE (it is on whatever is
+  // driving the browser).
+  const [importPath, setImportPath] = useState('');
+  const [importing, setImporting] = useState(false);
   // Folded to the choice once one is made; open again on "Change" — and open
   // from the start when nothing is chosen, since choosing is the panel's job.
   const [open, setOpen] = useState(!value);
@@ -57,6 +65,34 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
   useEffect(() => { load(); }, [load]);
 
   const pick = (next) => { onChange(next); setOpen(false); };
+
+  /* One handler, two shapes: a path goes as JSON (nothing crosses HTTP), a
+     file as multipart. Both refuse in words — wrong extension, missing file, a
+     DIFFERENT weight already under that name — and a success re-reads the
+     lists so the newcomer is simply there, then selects it. */
+  const runImport = async ({ path, file }) => {
+    setImporting(true);
+    try {
+      let r;
+      if (file) {
+        const fd = new FormData();
+        fd.append('file', file);
+        r = await postForm(loraImportUrl(), fd);
+      } else {
+        r = await postJson(loraImportUrl(), { path });
+      }
+      await load();
+      toast.success(r.already
+        ? `${r.label} was already in ComfyUI — selected.`
+        : `${r.label} imported into ComfyUI.`);
+      setImportPath('');
+      pick({ lora: r.filename, runId: null, datasetId: null });
+    } catch (e) {
+      toast.error(e?.message || 'That LoRA could not be imported.');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const deployAndPick = async (ck, group) => {
     setBusy(`${group.run_id}:${ck.filename}`);
@@ -151,8 +187,8 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
                           ? pick({ lora: c.deployed_as, runId: g.run_id, datasetId: g.dataset_id })
                           : deployAndPick(c, g))}
                         className={`${PILL} flex items-center gap-1 ${
-                          on ? 'border-accent bg-accent/15 text-content'
-                            : 'border-border text-content-muted hover:border-accent/60 hover:text-content'}`}>
+                          on ? 'border-primary bg-primary/15 text-content'
+                            : 'border-border text-content-muted hover:border-primary/60 hover:text-content'}`}>
                         {c.final ? 'Final' : `Step ${c.step}`}
                         {!c.deployed_as && (
                           <Download aria-hidden="true" className="h-3 w-3 opacity-70" />
@@ -203,6 +239,47 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
             </details>
           )}
 
+          {/* ⇧ Import — the answer to "my LoRA is in neither list". The picker
+              offered what this app trained and what already sat in ComfyUI's
+              h3 folder, so anything downloaded had to be moved there by hand,
+              in a file explorer, with this window open beside it. */}
+          <details className="rounded-lg border border-border">
+            <summary className="min-h-10 cursor-pointer select-none px-2 py-1.5 text-xs text-content-muted hover:text-content lg:min-h-0">
+              ⇧ Import a LoRA from this machine
+            </summary>
+            <div className="flex flex-col gap-1.5 border-t border-border p-2">
+              <label className="flex flex-col gap-1 text-xs text-content-muted">
+                Path to a .safetensors file
+                <span className="flex gap-1.5">
+                  <input type="text" value={importPath}
+                    placeholder="D:\loras\my_lora.safetensors"
+                    onChange={(e) => setImportPath(e.target.value)}
+                    className="min-h-10 min-w-0 flex-1 rounded-lg border border-border bg-app px-2 py-1.5 text-content lg:min-h-0" />
+                  <button type="button" disabled={!importPath.trim() || importing}
+                    onClick={() => runImport({ path: importPath.trim() })}
+                    className="min-h-10 shrink-0 rounded-lg border border-border px-2.5 py-1.5 text-content disabled:opacity-40 lg:min-h-0">
+                    {importing ? '…' : 'Import'}
+                  </button>
+                </span>
+              </label>
+              <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-xs text-content-muted hover:border-primary/60 lg:min-h-0">
+                <span className="flex-1">…or choose the file (copied over the network)</span>
+                <span className="shrink-0 rounded-md border border-border px-2 py-1">Browse</span>
+                <input type="file" accept=".safetensors" className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) runImport({ file: f });
+                    e.target.value = '';
+                  }} />
+              </label>
+              <p className="text-[0.6875rem] leading-snug text-content-subtle">
+                Copied into ComfyUI’s h3 folder, where the loader reads it. A
+                different file already under that name is never overwritten —
+                rename yours, so the two stay tellable apart.
+              </p>
+            </div>
+          </details>
+
           {/* No <code> spans in this sentence: they split one full-width paragraph
               into three small islands of ink, which measures — and reads — as an
               empty panel. */}
@@ -220,8 +297,14 @@ export default function VideoLoraPicker({ value, onChange, strength, onStrength 
           Strength
           <input type="range" min="0" max="2" step="0.05" value={strength}
             onChange={(e) => onStrength(Number(e.target.value))}
-            className="min-w-0 flex-1 accent-accent" />
+            aria-label="LoRA strength"
+            {...strengthLock.rangeProps}
+            className={`min-w-0 flex-1 accent-primary ${strengthLock.rangeProps.className}`} />
           <span className="w-9 text-right tabular-nums text-content">{Number(strength).toFixed(2)}</span>
+          {/* The dial that decides whether the LoRA speaks at all — and the one
+              a thumb crosses on the way down the rail. */}
+          <SliderLock locked={strengthLock.locked} onToggle={strengthLock.toggle}
+            label="LoRA strength" />
         </label>
       )}
       {value && (

@@ -20,7 +20,7 @@ export function isEnginePart(filename) {
   return ENGINE_PART.test(String(filename || ''));
 }
 
-/** `lds174_video_Jessy___stills_000001000.safetensors` → `Jessy — stills`.
+/** `lds174_video_Harbour___stills_000001000.safetensors` → `Harbour — stills`.
  * The run prefix is the row's subtitle, the step suffix is the pill, the
  * folder and the extension are noise. Triple underscores were an em dash on
  * the way in (the export flattens names). */

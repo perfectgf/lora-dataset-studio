@@ -28,6 +28,7 @@ const CAPS_FULL = {
   comfyui: { dir_valid: true, reachable: true },
   face_scoring: true, masks: true, watermark_inpaint: true,
   training_visible: true, studio_visible: true,
+  civitai: { ok: true },
 }
 const CAPS_COMFY_OFF = { comfyui: { dir_valid: true, reachable: false } }
 
@@ -45,16 +46,18 @@ test('every capability row carries a destination, in every rig', () => {
     // did, 19 since clip encoding did (probe_video reports decode/detect/encode
     // apart because they fail apart — ffmpeg can be absent on a machine that
     // decodes fine, and that machine cannot export a single clip)
-    // — each for the same reason, 20 since 📷 Camera angles did, and 21 since
+    // — each for the same reason, 20 since 📷 Camera angles did, 21 since
     // 🎬 the Video Test Studio did (its four required weights are 39.5 GB: a
-    // machine without them must read 'not ready', not disappear from the count). Krea was
+    // machine without them must read 'not ready', not disappear from the count),
+    // and 22 since 📤 Civitai publishing did (a credential, counted like the
+    // engine keys — the maintainer asked for it on the Overview). Krea was
     // ABSENT before, which let the final screen certify "11 of 11 ready" on a
     // machine with no Krea at all; the video lane repeated the defect ("12 of
     // 12 ready" on a machine that could not cut one file); these four repeated
     // it again ("14 of 14 ready" on a machine missing four installable
     // engines). An absent capability must be visible and counted, never
     // dropped from the denominator.
-    assert.equal(rows.length, 21, `${name}: expected 21 capabilities`)
+    assert.equal(rows.length, 22, `${name}: expected 22 capabilities`)
     for (const row of rows) {
       const dest = capabilityDestination(row)
       assert.ok(dest, `${name}: "${row.label}" has no destination`)

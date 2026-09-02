@@ -20,10 +20,11 @@
  * that silently re-opened everything you had closed would not be putting your
  * board back, it would be putting a different board back.
  */
-export function canvasLayoutSnapshot({ positions = {}, imageNodes = {}, datasetIds = null } = {}) {
+export function canvasLayoutSnapshot({ positions = {}, imageNodes = {},
+                                       lanePlacements = {}, datasetIds = null } = {}) {
   const wanted = datasetIds == null ? null : new Set(datasetIds.map(Number));
   const keep = (id) => wanted == null || wanted.has(Number(id));
-  const out = { positions: {}, images: {} };
+  const out = { positions: {}, images: {}, lanes: {} };
   for (const [dsId, map] of Object.entries(positions || {})) {
     if (!keep(dsId)) continue;
     const rows = Object.entries(map || {}).map(([recordId, p]) => ({
@@ -43,6 +44,19 @@ export function canvasLayoutSnapshot({ positions = {}, imageNodes = {}, datasetI
     })).filter((r) => Number.isFinite(r.image_id));
     if (rows.length) out.images[String(dsId)] = rows;
   }
+  /* 🛝 …and where each LANE sat, plus the room it kept. A preset that restored
+     the cards and the pictures onto a board whose lanes had since been moved or
+     resized would put an arrangement back into the wrong room — the geometry is
+     only half the memory. */
+  for (const [dsId, placement] of Object.entries(lanePlacements || {})) {
+    if (!keep(dsId) || !placement) continue;
+    const row = {};
+    for (const key of ['x', 'y', 'h']) {
+      const v = Number(placement[key]);
+      if (Number.isFinite(v)) row[key] = v;
+    }
+    if (Object.keys(row).length) out.lanes[String(dsId)] = row;
+  }
   return out;
 }
 
@@ -50,7 +64,8 @@ export function canvasLayoutSnapshot({ positions = {}, imageNodes = {}, datasetI
  *  writes an empty preset is a button that teaches the feature does not work. */
 export function canvasLayoutIsEmpty(snapshot) {
   return !Object.keys(snapshot?.positions || {}).length
-    && !Object.keys(snapshot?.images || {}).length;
+    && !Object.keys(snapshot?.images || {}).length
+    && !Object.keys(snapshot?.lanes || {}).length;
 }
 
 /** What the picker prints under a preset's name — its size, in the board's own

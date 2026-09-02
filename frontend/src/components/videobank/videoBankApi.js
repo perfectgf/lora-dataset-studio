@@ -144,6 +144,48 @@ export function videoDatasetUrl(datasetId) {
   return `/api/video-dataset/${datasetId}`
 }
 
+/** ▶ ONE clip's bytes. A stills set serves IMAGES through this same route — the
+ * extension decides which tag draws it, and getting that wrong renders a dead
+ * player (see isStillFile in videoDatasetClips.js). */
+export function videoDatasetClipMediaUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/media`
+}
+
+/** ✍ The caption of one clip. POST — the server writes the row AND rewrites the
+ * .txt sidecar in the same breath, and answers whether the disk write landed. */
+export function videoDatasetClipCaptionUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/caption`
+}
+
+/** 📎 The identity references of a ref2va set. POST replaces the whole set. */
+export function videoDatasetReferencesUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/references`
+}
+
+/** 🗑 Drop clips OUT of a built set. A POST and not a DELETE because it carries a
+ * LIST — see the route's own docstring. The bank keeps every shot. */
+/** ✨ Neural render (DLSS 5) on a video dataset: GET = capability + job + the
+ * ids currently playing a render; POST = start (in place, originals kept);
+ * /cancel and /restore are what their names say. */
+export function videoDatasetNeuralRenderUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/neural-render`
+}
+/** The ORIGINAL bytes of a neural-rendered dataset clip (404 when the clip
+ * plays no render) — the left side of the ⇔ comparison. */
+export function videoDatasetClipOriginalUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/original`
+}
+export function videoDatasetNeuralRenderCancelUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/neural-render/cancel`
+}
+export function videoDatasetNeuralRenderRestoreUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/neural-render/restore`
+}
+
+export function videoDatasetRemoveClipsUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/clips/remove`
+}
+
 /** ☁ The cloud lane of ONE video dataset.
  *
  * Its own URL family, and not the face lane's `/api/dataset/<id>/train/cloud`,
@@ -185,4 +227,36 @@ export function videoDatasetCloudContinueUrl(datasetId) {
 
 export function videoDatasetCloudRunUrl(datasetId, runId) {
   return `/api/video-dataset/${datasetId}/train/cloud/run/${runId}`
+}
+
+/* ── Checkpoints & LoRAs — the workspace section, both lanes, per STEP ─────
+ * `run_id` null on a body means the LOCAL run; a number means one of this
+ * dataset's cloud runs. The server resolves every file by NAME against the
+ * lane's own listing, so no path ever travels in a request. */
+
+/** Both lanes' saves grouped by step, each file with its deployed state —
+ * the section's one read. */
+export function videoDatasetCheckpointsUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoints`
+}
+
+/** 📦 Every file of one step into ComfyUI's loras folder. */
+export function videoDatasetCheckpointDeployUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoint/deploy`
+}
+
+/** ⏏ One deployed copy out of ComfyUI (to the trash); the save stays. */
+export function videoDatasetCheckpointUndeployUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoint/undeploy`
+}
+
+/** 🗑 Every file of one step to the trash. */
+export function videoDatasetCheckpointDeleteUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoint/delete`
+}
+
+/** ⬇ ONE save of the LOCAL run — the cloud link's twin, same encoding rule. */
+export function videoDatasetLocalCheckpointUrl(datasetId, filename) {
+  const p = new URLSearchParams({ filename: String(filename ?? '') })
+  return `/api/video-dataset/${datasetId}/train/checkpoint?${p.toString()}`
 }

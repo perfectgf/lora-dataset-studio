@@ -141,7 +141,12 @@ def describe_frames(frames, prompt, **kw) -> str:
 
 
 def generate_text(prompt: str, **kw) -> str:
-    """Text -> text, through whichever provider is configured."""
+    """Text -> text, through whichever provider is configured.
+
+    The Ollama branch takes every keyword the driver knows (`top_k`, `min_p`,
+    `presence_penalty`, `think`...); the LM Studio branch forwards the subset
+    its chat call accepts and drops the rest — its defaults were measured
+    with the captioners and stay theirs."""
     if provider() == LMSTUDIO:
         from . import vision_lmstudio
         return vision_lmstudio.generate_text(
@@ -150,6 +155,13 @@ def generate_text(prompt: str, **kw) -> str:
             model=kw.get('model'),
             num_predict=kw.get('num_predict', 400),
             strict=bool(kw.get('strict')),
+            # Sampling travels rather than being dropped: the motion writer is
+            # deliberately warm and stop-guarded, and an LM Studio install that
+            # silently got the captioners' cold defaults would answer a
+            # different question from the same button.
+            temperature=kw.get('temperature', 0.2),
+            top_p=kw.get('top_p'),
+            stop=kw.get('stop'),
             timeout=kw.get('timeout', (10, 120)))
     from . import vision_ollama
     return vision_ollama.generate_text_ollama(prompt, **kw)

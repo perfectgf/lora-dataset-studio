@@ -29,7 +29,7 @@ export default function CheckpointActionsPopover({
   node, pill, runLabel = null,
   continueSource = 'cloud', continueReason = null, folderLabel = null,
   importing = false, deleting = false,
-  onContinue, onDeploy, onDelete, onDetails, onClose,
+  onContinue, onDeploy, onDelete, onDetails, onPublish, onClose,
 }) {
   const a = checkpointActionModel(node, pill, {
     continueSource, hasContinueHandler: typeof onContinue === 'function',
@@ -100,6 +100,22 @@ export default function CheckpointActionsPopover({
         ) : (
           <span className={MUTED}><span aria-hidden>📦</span> {a.deploy.reason}</span>
         ))}
+
+        {/* 📤 Civitai — publish this checkpoint as a model page, or mark the
+            page it already has so the viewer's "post this image" lands under
+            it. The lineage payload stamps the link on the pill (`civitai`), so
+            the row can say which page without a request. Host-gated like ⓘ:
+            a host with no modal to open shows no row. */}
+        {typeof onPublish === 'function' && !a.isRun && (
+          <button type="button" onClick={() => { onPublish(node, pill); onClose?.(); }}
+            data-testid="checkpoint-civitai"
+            title={pill?.civitai
+              ? `On Civitai: ${pill.civitai.model_name || `model ${pill.civitai.model_id}`}${pill.civitai.version_name ? ` · ${pill.civitai.version_name}` : ''} — open, relink, or post images from the viewer`
+              : 'Publish this checkpoint on Civitai, or mark the model page it already has'}
+            className={ROW + ' border-indigo-400/40 bg-indigo-500/15 text-indigo-100 hover:bg-indigo-500/25'}>
+            <span aria-hidden>📤</span> {pill?.civitai ? 'On Civitai' : 'Civitai'}
+          </button>
+        )}
 
         {/* ⓘ The detail drawer — config, run note, checkpoint notes — now ASKED
             for. It used to spring open on any card click, which turned a glance

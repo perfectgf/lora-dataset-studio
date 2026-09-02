@@ -17,6 +17,7 @@
 
 export const FLAG_LABELS = {
   brief: 'Very short',
+  lengthy: 'Longer than a clip',
   still: 'Barely moves',
   agitated: 'Too much motion',
   black: 'Black moment',
@@ -166,6 +167,16 @@ export function thresholdFields() {
         + 'detection — no measuring pass needed. Shots too short for your '
         + 'target profile are refused at promotion anyway; this is how you see '
         + 'and sort them BEFORE spending triage time on them.' },
+    // The ceiling the floor never had. Not a defect — footage the export will
+    // truncate, since it takes the first N frames of a shot and leaves the
+    // rest. Seeing them is what makes "cut it by hand" or "slice it at export"
+    // a choice rather than a discovery after the build.
+    { key: 'max_duration_s', flag: 'lengthy', direction: 'above',
+      label: 'Maximum length (s)',
+      hint: 'Flags shots longer than this, in seconds. Also works straight '
+        + 'after detection. A shot longer than your target\u2019s clip length '
+        + 'is exported as its FIRST N frames and the rest never trains — set '
+        + 'this to that length to see which shots that is.' },
     { key: 'motion_floor', flag: 'still', direction: 'below',
       label: 'Motion floor',
       hint: 'Flags clips whose average motion falls below this.' },

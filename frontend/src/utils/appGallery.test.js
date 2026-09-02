@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {
   GALLERY_KINDS, GALLERY_PAGE_LIMIT, datasetFilterOptions, galleryEmptyMessage,
   galleryFeedUrl, galleryFiltered, galleryImproveLaunchMessage,
-  gallerySummaryLine, mergeGalleryPage,
+  gallerySummaryLine, liveQueueIds, mergeGalleryHead, mergeGalleryPage,
+  queueDrained,
 } from './appGallery.js';
 import { galleryZipPlanUrl, galleryZipUrl } from './galleryDownload.js';
 
@@ -95,4 +96,56 @@ test('the record-scoped ZIP URLs are unchanged by the new scope', () => {
     '/api/train/run/9/images/zip');
   assert.equal(galleryZipUrl({ recordId: 9, step: 500 }, [1]),
     '/api/train/checkpoint/9/500/images/zip?ids=1');
+});
+
+// --- the feed keeping itself current ----------------------------------------
+
+test('a fresh head page puts what is NEW on top and keeps the rest in place', () => {
+  const onScreen = [{ id: 9 }, { id: 8 }, { id: 7 }];
+  const head = [{ id: 11 }, { id: 10 }, { id: 9 }, { id: 8 }];
+  assert.deepEqual(mergeGalleryHead(onScreen, head).map((i) => i.id),
+    [11, 10, 9, 8, 7],
+    'the feed is newest-first, so an image made since the last read belongs '
+    + 'above the ones already on screen — and the pages scrolled into stay put');
+});
+
+test('nothing new returns the SAME array — no re-render, no scroll jump', () => {
+  const onScreen = [{ id: 3 }, { id: 2 }];
+  assert.equal(mergeGalleryHead(onScreen, [{ id: 3 }, { id: 2 }]), onScreen);
+  assert.equal(mergeGalleryHead(onScreen, []), onScreen);
+  assert.equal(mergeGalleryHead(onScreen, null), onScreen);
+});
+
+test('a head read never REMOVES a row', () => {
+  // Page 1 holds the newest 60; an older image the reader paged into is simply
+  // not in it, and a background read is not the place to decide it is gone.
+  const onScreen = [{ id: 5 }, { id: 4 }, { id: 1 }];
+  assert.deepEqual(mergeGalleryHead(onScreen, [{ id: 6 }, { id: 5 }]).map((i) => i.id),
+    [6, 5, 4, 1]);
+});
+
+test('the live job ids are read off the queue listing, junk and all', () => {
+  assert.deepEqual([...liveQueueIds({ jobs: [{ job_id: 'a' }, { job_id: 'b' }] })],
+    ['a', 'b']);
+  for (const bad of [null, undefined, {}, { jobs: null }, { jobs: [null, {}, 5] }]) {
+    assert.equal(liveQueueIds(bad).size, 0, `${JSON.stringify(bad)} must read as empty`);
+  }
+});
+
+test('a job leaving the queue is the signal to re-read the feed', () => {
+  const before = liveQueueIds({ jobs: [{ job_id: 'a' }, { job_id: 'b' }] });
+  // One of two finished: refresh NOW, not when the whole batch is done — eight
+  // images arrive one at a time and the feed would sit stale between them.
+  assert.equal(queueDrained(before, liveQueueIds({ jobs: [{ job_id: 'b' }] })), true);
+  assert.equal(queueDrained(before, liveQueueIds({ jobs: [] })), true);
+});
+
+test('a queue that only grew, or did not move, refreshes nothing', () => {
+  const before = liveQueueIds({ jobs: [{ job_id: 'a' }] });
+  assert.equal(queueDrained(before, liveQueueIds({ jobs: [{ job_id: 'a' }] })), false);
+  assert.equal(queueDrained(before,
+    liveQueueIds({ jobs: [{ job_id: 'a' }, { job_id: 'c' }] })), false,
+  'queueing more work produced no image — a feed read there would be spent for nothing');
+  assert.equal(queueDrained(new Set(), liveQueueIds({ jobs: [{ job_id: 'a' }] })), false,
+    'the first reading of the page can never look like a completion');
 });

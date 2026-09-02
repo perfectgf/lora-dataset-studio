@@ -692,6 +692,11 @@ export function deriveCapabilitySummary(caps) {
     { label: 'Watermark detector (optional)', ok: !!c.watermark_detect,
       topic: 'setup-quality' },
     { label: 'Scraping extras (optional)', ok: !!c.scrape_deps, topic: 'setup-quality' },
+    // 📤 A credential, counted like the engine keys above: publishing a
+    // checkpoint or posting an image to Civitai needs the one Civitai key,
+    // and a machine without it must read "not ready, here is the field" —
+    // the same rule as every row here. Its door is the key itself.
+    { label: '📤 Civitai publishing', ok: !!(c.civitai && c.civitai.ok), topic: 'CIVITAI_API_KEY' },
     { label: 'LoRA training', ok: !!c.training_visible, topic: 'setup-training' },
     { label: 'Test Studio', ok: !!c.studio_visible,
       topic: 'setup-comfyui', waitingTopic: WAITING,
@@ -794,6 +799,9 @@ export const INSTALL_ALL_ACTION_LABELS = {
   // "qwen3vl_32b_minimax_h3_nvfp4_awq" tells a user nothing about whether they
   // need it. The three packs say which checkbox they unlock, for the same
   // reason: they are optional, and a row that does not say so reads as required.
+  // DLSS 5 neural rendering: the two MIT bridge DLLs this app can fetch.
+  // The MODEL is the user's own file and has no row; the card says where.
+  dlss5nr_bridge: 'DLSS 5 neural rendering bridge',
   h3_base: 'Video model (MiniMax H3)',
   h3_text_encoder: 'Video prompt encoder (Qwen3-VL)',
   h3_video_vae: 'Video decoder (VAE)',

@@ -331,6 +331,75 @@ leave the Test Studio too, which the confirmation says before anything is
 armed), or **⬇ ZIP** to download the picked images as one archive under their
 lineage names.
 
+## Publish a LoRA and its images to Civitai
+
+Two gestures, one key. Both need the **Civitai API key** from **Settings →
+Scraping & sources** — the same one the scraper and the 🌐 prompt browser use
+(a free account has one).
+
+**1. The checkpoint → a model page.** Open a checkpoint pill's popover (on the
+◉ LoRA Canvas or a run's graph) and press **📤 Civitai**:
+
+- **Create the page from this checkpoint** — the form arrives pre-filled from
+  the run: model name, version name, the base model as Civitai names it
+  (Z-Image Turbo/Base, Krea 2, SDXL 1.0, FLUX.1 D, FLUX.2 Klein 4B-base /
+  9B-base — the official Klein weights this app trains on, which Civitai files
+  apart from the distilled lineage — Anima), the trigger word, a description
+  with the training facts (steps, epochs, rank/alpha, dataset version and image
+  count), tags and the licence toggles. A run trained on a **custom base** (a
+  ComfyUI checkpoint picked in the dropdown) leaves the base model **empty**
+  where Civitai distinguishes lineages — SDXL (Pony, Illustrious, NoobAI…),
+  Z-Image, Klein — because the app cannot honestly name it; pick it before
+  uploading. Press **Upload as a draft** and the `.safetensors` goes up in the
+  background; the page is created as a **draft** so you give it a last look on
+  Civitai (cover images, final read) before pressing Publish there. Tick
+  **Publish the page right away** to skip that step.
+- **Mark an existing page** — the LoRA already has a page? Paste its address,
+  press **Look up**: the page's name and its versions appear, the one the
+  address points at (`?modelVersionId=`) preselected, the newest otherwise.
+  Pick which version this checkpoint is and press **Link this version**.
+  Nothing is uploaded; the checkpoint is simply remembered as that version,
+  which is all the next gesture needs. The same two tabs open from a
+  picture's 📤 dialog: the picture names the checkpoint it was made with (its
+  stamp and the deployed LoRA name it ran with), and the app resolves which
+  save that is — no file to pick. **Unlink** forgets the link (the page on
+  Civitai is untouched); linking again simply retargets it.
+
+A linked pill shows **On Civitai** in its popover; the dialog opens the page,
+relinks it, or forgets the link (the page itself is never touched).
+
+**2. An image → a post under that page.** In the image viewer (Gallery,
+Canvas, checkpoint galleries, Test Studio), press **📤 Civitai**: the picture
+is posted under the page its checkpoint is linked to, with its prompt (the
+trigger word included, as it was actually sent), negative prompt, seed,
+sampler, CFG, steps, size and the LoRA weight — as Civitai generation data,
+so the post files itself under the right model (Civitai shows it in the
+model's gallery once its own scan of the image is done). **Publish the post
+right away** is on by default; untick it to leave a draft post you finish on
+Civitai.
+
+A picture carries the checkpoint it was made with only when that save has a
+step in its name. Every picture generated with a run's **final** save (the
+step-less `lora_<trigger>.safetensors`) — and every picture of a run you
+removed from the graph — has no stamp: the dialog then offers a **picker over
+the dataset's linked checkpoints**, which is the ordinary path for those, not a
+fallback. A run that ends on a numbered save writes two files at its last step
+(the numbered one and the final); each is its own page or version, linked by
+file, and the popover of each pill says which.
+
+What never leaves your machine: every image goes out as a **fresh PNG with no
+embedded metadata** (no EXIF, no ComfyUI workflow — the generation data
+travels explicitly), every text is stripped of local paths, and the
+checkpoint's own safetensors metadata is scanned for a machine path before a
+byte is uploaded — a file that names your machine is refused, and the dialog
+says which field.
+
+Links open on **civitai.com** by default; **Settings → Scraping & sources →
+Civitai publishing** switches them to **civitai.red** (the same site and
+account behind a second domain — pick the one you are signed in on, because a
+draft page is private and the sign-in is per domain). Uploads run in the
+background: closing the dialog loses nothing.
+
 ## Recover a paused Test Studio batch
 
 If ComfyUI drops while Test Studio is processing a batch, the affected tile says
@@ -3484,6 +3553,178 @@ Deleting a video dataset deletes the encoded clips and nothing else: the bank
 keeps every shot and every decision, so you can re-cut at another length or for
 another target without triaging again.
 
+## Work on a video training set
+
+Opening a set from **🎬 Video training sets** takes you to its own workspace —
+the same relationship an image dataset has with the library, and the same rail
+down the side. Everything below happens on the clips that were actually encoded,
+not on the bank's shots.
+
+**Clips.** A grid of every clip, with the source rush and the timecode it was cut
+from behind each tile. The grid holds thumbnails and no video players at all: a
+browser stops loading new players after about sixty of them, silently, so a
+128-clip set would fail halfway down the page with nothing in the console.
+Clicking a tile opens the one player the page ever mounts — `←` and `→` step
+through the set, `Esc` closes it.
+
+Filter by *All / Captioned / No caption*, type in the box to narrow by file name,
+caption or source rush (terms are ANDed; `-word` excludes), and sort by file
+order, length, or "uncaptioned first" — which is the working list when you are
+finishing a set. **File order is the default and it is the order the trainer
+reads the folder in.**
+
+**Removing a clip** moves its `.mp4` and its `.txt` into the app's own Trash
+(Settings ▸ Storage, recoverable until you empty it) — the same place a deleted
+image of an image dataset goes — and touches nothing else: the bank keeps the
+shot, its bounds and every decision, so you can re-cut and promote it again with
+no triage to redo. The confirmation names that destination before you click,
+from the same wording every other delete in the app uses. It is the exit the
+promote dialog never had: you find the three-frame clip *after* the encode, in
+the set, not while triaging. (A stills set built from an image dataset has no
+bank behind it, and the confirmation says so rather than promising one.)
+
+If the database refuses the change after the files have moved, they are put
+back where they were before the error is reported — "could not remove" is true
+of the folder as well as of the app.
+
+If a clip's file is **held open** — an antivirus scan, a player, or a training
+run reading this very folder — it is not removed at all, and the app says so
+instead of claiming success. That matters more than it sounds: the folder *is*
+the dataset, so a clip taken out of the app while its file stayed on disk would
+still be trained on.
+
+**Captions.** Every clip's caption is a `.txt` file sitting next to its `.mp4`,
+and that file is what the trainer opens — never the app's database. So every save
+here rewrites the file, and if the write fails the app says so out loud instead
+of showing you text the training will not use. A clip with no caption is not
+skipped: its sidecar is written with the trigger word alone, or empty if the set
+has no trigger. The coverage line under the grid says which of the two you are
+getting.
+
+The caption tools apply to your selection, or to the whole set when nothing is
+selected: find & replace (whole-word by default; an empty replacement removes the
+term and tidies the commas), add a prefix — which reaches the silent clips too —
+or add a suffix, which never invents a caption out of an empty one. Nothing is
+written until you have seen how many captions actually change; a prefix already
+present is not added twice. The most repeated words are listed underneath, because
+a term in every caption is a term the LoRA binds to your trigger whether you meant
+it or not. They are there from the start, on a set that has no caption at all —
+that is exactly when a prefix is worth running.
+
+Pressing `Esc` in the player **saves** what you typed before closing; it is a way
+of clicking away, not a way of throwing the text out. And if a caption reaches
+the database but its `.txt` cannot be written, the report says so in those words
+rather than calling it a failure — the app would be showing you text the training
+will not read.
+
+**References** appears only for a target that trains on control images (MiniMax
+H3 ref2va). Without them the trainer runs unconditioned and says nothing, so the
+server refuses the launch — attaching 1 to 4 images here is what satisfies it,
+and replacing is whole-set: they are one identity, not an album.
+
+**Training** holds one set of dials and two destinations, this PC or a rented
+pod, and **Checkpoints** appears in the rail once a run has really brought files
+back. Above the dials sits the same readiness card an image dataset has — what
+still stands in the way (no clips, a target nobody can train yet, missing
+references, an ai-toolkit too old for this model, weights not yet downloaded),
+each with a Fix → that jumps to where it is fixed.
+
+**☁ Train in the cloud…** opens the same window an image dataset gets: every GPU
+class the market offers under your price cap, its price per hour, a *rough*
+duration and total for this set (one measured run, scaled — the window says
+so), a warning when the run would outlive the runtime cap, and this month's spend
+against your budget. Nothing is rented until you pick a class and press the
+button. Before the window even opens, the cloud-lane preflight runs: a blocker
+(no vast.ai key, no clips) stops there and says why; warnings are put to you once,
+together. And when the account already has a run on a pod for this set, "second
+pod, billed separately — launch anyway?" is a question you answer, not an error
+you read.
+
+**Checkpoints & LoRAs** lists every save either lane brought back — the local
+run's folder and each cloud run's harvest — grouped by *step*, never by file: a
+Wan 2.2 checkpoint is two files (`_high_noise` / `_low_noise`) and the section
+refuses to offer half of one. Each step carries the verbs an image dataset's
+checkpoints have. **⬇** downloads a file (both of a pair, side by side, is what
+every loader expects). **📦 Deploy** copies the step into ComfyUI's loras folder
+under `h3/lds/` — the same folder and name the Video Test Studio uses, so the
+Studio's picker lists it as deployed at once; **⏏ Undeploy** moves that copy to
+the app's Trash and keeps the training save. **▶ Continue from here** rents a
+fresh pod and trains further from *that* step (the Training section's *Train
+further* always resumes from the newest); a local run cannot pick a step — it
+resumes from its newest save on the next launch, because its folder *is* the
+resume state — and the row says so instead of offering a button that would do
+something else. **ⓘ Details** shows what a cloud run was launched with. **🗑
+Delete** moves every file of the step to the app's Trash (Settings ▸ Storage) —
+refused while the lane is still writing them, a local training in progress or a
+cloud run still on its pod. The run-level 🗑 next to a cloud run's name is the
+older, larger verb: it removes the run's files *and* its history line, for
+good. A LoRA you dropped into `h3/` by hand shows as deployed but is never
+undeployed from here.
+
+**Studio** opens the Video tab of the Test Studio, where a deployed LoRA is
+judged on the clip it renders rather than on its loss curve.
+
+What is *not* here yet, and deliberately: the quality passes (duplicates,
+watermarks, safe zone, defects) run on the bank's shots and on the source files,
+before any encode exists; trimming a clip means re-encoding it, so the honest
+gesture is to re-cut in the bank — which is why the player names the source rush
+and the timecode. And there is no export button because there is nothing to
+export to: the dataset **is** its folder, flat, `.mp4` plus homonym `.txt`, which
+is exactly what every trainer reads.
+
+## Neural render for video clips
+
+NVIDIA's **DLSS 5 Neural Rendering** model re-renders a frame's materials and
+lighting: skin, hair and fabric gain structure the source only implied. It was
+built for games, but a plain video is a valid input, and the app runs it over a
+finished clip in two places:
+
+- **A video dataset, Clips section** — select clips, then **✨ Neural render**.
+  The render **replaces the clip in place** (the folder IS the dataset, so the
+  file the trainer reads must be the render) and the **original is kept** outside
+  the dataset. **🩹 Restore** brings it back at any time, for the selection or
+  for every rendered clip. A clip rendered twice is rendered from its original
+  both times — renders never stack.
+- **The Video Test Studio, clip history** — **✨ Neural** on a finished clip
+  makes a **new clip** in the list, tagged `neural render`; the original stays,
+  so the pair can be compared.
+
+**Compare.** A rendered dataset clip's lightbox and a rendered studio clip's card
+carry **⇔ Compare**: the original and the render play side by side, in step —
+the left player leads (play, pause, seek there), the right one follows, muted;
+**Swap sides** puts the render first. On a phone the two stack.
+
+**The dials.** *Tone* is how much the model relights (0 keeps the clip's own
+tones — the setting for flat art and anime, where the default greys pure whites).
+*Structure* is how much micro-detail is added. *Automatic mask* lets the model
+decide where it acts (marginal). The other controls the model exposes do nothing
+through this bridge and are not offered.
+
+**Making it visible.** The model's own answer is subtle on video (about 7 % more
+fine detail on a photoreal frame, measured). Three levers push past it, and all
+three are in the dialog: **Strength** above 1 carries the render beyond the
+model's answer (2 roughly doubles the added detail, 3 triples it — the same
+control the game mod calls Detail strength); **Passes** feed the render back
+through the model (extra passes run in still mode); **Render at 2×** works on
+four times the pixels and delivers the clip at its own size. The Render button
+says how much longer than a plain pass the combination takes. And in the
+comparison, press **1:1**: fitted to the pane, the pixels the render changed
+vanish; at their real size they show.
+
+**Frames.** *Temporal* keeps the model's history across frames with motion the
+driver estimates; it needs a clip **at least 704 px wide** (measured: 700 fails,
+704 passes, whatever the height). *Auto* picks it when the clip allows and falls
+back to *Still* otherwise, and says so. A scene cut resets the history.
+
+**What it needs.** Windows and an NVIDIA GPU with a recent driver — the model is a
+Direct3D 12 library, so there is no Linux or Docker path. Setup installs the
+small open-source **bridge**; the **model file** (`nvngx_dlssnr.dll`) is NVIDIA's
+and yours to place in the folder Setup names — the app does not download it and
+offers no link. NVIDIA ships it for the RTX 50 series; the model itself decides
+on which GPU it runs, and a refusal is shown in its own words on the first clip
+you render. On an RTX 4090 a 1080p frame takes about 30 ms (the model alone),
+about 130 ms end to end with decoding and encoding.
+
 ## Test a video LoRA before you trust it
 
 Training a video LoRA gives you a `.safetensors` and a loss curve. Neither of
@@ -3518,11 +3759,60 @@ the first choice on the list on purpose: the only way to know what yours changed
 is to have seen the same seed without it.
 
 **A start frame, or none.** Image-to-video animates a picture — uploaded, taken
-from a bank, or lifted from the first frame of a clip in a training set (that
-last one is the honest baseline, since it is material the LoRA actually saw).
-Text-only skips the picture entirely and composes the shot from the prompt.
-Either way, describe the *movement*: the start frame already says what the scene
-looks like.
+from a bank, picked from the Gallery (every picture the app has rendered,
+Canvas previews included), or lifted from the first frame of a clip in a
+training set (that last one is the honest baseline, since it is material the
+LoRA actually saw). The bank, Gallery and Dataset clip tabs show their pictures
+as a grid of tiles — a clip's tile is the poster its training set shows for it
+— and the 🔍 **Preview size** slider above the grid enlarges them, more than
+three times over, when a face is too small to judge at the default; the size is
+remembered by the browser. Pick **several** and each goes into a strip under
+the tabs — several files at once from the upload tab, or tile after tile from
+a bank, the Gallery or a training set; a tile already in the strip shows as
+pressed and a second click takes it out again, and each frame in the strip has
+its ✕ (the strip knows a frame by where it came from, so the same picture
+picked from two tabs is two frames; a picture the server refuses is skipped
+and said so, the others still go in). Generate then queues **one clip per
+frame, on one seed and one prompt**: a random seed — or a negative one, which
+counts as random — is drawn once, for the first clip, and re-used for the
+rest, and ✨ Enrich at launch rewrites the prompt once, for that first clip,
+the rest running the rewrite it got (the vision model shares the GPU with
+ComfyUI and is not asked again once a clip sits in its queue), so the clips
+differ by their picture and nothing else — the button says how
+many clips a click will queue, and ✨ Auto reads the first frame. Text-only
+skips the picture entirely and composes the shot from the prompt. Either way,
+describe the *movement*: the start frame already says what the scene looks
+like.
+
+**Or let a local model write the movement.** ✨ **Auto** looks at the start frame
+and proposes a motion for it; anything already in the field is read as the
+movement you are after and steers the proposal rather than being ignored — the
+answer still takes the field, as ✨ Enrich's does. ✨ **Enrich** rewrites what
+you typed with more detail, anchored on the frame that will actually be
+animated — a text-only clip enriches from the words alone, so nothing is
+invented about a picture the encoder is never given. Both answer in H3's own
+three-field prompt (`integrated_multimodal_description`, `overall_soundscape`,
+`non_diegetic_music`), paced to the clip length you set: three seconds hold one
+gesture carried to its end, ten seconds get a sequence of beats. With a start
+frame the subject is named `<Picture 1>`, the tag H3 binds to the picture it is
+handed, and the reference line the encoder expects is put in front — at launch
+too, for a prompt you typed yourself, and never twice; a text-only prompt
+carries neither, even one written for a frame and then launched without it. The ⚙ button chooses **the model that writes the
+motion** from whatever your local server lists — Ollama or LM Studio, whichever
+the app is set to — and it is its own choice: tuning the writer never re-points
+the captioner, and leaving it empty uses the provider's vision model. The
+writer takes the GPU the way every vision pass does: it refuses while ComfyUI
+has work queued or rendering — a clip, an image — and says so, and on its way
+in it asks ComfyUI to let go of its models, so the next clip loads H3 again: a
+few seconds, paid once per click. When the writer's model is busy for something
+that is not LDS, the panel says so where you clicked: it waits, watches, and
+replays the click by itself the moment the model is free — or you **Unload it
+and continue**. It is the same hold the queue reports (see *When the queue
+waits for something that is not LDS*), answered here with the panel's own two
+offers. **✨ Enrich at launch** does the rewrite when you press Generate
+instead, so the clip records the prompt that really ran while your field stays
+as you typed it — and if the writer cannot run at that moment, the clip still
+launches with your words and the panel says so.
 
 **The four options are not free, and the panel says what each one costs.**
 ⚡ Turbo swaps in a 4-step distillation LoRA and its double-clock sampler —
@@ -3650,6 +3940,22 @@ Test Studio, the Bank or a dataset without keeping Task Manager — or a ComfyUI
 resource monitor — open. It starts folded, polls only while it is unfolded and
 the tab is visible, and remembers your choice separately from the board's.
 
+**🧹 Free memory.** Beside the unfolded numbers sits a broom, for the case the
+readout keeps showing: RAM full and not coming down while nothing runs. Two
+things hold it. ComfyUI keeps every model it loaded in the session cached in
+system RAM once it leaves the card (measured: 34 GB on an idle ComfyUI after
+a day of Krea, Klein and video models) and never lets go on its own; the
+vision model LDS loaded for captioning stays warm so a batch does not reload
+it per image. **🧹** asks ComfyUI to unload and free (`/free`, the same lever
+LDS pulls before a training) and releases the vision model LDS itself loaded,
+then reads the machine again and says what actually came back — "Freed 32 GB
+of RAM · RAM now 12/48 GB · VRAM 16 → 0.9 GB". The models reload on the next
+job (a minute at most), nothing else changes. It is refused, with the reason,
+while ComfyUI's queue is not empty or a training runs — unloading under a job
+would only make that job reload everything — and a model another tool loaded
+into Ollama or LM Studio is never touched (that is the fence's rule; the
+Ollama-fence dialog is where a consented eviction lives).
+
 **Deleting a picture from the board.** A pinned image carries **✕** and **🗑**,
 and they are not the same thing. **✕** takes it off the board and remembers where
 it was, so re-pinning it from its gallery puts it back at the same spot and size.
@@ -3719,12 +4025,31 @@ the automatic tree centres each run over its continuations, so one new branch
 re-flows the lane around it. Lanes you have never touched keep following the
 automatic tree, because there is no arrangement to protect there.
 
+**Moving a whole dataset's block, and giving it room.** A lane — the dataset's
+title strip and everything under it — has two grips of its own:
+
+- **its title strip** moves the whole block. Drag `● name  N runs` and the lane
+  goes where you put it, with its cards and its pictures. Every other lane stays
+  exactly where it was; moving one lane moves one lane.
+- **its bottom edge** sets how much **room** the lane keeps, and the datasets
+  below move with it. That edge exists because of one thing: 📌 Pin all hangs a
+  contact sheet *below* the tree, and the board only ever counted the tree — so
+  on a lane with a few dozen pinned pictures the sheet landed on top of the next
+  dataset's cards. The edge turns **amber** when a lane draws past its own room,
+  which is exactly that collision, named where it happens. **Double-click** it
+  to fit the lane to what it actually draws.
+
+A lane you have never dragged keeps following the automatic stack, and pictures
+still hang freely below and beside their lane — a picture you drag somewhere is
+never what decides how much room a dataset takes; you are.
+
 **✦ Tidy up** is the way back: it forgets every card you have moved on the lanes
-currently shown, rebuilds the automatic tree, and brings every pinned picture
-back beside the run that made it — including one you dragged clean off its lane.
-Positions are only ever a display preference — moving a card or a picture never
-changes which run continued which or which checkpoint made which image, and Tidy
-up never deletes a run, a checkpoint, a note or a picture.
+currently shown, hands every lane back to the automatic stack, rebuilds the
+automatic tree, and brings every pinned picture back beside the run that made
+it — including one you dragged clean off its lane. Positions are only ever a
+display preference — moving a card, a lane or a picture never changes which run
+continued which or which checkpoint made which image, and Tidy up never deletes
+a run, a checkpoint, a note or a picture.
 
 **Generating from the board.** Every checkpoint pill carries a small **✓** box.
 Tick one and the run settings open beside the board: the prompt, the seed, the

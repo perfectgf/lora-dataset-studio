@@ -646,6 +646,125 @@ function KreaCard({ config, setField, configDefaults, caps }) {
   )
 }
 
+/* The Krea hi-res fix — a SECOND latent pass on the generation graph.
+
+   It sits in the Krea group but reads `krea_hires.*`, not `krea.*`, and that is
+   not tidiness: the card above tunes the Krea 2 EDIT engine, a hand-built graph
+   that never loads krea2_turbo.json. Two graphs, two namespaces; a shared one
+   would be a dial that silently applies to only one of them.
+
+   Off by default, and off means no node is added to the graph at all — an
+   install that never touches this renders exactly what it rendered before. */
+const KREA_HIRES_SCALE_MIN = 1.0
+// utils/comfyui.KREA_HIRES_MAX_SCALE — the server re-clamps on its side.
+const KREA_HIRES_SCALE_MAX = 2.0
+const KREA_HIRES_SCALE_STEP = 0.25
+const KREA_HIRES_DENOISE_MIN = 0.05
+const KREA_HIRES_DENOISE_MAX = 1.0
+const KREA_HIRES_STEPS_MAX = 50
+
+/** What the configured scale costs and buys, in the units people think in. A x2
+ *  LATENT is x4 the pixels, which is the number that decides whether it fits. */
+function hiresScaleNote(scale, width = 1024, height = 1024) {
+  if (!(scale > 1)) return 'Off — the graph is built exactly as it is today, with a single pass.'
+  const w = Math.round(width * scale), h = Math.round(height * scale)
+  return `A ${width}x${height} first pass is re-sampled at ${w}x${h} `
+    + `(${(scale * scale).toFixed(2)}x the pixels, so roughly that much again in time and VRAM).`
+}
+
+function KreaHiresCard({ config, setField, configDefaults }) {
+  const hires = config.krea_hires || {}
+  const reset = { config, configDefaults, setField }
+  const dflt = (key) => defaultValueAt(configDefaults, 'krea_hires', key)
+  // Clamped for DISPLAY only, like the dials above: a hand-edited config.json
+  // past the server's clamp would otherwise park the thumb at one end while the
+  // label showed a number the graph will never receive.
+  const scale = Math.min(KREA_HIRES_SCALE_MAX,
+    Math.max(KREA_HIRES_SCALE_MIN, Number(hires.scale ?? dflt('scale')) || KREA_HIRES_SCALE_MIN))
+  const denoise = Math.min(KREA_HIRES_DENOISE_MAX,
+    Math.max(KREA_HIRES_DENOISE_MIN, Number(hires.denoise ?? dflt('denoise')) || KREA_HIRES_DENOISE_MIN))
+  const steps = hires.steps ?? dflt('steps')
+  const on = scale > 1
+  return (
+    <Card
+      id="krea-hires"
+      title="Krea hi-res fix (local)"
+      help="A second sampling pass at a higher latent resolution, on the Krea generation graph — the Test Studio grid and the LoRA Canvas. Krea composes at the resolution it samples: asked for the final size in one pass it loses framing and starts duplicating subjects, kept small it caps the detail no upscaler can invent afterwards. Sampling small and re-sampling an upscaled latent lets the model DRAW that detail instead. Core ComfyUI nodes only — nothing to install. Off by default."
+    >
+      <div className="sm:max-w-md">
+        <label htmlFor="krea-hires-scale" className="block text-xs font-medium text-content">
+          Second pass ({on ? `${scale}x the latent` : 'off'})
+        </label>
+        <input
+          id="krea-hires-scale"
+          type="range"
+          min={KREA_HIRES_SCALE_MIN}
+          max={KREA_HIRES_SCALE_MAX}
+          step={KREA_HIRES_SCALE_STEP}
+          value={scale}
+          onChange={(e) => setField('krea_hires', 'scale', Number(e.target.value))}
+          className="mt-1 w-full accent-violet-500"
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          {hiresScaleNote(scale)} {on ? '' : 'Slide right to turn it on. '}
+          1.5x is the value the reference workflow this was ported from uses.
+        </p>
+        <ResetToDefault label="Second pass" section="krea_hires" field="scale" {...reset} />
+      </div>
+
+      {/* The two dials below only mean anything once the pass exists. Shown
+          disabled rather than hidden: a control that appears out of nowhere is
+          how people miss that it was there to be set. */}
+      <div className={`mt-3 sm:max-w-md ${on ? '' : 'opacity-50'}`}>
+        <label htmlFor="krea-hires-denoise" className="block text-xs font-medium text-content">
+          How much it may rewrite ({denoise})
+        </label>
+        <input
+          id="krea-hires-denoise"
+          type="range"
+          min={KREA_HIRES_DENOISE_MIN}
+          max={KREA_HIRES_DENOISE_MAX}
+          step={0.05}
+          value={denoise}
+          disabled={!on}
+          onChange={(e) => setField('krea_hires', 'denoise', Number(e.target.value))}
+          className="mt-1 w-full accent-violet-500"
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          The dial of the whole feature. Near 1 the second pass ignores the first and
+          renders a <b>different</b> picture at the larger size; too low and it costs a
+          full extra pass to change nothing. {dflt('denoise')} keeps the composition and
+          rewrites the texture.
+        </p>
+        <ResetToDefault label="How much it may rewrite" section="krea_hires" field="denoise" {...reset} />
+      </div>
+
+      <div className={`mt-3 sm:max-w-md ${on ? '' : 'opacity-50'}`}>
+        <label htmlFor="krea-hires-steps" className="block text-xs font-medium text-content">
+          Second-pass steps (0 = same as the first)
+        </label>
+        <input
+          id="krea-hires-steps"
+          type="number"
+          min={0}
+          max={KREA_HIRES_STEPS_MAX}
+          step={1}
+          value={steps}
+          disabled={!on}
+          onChange={(e) => setField('krea_hires', 'steps',
+            e.target.value === '' ? dflt('steps') : Number(e.target.value))}
+          className={INPUT_CLASS}
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          0 inherits the first pass&rsquo;s count, which is the sane default: at a denoise
+          below 1 the pass only walks part of the schedule anyway.
+        </p>
+        <ResetToDefault label="Second-pass steps" section="krea_hires" field="steps" {...reset} />
+      </div>
+    </Card>
+  )
+}
+
 /* SeedVR2 — the FIDELITY upscaler (issue #32, requested by SurpassHR).
 
    It is not a generation engine and deliberately does not appear in the enabled-
@@ -975,6 +1094,160 @@ function SeedVr2Card({ config, setField, configDefaults, caps }) {
         them bleed into each other. Dataset images are upscaled one per job; the throughput
         comes from the normal generation queue.
       </p>
+    </Card>
+  )
+}
+
+/* The finishing pass — three pixel operations the APP runs on the ✨ improve
+   result, after ComfyUI is done with it.
+
+   Its own card rather than fields on the two engine cards above, because it is
+   one thing that happens once, to whichever engine ran. The reference workflow
+   these come from does them with three third-party node packs; doing them here
+   keeps the installer's rule intact (models, never node packs) and makes them
+   deterministic — no GPU, no model, no graph. */
+const IMPROVE_SHARPEN_MAX = 1.5
+const IMPROVE_GRAIN_MAX = 0.05
+// The values the reference workflow uses, shown as the "known-good" landing spot
+// rather than shipped as defaults — this ships off.
+const IMPROVE_REFERENCE = { colour_match: 0.8, sharpen: 0.55, grain: 0.01 }
+
+function ImproveFinishCard({ config, setField, configDefaults }) {
+  const improve = config.improve || {}
+  const reset = { config, configDefaults, setField }
+  const dflt = (key) => defaultValueAt(configDefaults, 'improve', key)
+  const num = (key) => Number(improve[key] ?? dflt(key)) || 0
+  const colour = num('colour_match')
+  const sharpen = num('sharpen')
+  const grain = num('grain')
+  const grainSat = num('grain_saturation')
+  const engine = improve.engine ?? dflt('engine')
+  const anyOn = colour > 0 || sharpen > 0 || grain > 0
+  return (
+    <Card
+      id="improve-finish"
+      title="Finishing pass (after Upscale &amp; improve)"
+      help="Three small operations applied to the finished image by the app, not by ComfyUI: put the source's colours back, sharpen the finest detail, and add a little film grain. They are what separate a render that looks processed from one that looks photographed. Nothing to install — no model, no GPU, no node pack. All three ship off; the image you get today is byte-for-byte the one ComfyUI wrote."
+    >
+      {!anyOn && (
+        <p className="rounded border border-border-subtle bg-surface-subtle px-2 py-1.5 text-[0.6875rem] text-content-subtle">
+          Every stage is off — the finished image is left exactly as ComfyUI wrote it.
+          The reference workflow this was ported from runs colour match{' '}
+          {IMPROVE_REFERENCE.colour_match}, sharpen {IMPROVE_REFERENCE.sharpen}, grain{' '}
+          {IMPROVE_REFERENCE.grain}.
+        </p>
+      )}
+
+      <div className="mt-3 sm:max-w-md">
+        <label htmlFor="improve-colour-match" className="block text-xs font-medium text-content">
+          Put the source&rsquo;s colours back ({colour === 0 ? 'off' : colour})
+        </label>
+        <input
+          id="improve-colour-match"
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={colour}
+          onChange={(e) => setField('improve', 'colour_match', Number(e.target.value))}
+          className="mt-1 w-full accent-violet-500"
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          {engine === 'seedvr2' ? (
+            <>
+              Applies to the passes <b>Klein</b> ran — the engine is decided per pass
+              (the single-tile button starts on this default, the bulk buttons name
+              theirs), and a SeedVR2 pass skips this automatically: it already grades
+              its result back onto the source inside the node (Colour correction,
+              above), and doing it twice would be two corrections estimated from the
+              same statistics, fighting each other. {IMPROVE_REFERENCE.colour_match}{' '}
+              is the reference value; 1 forbids a Klein pass any colour change at all.
+            </>
+          ) : (
+            <>
+              A Klein improve keeps the content and loses the grade: skin warms or cools and
+              a dataset ends up holding two colour worlds depending on which images went
+              through. This measures the colours of the image as it was <b>before</b> the
+              pass and puts them back. {IMPROVE_REFERENCE.colour_match} is the reference
+              value; 1 forbids the pass any colour change at all.
+            </>
+          )}
+        </p>
+        <ResetToDefault label="Put the source's colours back" section="improve"
+          field="colour_match" {...reset} />
+      </div>
+
+      <div className="mt-3 sm:max-w-md">
+        <label htmlFor="improve-sharpen" className="block text-xs font-medium text-content">
+          Sharpen ({sharpen === 0 ? 'off' : sharpen})
+        </label>
+        <input
+          id="improve-sharpen"
+          type="range"
+          min={0}
+          max={IMPROVE_SHARPEN_MAX}
+          step={0.05}
+          value={sharpen}
+          onChange={(e) => setField('improve', 'sharpen', Number(e.target.value))}
+          className="mt-1 w-full accent-violet-500"
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          Local contrast at a 1&nbsp;px radius — the finest octave, the one diffusion leaves
+          empty — not a global sharpness slider. {IMPROVE_REFERENCE.sharpen} is the reference
+          value; past about 1 the halo starts reading as an outline.
+        </p>
+        <ResetToDefault label="Sharpen" section="improve" field="sharpen" {...reset} />
+      </div>
+
+      <div className="mt-3 sm:max-w-md">
+        <label htmlFor="improve-grain" className="block text-xs font-medium text-content">
+          Film grain ({grain === 0 ? 'off' : grain})
+        </label>
+        <input
+          id="improve-grain"
+          type="range"
+          min={0}
+          max={IMPROVE_GRAIN_MAX}
+          step={0.002}
+          value={grain}
+          onChange={(e) => setField('improve', 'grain', Number(e.target.value))}
+          className="mt-1 w-full accent-violet-500"
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          Diffusion output is smooth in a way photographs are not — the model resolves
+          structure confidently and leaves the finest octave nearly empty. A very small
+          amount of noise refills it and the eye reads the result as a photograph.
+          The scale is deliberately tiny: {IMPROVE_REFERENCE.grain} is about ±2.5 levels of
+          an 8-bit image, seen as texture and never as noise.
+        </p>
+        <ResetToDefault label="Film grain" section="improve" field="grain" {...reset} />
+      </div>
+
+      {/* Not greyed on `grain === 0`: this dial also serves the Studio's PER-RUN
+          grain (the cell carries its own amount, the colour mix follows this
+          setting), so it has to stay editable while the improve pass's grain is
+          off. */}
+      <div className="mt-3 sm:max-w-md">
+        <label htmlFor="improve-grain-sat" className="block text-xs font-medium text-content">
+          How coloured that grain is ({grainSat})
+        </label>
+        <input
+          id="improve-grain-sat"
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={grainSat}
+          onChange={(e) => setField('improve', 'grain_saturation', Number(e.target.value))}
+          className="mt-1 w-full accent-violet-500"
+        />
+        <p className="mt-1 text-[0.6875rem] text-content-subtle">
+          0 puts identical noise on the three channels, which is what film does and what
+          reads as grain. 1 makes each channel independent, which reads as sensor noise.
+        </p>
+        <ResetToDefault label="How coloured that grain is" section="improve"
+          field="grain_saturation" {...reset} />
+      </div>
     </Card>
   )
 }
@@ -1515,6 +1788,8 @@ export default function EnginesSection(props) {
 
       <SettingsGroup {...groupProps(group3)}>
       <KreaCard config={config} setField={setField} configDefaults={configDefaults} caps={caps} />
+
+      <KreaHiresCard config={config} setField={setField} configDefaults={configDefaults} />
       </SettingsGroup>
 
       {/* The two preset lists live TOGETHER, not each under its engine: the
@@ -1530,6 +1805,10 @@ export default function EnginesSection(props) {
       <SettingsGroup {...groupProps(group5)}>
       <SeedVr2Card config={config} setField={setField} configDefaults={configDefaults}
         caps={caps} />
+
+      {/* After the two engine cards, because it is what happens to their OUTPUT —
+          one pass, whichever engine ran. */}
+      <ImproveFinishCard config={config} setField={setField} configDefaults={configDefaults} />
       </SettingsGroup>
 
       <SettingsGroup {...groupProps(group6)}>

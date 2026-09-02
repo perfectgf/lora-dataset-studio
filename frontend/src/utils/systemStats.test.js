@@ -1,10 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  HEADER_MACHINE_LOAD_PREF_KEY, MACHINE_LOAD_PREF_KEY, formatGb, loadTone,
+  HEADER_MACHINE_LOAD_PREF_KEY, MACHINE_LOAD_PREF_KEY, formatGb, freeMemorySummary, loadTone,
   machineLoadSummary, readMachineLoadPref, shouldPoll, systemStatsSegments,
   tempTone, writeMachineLoadPref,
 } from './systemStats.js';
+
+test('🧹 the free-memory toast says what was MEASURED, then which lever acted', () => {
+  assert.equal(freeMemorySummary({
+    freed_gb: 31.7, ram_after_gb: 12.1, ram_total_gb: 47.7, vram_before_gb: 15.6, vram_after_gb: 0.9,
+    comfyui: 'freed', vision_released: true,
+  }), 'Freed 32 GB of RAM · RAM now 12/48 GB · VRAM 16 → 0.9 GB (ComfyUI unloaded its models, vision model released).');
+  // Nothing came back: said plainly, and the levers explain why.
+  assert.equal(freeMemorySummary({ freed_gb: 0, ram_after_gb: 10, ram_total_gb: 48, comfyui: 'offline', vision_released: false }),
+    'No RAM came back · RAM now 10/48 GB (ComfyUI is not running, no vision model of LDS to release).');
+  // A machine that cannot measure still gets a sentence, not "undefined GB".
+  assert.equal(freeMemorySummary({ comfyui: 'unknown' }),
+    'Memory release asked (ComfyUI did not confirm).');
+  assert.equal(freeMemorySummary(null), 'Memory release asked (ComfyUI did not confirm).');
+});
 
 const memoryStore = () => {
   const data = {};

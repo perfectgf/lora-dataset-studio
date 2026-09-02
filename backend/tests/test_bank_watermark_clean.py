@@ -166,24 +166,120 @@ def test_crop_level_cleans_without_touching_the_source(client, tmp_path, app):
 def test_crop_discards_result_when_raw_source_changes_during_engine_work(
         client, tmp_path, app, monkeypatch):
     """A crop result belongs to the raw bytes measured before the crop began."""
-    from app.services import face_dataset_service as faces
+    from app.services import image_bank_service as banks
 
     bank_id, src = _mkbank(client, tmp_path, {'a.jpg': _photo()})
     image_id = _flag(app, bank_id, TOP_MARK)
     _seed_effective_lanes(app, bank_id, image_id)
     source = src / 'a.jpg'
-    real_crop = faces._apply_watermark_crop
+    real_cut = banks._cut_clean_copy
 
-    def crop_then_replace(path, box):
-        ok = real_crop(path, box)
+    def cut_then_replace(bank_id, row, src_path, box):
+        out = real_cut(bank_id, row, src_path, box)
         _photo(value=210).save(source, 'JPEG', quality=92)
-        return ok
+        return out
 
-    monkeypatch.setattr(faces, '_apply_watermark_crop', crop_then_replace)
+    monkeypatch.setattr(banks, '_cut_clean_copy', cut_then_replace)
 
     response = client.post(f'/api/bank/{bank_id}/watermark/crop')
     assert response.status_code == 202, response.get_json()
     _assert_raw_generation_invalidated(app, bank_id, image_id, source)
+
+
+def test_crop_level_encodes_once_and_only_the_kept_band(client, tmp_path, app, monkeypatch):
+    """The auto-crop level paid the same two lossless WebP encodes per image as
+    the manual ✂ crop did — one of them of the WHOLE frame, staged only to be
+    reopened, cut and thrown away — and it is a batch pass, so it paid it once
+    per image. Pin the shape that makes it fast: one encode, of the kept band."""
+    bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})     # 1000×1000
+    image_id = _flag(app, bank_id, TOP_MARK)                         # keeps 1000×950
+
+    # Counted at Pillow's own save, UNDER image_encoding.save_edit: a staging
+    # copy re-introduced through any write path shows up here.
+    written = []
+    real_save = Image.Image.save
+
+    def counting_save(self, fp, format=None, **params):
+        written.append((self.size, (format or '').upper()))
+        return real_save(self, fp, format, **params)
+    monkeypatch.setattr(Image.Image, 'save', counting_save)
+
+    assert client.post(f'/api/bank/{bank_id}/watermark/crop').status_code == 202
+    assert _row(app, image_id) == ('cleaned', 'crop')
+    assert written == [((1000, 950), 'WEBP')], (
+        'the level must encode the kept band once — a full-frame (1000, 1000) '
+        'entry here is the staging copy coming back')
+
+
+def _run_crop_job(app, bank_id):
+    """Run the auto-crop level synchronously with a job dict shaped like
+    bank_jobs.start()'s, so the line the user would read is in job['detail']
+    and a crash lands in job['error'] instead of propagating."""
+    from app.services import image_bank_service as banks
+    job = {'kind': 'watermark_crop', 'done': 0, 'total': 0, 'error': None,
+           'cancelled': False, 'finished': False, 'detail': None,
+           'started_at': 0.0, '_touched': 0.0, '_cancel_hook': None, 'pipeline': None}
+    with app.app_context():
+        try:
+            banks._watermark_crop_job(bank_id)(job)
+        except Exception as e:  # noqa: BLE001 — mirrors the real runner
+            job['error'] = f'{type(e).__name__}: {e}'
+    return job
+
+
+def test_crop_level_counts_an_empty_box_as_unreadable_and_writes_nothing(
+        client, tmp_path, app, monkeypatch):
+    """A box with no pixel left once clamped is the result the in-place crop
+    used to answer with False: the image is not marked cleaned, no blob is
+    written, and the pass SAYS it in the line the user reads — 'unreadable',
+    not a silent skip."""
+    from app.services import face_dataset_service as fds
+    from app.services import image_bank_service as banks
+
+    bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})
+    image_id = _flag(app, bank_id, TOP_MARK)
+    monkeypatch.setattr(fds, '_route_watermark',
+                        lambda bbox, w, h, allow_crop=True: ('crop', (0, 0, 0, 10)))
+
+    job = _run_crop_job(app, bank_id)
+    assert job['error'] is None, job['error']
+    assert '1 unreadable' in job['detail'], job['detail']
+    assert _row(app, image_id) == ('detected', None)
+    with app.app_context():
+        clean = banks.clean_image_path(bank_id, image_id)
+    assert not clean.exists()
+    assert not clean.parent.exists() or not any(clean.parent.iterdir())   # no .part- either
+
+
+def test_crop_level_survives_an_unreadable_source_and_says_so(
+        client, tmp_path, app, monkeypatch):
+    """A source the cut cannot read is one image lost, not the whole pass: the
+    level moves on, leaves that image flagged with no blob, and counts it in
+    the line the user reads."""
+    from app.services import image_bank_service as banks
+
+    bank_id, _ = _mkbank(client, tmp_path,
+                         {'a.jpg': _photo(), 'b.jpg': _photo(value=120)})
+    first = _flag(app, bank_id, TOP_MARK, index=0)
+    second = _flag(app, bank_id, TOP_MARK, index=1)
+    real_cut = banks._cut_clean_copy
+    calls = {'n': 0}
+
+    def cut_or_choke(bank_id_, row, src_path, box):
+        calls['n'] += 1
+        if calls['n'] == 1:
+            raise OSError('cannot read the source')
+        return real_cut(bank_id_, row, src_path, box)
+    monkeypatch.setattr(banks, '_cut_clean_copy', cut_or_choke)
+
+    job = _run_crop_job(app, bank_id)
+    assert job['error'] is None, job['error']
+    assert '1 cropped' in job['detail'] and '1 unreadable' in job['detail'], job['detail']
+    assert _row(app, first) == ('detected', None)
+    assert _row(app, second) == ('cleaned', 'crop')
+    with app.app_context():
+        assert not banks.clean_image_path(bank_id, first).exists()
+        assert banks.clean_image_path(bank_id, second).is_file()
 
 
 def test_bank_crop_uses_exif_visual_coordinates_and_keeps_camera_master(client, tmp_path, app):

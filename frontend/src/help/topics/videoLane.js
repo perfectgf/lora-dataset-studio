@@ -22,6 +22,26 @@ export const VIDEO_LANE_TOPICS = [
       'video unavailable', 'video extra', 'which piece is missing'],
     guide: { chapter: 'using-the-app', anchor: 'the-video-bank-turn-a-folder-of-rushes-into-shots' },
     app: { route: '/video-bank' } },
+  // 🎬 One video training set's workspace. Its own PAGE topic rather than
+  // keywords on page-video-bank, because the two answer opposite questions: the
+  // bank is where you decide WHICH shots, this is where you work on what the
+  // encode produced. Someone whose set has three bad clips in it is not helped
+  // by shot-detection troubleshooting.
+  //
+  // `app.route` is the LIBRARY and not `/video-dataset/<id>`: the workspace
+  // needs an id nobody can put in a static registry, and the library is the one
+  // address that always exists and always leads here in one click.
+  { id: 'page-video-dataset', kind: 'page', title: 'A video training set (clips, captions, training)',
+    keywords: ['video dataset page', 'video dataset workspace', 'open a video dataset',
+      'work on a video dataset', 'my clips', 'watch my clips', 'play a promoted clip',
+      'clip grid', 'video grid', 'caption my clips', 'caption a clip', 'sidecar',
+      'txt next to the mp4', 'remove a clip', 'delete a clip', 'drop a clip',
+      'bad clip', 'three frames', 'wrong cut', 'clip too short', 'search my clips',
+      'filter clips', 'uncaptioned', 'no caption', 'find and replace captions',
+      'bulk captions', 'prefix', 'suffix', 'trigger word', 'references', 'ref2va',
+      'control images', 'identity images', 'where are my clips', 'output folder'],
+    guide: { chapter: 'using-the-app', anchor: 'work-on-a-video-training-set' },
+    app: { route: '/datasets' } },
   // 🎬 The Video tab of the Test Studio. Its own PAGE topic rather than keywords
   // on page-studio: the two lanes share a screen but nothing else — different
   // tables, different pipeline, one clip instead of a grid — and someone whose
@@ -40,6 +60,44 @@ export const VIDEO_LANE_TOPICS = [
       'slow generation', 'takes forever', 'missing node', 'node pack'],
     guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
     app: { route: '/studio?lane=video' } },
+  // The start frame picker: its four sources and the 🔍 that sizes their tiles.
+  // Searched for by what someone holds (a bank image, a generated picture, a
+  // clip of the set), by the gesture ("bigger thumbnails") and by the tab that
+  // "does not work" — the Dataset clip tab came up empty-looking once.
+  action('video-studio-start-frame', 'Pick the start frame (upload, bank, Gallery, Dataset clip)',
+    ['start frame', 'first frame', 'source image', 'input image', 'from an image',
+     'upload a start frame', 'bank image as start frame', 'gallery image as start frame',
+     'generated image as start frame', 'animate a generated image', 'dataset clip',
+     'clip from the training set', 'first frame of a clip', 'clip tab empty',
+     'dataset clip does not work', 'preview size', 'bigger thumbnails',
+     'enlarge previews', 'enlarge the thumbnails', 'tile size', 'zoom thumbnails',
+     'thumbnails too small', 'ready staged', 'staged picture', 'text only', 'no start frame',
+     'several start frames', 'multiple start frames', 'batch', 'batch of images',
+     'one clip per frame', 'one clip per image', 'several clips at once', 'remove a frame',
+     'clear all', 'same seed', 'already in the batch'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
+  // The ✨ writers of the Motion field. Searched for by the gesture ("auto",
+  // "enrich"), by the format the answer comes back in (people paste H3's field
+  // names and "<Picture 1>" from a prompt they did not write), by the ⚙ choice
+  // and by what went wrong (the lock notice, "queued without enrichment").
+  // Listed AFTER the page topic: for one (chapter, anchor) the first topic
+  // owns the "Open this screen" button, and that is the page's.
+  action('video-studio-motion-writer', 'Let a local model write the motion (✨ Auto, ✨ Enrich)',
+    ['auto motion', 'write the motion', 'write the movement', 'motion from the frame',
+     'describe the start frame', 'auto', '✨ auto', 'enrich', '✨ enrich',
+     'enrich the motion', 'enrich the prompt', 'enrich my prompt', 'rewrite the prompt',
+     'more detail', 'better video prompt', 'enrich at launch', 'enrich when generating',
+     'model that writes the motion', 'motion model', 'which model writes the motion',
+     'change the motion model', 'ollama for video', 'lm studio', 'lm studio motion',
+     'picture 1', '<picture 1>', 'integrated_multimodal_description',
+     'overall_soundscape', 'non_diegetic_music', 'three fields', 'three-field prompt',
+     'official prompt format', 'h3 prompt format', 'shot 1', 'the camera cuts to',
+     'paced to the length', 'same beat for every length', 'the clip length is ignored',
+     'nothing to add', 'prompt unchanged', 'queued without enrichment',
+     'enrichment skipped', 'gpu busy while writing', 'refused while a clip renders',
+     'model in use', 'gpu in use outside lds', 'unload the model', 'auto is greyed out',
+     'auto disabled', 'pick a start frame first'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   // Searched for by what people TRIED and could not do: they pasted a RedGifs or
   // TikTok link into the image scraper and got "no images found", or they
   // downloaded clips by hand into a folder because nothing else was on offer.
@@ -301,6 +359,44 @@ export const VIDEO_LANE_TOPICS = [
      'watch a promoted clip', 'delete a video dataset', 're-cut', 'recut',
      'another length', 'library', 'where are my clips', 'output folder'],
     '/datasets', 'using-the-app', 'video-training-sets-and-the-two-things-to-check-before-you-cut-one'),
+  // The four sections of the video dataset workspace. One topic each, exactly
+  // like `workspace-*` on the image side — the ? badge in a section header has
+  // to resolve to something, and a section without one is a screen the Guide
+  // cannot answer a question about.
+  action('video-dataset-clips', 'The clips of a video dataset',
+    ['clips section', 'clip grid', 'watch a clip', 'play a clip', 'thumbnails',
+     'no video players', 'sixty players', 'lightbox', 'step through clips',
+     'filter clips', 'search clips', 'sort clips', 'file order', 'longest first',
+     'uncaptioned first', 'remove a clip', 'drop a clip', 'select clips',
+     'shift click', 'bulk remove', 'the bank keeps the shot'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-captions', 'Captions of a video dataset',
+    ['caption a clip', 'clip captions', 'sidecar', 'txt file', 'txt next to the mp4',
+     'caption not saved', 'sidecar failed', 'empty caption', 'trigger word alone',
+     'find and replace', 'whole word', 'prefix', 'suffix', 'bulk caption edit',
+     'repeated words', 'most repeated', 'caption leak', 'coverage'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-references', 'Identity references of a video dataset',
+    ['references', 'reference images', 'control images', 'ref2va', 'identity',
+     'attach references', 'replace references', 'launch refused', 'unconditioned',
+     'minimax h3 references', '1 to 4 images'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-training', 'Training section of a video dataset',
+    ['train section', 'launch training', 'steps', 'i2v', 'train on this pc',
+     'train in the cloud', 'train further'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-checkpoints', 'Checkpoints & LoRAs of a video dataset',
+    ['checkpoints section', 'video checkpoints', 'video lora files', 'saves',
+     'download the lora', 'both experts', 'high noise', 'low noise', 'wan pair',
+     'deploy a video lora', 'deploy to comfyui', 'undeploy', 'h3/lds',
+     'continue from a step', 'continue from here', 'train further from a step',
+     'delete a checkpoint', 'delete a save', 'trash a checkpoint', 'run details',
+     'delete a run', 'local saves', 'cloud saves', 'no checkpoints yet'],
+    '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
+  action('video-dataset-studio', 'Studio section of a video dataset',
+    ['studio section', 'open studio', 'test my video lora', 'test a deployed lora',
+     'video test studio', 'render a clip with my lora'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   action('video-train-local', 'Train a video dataset on this machine',
     ['train this dataset', 'train video', 'video training', 'local training',
      'video lora', 'train a video lora', 'start training', 'stop training',
@@ -323,6 +419,13 @@ export const VIDEO_LANE_TOPICS = [
   action('video-cloud-training', 'Train a video dataset in the cloud',
     ['cloud video training', 'train video in the cloud', 'video lora cloud',
      'train in the cloud', 'rent a gpu for video', 'video pod', 'wan lora cloud',
+     // The launch WINDOW, searched for by what it shows: the offers, the price,
+     // the estimate, the cap, the month's spend — and by what stops it opening.
+     'choose a gpu', 'gpu offers', 'gpu speed', 'price per hour', 'how much will it cost',
+     'how long will it take', 'estimate', 'rough estimate', 'runtime cap', 'cut short',
+     'no gpu available', 'price cap', 'this month', 'monthly budget', 'budget',
+     'not ready for the cloud', 'preflight', 'readiness', 'ready to train', 'not ready',
+     'launch anyway', 'second pod', 'parallel run', 'run limit',
      'minimax h3 training', 'h3 lora', 'video checkpoint', 'download video lora',
      'high noise', 'low noise', 'both experts', 'two files', 'moe pair',
      'retry video run', 'continue video run', 'train further', 'resume video',
@@ -344,9 +447,17 @@ export const VIDEO_LANE_TOPICS = [
      'deployed', 'deployed loras', 'list deployed', 'bulk', 'batch', 'tick',
      'checkboxes', 'select all', 'free space', 'tidy comfyui', 'canvas'],
     '/canvas', 'using-the-app', 'undeploy-several-loras-at-once'),
-  action('canvas-arrange', 'Move run cards & ✦ Tidy up',
+  action('canvas-arrange', 'Move run cards & lanes · resize a lane · ✦ Tidy up',
     ['move a run', 'drag a card', 'arrange the canvas', 'rearrange', 'layout',
      'tidy up', 'reset the layout', 'positions', 'long press', 'pick up a card',
+     // 🛝 The lane itself. People search for the COLLISION, not for the grip:
+     // "my pinned images are on top of the next dataset" is the report, and the
+     // bottom edge (or a double-click on it) is the answer.
+     'move a lane', 'move a dataset block', 'drag a lane', 'resize a lane',
+     'lane height', 'lane overlaps', 'lanes overlap', 'lanes on top of each other',
+     'images cover the next dataset', 'pinned images overlap another dataset',
+     'give a lane more room', 'more space between datasets', 'amber edge',
+     'fit the lane to its content', 'dataset block', 'lane grip', 'lane edge',
      'datasets filter', 'filter is collapsed', 'filter is folded',
      'where is the dataset list', 'show fewer datasets',
      'my board keeps moving', 'new run moved everything', 'organise runs',
@@ -377,6 +488,15 @@ export const VIDEO_LANE_TOPICS = [
      'resource monitor', 'crystools', 'monitor in the header', 'stats in the header',
      'gpu temperature', 'temperature', 'how hot is my gpu', 'degrees', 'temp',
      'no temperature', 'temperature missing', 'watch the machine from any page'],
+    '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
+  // 🧹 The button beside that readout: the same anchor, because the guide
+  // explains it in the same paragraph — what holds the memory, what the
+  // button gives back, and when it refuses.
+  action('system-free-memory', '🧹 Free memory — unload what ComfyUI and the vision model keep in RAM',
+    ['free memory', 'free ram', 'ram full', 'ram is full', 'memory full', 'out of memory',
+     'clear ram', 'release memory', 'unload models', 'unload comfyui models', 'comfyui ram',
+     'ram does not go down', 'memory not freed', 'vram full', 'free vram', 'clear vram',
+     'unload vision model', 'unload ollama', 'unload lm studio', 'broom', 'cleanup memory'],
     '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
   action('canvas-image-delete', '🗑 Delete a picture straight from the board',
     ['delete an image from the canvas', 'delete a pinned image', 'remove an image',

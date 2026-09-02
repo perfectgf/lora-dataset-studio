@@ -11,7 +11,7 @@ import LaunchBar from './LaunchBar';
 import StudioGenerationSettings from './StudioGenerationSettings';
 import StudioActionBar from './StudioActionBar';
 import StudioPreflightBanner from './StudioPreflightBanner';
-import { launchSettings, launchText as batchLaunchText, visibleBatch } from './promptBatch';
+import { launchSettings, launchText as batchLaunchText, mergeBatches, visibleBatch } from './promptBatch';
 import { readInjectTrigger, writeInjectTrigger } from './triggerPref';
 import ScenePromptsPanel from './ScenePromptsPanel';
 import { combinedPromptBatch } from './scenePrompts';
@@ -37,7 +37,7 @@ import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
 //                           checkpoints, then generate ») ou POURQUOI il ne peut
 //                           pas (familles mélangées). Jamais un bouton mort muet.
 // Tout le reste — modèle, format, cfg, steps, steps2, seed, ×N, LoRA always-on,
-// rebalance, négatif… — est le MÊME code, donc les deux écrans ne divergent pas.
+// négatif… — est le MÊME code, donc les deux écrans ne divergent pas.
 //   `showStrengths`/`cellTotal` : le mode 🧬 Blend du board charge tous les
 //                           checkpoints dans UNE image, chacun à son poids —
 //                           l'axe strengths n'a plus rien à balayer, et le
@@ -52,7 +52,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   const navigate = useNavigate();
   // Réglages de génération GLOBAUX (parité Generate, hors prompt builder) remontés par
   // StudioGenerationSettings : objet snake_case déjà prêt à fusionner dans le POST /run
-  // (source unique de vérité pour rebalance/enhancer/precision/format/detail/negative +
+  // (source unique de vérité pour precision/format/detail/negative +
   // pile LoRA « always-on »). Le composant est gaté PAR FAMILLE et se persiste seul.
   const [genSettings, setGenSettings] = useState({});
   // Manques de modèles/nodes remontés par un 409 `studio_missing` au lancement
@@ -76,13 +76,20 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   const pickedPrompts = visibleBatch(batchPrompts, d.recent_prompts);
   const toggleBatchPrompt = (p) => setBatchPrompts((cur) => (
     cur.includes(p) ? cur.filter((v) => v !== p) : [...cur, p]));
+  // 🌐 Les prompts cochés dans le navigateur Civitai : des passes du même lot,
+  // sans passer par l'historique (ils y entreront au lancement). Même règle de
+  // non-persistance que le lot d'historique, même raison.
+  const [civitaiPicks, setCivitaiPicks] = useState([]);
+  const toggleCivitaiPick = (p) => setCivitaiPicks((cur) => (
+    cur.includes(p) ? cur.filter((v) => v !== p) : [...cur, p]));
 
   // 🎬 Scenes : les captions d'une banque OU d'un dataset DANS L'ORDRE, chaque
   // scène cochée devenant une passe du même axe 📝. Non persisté, même raison que
   // le lot d'historique ci-dessus. La règle vit dans scenePrompts.js (pur, testé).
   const [sceneBatch, setSceneBatch] = useState({ source: null, scenes: [], picked: [], extras: {} });
   const allPickedPrompts = combinedPromptBatch(
-    pickedPrompts, sceneBatch.scenes, sceneBatch.picked, sceneBatch.extras);
+    mergeBatches(pickedPrompts, civitaiPicks),
+    sceneBatch.scenes, sceneBatch.picked, sceneBatch.extras);
 
   // 🔤 Case « Trigger word » : préfixer (défaut, comportement historique) ou non le
   // trigger du dataset au prompt monté. Préférence de navigateur PARTAGÉE entre les
@@ -241,6 +248,9 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
             batchPrompts={pickedPrompts}
             onToggleBatchPrompt={toggleBatchPrompt}
             onClearBatchPrompts={() => setBatchPrompts([])}
+            civitaiPicks={civitaiPicks}
+            onToggleCivitaiPick={toggleCivitaiPick}
+            onClearCivitaiPicks={() => setCivitaiPicks([])}
             injectTrigger={injectTrigger}
             onInjectTrigger={toggleInjectTrigger}
           />
@@ -275,7 +285,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
           />
 
           {/* Réglages de génération globaux (parité Generate) : format/resolution, +
-              selon la famille sampling/detail/engine (rebalance+enhancer+precision+LoRA
+              selon la famille sampling/detail/engine (precision+LoRA
               always-on)/negative. Source unique de vérité, partagée avec la comparaison. */}
           <StudioGenerationSettings
             family={d.family}

@@ -9,7 +9,9 @@ import {
 } from './videoTargetChoice'
 import {
   uncaptionedWarning, overBudgetWarning, overTokenBudgetWarning, servedShortNote,
+  sliceGainNote,
 } from './videoClipSearch'
+import { lengthSuggestion, lengthSuggestionNote } from './videoTargetChoice'
 import { passBlockedBy } from './videoCapability'
 import VideoTargetPicker from './VideoTargetPicker'
 
@@ -41,6 +43,13 @@ export default function PromoteVideoDialog({
   const [triggerWord, setTriggerWord] = useState('')
   const [frames, setFrames] = useState(null)
   const [sizeKey, setSizeKey] = useState('source')
+  // The lengths of the shots this build would encode, read ONCE when the window
+  // opens (never on the bank's poll — it describes a decision being made).
+  const [keptSpans, setKeptSpans] = useState(null)
+  // ✂✂ Slice long shots into consecutive clips instead of truncating them.
+  // Opt-in on purpose — see the note under the box: every slice inherits the
+  // SHOT's caption, which describes the whole shot.
+  const [sliceLong, setSliceLong] = useState(false)
   // ✂ Per-end trim, in seconds. Zero by default and kept as TEXT while typing:
   // "0." and "" are states a number input passes through, and coercing them
   // early wipes the field under the user's cursor.
@@ -51,6 +60,13 @@ export default function PromoteVideoDialog({
   const [busy, setBusy] = useState(false)
   // Escape closes, unless a build is mid-flight — the same guard PassDialog
   // applies (a dialog must never vanish while its request is still running).
+  useEffect(() => {
+    const ids = (selectedIds || []).length ? `?ids=${selectedIds.join(',')}` : ''
+    apiFetch(`/api/video-bank/${bankId}/kept-spans${ids}`)
+      .then((d) => setKeptSpans(d?.spans || []))
+      .catch(() => setKeptSpans([]))     // no suggestion beats a wrong one
+  }, [bankId, selectedIds])
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose?.() }
     window.addEventListener('keydown', onKey)
@@ -94,6 +110,11 @@ export default function PromoteVideoDialog({
     setSizeKey('source')
   }
 
+  const lengthNote = useMemo(
+    () => lengthSuggestionNote(
+      lengthSuggestion(keptSpans, options, target?.fps), frames),
+    [keptSpans, options, target, frames])
+
   const submit = async (e) => {
     e.preventDefault()
     if (busy || problem) return
@@ -101,7 +122,7 @@ export default function PromoteVideoDialog({
     setError(null)
     try {
       const d = await postJson(`/api/video-bank/${bankId}/promote`,
-        promotePayload({ name, targetKey, frames, size, ids: selectedIds,
+        promotePayload({ name, targetKey, frames, size, ids: selectedIds, sliceLong,
           edgeInsetS: edgeInset, maxPerSource, triggerWord }))
       toast.success(`Building “${d.name}” — ${d.clips} clip(s) being encoded.`)
       // Said out loud rather than left in the job line: these clips were removed
@@ -132,6 +153,8 @@ export default function PromoteVideoDialog({
       // caption is no mystery.
       const short = servedShortNote(d.composition)
       if (short) toast.info(short, 8000)
+      const sliced = sliceGainNote(d.composition)
+      if (sliced) toast.info(sliced, 8000)
       onDone?.(d)
       onClose?.()
     } catch (err) {
@@ -223,6 +246,12 @@ export default function PromoteVideoDialog({
                   Only lengths this model’s VAE can ingest. Seconds are shown at its own
                   frame rate — they are not something you type.
                 </p>
+                {/* What each length COSTS, from the shots actually kept. It
+                    never moves the selection: auto-picking would change the
+                    price of a training run behind the user's back. */}
+                {lengthNote && (
+                  <p className="mt-1 text-xs text-sky-300/90">{lengthNote}</p>
+                )}
               </>
             )}
           </div>
@@ -262,6 +291,24 @@ export default function PromoteVideoDialog({
             <p className="mt-1 text-xs text-content-muted">{capHint()}</p>
           )}
         </div>
+
+        {/* ✂✂ Slicing. Next to the trim because both are refinements of what a
+            shot contributes — but this one ADDS clips rather than shortening
+            them, so it says what each extra clip will carry. */}
+        <label className="flex items-start gap-2 rounded-md border border-border bg-surface-raised px-3 py-2 text-sm text-content">
+          <input type="checkbox" checked={sliceLong} className="mt-0.5"
+            onChange={(e) => setSliceLong(e.target.checked)} />
+          <span className="min-w-0">
+            <span className="font-medium">Slice shots longer than one clip</span>
+            <span className="block text-xs text-content-muted">
+              A shot long enough for several clips gives them all, end to end,
+              instead of only its first {frames || 'N'} frames. Each slice
+              carries the SHOT&rsquo;s caption, which describes the whole shot —
+              so a later slice may be captioned with things that happen earlier.
+              Up to 8 clips per shot.
+            </span>
+          </span>
+        </label>
 
         {/* ✂ The edge trim. Below the target grid because it is a refinement of
             WHAT gets cut, not of which model it is cut for. */}

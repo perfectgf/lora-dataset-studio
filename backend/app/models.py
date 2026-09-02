@@ -785,7 +785,11 @@ class LoraTestImage(db.Model):
     steps = db.Column(Integer, nullable=True)         # steps pass 1 (KSampler) ; axe optionnel
     steps2 = db.Column(Integer, nullable=True)        # SDXL : steps pass 2 (detail daemon, node 57) ; NULL = pass 1
     extra_loras = db.Column(Text, nullable=True)      # LoRA always-on (style/utilitaire) JSON [{filename,strength}] ; appliqués à CHAQUE cellule (hors batch)
-    krea_rebalance = db.Column(Float, nullable=True)  # Krea node 30 (NSFW/texture rebalance) : NULL=défaut, ≤1=OFF, >1=ON@force
+    # LEGACY (2026-09-02): the Krea conditioning rebalance was retired — nothing
+    # writes this any more (see utils/comfyui, "Retired"). Kept nullable so the
+    # rows that carry a value keep it (and so the series signature in
+    # checkpoint_timeline stays stable); a resume renders without it.
+    krea_rebalance = db.Column(Float, nullable=True)
     # Parité Generate (2026-07-01) — réglages persistés par cellule pour un resume fidèle.
     negative = db.Column(Text, nullable=True)             # Z-Image : prompt négatif (node 5)
     sampler = db.Column(String(32), nullable=True)        # Krea : node 26 sampler_name
@@ -794,12 +798,27 @@ class LoraTestImage(db.Model):
     sampler_preset = db.Column(String(24), nullable=True)
     scheduler = db.Column(String(32), nullable=True)      # Krea : node 26 scheduler
     weight_dtype = db.Column(String(24), nullable=True)   # Krea : node 20 précision UNET (weight_dtype)
-    enhancer_strength = db.Column(Float, nullable=True)   # Krea2T-Enhancer : NULL=OFF, sinon force ON
+    # LEGACY (2026-09-02): the Krea2T-Enhancer toggle was retired — nothing writes
+    # this any more. Kept nullable so the rows that carry a value keep it (and so
+    # the series signature in checkpoint_timeline stays stable); a resume of such
+    # a cell renders without the patcher.
+    enhancer_strength = db.Column(Float, nullable=True)
     detail_amount = db.Column(Float, nullable=True)       # SDXL : DetailDaemon detail_amount (NULL=défaut)
     resolution_tier = db.Column(String(12), nullable=True)  # fast|standard|hq|max (compute_tier_dims) ; NULL=table fixe
     resolution_multiplier = db.Column(Float, nullable=True)  # multiplicateur linéaire du palier [1.0,1.9] ; NULL/1.0=palier inchangé (resume fidèle)
     init_image = db.Column(String(255), nullable=True)    # Krea img2img : fichier init copié dans COMFYUI_INPUT_DIR
     denoise = db.Column(Float, nullable=True)             # Krea img2img : node 26 denoise
+    # Krea hi-res fix, PER RUN. NULL = the `krea_hires.*` setting at the time the
+    # cell is (re)built; 1.0 = explicitly off for this run, whatever the setting
+    # says. Persisted, like sampler_preset, so a 🔄 resume re-renders the cell it
+    # replaces rather than whatever Settings says today.
+    hires_scale = db.Column(Float, nullable=True)
+    hires_denoise = db.Column(Float, nullable=True)
+    # App-side finishing on the finished cell (utils/photo_finish). NULL/0 = off.
+    # Studio cells are text-to-image, so there is no colour reference to match
+    # to — only the two engine-agnostic passes exist here.
+    finish_sharpen = db.Column(Float, nullable=True)
+    finish_grain = db.Column(Float, nullable=True)
     # Case « Trigger word » du Studio : False = le prompt de cette cellule est
     # parti SANS le trigger word du dataset (aucune injection au montage du
     # workflow). NULL = lignes d'avant la colonne / défaut → trigger injecté,
@@ -1107,6 +1126,48 @@ class CheckpointNote(db.Model):
                                           name='uq_checkpoint_note'),)
 
 
+class CivitaiLink(db.Model):
+    """📤 Which Civitai model VERSION one training save IS.
+
+    Keyed by (record_id, step, filename) — three columns, not two, because a
+    run that ends on a numbered save writes TWO files at its last step (the
+    numbered `…_000001000.safetensors` and the step-less final `….safetensors`),
+    and `list_checkpoints` only renumbers the final when the run overshot the
+    last numbered save. Keyed on the step alone, publishing the final would
+    silently overwrite the link of the numbered save (measured before this
+    table existed). `filename` is the save's own basename, as the pill carries
+    it.
+
+    No ForeignKey, like CheckpointNote: a run record can be removed from the
+    lineage graph while the page it produced stays on Civitai, so removal
+    DETACHES the link (record_id → NULL) instead of deleting it — a dataset's
+    linked pages stay offered to the pictures that predate the stamp, which is
+    the ordinary case for every image made with a run's FINAL save (its
+    deployed name carries no step, so it is generated with `record_id` NULL).
+    `dataset_id` is denormalised for exactly that lookup. New table → created
+    by db.create_all(), no migration of existing rows."""
+    __tablename__ = 'civitai_link'
+    id = db.Column(db.Integer, primary_key=True)
+    record_id = db.Column(db.Integer, nullable=True, index=True)
+    step = db.Column(db.Integer, nullable=False)
+    filename = db.Column(db.String(255), nullable=False, default='')
+    dataset_id = db.Column(db.Integer, nullable=False, index=True)
+    model_id = db.Column(db.Integer, nullable=False)
+    version_id = db.Column(db.Integer, nullable=False)
+    model_name = db.Column(db.String(255), nullable=False, default='')
+    version_name = db.Column(db.String(255), nullable=False, default='')
+    # The Civitai `baseModel` string the version was created with — it travels
+    # into every image posted under it (`meta.baseModel`).
+    base_model = db.Column(db.String(64), nullable=True)
+    # True = published, False = still a draft, NULL = not known (a page marked
+    # by address answered no status).
+    published = db.Column(db.Boolean, nullable=True)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow, onupdate=naive_utcnow)
+    __table_args__ = (db.UniqueConstraint('record_id', 'step', 'filename',
+                                          name='uq_civitai_link'),)
+
+
 class CheckpointPreview(db.Model):
     """The Lab's inline-generated preview for one checkpoint (record_id, step):
     a same-prompt/same-seed image so an experienced user can eyeball how the LoRA
@@ -1286,6 +1347,52 @@ class CanvasImageNode(db.Model):
     dataset = db.relationship('FaceDataset')
     __table_args__ = (db.UniqueConstraint('dataset_id', 'image_id',
                                           name='uq_canvas_image_node'),)
+
+
+class CanvasLanePlacement(db.Model):
+    """Where a whole LANE sits on the ◉ LoRA Canvas, and how much room it keeps.
+
+    The third and last thing on this board that can be arranged, after the run
+    cards (``CanvasNodePosition``) and the pinned pictures (``CanvasImageNode``)
+    — and the one that was missing. A lane was pinned to x = 0 and stacked by
+    its TREE's height alone, while ``📌 Pin all`` lays its contact sheet BELOW
+    that tree: the sheet landed on the next dataset's header, cards and
+    pictures. Measured on a two-lane board with a four-row band, 894 world units
+    of the lane below were covered.
+
+    ``h`` is the room the lane RESERVES, header excluded — it is what the stack
+    advances by, so changing it moves the lanes underneath. ``x``/``y`` are
+    where the lane is DRAWN. All three are NULLABLE and mean "let the board
+    decide", which is what every lane does until somebody drags something: a row
+    of three NULLs is indistinguishable from no row at all, deliberately, so
+    there is one state and not two.
+
+    ⚠️ Unlike a card's or a picture's, these coordinates are BOARD-absolute —
+    they cannot be lane-local, because they are what puts the lane on the board
+    in the first place. That is why they are bounded on both axes
+    (``CANVAS_LANE_REACH``) and why ``h`` is clamped: ✦ Fit frames the board's
+    whole box, so one corrupt row would collapse every other lane to a scale
+    where nothing is readable.
+
+    ⚠️ The ``dataset`` relationship is not decoration — same reasoning as
+    ``CanvasNodePosition`` above: without a mapper-level relationship the unit
+    of work has no ordering dependency and a legacy database whose FK lacks
+    ON DELETE CASCADE answers HTTP 500. delete_dataset also deletes these rows
+    explicitly and flushes before the parent. New table -> created by
+    db.create_all(), no migration."""
+    __tablename__ = 'canvas_lane_placement'
+    id = db.Column(db.Integer, primary_key=True)
+    dataset_id = db.Column(
+        db.Integer, db.ForeignKey('face_dataset.id', ondelete='CASCADE'),
+        nullable=False, index=True)
+    x = db.Column(Float, nullable=True)
+    y = db.Column(Float, nullable=True)
+    h = db.Column(Float, nullable=True)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow,
+                           onupdate=naive_utcnow)
+    dataset = db.relationship('FaceDataset')
+    __table_args__ = (db.UniqueConstraint('dataset_id',
+                                          name='uq_canvas_lane_placement'),)
 
 
 class CanvasLayoutPreset(db.Model):
@@ -1669,6 +1776,13 @@ class VideoTestClip(db.Model):
     turbo = db.Column(db.Boolean, nullable=False, default=False)
     sparse = db.Column(String(16), nullable=True)        # '' / default / conservative / max
     latent_upscale = db.Column(db.Boolean, nullable=False, default=False)
+    # ↗ The clip this one was interpolated FROM, or NULL. A smoothed clip is a
+    # new artefact with its own frame rate — never an edit of the original,
+    # which would destroy the comparison the studio exists for.
+    vfi_of = db.Column(Integer, nullable=True, index=True)
+    # ✨ The clip this one was neural-rendered FROM (DLSS 5), or NULL — the same
+    # rule: a new artefact next to the original, never an edit of it.
+    nr_of = db.Column(Integer, nullable=True, index=True)
 
     rating = db.Column(Integer, nullable=False, default=0)  # 1 | -1 | 0, same scale as the image studio
     created_at = db.Column(DateTime, default=db.func.current_timestamp())

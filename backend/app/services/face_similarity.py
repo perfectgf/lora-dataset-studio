@@ -13,6 +13,7 @@ from contextlib import nullcontext
 from ..gpu_window import GpuBusyError
 
 from .. import config as cfg
+from . import face_models
 from .infer_stream import run_infer_script, stderr_tail as _tail
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,7 @@ def score_dataset_faces(ref_path, image_paths, timeout: int | None = None,
     from ..capabilities import resolve_face_device
     device, use_gpu = resolve_face_device()
     payload = json.dumps({"ref": ref_path, "images": image_paths,
-                          "models_root": cfg.get('face_scoring.models_root') or None,
+                          "models_root": face_models.models_root(),
                           "device": device})
     # GPU is EXCLUSIVE or it is nothing. The window unloads ComfyUI and holds off
     # a training start for the whole pass, which is precisely why this scorer was

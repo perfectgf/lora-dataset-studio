@@ -206,3 +206,65 @@ def test_the_sidecar_is_utf8_without_a_bom(tmp_path):
     raw = (tmp_path / 'clip_0002.txt').read_bytes()
     assert not raw.startswith(b'\xef\xbb\xbf')
     assert raw.decode('utf-8') == 'a café at dusk'
+
+
+# --- slicing a long shot into consecutive clips (2026-09-01) -------------------------
+
+def test_slice_spans_cuts_a_long_shot_into_whole_consecutive_clips():
+    """A fifteen-second shot promoted at 209 frames used to train on its first
+    8.7 s. Sliced, it yields whole clips end to end — never overlapping (no two
+    clips of a dataset show the same frames) and never partial."""
+    from app.services.video_clip_export import clip_duration_s, slice_spans
+    need = clip_duration_s(209, 24)                     # 8.666… s
+    spans = slice_spans(0.0, 20.0, 209, 24)
+    assert len(spans) == 2
+    assert spans[0][0] == 0.0
+    assert abs((spans[0][1] - spans[0][0]) - need) < 1e-3
+    # End to end: the second starts exactly where the first ended.
+    assert spans[1][0] == spans[0][1]
+    # The tail too short for a whole clip is left behind, as the encoder would.
+    assert spans[-1][1] <= 20.0
+
+
+def test_slice_spans_refuses_what_the_encoder_would_refuse():
+    from app.services.video_clip_export import fits_frames, slice_spans
+    assert slice_spans(0.0, 2.0, 209, 24) == []
+    assert not fits_frames(2.0, 209, 24)                # the same verdict
+    assert slice_spans(0.0, 0.0, 39, 24) == []
+
+
+def test_the_inset_is_applied_once_at_the_ends_not_between_slices():
+    """A shot boundary is where a dissolve lives; the joins BETWEEN slices are
+    not shot boundaries, so trimming them would throw away good frames."""
+    from app.services.video_clip_export import slice_spans
+    spans = slice_spans(10.0, 30.0, 39, 24, inset_s=0.5)
+    assert spans[0][0] == 10.5                          # trimmed at the head
+    assert spans[-1][1] <= 29.5                         # and at the tail
+    for a, b in zip(spans, spans[1:]):                  # nothing trimmed inside
+        assert a[1] == b[0]
+
+
+def test_one_shot_cannot_become_the_whole_dataset():
+    """`limit` is the same guard as the per-source cap, one level down: a very
+    long take must not outweigh every other shot on its own."""
+    from app.services.video_clip_export import slice_spans
+    assert len(slice_spans(0.0, 600.0, 39, 24, limit=8)) == 8
+
+
+def test_the_promote_job_is_actually_told_to_slice():
+    """The wiring, pinned because it BROKE: slice_long reached the preflight
+    (which counted 152 extra clips) and never the job (which encoded 39), since
+    the job is called with positional arguments and the option was appended as
+    a keyword to the wrong call. A trial run caught in ten minutes what four
+    green test files could not — the option now travels, and this reads the
+    call itself."""
+    import ast
+    import inspect
+    from app.services import video_bank_service as svc
+    src = inspect.getsource(svc.start_promote)
+    tree = ast.parse(src.lstrip())
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and getattr(n.func, 'id', '') == '_promote_job']
+    assert calls, 'start_promote must build the promote job'
+    assert any(kw.arg == 'slice_long' for kw in calls[0].keywords), \
+        '_promote_job is called without slice_long — the option would be dead'

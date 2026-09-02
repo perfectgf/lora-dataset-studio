@@ -59,7 +59,7 @@ from ..extensions import db
 from ..models import (BankDupDistinct, BankImage, FaceDataset, FaceDatasetImage,
                       ImageBank)
 from . import (bank_jobs, bank_semantic_engine, bank_transfer_metadata, bank_undo, caption_origin,
-               dataset_activity, image_encoding, path_guard, trash)
+               dataset_activity, face_models, image_encoding, path_guard, trash)
 # The scope vocabulary is a leaf (pass_scopes.py) so face_dataset_service never
 # imports this module; the three names stay readable as banks.* for every caller.
 from .pass_scopes import PASS_SCOPES, CAPTION_SCOPES, normalize_pass_statuses  # noqa: F401
@@ -5037,7 +5037,17 @@ def crop_image(user_id, bank_id, image_id, x, y, w, h, *,
     The user's file is never written to (the crop is a blob in the bank's own
     ``edited/``), the previous generation is kept until the new one is published,
     and every measured lane is invalidated so the next pass re-reads THIS image —
-    which is what makes "crop, then re-analyse, then curate" work at all."""
+    which is what makes "crop, then re-analyse, then curate" work at all.
+
+    ONE decode, ONE encode. nofaceman came back about the speed ("sometimes takes
+    3-5 seconds or more to do the cropping"): the crop used to stage an upright
+    lossless WebP of the WHOLE image first — the working file the ✨ improve and
+    the watermark cleaners need, because they edit a file — and then reopen that
+    copy, cut it, and encode the cut a second time. Lossless WebP at the app's
+    effort costs about a second per megapixel written on a Windows desktop (half
+    that on Linux), so a plain reframing paid for the full frame plus the box
+    and threw the full frame away. The box is now cut straight from the
+    resolved source by ``_cut_edited_copy``."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -5056,21 +5066,16 @@ def crop_image(user_id, bank_id, image_id, x, y, w, h, *,
     src = resolved_image_path(bank, row)
     if not src or not os.path.isfile(src):
         raise ValueError('the image could not be read from its folder')
-    from .face_dataset_service import _apply_watermark_crop
     generation = int(row.edit_generation or 0) + 1
     baked = (row.edit_baked_rotation if row.edit_method
              else (int(row.rotation or 0) % 360 or None))
     try:
-        dst = _stage_edited_copy(bank_id, row, src, generation)
+        dst = _cut_edited_copy(bank_id, row, src, generation, box)
+    except _EmptyCropBox:
+        raise ValueError('invalid crop box') from None
     except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
             Image.DecompressionBombWarning) as exc:
         raise ValueError(f'the image could not be prepared for cropping: {exc}') from exc
-    if not _apply_watermark_crop(str(dst), box):
-        try:
-            dst.unlink(missing_ok=True)
-        except OSError:
-            pass   # rollback is best-effort: the crop target may never have landed
-        raise ValueError('invalid crop box')
     row.edit_method = 'crop'
     row.edit_generation = generation
     row.edit_baked_rotation = baked
@@ -6767,7 +6772,7 @@ def _faces_job(bank_id, angles_only=False, statuses=None, ids=None):
         cache_path = _face_cache_path(bank_id)
         payload = _json.dumps({
             'images': paths,
-            'models_root': cfg.get('face_scoring.models_root') or None,
+            'models_root': face_models.models_root(),
             'cache': str(cache_path),
             'cancel_file': str(cache_path) + '.cancel',
             'threshold': th['face_threshold'],
@@ -8620,11 +8625,13 @@ def _source_size(bank, row):
 def _stage_upright_webp(dst: Path, src_path, *, label: str) -> Path:
     """Create an upright, metadata-free WebP copy of ``src_path`` at ``dst``.
 
-    Crop, LaMa and Klein all consume visual/VLM boxes. They therefore edit a
-    freshly rebuilt WebP in one of the Bank's own working directories, never a
-    byte copy of a raw EXIF-tagged source. The source remains read-only and
-    recoverable; the blob is atomically published only once its staging write
-    succeeded.
+    LaMa and Klein consume visual/VLM boxes and need a FILE to work on. They
+    therefore edit a freshly rebuilt WebP in one of the Bank's own working
+    directories, never a byte copy of a raw EXIF-tagged source. The source
+    remains read-only and recoverable; the blob is atomically published only
+    once its staging write succeeded. The two crops do NOT come through here —
+    a crop only needs pixels, so staging the whole frame first cost a second
+    lossless encode for nothing (see ``_cut_upright_webp``).
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
@@ -8655,11 +8662,88 @@ def _stage_clean_copy(bank_id, row, src_path) -> Path:
                                label='bank watermark clean')
 
 
-def _stage_edited_copy(bank_id, row, src_path, generation) -> Path:
-    """The ✂ crop / ✨ improve working image, in the Bank's ``edited/``."""
-    return _stage_upright_webp(
-        edited_image_path(bank_id, row.id, generation), src_path,
-        label='bank image edit')
+class _EmptyCropBox(ValueError):
+    """The box, once clamped to the image, has no pixel left in it."""
+
+
+def _cut_upright_webp(dst: Path, src_path, box, *, label: str) -> Path:
+    """Cut ``box`` out of ``src_path`` into ``dst`` as ONE metadata-free
+    lossless WebP: one decode, one encode — of the box alone.
+
+    The staging copy (``_stage_upright_webp``) exists for the editors that need
+    a FILE to work on (LaMa, Klein). A crop only needs pixels, so writing a
+    full-frame lossless WebP first — to reopen it, cut it and encode the cut a
+    second time — paid for the whole frame and threw it away: about a second
+    per megapixel written on a Windows desktop, half that on Linux. Both crops
+    of the Bank come through here instead: the manual ✂ (``_cut_edited_copy``)
+    and the auto-crop level of the watermark clean (``_cut_clean_copy``).
+
+    Same contract as the staging copy followed by ``_apply_watermark_crop``:
+    the cut is made on the upright pixels the box was drawn on
+    (``exif_transpose``), the box is clamped to the image the same way, the
+    blob carries no metadata (an orientation tag would make the browser turn it
+    a second time), and it is published atomically so whatever ``dst`` held
+    keeps serving until the new bytes exist. Raises ``_EmptyCropBox`` when the
+    clamped box has no pixel (nothing is written) and lets the source's own
+    errors through."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
+    try:
+        with safe_bank_source(src_path, label=label) as source:
+            source.load()
+            oriented = ImageOps.exif_transpose(source)
+            box = (max(0, int(box[0])), max(0, int(box[1])),
+                   min(oriented.width, int(box[2])),
+                   min(oriented.height, int(box[3])))
+            if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+                raise _EmptyCropBox('invalid crop box')
+            mode = ('RGBA' if ('A' in oriented.getbands()
+                               or 'transparency' in getattr(oriented, 'info', {}))
+                    else 'RGB')
+            # A fresh image, like the staging copy: the cut brings no `info`
+            # (EXIF, ICC) along, so the blob is exactly the pixels.
+            cut = Image.new(mode, (box[2] - box[0], box[3] - box[1]))
+            cut.paste(oriented.crop(box).convert(mode))
+        image_encoding.save_edit(cut, str(tmp), 'WEBP', image_encoding.LOSSLESS)
+        os.replace(tmp, dst)
+    except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning):
+        try:
+            tmp.unlink()
+        except OSError:
+            pass   # rollback is best-effort: the temp may never have landed
+        raise
+    return dst
+
+
+def _cut_edited_copy(bank_id, row, src_path, generation, box) -> Path:
+    """The ✂ crop's blob in the Bank's ``edited/``, cut straight from the
+    resolved source — the previous generation keeps serving until this one
+    exists.
+
+    nofaceman came back about the speed ("sometimes takes 3-5 seconds or more
+    to do the cropping"): the crop used to stage the whole image first.
+    Measured through the real route (Flask test client, a real photograph,
+    Pillow 12.3 / libwebp 1.6, best of three, on a Windows desktop): the POST
+    went from 3.4 s to 0.7 s at 2 MP and from 7.0 s to 1.6 s at 6 MP — the
+    encoder was 97 % of it before and after, two calls then one. Linux runs
+    both halves about twice as fast; the ratio is the same."""
+    return _cut_upright_webp(edited_image_path(bank_id, row.id, generation),
+                             src_path, box, label='bank image edit')
+
+
+def _cut_clean_copy(bank_id, row, src_path, box) -> Path:
+    """The auto-crop level's cleaned blob in the Bank's ``clean/``: the border
+    band cut straight from the source.
+
+    The same two-pass waste as the manual crop, found by the refutation of that
+    fix, and worse placed: this is a BATCH pass (one click, the whole bank), so
+    the full-frame encode was paid once per image. Measured through the real
+    route on the same photograph, per image: 3.5 s → 1.4 s at 2 MP, 7.0 s →
+    3.2 s at 6 MP (the band kept is most of the frame, so what remains is the
+    one encode of the kept pixels)."""
+    return _cut_upright_webp(clean_image_path(bank_id, row.id), src_path, box,
+                             label='bank watermark clean')
 
 
 def start_watermark_crop(app, user_id, bank_id, statuses=None, ids=None):
@@ -8700,7 +8784,7 @@ def start_watermark_crop(app, user_id, bank_id, statuses=None, ids=None):
 
 def _watermark_crop_job(bank_id, statuses=None, ids=None):
     def run(job):
-        from .face_dataset_service import _apply_watermark_crop, _route_watermark
+        from .face_dataset_service import _route_watermark
         bank = _detach_bank(db.session.get(ImageBank, bank_id))
         if not bank:
             return
@@ -8741,15 +8825,19 @@ def _watermark_crop_job(bank_id, statuses=None, ids=None):
                     left += 1              # level 2's job — stays 'detected'
                     bank_jobs.bump(job)
                     continue
+                # One cut straight from the source — no full-frame staging copy
+                # (that is the inpainters' need, not the crop's).
                 try:
-                    dst = _stage_clean_copy(bank_id, row, src)
+                    _cut_clean_copy(bank_id, row, src, box)
+                    cleaned_ok = True
+                except _EmptyCropBox:
+                    cleaned_ok = False     # the box has no pixel: an unusable result, judged below
                 except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
                         Image.DecompressionBombWarning):
                     _discard_clean_blob(bank_id, row)
                     failed += 1
                     bank_jobs.bump(job)
                     continue
-                cleaned_ok = _apply_watermark_crop(str(dst), box)
                 generation_ok = _prepare_watermark_write(
                     row, src, expected_raw_fingerprint)
                 if cleaned_ok and generation_ok:
@@ -8936,6 +9024,36 @@ def start_improve(app, user_id, bank_id, statuses=None, ids=None, engine=None):
                            _improve_job(bank_id, engine, want, ids), total=total)
 
 
+def _finish_improved_blob(engine, dst, src, row_id):
+    """The app-side finishing pass over a just-published Bank ✨ improve blob —
+    the SAME pass the dataset and Canvas improves get, because the button, the
+    engines and the enqueue helper are the same and a user who learns the
+    behaviour on one surface expects it on the other (CLAUDE.md, Bank↔Dataset).
+
+    `src` is the image AS IT WAS before the pass (the bank publishes a NEW
+    generation, so the previous blob is still on disk): that is the colour
+    reference. The engine rule is the shared helper's — colour matching is
+    forced off for SeedVR2, which grades itself inside the node. Off by default,
+    and wrapped whole: a nicety may never be the reason a render is lost."""
+    try:
+        from . import face_dataset_service as fds
+        profile = fds._finishing_profile(engine)
+        if not any(profile[k] > 0 for k in ('colour_strength', 'sharpen', 'grain')):
+            return
+        try:
+            from ..utils import photo_finish
+        except ImportError as exc:
+            logger.warning('bank improve: finishing pass skipped for image %s — %s '
+                           '(install the ML requirements to enable it)', row_id, exc)
+            return
+        photo_finish.apply_to_file(
+            str(dst), reference_path=(str(src) if src else None), seed=int(row_id or 0),
+            colour_strength=profile['colour_strength'], sharpen=profile['sharpen'],
+            grain=profile['grain'], grain_saturation=profile['grain_saturation'])
+    except Exception:
+        logger.exception('bank improve: finishing pass failed for image %s', row_id)
+
+
 def _improve_job(bank_id, engine, statuses=None, ids=None):
     def run(job):
         from . import face_dataset_service as fds
@@ -9036,6 +9154,10 @@ def _improve_job(bank_id, engine, statuses=None, ids=None):
                     failed += 1
                     bank_jobs.bump(job)
                     continue
+                # The finishing pass, on the blob just published, before the
+                # measurement below reads it. `src` still names the PREVIOUS
+                # generation — the colour reference.
+                _finish_improved_blob(engine, dst, src, row.id)
                 row.edit_method = 'improve'
                 row.edit_generation = generation
                 row.edit_baked_rotation = baked

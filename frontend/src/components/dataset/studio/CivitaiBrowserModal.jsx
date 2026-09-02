@@ -6,6 +6,7 @@
 // banner explaining what the (free) key unlocks — the credential is the same
 // one Settings → Scraping & sources already stores for the scraper.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { apiFetch } from '../../../api/fetchClient';
 import { useToast } from '../../common/Toast';
@@ -30,10 +31,17 @@ const readPref = (key, fallback, allowed) => {
   } catch { return fallback; }
 };
 
-export default function CivitaiBrowserModal({ open, onClose, onUse }) {
+// 📝 `picks` / `onTogglePick`: the host's prompt batch. Given a handler, every
+// prompt-bearing card grows a tick box — ticking adds that prompt as one more
+// pass of the next run and leaves the browser OPEN, because the whole point
+// is to collect several. Without a handler (the comparison surface has no
+// batch) the cards keep their two verbs and nothing else appears.
+export default function CivitaiBrowserModal({ open, onClose, onUse, picks = null, onTogglePick = null }) {
   const toast = useToast();
   const ref = useRef(null);
   useFocusTrap(ref, open);
+  const batchable = typeof onTogglePick === 'function';
+  const picked = Array.isArray(picks) ? picks : [];
 
   // Filters survive reopen and restart — new localStorage keys, safe defaults.
   const [period, setPeriod] = useState(() => readPref('civitaiBrowse_period', 'week', PERIODS.map(([v]) => v)));
@@ -111,11 +119,26 @@ export default function CivitaiBrowserModal({ open, onClose, onUse }) {
 
   const sel = 'rounded border border-border bg-app/60 px-1.5 py-1 text-content text-[0.6875rem]';
 
-  return (
+  /* PORTAILLÉE SUR `document.body`, et ce n'est pas une préférence.
+     Cette modale est montée depuis StudioRunSetup, qui vit dans l'`<aside
+     lg:sticky lg:overflow-auto>` de ComparisonStudio. `position: sticky` OUVRE un
+     contexte d'empilement : le `z-[9999]` ci-dessous y est plafonné et ne peut pas
+     passer au-dessus de la grille de résultats, sœur de l'aside et plus loin dans
+     le DOM — d'où les 👍/👎 des cellules peints PAR-DESSUS les prompts. Et
+     `overflow-auto` la DÉCOUPE en prime. Le portail sort du contexte fautif ; il
+     n'y a pas de z-index qui répare ça de l'intérieur.
+     ⚠️ Invisible aux suites : ni un test de source ni un rendu SSR n'a de layout.
+     Seule une capture tranche. Même piège, même fix que CaptionEditorDialog. */
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4"
       role="dialog" aria-modal="true" aria-label="Browse top Civitai prompts" ref={ref}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-4xl max-h-[88vh] rounded-2xl border border-border bg-surface-overlay p-4 flex flex-col gap-3 shadow-xl">
+      {/* `data-probe-layer` : cette modale couvre la page PAR DESIGN — non budgétée,
+          appariée avec rien dans le test de chevauchement. Sans marqueur ni état de
+          sonde, la rangée d'actions d'une carte — passée de deux boutons à trois
+          avec le lot — n'est mesurée à aucune taille. */}
+      <div data-probe-layer data-probe-panel="civitai-browser"
+        className="w-full max-w-4xl max-h-[88vh] rounded-2xl border border-border bg-surface-overlay p-4 flex flex-col gap-3 shadow-xl">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-content text-sm font-semibold flex items-center gap-1.5">
             <span aria-hidden>🌐</span> Civitai top prompts
@@ -213,6 +236,22 @@ export default function CivitaiBrowserModal({ open, onClose, onUse }) {
                   )}
                   {c.prompt && (
                     <span className="ml-auto flex items-center gap-1.5">
+                      {batchable && (() => {
+                        const inBatch = picked.includes(c.prompt);
+                        return (
+                          <button type="button" role="checkbox" aria-checked={inBatch}
+                            onClick={() => onTogglePick(c.prompt)}
+                            data-testid="civitai-batch-toggle"
+                            title={inBatch
+                              ? 'Remove this prompt from the batch'
+                              : 'Add this prompt to the batch — one more pass of the next run, the field stays as it is'}
+                            className={`px-2 py-1 min-h-10 lg:min-h-0 rounded border text-[0.6875rem] ${inBatch
+                              ? 'border-purple-400 bg-purple-500/25 text-purple-100'
+                              : 'border-border bg-app text-content-muted hover:text-content'}`}>
+                            {inBatch ? '☑ In batch' : '☐ Batch'}
+                          </button>
+                        );
+                      })()}
                       <button type="button" onClick={() => copyPrompt(c.prompt)}
                         title="Copy this prompt"
                         className="px-2 py-1 min-h-10 lg:min-h-0 rounded border border-border bg-app text-content-muted text-[0.6875rem] hover:text-content">
@@ -251,7 +290,27 @@ export default function CivitaiBrowserModal({ open, onClose, onUse }) {
             </button>
           )}
         </div>
+
+        {/* 📝 The batch's running count, pinned under the list so it is read
+            without scrolling back: what the next run will replay, and the way
+            out once enough is ticked. */}
+        {batchable && picked.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2"
+            data-testid="civitai-batch-footer">
+            <span className="text-[0.75rem] text-content">
+              <span className="rounded bg-purple-500/20 px-1.5 py-0.5 font-semibold text-purple-200 tabular-nums">
+                {picked.length} prompt{picked.length === 1 ? '' : 's'}
+              </span>
+              {' '}in the batch — one pass each on the next run
+            </span>
+            <button type="button" onClick={onClose}
+              className="px-3 py-1 min-h-10 lg:min-h-0 rounded-lg bg-gradient-primary text-gray-950 text-[0.6875rem] font-semibold">
+              Done
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

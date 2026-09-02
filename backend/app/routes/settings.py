@@ -33,6 +33,8 @@ _TEST_TARGETS = {
     'face_scoring': capabilities.probe_face_scoring,
     'masks': capabilities.probe_masks,
     'vast': capabilities.probe_vast,
+    # 📤 The Civitai key, shown to the site: the account it opens, or why not.
+    'civitai': capabilities.probe_civitai_test,
 }
 
 

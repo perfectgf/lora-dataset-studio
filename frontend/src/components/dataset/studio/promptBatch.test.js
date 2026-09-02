@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { launchSettings, launchText, promptTexts, visibleBatch } from './promptBatch.js';
+import { launchSettings, launchText, mergeBatches, promptTexts, visibleBatch } from './promptBatch.js';
 
 test('the history is read in both shapes the API has ever returned', () => {
   assert.deepEqual(
@@ -52,4 +52,24 @@ test('the button keeps its surface’s verb and adds what the batch changes', ()
   // One prompt is not announced as a batch: the button would be shouting about
   // a run that looks exactly like the ordinary one.
   assert.equal(launchText(null, ['a']), null);
+});
+
+test('🌐 Civitai picks join the batch after the history picks, once each', async () => {
+  const { mergeBatches } = await import('./promptBatch.js');
+  assert.deepEqual(mergeBatches(['a', 'b'], ['c', 'b', 'd']), ['a', 'b', 'c', 'd'],
+    'a prompt ticked in both places is ONE pass');
+  assert.deepEqual(mergeBatches([], ['x']), ['x']);
+  assert.deepEqual(mergeBatches(['x'], []), ['x']);
+  assert.deepEqual(mergeBatches(null, null), []);
+  assert.deepEqual(mergeBatches(['a', ''], [42, 'a']), ['a'], 'only real prompt texts travel');
+});
+
+test('the merge compares TRIMMED but sends the original string', () => {
+  // Le moteur (`_prompt_axis`) strippe puis dédoublonne. Une règle différente
+  // ici ferait annoncer au compteur une cellule que le run ne rendra jamais.
+  assert.deepEqual(mergeBatches(['a prompt'], ['  a prompt  ']), ['a prompt']);
+  // …et la chaîne d'origine part telle quelle quand elle est seule.
+  assert.deepEqual(mergeBatches(['a prompt\n'], []), ['a prompt\n']);
+  // Les vides et les non-chaînes n'atteignent jamais le corps du lancement.
+  assert.deepEqual(mergeBatches(['keep', '', '   ', null, 42], [undefined]), ['keep']);
 });

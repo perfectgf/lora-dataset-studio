@@ -329,7 +329,9 @@ hour it asks once whether you meant it. The queue is serial, so you can stop it 
 any point and everything already generated is kept.
 
 The same tick boxes are in **🎨 Generate from the board** on the ◉ LoRA Canvas,
-because both screens show the same prompt history.
+because both screens show the same prompt history. The **🌐 Civitai** browser
+feeds the same batch (a ☐ Batch box on every prompt-bearing card), so a run can
+mix your own saved prompts with prompts borrowed from Civitai's top images.
 
 ### Compare LoRAs — or blend them
 
@@ -446,6 +448,15 @@ each image shown side by side with the generation prompt it was posted with.
 **⤵ Use prompt** drops it into your prompt field (asking first if you typed
 something), **📋 Copy** puts it on the clipboard, and clicking the picture
 opens it on Civitai.
+
+**☐ Batch** on a card adds its prompt to the batch instead — one more pass of
+the next run, the field untouched — and the browser stays open so you can tick
+several before pressing **Done**. The count shows under the prompt field (and
+on the 🌐 button); the next **Run test** replays every ticked Civitai prompt
+alongside the saved prompts you ticked, one image set per prompt, same
+checkpoints, same settings, same seed. A prompt ticked in both places counts
+once. After the run the Civitai prompts are in your saved prompts like any
+other.
 
 Two honest limits:
 

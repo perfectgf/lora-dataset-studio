@@ -26,6 +26,7 @@ import re
 import sys
 
 from .. import config as cfg
+from . import face_models
 from .infer_stream import run_infer_script, stderr_tail
 
 logger = logging.getLogger(__name__)
@@ -207,7 +208,7 @@ def _run_detail(images, out_dir, expand, timeout, on_progress=None,
         timeout = timeout_for(len(images))
     cancel_file, on_stop, cleanup = _stop_plumbing(should_stop)
     payload = json.dumps({'images': images, 'out_dir': out_dir, 'expand': expand,
-                          'models_root': cfg.get('face_scoring.models_root') or None,
+                          'models_root': face_models.models_root(),
                           'cancel_file': cancel_file})
 
     # How far the child got, kept for the timeout log: "killed at 900s" says

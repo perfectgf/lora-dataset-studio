@@ -113,3 +113,21 @@ test('the probe knows what a layer is, and charges it to no budget', () => {
   // only VISIBLE chrome counts: a marker inside a closed <details> keeps a box
   assert.match(probe, /checkVisibility/);
 });
+
+test('the ✨ improve window is a state the probe actually opens', () => {
+  /* It is the densest dialog on this page — the whole Klein panel (instruction
+     editor, model, LoRA preset with its strengths, output size) stacked over a
+     phone screen — and it had no probe state at all while the bank only NAMED
+     those settings. The two openers are a user's own path: the ✂ Edits section,
+     then the button that launches the pass. */
+  // THREE clicks, and the first one is the one that is easy to forget: ✂ Edits
+  // lives INSIDE the passes panel, so a state that starts at #bank-edits opens
+  // nothing and skips in silence.
+  assert.match(probe, /name: 'improve', open: \['\[aria-controls="bank-passes-panel"\]',/);
+  assert.match(probe, /'#bank-edits button:visible',/);
+  assert.match(probe, /'button:visible:has-text\("Upscale & improve"\)'\]/);
+  // …and both openers still exist on the page, or the state silently skips.
+  const editPanel = read('BankEditPanel.jsx');
+  assert.match(editPanel, /id="bank-edits"/);
+  assert.match(editPanel, /✨ Upscale &amp; improve…/);
+});

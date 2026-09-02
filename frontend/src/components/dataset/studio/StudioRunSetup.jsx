@@ -21,6 +21,7 @@ import DatasetCaptionControl from './DatasetCaptionControl';
 import EnhancePromptButton from './EnhancePromptButton';
 import CivitaiBrowserButton from './CivitaiBrowserButton';
 import { cellCount } from './loraStack';
+import { launchText as batchLaunchText } from './promptBatch';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
 
 export default function StudioRunSetup({
@@ -38,15 +39,29 @@ export default function StudioRunSetup({
   // 🔤 Case « Trigger word » (préfixer ou non le trigger de chaque LoRA au prompt
   // monté) — traversant, l'état et la persistance vivent chez l'appelant.
   injectTrigger = true, onInjectTrigger = null,
+  // 📝 Le LOT DE PROMPTS. Cette surface ne l'avait pas : `create_comparison_run`
+  // acceptait déjà l'argument `prompts`, mais POST /api/studio/run ne le
+  // transmettait pas et ce panneau ne l'offrait pas — donc ni l'historique, ni les
+  // scènes, ni Civitai ne pouvaient produire de lot ici, alors que les deux autres
+  // surfaces de lancement le font depuis toujours. Traversant, comme partout :
+  // l'état vit chez ComparisonStudio, seul à savoir ce qu'un lancement envoie.
+  batchPrompts = null, onToggleBatchPrompt = null, onClearBatchPrompts = null,
+  civitaiPicks = null, onToggleCivitaiPick = null, onClearCivitaiPicks = null,
+  // Le lot FUSIONNÉ (dédoublonné) que le lancement emportera — le compteur de coût
+  // et le libellé du bouton doivent parler de CELUI-LÀ, pas de la somme des cases.
+  pickedPrompts = null,
 }) {
   // batchMult = 1 + nb de LoRA cochés « ⚖ batch » (axe sans/avec) — le backend
   // multiplie les cellules d'autant, le compteur de coût doit suivre.
   // En mode « pile » (combine) l'axe strengths disparaît : chaque LoRA porte son
   // propre poids. La pile vaut UNE configuration — ou `configCount` quand des
   // cases de poids sont cochées et que le lancement balaye leurs combinaisons.
+  // 📝 Chaque prompt du lot est une passe de plus sur la MÊME grille : le compteur
+  // doit le porter AVANT le clic, jamais la file d'attente après.
+  const picked = Array.isArray(pickedPrompts) ? pickedPrompts : [];
   const cells = cellCount({
     selectionCount, strengthCount: strengths.length, count, batchMult, combine, configCount,
-    axisTotal,
+    axisTotal, promptCount: Math.max(1, picked.length),
   });
   const canLaunch = cells > 0 && !launching && !gpuBusy && !combineBlocked;
   // ⏱ Même règle que l'autre panneau : on chiffre, on demande UNE fois, on
@@ -81,8 +96,14 @@ export default function StudioRunSetup({
   useEffect(() => { loadRecent(); }, [loadRecent, launching]);
   const deleteRecent = useCallback(async (p) => {
     await postJson('/api/studio/recent-prompts/delete', { prompt: p }).catch(() => {});
+    // 🗑 supprime le prompt ET ses images : un lot qui le garderait lancerait sur
+    // une ligne que l'écran ne montre plus. L'autre surface s'en protège par
+    // `visibleBatch` (elle reçoit l'historique de son parent) ; ici l'historique
+    // est local, donc on le retire au seul endroit où il peut disparaître.
+    if (typeof onToggleBatchPrompt === 'function'
+      && (batchPrompts || []).includes(p)) onToggleBatchPrompt(p);
     loadRecent();
-  }, [loadRecent]);
+  }, [loadRecent, onToggleBatchPrompt, batchPrompts]);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-3">
@@ -124,7 +145,8 @@ export default function StudioRunSetup({
             className="px-2 py-0.5 rounded border border-border bg-surface text-content-subtle text-[0.625rem] hover:text-content">
             🔎 Describe
           </button>
-          <CivitaiBrowserButton prompt={prompt} onPrompt={onPrompt} />
+          <CivitaiBrowserButton prompt={prompt} onPrompt={onPrompt}
+            picks={civitaiPicks} onTogglePick={onToggleCivitaiPick} />
           </div>
         </div>
         <textarea id="studio-run-prompt" value={prompt} onChange={(e) => onPrompt(e.target.value)} rows={5}
@@ -134,9 +156,25 @@ export default function StudioRunSetup({
       <DescribeImageModal open={describeOpen} onClose={() => setDescribeOpen(false)}
         onResult={applyDescription} />
 
+      {Array.isArray(civitaiPicks) && civitaiPicks.length > 0 && (
+        <p className="m-0 flex flex-wrap items-center gap-1.5 text-content-subtle text-[0.5625rem]">
+          <span className="rounded bg-purple-500/20 px-1.5 py-0.5 font-semibold text-purple-200 tabular-nums">
+            🌐 {civitaiPicks.length} Civitai prompt{civitaiPicks.length === 1 ? '' : 's'} in the batch
+          </span>
+          {onClearCivitaiPicks && (
+            <button type="button" onClick={onClearCivitaiPicks}
+              className="inline-flex min-h-10 items-center px-1 underline decoration-dotted hover:text-content lg:min-h-0 lg:px-0">
+              Clear
+            </button>
+          )}
+        </p>
+      )}
+
       {recentPrompts.length > 0 && (
         <RecentPrompts items={recentPrompts} datasetId={null} selectedPrompt={prompt}
-          onPick={onPrompt} onDelete={deleteRecent} />
+          onPick={onPrompt} onDelete={deleteRecent}
+          batch={batchPrompts} onToggleBatch={onToggleBatchPrompt}
+          onClearBatch={onClearBatchPrompts} />
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -162,7 +200,7 @@ export default function StudioRunSetup({
         <span className="text-content-subtle text-[0.6875rem]"
           title={combine
             ? `GPU cost: ${configCount} weight combination(s) of ${selectionCount} LoRAs × images per config`
-            : `GPU cost: checked LoRAs × strengths × images per config${batchMult > 1 ? ` × ${batchMult} (⚖ batch axis: without + with each checked LoRA)` : ''}${axisTotal > 1 ? ` × ${axisTotal} (🎛 CFG / steps axes)` : ''}`}>
+            : `GPU cost: checked LoRAs × strengths × images per config${batchMult > 1 ? ` × ${batchMult} (⚖ batch axis: without + with each checked LoRA)` : ''}${axisTotal > 1 ? ` × ${axisTotal} (🎛 CFG / steps axes)` : ''}${picked.length > 1 ? ` × ${picked.length} (📝 prompt batch: one image set per ticked prompt)` : ''}`}>
           {combine
             ? (
               <>
@@ -173,7 +211,10 @@ export default function StudioRunSetup({
             )
             : <>{selectionCount} LoRA × {strengths.length} strength × {count}</>}
           {batchMult > 1 && <span className="text-amber-300"> × {batchMult} ⚖</span>}
-          {axisTotal > 1 && <span className="text-purple-300"> × {axisTotal} 🎛</span>} ={' '}
+          {axisTotal > 1 && <span className="text-purple-300"> × {axisTotal} 🎛</span>}
+          {picked.length > 1 && (
+            <span className="text-purple-200" data-testid="studio-prompt-axis"> × {picked.length} 📝</span>
+          )} ={' '}
           <span className={`tabular-nums font-semibold ${cells > 0 ? 'text-content' : 'text-content-subtle'}`}>{cells}</span>{' '}
           cell(s) to generate
           {cells > 0 && (
@@ -185,7 +226,7 @@ export default function StudioRunSetup({
         <button type="button" onClick={launchGuarded} disabled={!canLaunch}
           aria-label="Run the test"
           className="ml-auto px-4 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
-          {launching ? '…' : '🚀 Run the test'}
+          {launching ? '…' : (batchLaunchText('🚀 Run the test', picked) ?? '🚀 Run the test')}
         </button>
       </div>
       {cost.heavy && (

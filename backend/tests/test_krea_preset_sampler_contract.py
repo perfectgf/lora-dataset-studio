@@ -8,7 +8,7 @@ reading:
    exactly. Asserted against an Euler loop written out in the test, so the two
    cannot drift by sharing an implementation.
 2. **The swap keeps the wiring.** The injector reads `KSampler.model`, which the
-   LoRA chain and the enhancer rewrite before it runs. Called in the wrong order
+   LoRA chain rewrites before it runs. Called in the wrong order
    it silently drops the whole stack and still renders. The test builds the real
    graph, in the real order, and follows the model wire to its source.
 3. **The app and the node it ships agree.** The preset names live in two files —
@@ -229,14 +229,12 @@ def test_swap_after_a_lora_stack_keeps_the_whole_chain():
     injection it would wire the guider straight to the UNETLoader — dropping every
     LoRA, with no error and a render that merely looks wrong. Both the guider and
     the scheduler have to end up on the LAST link of the chain."""
-    from app.utils.comfyui import (inject_krea_loras, inject_krea2t_enhancer,
-                                   inject_krea_preset_sampler)
+    from app.utils.comfyui import inject_krea_loras, inject_krea_preset_sampler
 
     wf = _krea_graph()
     requested = [{'filename': 'krea/a.safetensors', 'strength': 1.0},
                  {'filename': 'krea/b.safetensors', 'strength': 0.5}]
     assert inject_krea_loras(wf, requested, allowed={r['filename'] for r in requested}) == 2
-    assert inject_krea2t_enhancer(wf, True, 1.0) == 1
     model_src = wf['26']['inputs']['model']
     assert model_src[0] != '20', 'precondition: the model no longer comes from the loader'
 
