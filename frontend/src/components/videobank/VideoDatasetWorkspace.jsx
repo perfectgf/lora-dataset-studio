@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Clapperboard, Copy, Folder } from 'lucide-react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { postForm, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import { captionFrequencyEntries } from '../dataset/captionCategory'
 import TrainingReadiness from '../dataset/TrainingReadiness'
 import VideoTrainingBlock from './VideoTrainingBlock'
+import VideoCheckpointManager from './VideoCheckpointManager'
 import { videoPreflightUrl } from './videoCloudLaunch'
 import VideoDatasetGrid from './VideoDatasetGrid'
 import VideoDatasetLightbox from './VideoDatasetLightbox'
@@ -69,8 +70,13 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
   // Only ever consulted on a fold under 500 px (a phone held sideways), where
   // the clip toolbar is folded away to give the grid the screen back.
   const [toolsOpen, setToolsOpen] = useState(false)
-  // Answered by the training block's own cloud poll — see videoDatasetSections.
-  const [checkpointGroups, setCheckpointGroups] = useState(0)
+  // The training block's polls report how many saves exist; the Checkpoints &
+  // LoRAs section re-reads on that number, so a harvest shows up there without
+  // a poll of its own. The other way round, a delete in that section bumps
+  // `trainingRefresh` so the block's "Train further" stops offering a run that
+  // is gone.
+  const [saveCount, setSaveCount] = useState(0)
+  const [trainingRefresh, setTrainingRefresh] = useState(0)
 
   const counts = useMemo(() => clipCounts(items), [items])
   const shown = useMemo(() => visibleClips(items, { query, filter, sort }),
@@ -81,7 +87,6 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
     selected: selected.length,
     clips: counts.total,
     requiresReferences: !!ds.requires_references,
-    checkpointGroups,
   }
   const sections = visibleVideoDatasetSections(navContext)
   const location = resolveVideoDatasetLocation(searchParams, navContext)
@@ -567,7 +572,34 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
                 refreshKey={`${counts.total}:${ds.references}:${ds.target_profile}`}
                 onJump={(target) => setSection(target)} />
               <VideoTrainingBlock ds={{ ...ds, clips: counts.total }}
-                onCheckpointGroups={setCheckpointGroups} />
+                onSaveCount={setSaveCount} refreshKey={trainingRefresh} />
+            </div>
+          </section>
+
+          <section className={sectionCls('checkpoints')} aria-hidden={section !== 'checkpoints'}>
+            {heading('checkpoints')}
+            <div id="vds-checkpoints-manager" className="flex flex-col gap-2">
+              <VideoCheckpointManager ds={ds} refreshKey={saveCount}
+                onSavesChange={() => setTrainingRefresh((n) => n + 1)} />
+            </div>
+          </section>
+
+          <section className={sectionCls('studio')} aria-hidden={section !== 'studio'}>
+            {heading('studio')}
+            <div id="vds-studio-launcher"
+              className="flex flex-col gap-2 rounded-lg border border-border bg-surface-raised p-3">
+              {/* A launcher and not the Studio itself — the image workspace makes
+                  the same choice: the Studio is a page (queues, a picker across
+                  every dataset's LoRAs), and it opens on its Video tab here. */}
+              <p className="m-0 max-w-3xl text-xs text-content-muted">
+                Deploy a save from Checkpoints &amp; LoRAs first, then pick it in the Studio’s
+                Video tab: one clip per setting, the same prompt, so the LoRA is judged on what
+                it renders.
+              </p>
+              <Link to="/studio?lane=video"
+                className="inline-flex w-fit min-h-10 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/20 px-3 py-1.5 text-xs font-medium text-white no-underline hover:bg-primary/30 lg:min-h-0">
+                ⤢ Open Studio
+              </Link>
             </div>
           </section>
         </div>

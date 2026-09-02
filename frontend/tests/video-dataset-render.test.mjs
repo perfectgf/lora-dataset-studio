@@ -243,7 +243,9 @@ test('the rail really lists every visible section, and the anchors it points at 
   const html = renderWorkspace({ ds: { ...DS, requires_references: true } })
   for (const [which, rail] of railsOf(html).entries()) {
     for (const section of VIDEO_DATASET_SECTIONS) {
-      assert.ok(rail.includes(`>${section.title}</span>`),
+      // As the markup carries it: "Checkpoints & LoRAs" is escaped on the way out.
+      const title = section.title.replace(/&/g, '&amp;')
+      assert.ok(rail.includes(`>${title}</span>`),
         `${section.id} has no entry in rail #${which}`)
     }
     // One button per section and not one more — a rail that duplicated its

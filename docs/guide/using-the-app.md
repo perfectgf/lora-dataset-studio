@@ -3637,6 +3637,30 @@ together. And when the account already has a run on a pod for this set, "second
 pod, billed separately — launch anyway?" is a question you answer, not an error
 you read.
 
+**Checkpoints & LoRAs** lists every save either lane brought back — the local
+run's folder and each cloud run's harvest — grouped by *step*, never by file: a
+Wan 2.2 checkpoint is two files (`_high_noise` / `_low_noise`) and the section
+refuses to offer half of one. Each step carries the verbs an image dataset's
+checkpoints have. **⬇** downloads a file (both of a pair, side by side, is what
+every loader expects). **📦 Deploy** copies the step into ComfyUI's loras folder
+under `h3/lds/` — the same folder and name the Video Test Studio uses, so the
+Studio's picker lists it as deployed at once; **⏏ Undeploy** moves that copy to
+the app's Trash and keeps the training save. **▶ Continue from here** rents a
+fresh pod and trains further from *that* step (the Training section's *Train
+further* always resumes from the newest); a local run cannot pick a step — it
+resumes from its newest save on the next launch, because its folder *is* the
+resume state — and the row says so instead of offering a button that would do
+something else. **ⓘ Details** shows what a cloud run was launched with. **🗑
+Delete** moves every file of the step to the app's Trash (Settings ▸ Storage) —
+refused while the lane is still writing them, a local training in progress or a
+cloud run still on its pod. The run-level 🗑 next to a cloud run's name is the
+older, larger verb: it removes the run's files *and* its history line, for
+good. A LoRA you dropped into `h3/` by hand shows as deployed but is never
+undeployed from here.
+
+**Studio** opens the Video tab of the Test Studio, where a deployed LoRA is
+judged on the clip it renders rather than on its loss curve.
+
 What is *not* here yet, and deliberately: the quality passes (duplicates,
 watermarks, safe zone, defects) run on the bank's shots and on the source files,
 before any encode exists; trimming a clip means re-encoding it, so the honest

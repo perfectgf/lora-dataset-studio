@@ -74,6 +74,10 @@ export function canContinue(run, group) {
 export function stepLabel(step) {
   if (!step) return ''
   const n = step.files?.length || 0
-  const head = step.final ? `Final (step ${step.step})` : `Step ${step.step}`
+  // A LOCAL run's final save carries no number (the lane stamps no step count
+  // the listing can read): "Final", and never "Final (step null)".
+  const head = step.final
+    ? (step.step != null ? `Final (step ${step.step})` : 'Final')
+    : `Step ${step.step}`
   return n > 1 ? `${head} — ${n} files (both experts)` : head
 }

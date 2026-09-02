@@ -339,6 +339,11 @@ const PAGES = {
       // hidden its furniture rather than fitted it — this is where the search,
       // the sort and the three filter chips are really charged for.
       { name: 'clip-tools', open: ['button:has-text("Filter & sort")'] },
+      // The two sections the image rail always had: a list of saves with
+      // five verbs per row (deploy, undeploy, continue, details, delete) that
+      // wraps on a phone, and the Studio launcher.
+      { name: 'checkpoints', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Checkpoints")'] },
+      { name: 'studio', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Studio")'] },
     ],
   },
 

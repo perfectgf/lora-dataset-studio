@@ -51,13 +51,13 @@ test('every anchor id in the rail is unique - two panels cannot share a target',
 
 test('References is absent for a target that does not train on control images', () => {
   const withRefs = visibleVideoDatasetSections(full).map((s) => s.id)
-  assert.deepEqual(withRefs, ['clips', 'captions', 'references', 'training'])
+  assert.deepEqual(withRefs, ['clips', 'captions', 'references', 'training', 'checkpoints', 'studio'])
   const without = visibleVideoDatasetSections({ ...full, requiresReferences: false })
     .map((s) => s.id)
-  assert.deepEqual(without, ['clips', 'captions', 'training'])
+  assert.deepEqual(without, ['clips', 'captions', 'training', 'checkpoints', 'studio'])
   // A section with no `when` is never hidden, whatever the context says.
   assert.deepEqual(visibleVideoDatasetSections({}).map((s) => s.id),
-    ['clips', 'captions', 'training'])
+    ['clips', 'captions', 'training', 'checkpoints', 'studio'])
 })
 
 // ---- panels appear on the state they point at, not on hope -------------------
@@ -76,12 +76,13 @@ test('Bulk actions needs a selection; Caption tools needs clips, not captions', 
   assert.deepEqual(getVideoDatasetPanels('nope', full), [])
 })
 
-test('Checkpoints appears only once a run has really brought files back', () => {
-  assert.deepEqual(getVideoDatasetPanels('training', full).map((p) => p.id),
-    ['launch', 'checkpoints'])
-  // A dataset that has never trained: the entry would scroll to nothing.
-  assert.deepEqual(getVideoDatasetPanels('training', { ...full, checkpointGroups: 0 })
-    .map((p) => p.id), ['launch'])
+test('Checkpoints & LoRAs and Studio are sections of their own, always in the rail', () => {
+  // Checkpoints used to be a jump destination inside Training, shown only once
+  // a run had brought files back. It is a section now, like its image twin: an
+  // empty one says "no checkpoints yet", a vanished entry says nothing.
+  assert.deepEqual(getVideoDatasetPanels('training', full).map((p) => p.id), ['launch'])
+  assert.deepEqual(getVideoDatasetPanels('checkpoints', {}).map((p) => p.id), ['manager'])
+  assert.deepEqual(getVideoDatasetPanels('studio', {}).map((p) => p.id), ['launcher'])
 })
 
 // ---- deep links: a stale one must degrade, never break ------------------------
@@ -104,11 +105,11 @@ test('a link to References opened on a dataset that has none falls back to Clips
 
 test('a panel that is not available drops to its section rather than 404-ing', () => {
   assert.deepEqual(
-    resolveVideoDatasetLocation(params('section=training&panel=checkpoints'), full),
-    { section: 'training', panel: 'checkpoints', needsNormalization: false })
+    resolveVideoDatasetLocation(params('section=checkpoints&panel=manager'), full),
+    { section: 'checkpoints', panel: 'manager', needsNormalization: false })
+  // The old deep link (Checkpoints as a panel of Training) degrades to Training.
   assert.deepEqual(
-    resolveVideoDatasetLocation(params('section=training&panel=checkpoints'),
-      { ...full, checkpointGroups: 0 }),
+    resolveVideoDatasetLocation(params('section=training&panel=checkpoints'), full),
     { section: 'training', panel: null, needsNormalization: true })
   assert.deepEqual(
     resolveVideoDatasetLocation(params('section=clips&panel=invented'), full),

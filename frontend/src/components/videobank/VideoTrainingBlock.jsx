@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiFetch, del, postJson } from '../../api/fetchClient'
+import { apiFetch, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import {
   videoDatasetCloudUrl, videoDatasetCloudProgressUrl,
-  videoDatasetCloudCheckpointsUrl, videoDatasetCheckpointUrl,
+  videoDatasetCloudCheckpointsUrl,
   videoDatasetCloudRetryUrl, videoDatasetCloudContinueUrl,
-  videoDatasetCloudRunUrl,
 } from './videoBankApi'
 import {
-  isActive, launchBlockedReason, runSummary, canRetry, canContinue, stepLabel,
+  isActive, launchBlockedReason, runSummary, canRetry, canContinue,
 } from './videoCloudStatus'
 import { ensureLicenceAck } from './licenceAck'
 import { postWithConfirmations } from '../../utils/trainingRefusals'
@@ -59,7 +58,7 @@ const PROVEN_TARGETS = new Set(['wan22_14b', 'minimax_h3', 'minimax_h3_ref2va'])
  * clock, and GPU offers are fetched on click, never on mount — a library page
  * with a dozen datasets must not fan out a vast.ai search per card.
  */
-export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
+export default function VideoTrainingBlock({ ds, onSaveCount, refreshKey = 0 }) {
   const toast = useToast()
   // ONE dial set for both destinations. Prefilled with the server's
   // dataset-sized suggestion (steps scale with the clip count — measured, not
@@ -115,11 +114,21 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
     return () => clearInterval(t)
   }, [run?.status, refreshCloud])
 
-  // Told, rather than guessed at from outside: this poll is the only thing that
-  // knows whether any run ever brought files back, and the workspace rail hangs
-  // its "Checkpoints" destination on the answer. Reported on the COUNT, so a
-  // caller passing an inline arrow does not re-fire it on every render.
-  useEffect(() => { onCheckpointGroups?.(groups.length) }, [groups.length, onCheckpointGroups])
+  // Told, rather than guessed at from outside: these two polls are the only
+  // things that know when a save lands, and the workspace's Checkpoints & LoRAs
+  // section re-reads on the number they report. A COUNT of steps (cloud) and
+  // files (local), so a caller passing an inline arrow does not re-fire it on
+  // every render — and a harvest that adds a step changes it.
+  const saveCount = groups.reduce((n, g) => n + (g.steps?.length || 0), 0)
+    + (progress?.checkpoints?.length || 0)
+  useEffect(() => { onSaveCount?.(saveCount) }, [saveCount, onSaveCount])
+  // The other direction: that section deleted a run or a save, and this card's
+  // "Train further" must not offer what is gone.
+  useEffect(() => {
+    if (!refreshKey) return
+    refreshCloud()
+    pollLocal()
+  }, [refreshKey, refreshCloud, pollLocal])
 
   const startLocal = async (acceptDownload = false) => {
     // The licence question comes BEFORE anything is spent — not after the
@@ -234,21 +243,6 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
   const launchCloud = (gpuName) => postCloud(videoDatasetCloudUrl(ds.id),
     { steps, ...(doI2v ? { do_i2v: true } : {}), ...(gpuName ? { gpu_name: gpuName } : {}) },
     'Renting a pod — the panel follows it from here.')
-
-  const deleteRun = async (g) => {
-    const n = g.steps.reduce((sum, s) => sum + (s.files?.length || 0), 0)
-    if (!window.confirm(
-      `Delete run #${g.run_id} and its ${n} LoRA file(s) from disk?\n\n`
-      + 'The dataset and its clips are untouched — only this run’s '
-      + 'checkpoints and its history line go. This cannot be undone.')) return
-    try {
-      const d = await del(videoDatasetCloudRunUrl(ds.id, g.run_id))
-      toast.success(`Run #${d.deleted} deleted — ${d.files} file(s) removed.`)
-      refreshCloud()
-    } catch (e) {
-      toast.error(e?.message || 'Could not delete that run.')
-    }
-  }
 
   if (!ds.training_verified) return null
 
@@ -383,56 +377,6 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
         </p>
       )}
 
-      {/* The anchor the workspace rail's "Checkpoints" destination scrolls to.
-          A wrapper rather than a section of its own: these files are rendered
-          from state only this component holds (the cloud poll above), and
-          splitting them out would mean two components polling one endpoint. */}
-      {groups.length > 0 && (
-      <div id="vds-training-checkpoints" className="flex flex-col gap-2">
-      {groups.map((g) => (
-        <div key={g.run_id} className="space-y-1">
-          {/* Deliberately NOT a second copy of the run line above: that one says
-              where the newest run is and what it costs, this one only labels
-              which run these files came from — and, when there is one, the run
-              they grew out of. */}
-          <p className="flex items-center gap-1.5 font-mono text-[0.625rem] text-content-subtle">
-            <span>
-              Checkpoints — run #{g.run_id}
-              {g.parent_run_id ? ` · continued from #${g.parent_run_id}` : ''}
-            </span>
-            {/* The exit this card never had: four runs deep (smokes, a
-                contaminated continuation, superseded step counts) with no way
-                to clear one. Confirm names the file count — this deletes
-                weights from disk. */}
-            <button type="button" onClick={() => deleteRun(g)}
-              aria-label={`Delete run ${g.run_id} and its checkpoints`}
-              title="Delete this run and its LoRA files"
-              className="rounded border border-border px-1 py-0.5 text-content-subtle hover:border-rose-500/60 hover:text-rose-300">
-              🗑
-            </button>
-          </p>
-          <ul className="flex flex-wrap gap-1.5">
-            {g.steps.map((s) => (
-              <li key={`${g.run_id}-${s.step}-${s.final ? 'f' : 'i'}`}
-                className="flex items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.625rem] text-content">
-                <span>{stepLabel(s)}</span>
-                {/* One link per FILE, because both experts of a Wan pair have
-                    to land side by side for the LoRA to load at all. */}
-                {s.files.map((f, i) => (
-                  <a key={f} href={videoDatasetCheckpointUrl(ds.id, g.run_id, f)}
-                    download title={f}
-                    aria-label={`Download ${f}`}
-                    className="rounded border border-border px-1 py-0.5 text-content-subtle hover:bg-surface hover:text-content">
-                    ⬇{s.files.length > 1 ? ` ${i + 1}` : ''}
-                  </a>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      </div>
-      )}
       {cloudDialog && (
         <VideoCloudLaunchDialog ds={ds} steps={steps} cloudStatus={cloudStatus}
           onClose={() => setCloudDialog(false)} onLaunch={launchCloud} />
