@@ -275,13 +275,17 @@ export const WHATS_NEW = [
   {
     id: '2026-09-01-motion-auto-and-enrich',
     date: '2026-09-01',
-    title: 'The Motion field writes itself, and can be enriched',
+    title: 'The Motion field writes itself, in H3’s own words and paced to your clip',
     blurb:
       '✨ Auto reads your start frame and proposes the movement; ✨ Enrich '
       + 'rewrites what you wrote with more of the detail a sampler can use — '
       + 'both leave the text yours to edit. And a toggle enriches at launch, '
-      + 'recording on the clip the prompt that actually ran. All three go '
-      + 'through the local model you already run for the image passes.',
+      + 'recording on the clip the prompt that actually ran. All three write '
+      + 'the official three-field prompt the model was trained on, paced to '
+      + 'the length you set (a 1 s clip and a 15 s one are no longer given the '
+      + 'same beat), and — when there is a start frame — name it so the subject '
+      + 'stays who it is. They go through the local model you already run for '
+      + 'the image passes, or another one if you pick it under ⚙.',
   },
   {
     id: '2026-09-01-bank-improve-carries-the-dials',

@@ -4,10 +4,13 @@ Both gestures are the image generator's own, on this app's existing waist: the
 provider and the model are the ones already configured for the image passes.
 
 What this file pins is what live use found missing (2026-09-02): the answers
-came back shapeless. So the craft rules must REACH the model, the two gestures
-must share them, the vision half must not be asked to compose, and the answer
-must arrive whole — an earlier scrubber kept only the first line of a
-multi-line reply, which cut two thirds off every answer it touched.
+came back shapeless, and then ✨ Auto ignored the clip length. So the craft
+rules must REACH the model, the two gestures must share them, the vision half
+must not be asked to compose, the answer must arrive whole — an earlier
+scrubber kept only the first line of a multi-line reply — and it must arrive in
+H3's OFFICIAL three-field format, paced to the seconds the dials are set to,
+with what the format requires (the fields on their lines, the "[Shot 1]"
+opener, the <Picture 1> tag, the I2V header) guaranteed in code.
 """
 import pytest
 
@@ -52,21 +55,34 @@ def test_both_gestures_answer_to_the_SAME_craft_rules():
 
 
 def test_the_craft_rules_are_the_ones_H3_actually_answers_to():
-    """Sourced from the published H3 guides and from this app's own graph —
-    each of these was a defect in the shapeless version."""
+    """Sourced from MiniMax's own writing guide for the open weights — the one
+    the ComfyUI text encoder was built against — and from this app's graph.
+    An earlier block, written from the hosted platform's guides, forbade the
+    bracket markers the official format is made of."""
     # Whitespace-collapsed: a rule is what it SAYS, and a line break landing
     # between two of its words is not a change to the rule.
     c = ' '.join(vmp._H3_CRAFT.lower().split())
-    assert 'exactly one' in c and 'camera' in c          # one path, never stacked
-    assert 'static framing' in c                         # ... including no move
-    assert '[' not in c.replace('[the', '')              # H3 has no bracket commands
-    assert 'sound' in c and 'audio' in c                 # the graph decodes audio
-    assert 'ending' in c                                 # resolve on a final state
+    # The three fields, by name and in order, and the dialect the hosted
+    # platform taught every model is named as the thing NOT to write.
+    i = c.index('integrated_multimodal_description:')
+    j = c.index('overall_soundscape:')
+    k = c.index('non_diegetic_music:')
+    assert i < j < k
+    assert 'never write an "audio:" line' in c
+    assert '[shot 1]' in c and 'the camera cuts to' in c
+    assert 'shot 1 never takes a timestamp' in c
+    # The camera grammar is the official vocabulary, one move per shot.
+    for move in ('push in/pull out', 'pan left/right', 'truck left/right',
+                 'tilt up/down', 'arc shot', 'tracking shot', 'static shot'):
+        assert move in c, move
+    assert 'one camera move per shot' in c
+    # And the rules that made the shapeless version move, kept.
     assert 'never re-describe' in c                      # the frame already says it
-    assert 'speed and direction' in c                    # unquantified motion fails
-    assert 'words, one paragraph' in c                   # a length, and one shape
+    assert 'speed and a direction' in c                  # unquantified motion fails
+    assert 'ending on' in c                              # resolve on a final state
+    assert 'secondary motion' in c
     assert 'no bullet points' in c and 'no headings' in c
-    assert 'output only the prompt' in c
+    assert 'output only the three fields' in c
     assert 'uncensored' in c                             # or the model waters it down
 
 
@@ -96,9 +112,21 @@ def test_the_rules_reach_the_model_and_so_does_the_sampling(app, monkeypatch):
     assert seen['kw']['stop'] == vmp._STOP
     assert seen['kw']['top_p'] == vmp.TOP_P
     assert seen['kw']['temperature'] == vmp.TEMP_ENHANCE
+    # The rest of the recommended non-thinking sampling travels too, and
+    # thinking is OFF: a hybrid model that reasons about the format spends
+    # the token budget on the reasoning and truncates the prompt.
+    assert seen['kw']['top_k'] == vmp.TOP_K == 20
+    assert seen['kw']['min_p'] == vmp.MIN_P == 0.0
+    assert seen['kw']['presence_penalty'] == vmp.PRESENCE_PENALTY == 1.0
+    assert seen['kw']['think'] is False
     # The window has to hold the rules: Ollama's default in this app is 4096,
     # and a truncated system prompt is exactly a model that ignores the rules.
     assert seen['kw']['num_ctx'] == vmp.NUM_CTX >= 8192
+    # Strict, like the image generator's enhancer: without it the driver
+    # dissolves every failure — the fence included — into '' and a warning,
+    # and the user is told "nothing usable" about a model that was never
+    # asked. With it the route gets the exception and answers 409.
+    assert seen['kw']['strict'] is True
 
 
 def test_auto_runs_warmer_than_the_enhancer(app, tmp_path, monkeypatch):
@@ -144,11 +172,21 @@ def test_auto_looks_first_and_composes_second(app, tmp_path, monkeypatch):
     with app.app_context():
         out = vmp.suggest_from_frame('f.png')
 
-    assert out == 'She lifts her gaze slowly toward the lens.'
+    # The prose answer is finished into the official format — the field, the
+    # opener, the identity tag and the frame header are code's job, not the
+    # model's — and the movement itself arrives whole.
+    assert out.endswith(
+        "integrated_multimodal_description: [Shot 1] The subject's identity, "
+        'face and wardrobe are locked to <Picture 1>. She lifts her gaze slowly '
+        'toward the lens.\noverall_soundscape: N/A\nnon_diegetic_music: N/A')
+    assert out.startswith('For the target video, at 0.00 seconds')
     assert len(calls['vision']) == 1 and len(calls['text']) == 1
     look = calls['vision'][0].lower()
     assert 'frozen still' in look
     assert 'do not invent or imply any motion' in look
+    # And the eye is told to describe THIS scene: asked for a still, a vision
+    # model has been measured answering with an invented one.
+    assert 'never replace it with a different, invented scene' in look
     assert vmp._H3_CRAFT not in calls['vision'][0], 'the eye was asked to compose'
     # And the writer works from what the eye said, not from the file.
     assert 'A woman kneels on a bed' in calls['text'][0]
@@ -214,18 +252,25 @@ def test_a_frame_that_cannot_be_read_costs_the_anchor_never_the_enrichment(
     monkeypatch.setattr(vision_llm, 'generate_text',
                         lambda *a, **kw: 'She turns her head slowly to the left.')
     with app.app_context():
-        assert vmp.enhance('she turns', image='gone.png') \
-            == 'She turns her head slowly to the left.'
+        out = vmp.enhance('she turns', image='gone.png')
+    assert 'integrated_multimodal_description: [Shot 1] ' in out
+    assert out.endswith('She turns her head slowly to the left.\n'
+                        'overall_soundscape: N/A\nnon_diegetic_music: N/A')
 
 
-def test_an_unusable_answer_never_costs_the_user_their_own_prompt(app, monkeypatch):
-    """The enhancer's one destructive failure mode, refused by construction:
-    a model that answers nothing usable gives the original back."""
+def test_an_unusable_answer_is_refused_in_words_not_handed_back_as_a_success(
+        app, monkeypatch):
+    """The enhancer used to return the original when the model answered
+    nothing usable — on the wire a success with nothing to show, and the
+    panel said "nothing to add" about a model that had failed. It raises, as
+    the image studio's writer does; the field is only written on success, so
+    the caller's text is safe either way."""
     from app.services import vision_llm
     monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
     monkeypatch.setattr(vision_llm, 'generate_text', lambda *a, **kw: '   ')
     with app.app_context():
-        assert vmp.enhance('she turns her head') == 'she turns her head'
+        with pytest.raises(RuntimeError, match='nothing usable'):
+            vmp.enhance('she turns her head')
 
 
 def test_enhance_refuses_an_empty_field_but_not_a_short_motion(app, monkeypatch):
@@ -238,7 +283,7 @@ def test_enhance_refuses_an_empty_field_but_not_a_short_motion(app, monkeypatch)
             vmp.enhance('  ')
         # A SHORT motion is still a motion. The answer floor and the ask floor
         # are two different numbers; sharing them refused 'she blinks'.
-        assert vmp.enhance('she blinks').startswith('She blinks slowly')
+        assert 'She blinks slowly' in vmp.enhance('she blinks')
 
 
 # --- refusals, and the model that does the work -----------------------------------
@@ -289,6 +334,33 @@ def test_the_chosen_model_travels_and_empty_means_the_providers_own(app, monkeyp
         assert seen['kw']['model'] is None      # the provider's own, not ''
 
 
+def test_the_saved_choice_writes_when_the_caller_sends_no_model(app, tmp_path, monkeypatch):
+    """The launch's "Enrich at launch" sends no model, and a panel that just
+    reloaded has not re-read the ⚙ window: both must still write with the
+    model that was chosen there — for the still AND for the text, so the
+    two steps of ✨ Auto never load two different models."""
+    from app.services import vision_llm
+    seen = {'text': [], 'still': []}
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'generate_text',
+                        lambda prompt, **kw: seen['text'].append(kw['model'])
+                        or 'integrated_multimodal_description: [Shot 1] She turns slowly toward the lens.')
+    monkeypatch.setattr(vision_llm, 'describe_image',
+                        lambda data, prompt, **kw: seen['still'].append(kw['model'])
+                        or 'A woman in a red coat stands by a window.')
+    monkeypatch.setattr('app.config.comfyui_dir', lambda *a, **k: str(tmp_path))
+    (tmp_path / 'lds_vts_a.png').write_bytes(b'x')
+    with app.app_context():
+        vmp.set_model('qwen3-vl:8b')
+        vmp.enhance('she turns')
+        vmp.suggest_from_frame('lds_vts_a.png')
+        vmp.enhance('she turns', model='llava:13b')       # the caller's wins
+        vmp.set_model('')
+        vmp.enhance('she turns')
+    assert seen['text'] == ['qwen3-vl:8b', 'qwen3-vl:8b', 'llava:13b', None]
+    assert seen['still'] == ['qwen3-vl:8b']
+
+
 def test_the_motion_model_is_its_own_setting(app):
     """Not the image passes' vision_model: the two answer different questions
     on the same machine, and tuning one must not re-point the other."""
@@ -299,3 +371,504 @@ def test_the_motion_model_is_its_own_setting(app):
         from app import config as cfg
         assert (cfg.get('ollama.vision_model') or '') != 'qwen3-vl:8b'
         assert vmp.set_model('') == ''          # back to the provider's own
+
+
+# --- the clip length reaches the writer ------------------------------------------
+
+def test_the_clip_length_is_in_the_ask_and_paces_one_shot(app, tmp_path, monkeypatch):
+    """The defect that opened the port: ✨ Auto wrote the same beat for a 1 s
+    clip and a 15 s one. The seconds the dials are set to now travel into the
+    ask as a shot plan, for BOTH gestures."""
+    from app.services import vision_llm
+    asks = []
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'describe_image', lambda *a, **kw: 'A woman stands by a window.')
+    monkeypatch.setattr(vision_llm, 'generate_text',
+                        lambda prompt, **kw: asks.append(prompt)
+                        or 'integrated_multimodal_description: [Shot 1] She turns slowly.')
+    frame = tmp_path / 'f.png'
+    frame.write_bytes(b'\x89PNG\r\n')
+    monkeypatch.setattr('app.config.comfyui_dir', lambda *a, **k: str(tmp_path))
+    with app.app_context():
+        vmp.suggest_from_frame('f.png', seconds=15.04)
+        vmp.enhance('she turns', image='f.png', seconds=2.29)
+        vmp.enhance('she turns', seconds=0.88)
+    assert 'The clip is 15 seconds long.' in asks[0]
+    assert 'The clip is 2 seconds long.' in asks[1]
+    assert 'The clip is 1 second long.' in asks[2]     # 22 frames is a 1 s clip
+    for ask in asks:
+        assert 'write ONE single continuous shot' in ask
+        assert 'never write "the camera cuts to"' in ask
+    # And what the seconds MEAN: measured with the length alone, a 2 s clip
+    # and a 15 s one got the same four-beat sequence.
+    assert '15s is a long take' in asks[0] and 'successive beats' in asks[0]
+    assert '2s holds ONE movement' in asks[1] and 'not a sequence of beats' in asks[1]
+    assert '1s holds ONE movement' in asks[2]
+    assert 'holds ONE movement' not in vmp.shot_directive(5)
+    assert 'long take' not in vmp.shot_directive(7)
+    assert 'long take' in vmp.shot_directive(8)
+
+
+def test_without_a_known_length_the_plan_paces_nothing_rather_than_guessing():
+    d = vmp.shot_directive(None)
+    assert 'The clip is' not in d
+    assert 'ONE single continuous shot' in d
+    assert vmp.clip_seconds(None) == 0
+    assert vmp.clip_seconds('') == 0
+    assert vmp.clip_seconds(-3) == 0
+    assert vmp.clip_seconds('nan') == 0
+    assert vmp.clip_seconds(0.88) == 1                # rounded, floored at one
+    assert vmp.clip_seconds(15.04) == 15
+
+
+def test_a_multi_shot_plan_carries_the_official_timecodes_the_model_must_copy():
+    """The shot selector is a later chantier, but the plan it will drive is
+    pinned now: evenly spaced cut marks in the official MM:SS.mmm form, the
+    exact words "the camera cuts to", and never a timestamp on Shot 1."""
+    assert vmp.shot_cut_marks(10, 3) == '00:03.300, 00:06.700'
+    assert vmp.shot_cut_marks(15, 6) == '00:02.500, 00:05.000, 00:07.500, 00:10.000, 00:12.500'
+    d = vmp.shot_directive(10, 3)
+    assert 'The clip is 10 seconds long.' in d
+    assert 'EXACTLY 3 shots' in d
+    assert 'Use EXACTLY these cut timecodes, in order: 00:03.300, 00:06.700.' in d
+    assert 'the camera cuts to' in d
+    assert '"[Shot 1]" (no timestamp)' in d
+    # A short clip caps the count — a cut every 0.7 s is a flicker.
+    assert vmp.shot_count(4, 2) == 2
+    assert vmp.shot_count(3, 1) == 1
+    assert vmp.shot_count(99, 10) == vmp.MAX_SHOTS
+    assert vmp.shot_count('junk', 10) == 1
+    assert 'EXACTLY 2 shots' in vmp.shot_directive(2, 4)
+    # An unknown length with several shots still asks for increasing codes.
+    d = vmp.shot_directive(None, 2)
+    assert 'EXACTLY 2 shots' in d and 'strictly increasing timecodes' in d
+
+
+# --- the official format, guaranteed in code -------------------------------------
+
+def test_the_three_fields_are_rebuilt_from_their_labels_whatever_the_line_breaks():
+    """The scrub flattens the answer to one line (its job is the model's
+    commentary); the labels are found again and each field put back on its
+    own line — so a model that wrapped, merged or chattered still yields the
+    exact shape the encoder was trained on."""
+    raw = ('Here is your prompt:\n'
+           'integrated_multimodal_description: Live-action, cinematic. The woman from '
+           '<Picture 1> turns slowly toward the camera.\n'
+           'The camera pushes in with small amplitude at slow speed. '
+           'overall_soundscape: Soft rain on glass, fabric rustle.\n'
+           'non_diegetic_music: Sparse piano at a slow tempo.\n'
+           'Note: hope this helps')
+    out = vmp.finish(raw, with_image=True)
+    assert out.split('\n\n', 1)[1] == (
+        'integrated_multimodal_description: [Shot 1] Live-action, cinematic. The woman '
+        'from <Picture 1> turns slowly toward the camera. The camera pushes in with '
+        'small amplitude at slow speed.\n'
+        'overall_soundscape: Soft rain on glass, fabric rustle.\n'
+        'non_diegetic_music: Sparse piano at a slow tempo.')
+    assert 'hope this helps' not in out and 'Here is' not in out
+
+
+def test_the_soundscape_label_survives_the_chatter_filter():
+    """`overall_soundscape:` starts with the word the chatter filter drops
+    ("Overall, the scene..."); an unguarded filter swallowed the field."""
+    assert vmp._scrub('overall_soundscape: rain on glass') == 'overall_soundscape: rain on glass'
+    assert vmp._scrub('Overall, this prompt keeps your intent.') == ''
+
+
+def test_a_prose_answer_or_an_audio_line_becomes_the_official_fields():
+    """The hosted platform's dialect — prose with an "Audio:" tail — is what
+    every model learned first. It is mapped, never passed through."""
+    out = vmp.finish('She turns her head slowly toward the window. Audio: rain on glass.',
+                     with_image=False)
+    assert out == ('integrated_multimodal_description: [Shot 1] She turns her head slowly '
+                   'toward the window.\n'
+                   'overall_soundscape: rain on glass.\n'
+                   'non_diegetic_music: N/A')
+
+
+def test_a_field_cut_by_the_token_budget_loses_its_orphan_tail():
+    long = ('integrated_multimodal_description: [Shot 1] She turns slowly toward the '
+            'window and the light climbs her face as the curtain lifts. Her hand rises '
+            'toward the glass and then she')
+    out = vmp.finish(long, with_image=False)
+    assert out.startswith('integrated_multimodal_description: [Shot 1] She turns slowly')
+    assert 'and then she' not in out
+    assert out.split('\n')[0].endswith('curtain lifts.')
+    # A short field is kept whole rather than cut to a stub; N/A is N/A.
+    assert vmp._trim_dangling('N/A') == 'N/A'
+    assert vmp._trim_dangling('rain on glass, then wind') == 'rain on glass, then wind'
+    # Measured: the model copies the placeholder after a real soundscape.
+    # The placeholder goes, the soundscape stays — at any length.
+    assert vmp._trim_dangling('Soft breaths, fabric rustle. N/A') == 'Soft breaths, fabric rustle.'
+    assert vmp._trim_dangling('rain N/A') == 'rain'
+    assert vmp._trim_dangling('the N/A count is high.') == 'the N/A count is high.'
+    # And through the whole pipeline, on the shape the model actually wrote:
+    # the placeholder sits on the soundscape line, trailing spaces and all,
+    # and the scrub flattens the answer before the fields are found again.
+    raw = ('integrated_multimodal_description: [Shot 1] She turns her head slowly '
+           'toward the window, ending on a close-up of her face.  \n'
+           'overall_soundscape: Soft breaths, the faint rustle of cotton. N/A  \n'
+           'non_diegetic_music: N/A')
+    assert vmp.finish(raw, with_image=False) == (
+        'integrated_multimodal_description: [Shot 1] She turns her head slowly '
+        'toward the window, ending on a close-up of her face.\n'
+        'overall_soundscape: Soft breaths, the faint rustle of cotton.\n'
+        'non_diegetic_music: N/A')
+
+
+def test_the_hybrid_dialects_are_mapped_back_to_the_official_grammar():
+    raw = ('integrated_multimodal_description: [Shot 1] At 00:00.000, she turns. '
+           'Timeline: [5s-10s] [Shot 2 At 00:05.000, the camera cuts to] her hands. '
+           'overall_soundscape: N/A non_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=False)
+    assert out.split('\n')[0] == (
+        'integrated_multimodal_description: [Shot 1] she turns. '
+        '[Shot 2] At 00:05.000, the camera cuts to her hands.')
+
+
+def test_an_image_to_video_prompt_names_the_frame_and_wears_the_header_once():
+    """Two things the encoder pairs with the picture block it prepends: the
+    <Picture 1> tag in the description (measured missing in half the answers
+    on the image generator's side) and the official alignment header. Both
+    are added by code, and neither twice."""
+    body = ('integrated_multimodal_description: [Shot 1] She turns slowly.\n'
+            'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(body, with_image=True)
+    assert out.startswith(vmp._ALIGNMENT_HEADER + '\n\n')
+    assert out.count('is fully referenced') == 1
+    assert ('integrated_multimodal_description: [Shot 1] ' + vmp._IDENTITY_SENTENCE
+            + ' She turns slowly.') in out
+    # Idempotent: an already-finished prompt enriched again gains nothing.
+    again = vmp.finish(out, with_image=True)
+    assert again.count('is fully referenced') == 1
+    assert again.count('<Picture 1>') == out.count('<Picture 1>')
+    # A model that referenced the frame itself is not tagged a second time.
+    tagged = vmp.finish('integrated_multimodal_description: [Shot 1] The woman from '
+                        '<Picture 1> turns slowly.', with_image=True)
+    assert vmp._IDENTITY_SENTENCE not in tagged
+
+
+def test_a_text_to_video_prompt_names_no_picture(app, monkeypatch):
+    """No frame is given to the encoder, so no <Picture 1> and no header —
+    and the writer is TOLD there is no picture, rather than left to copy the
+    identity rule from the format block."""
+    from app.services import vision_llm
+    seen = {}
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'generate_text',
+                        lambda prompt, **kw: seen.update(prompt=prompt)
+                        or 'integrated_multimodal_description: [Shot 1] She turns slowly.')
+    with app.app_context():
+        out = vmp.enhance('she turns', seconds=5)
+    assert 'Picture 1' not in out
+    assert 'is fully referenced' not in out
+    assert out.startswith('integrated_multimodal_description: [Shot 1] She turns slowly.')
+    assert vmp._NO_PICTURE_RULE in seen['prompt']
+    assert vmp._IDENTITY_RULE not in seen['prompt']
+
+
+def test_the_enhancer_with_a_frame_is_told_to_reference_it(app, tmp_path, monkeypatch):
+    from app.services import vision_llm
+    seen = {}
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'describe_image', lambda *a, **kw: 'A woman on a sofa.')
+    monkeypatch.setattr(vision_llm, 'generate_text',
+                        lambda prompt, **kw: seen.update(prompt=prompt)
+                        or 'integrated_multimodal_description: [Shot 1] She turns slowly.')
+    frame = tmp_path / 'f.png'
+    frame.write_bytes(b'\x89PNG\r\n')
+    monkeypatch.setattr('app.config.comfyui_dir', lambda *a, **k: str(tmp_path))
+    with app.app_context():
+        out = vmp.enhance('she turns', image='f.png', seconds=5)
+    assert vmp._IDENTITY_RULE in seen['prompt']
+    assert vmp._NO_PICTURE_RULE not in seen['prompt']
+    assert '<Picture 1>' in out and out.startswith(vmp._ALIGNMENT_HEADER)
+
+
+def test_a_stub_answer_is_never_dressed_up_as_a_prompt(app, monkeypatch):
+    """The floor is measured on the model's own words: a one-letter answer
+    wrapped in the header and the tag would pass any length check and reach
+    the sampler as a prompt that says nothing."""
+    assert vmp.finish('I', with_image=True) == 'I'
+    assert vmp.finish('', with_image=True) == ''
+    from app.services import vision_llm
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'generate_text', lambda *a, **kw: 'Ok.')
+    with app.app_context():
+        with pytest.raises(RuntimeError, match='nothing usable'):
+            vmp.enhance('she turns her head', image=None)
+
+
+# --- what /verif found in the finishing, pinned ----------------------------------
+
+def test_an_infinite_length_paces_nothing():
+    """`float('inf')` passes `> 0` and `round()` raises OverflowError — one
+    request body away from a 500 on a JSON number the panel never sends."""
+    assert vmp.clip_seconds(float('inf')) == 0
+    assert vmp.clip_seconds('inf') == 0
+    assert vmp.clip_seconds('-inf') == 0
+    assert vmp.clip_seconds(4.4) == 4
+
+
+def test_markdown_emphasis_and_fences_around_the_labels_do_not_become_words():
+    """A model that bolds the labels or wraps the answer in a fence is still
+    answering in the format — before the fix, "**" was the description's
+    first word and "---" a sentence of its own."""
+    raw = ('```text\n**integrated_multimodal_description:** She turns toward the window slowly.\n'
+           '---\n**overall_soundscape:** rain on glass\n'
+           '**non_diegetic_music:** N/A\n```')
+    assert vmp.finish(raw, with_image=False) == (
+        'integrated_multimodal_description: [Shot 1] She turns toward the window slowly.\n'
+        'overall_soundscape: rain on glass\n'
+        'non_diegetic_music: N/A')
+    # A markdown heading over the answer is chatter, not a shot.
+    assert vmp._scrub('## Motion prompt\nShe turns slowly.') == 'She turns slowly.'
+
+
+def test_a_hybrid_model_s_reasoning_never_reaches_the_sampler():
+    """`think:false` travels to Ollama and not to LM Studio's chat endpoint,
+    so a hybrid model chosen there may hand its <think> block back inline.
+    The block goes — closed or cut open by the token budget."""
+    raw = ('<think>\nThe user wants motion. The camera should push in.\n</think>\n'
+           'integrated_multimodal_description: She turns toward the window slowly.\n'
+           'overall_soundscape: rain\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=False)
+    assert out.startswith('integrated_multimodal_description: [Shot 1] She turns toward')
+    assert 'think' not in out and 'push in' not in out
+    # Cut open by the budget: nothing after the tag is an answer.
+    assert vmp.finish('<think>\nLet me plan the shot carefully and', with_image=True) == ''
+
+
+def test_the_chatter_around_an_answer_is_dropped_in_all_its_dialects():
+    raw = ('Below is the enhanced prompt:\n'
+           'integrated_multimodal_description: She turns toward the window slowly.\n'
+           'overall_soundscape: rain\nnon_diegetic_music: N/A\n'
+           'Let me know if you want changes!\nHope this helps.\nFeel free to adjust.')
+    assert vmp.finish(raw, with_image=False) == (
+        'integrated_multimodal_description: [Shot 1] She turns toward the window slowly.\n'
+        'overall_soundscape: rain\n'
+        'non_diegetic_music: N/A')
+    # The lead-in that carries the prompt on its own line is still salvaged.
+    assert vmp._scrub('Below is your prompt: she turns slowly') == 'she turns slowly'
+
+
+def test_the_orphan_tail_cut_knows_a_timecode_from_a_full_stop():
+    """`rfind('.')` took the dot inside "00:05.000" for a sentence end and
+    the field lost its second shot; and a final clause that merely lost its
+    full stop — a noun at the end, no joining word — is kept, not cut."""
+    two_shots = ('[Shot 1] She turns toward the window slowly, the light on her cheek. '
+                 '[Shot 2] At 00:05.000, the camera cuts to a close-up of her hands folding the letter')
+    assert vmp._trim_dangling(two_shots) == two_shots
+    kept = ('She turns her head slowly toward the window. The camera follows her hand '
+            'as it rises to the glass and rests there, ending on a close-up of her face')
+    assert vmp._trim_dangling(kept) == kept
+    # The same tail with the budget hit IS the cut.
+    assert vmp._trim_dangling(kept, truncated=True) == \
+        'She turns her head slowly toward the window.'
+    # A tail on a joining word is a fragment whatever the budget.
+    assert vmp._trim_dangling('She turns her head slowly toward the window. The camera '
+                              'follows her hand as it rises to the glass and') == \
+        'She turns her head slowly toward the window.'
+    assert vmp._trim_dangling('She turns her head slowly toward the window. Then the camera,') == \
+        'She turns her head slowly toward the window.'
+    # The placeholder with its own full stop still goes.
+    assert vmp._trim_dangling('Soft breaths, fabric rustle. N/A.') == 'Soft breaths, fabric rustle.'
+    # The budget is judged on the scrubbed answer, once, in finish().
+    long = 'integrated_multimodal_description: ' + ('She turns slowly. ' * 100) + 'and then the'
+    assert len(long.split()) >= vmp._BUDGET_WORDS
+    out = vmp.finish(long, with_image=False)
+    assert out.splitlines()[0].endswith('She turns slowly.')
+
+
+def test_a_shot_marker_in_mid_field_moves_to_the_front_instead_of_doubling():
+    raw = ('integrated_multimodal_description: A slow push-in. [Shot 1] She turns toward the window.\n'
+           'overall_soundscape: rain\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=False)
+    assert out.splitlines()[0] == \
+        'integrated_multimodal_description: [Shot 1] A slow push-in. She turns toward the window.'
+    assert out.count('[Shot 1]') == 1
+
+
+def test_a_description_written_after_the_header_without_its_label_is_kept():
+    """The model copies the header from the rules and then starts the
+    description under it, label-less — the header swallowed both."""
+    raw = (vmp._ALIGNMENT_HEADER
+           + 'She turns toward the window slowly, the light catching her cheek.\n'
+           'integrated_multimodal_description: The camera pushes in.\n'
+           'overall_soundscape: rain\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=True)
+    assert out.startswith(vmp._ALIGNMENT_HEADER)
+    assert out.count('is fully referenced') == 1
+    assert 'She turns toward the window slowly, the light catching her cheek. The camera pushes in.' in out
+
+
+def test_the_identity_tag_is_looked_for_in_the_description_not_in_the_header():
+    """The header names <Picture 1> too. A model that copied the header and
+    wrote a description naming nobody was passing the check on the header's
+    tag — the one place the encoder does not read it from."""
+    raw = (vmp._ALIGNMENT_HEADER
+           + 'integrated_multimodal_description: [Shot 1] She turns toward the window slowly.\n'
+           'overall_soundscape: rain\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=True)
+    assert vmp._IDENTITY_SENTENCE in out
+    assert out.count('is fully referenced') == 1
+
+
+def test_an_audio_line_becomes_soundscape_even_when_music_is_named():
+    """The rescue used to run only when BOTH audio fields were empty: with a
+    music line present, "Audio: rain" stayed inside the description."""
+    raw = ('integrated_multimodal_description: She turns toward the window slowly. Audio: rain on glass\n'
+           'overall_soundscape: N/A\nnon_diegetic_music: soft piano')
+    assert vmp.finish(raw, with_image=False) == (
+        'integrated_multimodal_description: [Shot 1] She turns toward the window slowly.\n'
+        'overall_soundscape: rain on glass\n'
+        'non_diegetic_music: soft piano')
+    # Both written: joined, neither lost.
+    raw = ('integrated_multimodal_description: She turns toward the window slowly. Audio: rain on glass\n'
+           'overall_soundscape: wind in the curtains\nnon_diegetic_music: N/A')
+    assert 'overall_soundscape: wind in the curtains, rain on glass' in vmp.finish(raw, with_image=False)
+
+
+def test_a_refusal_or_an_empty_format_is_never_dressed_up(app, monkeypatch):
+    """Labels, a "[Shot 1]" and a header around nothing pass every length
+    check — the floor has to look at the description itself."""
+    assert vmp.finish("I'm sorry, but I can't help with that request.", with_image=True) == ''
+    assert vmp.finish('As an AI I cannot describe this image.', with_image=True) == ''
+    empty = 'integrated_multimodal_description: N/A\noverall_soundscape: N/A\nnon_diegetic_music: N/A'
+    assert len(vmp.finish(empty, with_image=True)) < vmp.MIN_CHARS
+    from app.services import vision_llm
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'generate_text', lambda *a, **kw: empty)
+    with app.app_context():
+        with pytest.raises(RuntimeError, match='nothing usable'):
+            vmp.enhance('she turns her head')
+
+
+def test_a_text_to_video_finish_strips_what_an_image_to_video_pass_added(app, monkeypatch):
+    """The real case: a prompt enriched with a frame, then the panel switched
+    to text-only and enriched again — the model copies the header and the
+    tag from the text it was given, and the encoder has no picture to pair
+    them with. The pass without a picture removes them, and only them."""
+    i2v = vmp.finish('integrated_multimodal_description: [Shot 1] <Picture 1> turns toward '
+                     'the window slowly (from <Picture 1>).\n'
+                     'overall_soundscape: rain\nnon_diegetic_music: N/A', with_image=True)
+    assert vmp.has_alignment_header(i2v) and '<Picture 1>' in i2v
+    t2v = vmp.finish(i2v, with_image=False)
+    assert t2v == ('integrated_multimodal_description: [Shot 1] The subject turns toward '
+                   'the window slowly.\n'
+                   'overall_soundscape: rain\n'
+                   'non_diegetic_music: N/A')
+    # Nothing to strip: the text is returned as it is.
+    plain = 'integrated_multimodal_description: [Shot 1] She turns.'
+    assert vmp.strip_picture_references(plain) == plain
+    # And through the enhancer itself, with the model echoing the tagged text.
+    from app.services import vision_llm
+    monkeypatch.setattr(vmp, 'available', lambda: (True, ''))
+    monkeypatch.setattr(vision_llm, 'generate_text', lambda prompt, **kw: i2v)
+    with app.app_context():
+        out = vmp.enhance(i2v, seconds=5)
+    assert 'Picture 1' not in out and 'is fully referenced' not in out
+
+
+# --- what the /verif replay found in the reconstruction ---------------------------
+
+def test_an_audio_line_inside_a_shot_leaves_the_shots_after_it_in_the_picture():
+    """The rescue took everything after "Audio:" for soundscape — with a
+    two-shot plan whose first shot carried an audio line, the second shot
+    moved into the soundscape and the picture lost its cut."""
+    raw = ('integrated_multimodal_description: [Shot 1] She lifts the cup and sips. '
+           'Audio: the cup clinks on the saucer. [Shot 2] At 00:05.000, the camera '
+           'cuts to a wide view of the room as she stands.\n'
+           'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=False).splitlines()
+    assert out[0] == ('integrated_multimodal_description: [Shot 1] She lifts the cup and sips. '
+                      '[Shot 2] At 00:05.000, the camera cuts to a wide view of the room as she stands.')
+    assert out[1] == 'overall_soundscape: the cup clinks on the saucer.'
+    # One line per shot: both reach the soundscape, in order, the picture whole.
+    raw = ('integrated_multimodal_description: [Shot 1] She sips. Audio: a clink. '
+           '[Shot 2] At 00:05.000, the camera cuts to the door as it opens. Audio: hinges creak.\n'
+           'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=False).splitlines()
+    assert out[0].endswith('[Shot 2] At 00:05.000, the camera cuts to the door as it opens.')
+    assert out[1] == 'overall_soundscape: a clink, hinges creak.'
+
+
+def test_an_audio_placeholder_is_dropped_rather_than_joined():
+    """"Audio: N/A" after a real soundscape was joined onto it, and the
+    placeholder strip then left "soft rain," — a field ending on a comma."""
+    raw = ('integrated_multimodal_description: [Shot 1] She turns toward the window slowly. '
+           'Audio: N/A\noverall_soundscape: soft rain\nnon_diegetic_music: N/A')
+    assert 'overall_soundscape: soft rain\n' in vmp.finish(raw, with_image=False)
+    assert vmp._trim_dangling('soft rain, N/A') == 'soft rain'
+
+
+def test_the_budget_is_judged_on_the_answer_not_on_the_thinking():
+    """A reasoning model's <think> block counted toward the word budget, and a
+    complete answer behind a long one read as cut: its last clause — one that
+    had merely lost its full stop — went as the budget's tail."""
+    answer = ('integrated_multimodal_description: She turns her head slowly toward the '
+              'window. The camera follows her hand as it rises to the glass and rests '
+              'there, ending on a close-up of her face\n'
+              'overall_soundscape: rain\nnon_diegetic_music: N/A')
+    thinking = '<think>\n' + ' '.join(['plan'] * 300) + '\n</think>\n'
+    assert len((thinking + answer).split()) >= vmp._BUDGET_WORDS
+    out = vmp.finish(thinking + answer, with_image=False)
+    assert out == vmp.finish(answer, with_image=False)
+    assert 'ending on a close-up of her face' in out
+
+
+def test_reasoning_closed_by_a_bare_tag_goes_with_the_tag():
+    """The R1 dialect: the template opens <think> in the prompt, so the output
+    is the reasoning and a bare </think> before the answer. The block scrub
+    wanted the opening tag; the reasoning became the description."""
+    answer = ('integrated_multimodal_description: She turns toward the window slowly.\n'
+              'overall_soundscape: rain\nnon_diegetic_music: N/A')
+    raw = 'The user wants a slow turn. I should keep it to one beat.\n</think>\n\n' + answer
+    out = vmp.finish(raw, with_image=False)
+    assert out == vmp.finish(answer, with_image=False)
+    assert 'one beat' not in out and 'think' not in out
+
+
+def test_a_header_written_inside_the_description_is_lifted_out_and_strippable():
+    """The split before the first label cannot see a header the model wrote
+    AFTER the label. Left there, the field opened on the header — the marker
+    hoist then tore its "(from [Shot 1])" — and the text-only strip, which
+    looked for the header at the top only, left it in as prose about a
+    picture the encoder is never given."""
+    raw = ('integrated_multimodal_description: ' + vmp._ALIGNMENT_HEADER
+           + ' [Shot 1] <Picture 1> turns her head toward the window.\n'
+           'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=True)
+    assert out.startswith(vmp._ALIGNMENT_HEADER + '\n\n')
+    assert out.count('is fully referenced') == 1
+    assert 'integrated_multimodal_description: [Shot 1] <Picture 1> turns her head' in out
+    bare = vmp.finish(raw, with_image=False)
+    assert 'target video' not in bare and 'Picture 1' not in bare
+    assert bare.startswith('integrated_multimodal_description: [Shot 1] The subject turns her head')
+    # Written twice — above the label and again inside — is still once.
+    twice = vmp._ALIGNMENT_HEADER + '\n' + raw
+    assert vmp.finish(twice, with_image=True).count('is fully referenced') == 1
+
+
+def test_a_sentence_written_before_the_header_is_description_not_header():
+    """The header split cut at the END of the header's phrase and filed
+    everything before it as header — a lead sentence the model wrote first
+    went out above the header instead of into the field."""
+    raw = ('She is seated by the window. ' + vmp._ALIGNMENT_HEADER
+           + '\nintegrated_multimodal_description: [Shot 1] <Picture 1> turns her head.\n'
+           'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(raw, with_image=True)
+    assert out.startswith(vmp._ALIGNMENT_HEADER + '\n\n')
+    assert ('integrated_multimodal_description: [Shot 1] She is seated by the window. '
+            '<Picture 1> turns her head.') in out
+
+
+def test_a_shot_named_inside_a_sentence_is_prose_not_the_marker():
+    """"(as set up in [Shot 1])" is a sentence naming the shot. The hoist took
+    it for the marker and moved it to the front, leaving "(as set up in )"."""
+    raw = ('integrated_multimodal_description: A slow push-in (as set up in [Shot 1]) '
+           'follows her across the room until she reaches the door.\n'
+           'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    assert vmp.finish(raw, with_image=False).splitlines()[0] == (
+        'integrated_multimodal_description: [Shot 1] A slow push-in (as set up in '
+        '[Shot 1]) follows her across the room until she reaches the door.')

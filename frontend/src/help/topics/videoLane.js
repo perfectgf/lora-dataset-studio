@@ -60,6 +60,28 @@ export const VIDEO_LANE_TOPICS = [
       'slow generation', 'takes forever', 'missing node', 'node pack'],
     guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
     app: { route: '/studio?lane=video' } },
+  // The ✨ writers of the Motion field. Searched for by the gesture ("auto",
+  // "enrich"), by the format the answer comes back in (people paste H3's field
+  // names and "<Picture 1>" from a prompt they did not write), by the ⚙ choice
+  // and by what went wrong (the lock notice, "queued without enrichment").
+  // Listed AFTER the page topic: for one (chapter, anchor) the first topic
+  // owns the "Open this screen" button, and that is the page's.
+  action('video-studio-motion-writer', 'Let a local model write the motion (✨ Auto, ✨ Enrich)',
+    ['auto motion', 'write the motion', 'write the movement', 'motion from the frame',
+     'describe the start frame', 'auto', '✨ auto', 'enrich', '✨ enrich',
+     'enrich the motion', 'enrich the prompt', 'enrich my prompt', 'rewrite the prompt',
+     'more detail', 'better video prompt', 'enrich at launch', 'enrich when generating',
+     'model that writes the motion', 'motion model', 'which model writes the motion',
+     'change the motion model', 'ollama for video', 'lm studio', 'lm studio motion',
+     'picture 1', '<picture 1>', 'integrated_multimodal_description',
+     'overall_soundscape', 'non_diegetic_music', 'three fields', 'three-field prompt',
+     'official prompt format', 'h3 prompt format', 'shot 1', 'the camera cuts to',
+     'paced to the length', 'same beat for every length', 'the clip length is ignored',
+     'nothing to add', 'prompt unchanged', 'queued without enrichment',
+     'enrichment skipped', 'gpu busy while writing', 'refused while a clip renders',
+     'model in use', 'gpu in use outside lds', 'unload the model', 'auto is greyed out',
+     'auto disabled', 'pick a start frame first'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   // Searched for by what people TRIED and could not do: they pasted a RedGifs or
   // TikTok link into the image scraper and got "no images found", or they
   // downloaded clips by hand into a folder because nothing else was on offer.

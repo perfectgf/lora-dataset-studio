@@ -20,6 +20,7 @@ import uuid
 from flask import Blueprint, jsonify, request, send_file
 
 from ..config import LOCAL_USER
+from ..gpu_window import gpu_exclusive_vision_window
 from ..services import lora_test_studio as lts
 from ..services import video_test_studio as vts
 from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
@@ -153,46 +154,94 @@ def video_studio_clip_vfi(clip_id):
     return jsonify({'ok': True, **out})
 
 
+def _clip_seconds(data: dict):
+    """How long the clip the panel is set to will be, for the motion writer.
+
+    The panel sends `seconds` — its own readback of the Length dial. A body
+    that carries only `frames` (the launch itself) is converted here with the
+    SAME arithmetic the readback uses: the snapped count, N-1 intervals at the
+    target's fps. Either way the writer paces the action to the clip that
+    will actually render, which is the whole point of passing it. None when
+    neither is known: the writer then paces nothing rather than guessing.
+    """
+    if data.get('seconds') is not None:
+        try:
+            return float(data.get('seconds'))
+        except (TypeError, ValueError):
+            return None
+    if data.get('frames') is None:
+        return None
+    fps = float(vts._profile().get('fps') or 24.0)
+    return (vts.snap_frames(data.get('frames')) - 1) / fps
+
+
 @bp.post('/motion/suggest')
 def video_studio_motion_suggest():
     """✨ Propose the movement, by looking at the staged start frame.
 
     A PROPOSAL and the wording says so: the model sees a still, so it can read
     who is there and how they are posed, never what happens next. The user
-    edits it like any other text.
+    edits it like any other text. `seconds` (or `frames`) is the clip length
+    the dials are set to — the proposal is paced to fill exactly that.
+
+    Runs inside the GPU-exclusive vision window, like the image studio's
+    twin (`/api/studio/describe`): the writer is a vision pass, and a vision
+    pass that fights a queued clip for VRAM loses — H3 alone fills most of
+    the card. The window refuses while ComfyUI has work queued or rendering
+    (503, the reason in `detail`), and on entry asks ComfyUI to let go of its
+    models, so the NEXT clip pays H3's load again. That cost is the app's
+    standing GPU arbitration, paid once per ✨ click, not a choice of this
+    route; the two routes below share it.
     """
     from ..services import video_motion_prompt as vmp
     data = request.get_json(silent=True) or {}
     try:
-        return jsonify({'ok': True,
-                        'prompt': vmp.suggest_from_frame(
-                            data.get('image'),
-                            instruction=data.get('instruction'),
-                            model=data.get('model'))})
-    except (ValueError, TypeError) as exc:
+        with gpu_exclusive_vision_window(flag_ttl=600):
+            out = vmp.suggest_from_frame(
+                data.get('image'),
+                instruction=data.get('instruction'),
+                model=data.get('model'),
+                seconds=_clip_seconds(data),
+                shots=data.get('shots', 1))
+    except Exception as exc:
+        # Like the image studio's twin: a bad ask is 400, the Ollama/LM Studio
+        # fence 409 with its code (the panel offers the unload), the window's
+        # refusal 503 with its reason, any other transport failure a 409
+        # sentence. The narrow clause this replaced let the fence through as
+        # a bare 500 with no message to show.
         return _map_error(exc)
+    return jsonify({'ok': True, 'prompt': out})
 
 
 @bp.post('/motion/enhance')
 def video_studio_motion_enhance():
     """✨ The same intent, with more of the detail a sampler can use.
 
-    Never destructive: a model that answers nothing usable gives the original
-    back rather than emptying a field somebody typed into.
+    Never destructive: the field is only written on success, and a model
+    that answers nothing usable is a 409 with the sentence to show — never
+    an empty prompt handed back as if it had worked.
 
     `image` — the staged start frame, when the panel has one — anchors the
     rewrite on the picture that will actually be animated, so an instruction
-    cannot enrich the prompt with scenery the frame does not contain.
+    cannot enrich the prompt with scenery the frame does not contain. Without
+    one the clip is text-to-video and the writer is told so: no picture is
+    referenced. `seconds` (or `frames`) paces the rewrite to the clip length.
+    Same GPU-exclusive vision window as `/motion/suggest` (see there).
     """
     from ..services import video_motion_prompt as vmp
     data = request.get_json(silent=True) or {}
+    original = str(data.get('prompt') or '').strip()
     try:
-        return jsonify({'ok': True,
-                        'prompt': vmp.enhance(data.get('prompt'),
-                                              image=data.get('image'),
-                                              model=data.get('model'))})
-    except (ValueError, TypeError) as exc:
+        with gpu_exclusive_vision_window(flag_ttl=600):
+            out = vmp.enhance(data.get('prompt'), image=data.get('image'),
+                              model=data.get('model'), seconds=_clip_seconds(data),
+                              shots=data.get('shots', 1))
+    except Exception as exc:
         return _map_error(exc)
+    # `unchanged` is how the panel tells "the model had nothing to add" from
+    # "the request worked": the two look identical in the field.
+    return jsonify({'ok': True, 'prompt': out,
+                    'unchanged': str(out or '').strip() == original})
 
 
 @bp.get('/motion/models')
@@ -426,19 +475,31 @@ def video_studio_generate():
         return blocked
     data = request.get_json(silent=True) or {}
     prompt = str(data.get('prompt') or '').strip()
+    mode = 't2v' if str(data.get('mode') or 'i2v').lower() == 't2v' else 'i2v'
+    image = data.get('image')
     # ✨ Enrich at launch. Done HERE, before the graph is built, so the clip row
     # records the prompt that actually ran — a card naming a prompt the sampler
     # never read would be the one lie this screen cannot afford. A failed
     # enrichment keeps the original rather than refusing the launch: the user
-    # asked for a clip, not for an essay.
+    # asked for a clip, not for an essay. The writer gets what the ✨ Enrich
+    # button gets: the start frame (only when one will be animated) and the
+    # clip length, so the launch and the button write the same prompt.
+    enrich_skipped = None
     if data.get('enhance') and prompt:
         from ..services import video_motion_prompt as vmp
         try:
-            prompt = vmp.enhance(prompt)
-        except (ValueError, TypeError) as exc:
-            logger.info('video studio: launch enrichment skipped: %s', exc)
-    mode = 't2v' if str(data.get('mode') or 'i2v').lower() == 't2v' else 'i2v'
-    image = data.get('image')
+            # The same GPU-exclusive vision window as the ✨ buttons (see
+            # `/motion/suggest`): a clip already queued or rendering refuses
+            # it, and that refusal is one more reason to launch un-enriched.
+            with gpu_exclusive_vision_window(flag_ttl=600):
+                prompt = vmp.enhance(prompt, image=(image if mode == 'i2v' else None),
+                                     seconds=_clip_seconds(data),
+                                     shots=data.get('shots', 1))
+        except Exception as exc:
+            # Every failure, the fence and the window included: the clip still
+            # launches, and the answer carries the reason so the panel can say it.
+            enrich_skipped = str(exc) or exc.__class__.__name__
+            logger.warning('video studio: launch enrichment skipped: %s', exc)
     if mode == 'i2v' and not image:
         return jsonify({'ok': False,
                         'error': 'Pick a start image, or switch to text-to-video.'}), 400
@@ -473,6 +534,8 @@ def video_studio_generate():
         return _studio_missing_response(exc)
     except (ValueError, TypeError) as exc:
         return _map_error(exc)
+    if enrich_skipped:
+        out = {**out, 'enrich_skipped': enrich_skipped}
     return jsonify({'ok': True, **out})
 
 

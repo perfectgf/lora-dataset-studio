@@ -29,6 +29,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Clapperboard, Play } from 'lucide-react';
 import { apiFetch, del, postJson } from '../../../../api/fetchClient';
 import { HelpBadge } from '../../../../help/HelpMode';
+import useOllamaFence from '../../../../hooks/useOllamaFence';
+import OllamaFenceNotice from '../../../common/OllamaFenceNotice';
 import { useToast } from '../../../common/Toast';
 import StudioActionBar from '../StudioActionBar';
 import VideoClipHistory from './VideoClipHistory';
@@ -132,6 +134,9 @@ export default function VideoTestStudio() {
       });
       const r = await postJson(generateUrl(), body);
       toast.success(`Queued — seed ${r.seed}, ${r.frames} frames.`);
+      // The launch went through with the prompt as typed: the writer could
+      // not run (fence, server away). Said, or the checkbox looks ignored.
+      if (r?.enrich_skipped) toast.warning(`Queued without enrichment — ${r.enrich_skipped}`);
       refreshClips();
     } catch (e) {
       toast.error(e?.message || 'The clip could not be queued.');
@@ -187,39 +192,76 @@ export default function VideoTestStudio() {
     }
   };
 
+  /* The clip length the dials are set to, as the readback shows it — and as
+     the ✨ writers receive it. A 1 s clip and a 15 s clip are not the same
+     clip, and a writer that does not know which it is writing paces both the
+     same way; this is the value the whole Motion field is timed against. */
+  const fps = options?.fps || 24;
+  const seconds = clipSeconds(opts.frames, fps);
+
   /* ✨ Propose the movement from the staged start frame. A PROPOSAL: the model
      sees a still, so it can read who is there and how they are posed, never
      what happens next — the button says "Auto", the note says where it came
      from, and the text stays editable like anything typed by hand. */
+  // The local-LLM fence, the image studio's way: a refusal is not an error to
+  // toast, the notice takes over and replays the click when the model frees
+  // up — or offers the unload. A replay fails outside the try/catch below, so
+  // it gets its own voice.
+  // What a refused write says. A "GPU busy" refusal carries WHY in `detail`
+  // (a clip is rendering, training runs) — the same join the dataset passes
+  // use, because "GPU busy" alone does not say what to wait for.
+  const said = (e, fallback) =>
+    [e?.message, e?.body?.detail].filter(Boolean).join(' — ') || fallback;
+  const { fence, runGuarded, unloadAndRetry, stopWaiting } = useOllamaFence({
+    onError: (e) => toast.error(said(e, 'The motion writer could not answer.')),
+  });
+  // A click made for one mode or one frame must not replay for another: the
+  // guard keeps the ACTION, with the frame and the mode it was clicked under,
+  // and a switch while it waits would write that answer into the new setup.
+  useEffect(() => { stopWaiting(); }, [mode, source.image, stopWaiting]);
+
   const autoMotion = async () => {
     if (!source.image) { toast.warning('Pick a start frame first.'); return; }
     setMotionBusy('auto');
-    try {
+    // The action, not the click: the guard keeps it and replays it verbatim,
+    // so the frame, the instruction and the length are captured here.
+    const suggest = async () => {
       // What is already written STEERS the proposal instead of being replaced
       // by it: the frame says what is there, this says what should happen in it.
       const r = await postJson(motionSuggestUrl(),
-        { image: source.image, instruction: prompt, model: motionModel });
+        { image: source.image, instruction: prompt, model: motionModel, seconds });
       if (r?.prompt) setPrompt(r.prompt);
+    };
+    try {
+      await runGuarded(suggest);
     } catch (e) {
-      toast.error(e?.message || 'The motion could not be written.');
+      toast.error(said(e, 'The motion could not be written.'));
     } finally {
       setMotionBusy(null);
     }
   };
 
-  /* ✨ Enrich what is already there. Never destructive: the server returns the
-     original when it has nothing better, so a click can cost time and never
-     the sentence somebody wrote. */
+  /* ✨ Enrich what is already there. Never destructive: the field is written
+     only when an answer came back, and a model that answered nothing usable is
+     an error with its sentence — a click can cost time, never the sentence
+     somebody wrote. */
   const enhanceMotion = async () => {
     setMotionBusy('enhance');
-    try {
+    const enrich = async () => {
       // The start frame travels too: an enrichment anchored on the picture
       // that will actually be animated cannot add scenery the frame lacks.
       const r = await postJson(motionEnhanceUrl(),
-        { prompt, image: source.image || null, model: motionModel });
-      if (r?.prompt) setPrompt(r.prompt);
+        { prompt, image: mode === 't2v' ? null : (source.image || null),
+          model: motionModel, seconds });
+      // "Nothing to add" and "it worked" look the same in the field; the
+      // server says which, so a silent click is never mistaken for a rewrite.
+      if (r?.unchanged) toast.info('The model had nothing to add — your text is unchanged.');
+      else if (r?.prompt) setPrompt(r.prompt);
+    };
+    try {
+      await runGuarded(enrich);
     } catch (e) {
-      toast.error(e?.message || 'The motion could not be enriched.');
+      toast.error(said(e, 'The motion could not be enriched.'));
     } finally {
       setMotionBusy(null);
     }
@@ -262,8 +304,6 @@ export default function VideoTestStudio() {
   /* The readback: what is about to be rendered, in one line, next to the
      button — the moment before a multi-minute job is the moment to catch
      "wrong LoRA" or "still on 10Eros". */
-  const fps = options?.fps || 24;
-  const seconds = clipSeconds(opts.frames, fps);
   const readback = [
     lora.lora ? `${shortLoraName(lora.lora)} @ ${Number(strength).toFixed(2)}` : 'no LoRA',
     mode === 't2v' ? 'text only' : 'from an image',
@@ -339,9 +379,10 @@ export default function VideoTestStudio() {
               onPicked={setSource} />
           </div>
 
-          <label id="vs-motion" className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-3 scroll-mt-16">
+          <div id="vs-motion" className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-3 scroll-mt-16">
             <span className="flex flex-wrap items-center gap-1.5">
-              <span className="text-sm font-semibold text-content">Motion</span>
+              <label htmlFor="vs-motion-text" className="text-sm font-semibold text-content">Motion</label>
+              <HelpBadge topic="video-studio-motion-writer" />
               {/* ✨ Auto writes it from the start frame; ✨ Enrich rewrites what
                   is there. Both put their answer in the field and stop — the
                   render is still the user's click, and the text is still
@@ -372,17 +413,19 @@ export default function VideoTestStudio() {
                 ⚙
               </button>
             </span>
-            <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
+            <textarea id="vs-motion-text" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5}
               placeholder="What happens in the shot — she turns her head and smiles, the camera pushes in slowly…"
               className="w-full resize-y rounded-lg border border-border bg-app px-2.5 py-2 text-sm text-content" />
             <span className="text-[0.6875rem] text-content-subtle">
               Describe the movement, not the picture: the start frame already says
-              what the scene looks like.
+              what the scene looks like. ✨ Auto and ✨ Enrich answer in H3’s own
+              three-field prompt, paced to the clip length you set.
             </span>
+            <OllamaFenceNotice fence={fence} onUnload={unloadAndRetry} onStop={stopWaiting} />
             {/* The toggle enriches AT LAUNCH — what runs is what the clip
                 records, so a card always names the prompt that really made it.
                 Off by default: it changes what the sampler reads. */}
-            <span className="flex items-start gap-2 rounded-lg border border-border bg-surface-raised px-2 py-1.5 text-[0.6875rem] text-content-muted">
+            <label className="flex items-start gap-2 rounded-lg border border-border bg-surface-raised px-2 py-1.5 text-[0.6875rem] text-content-muted">
               <input type="checkbox" checked={enhanceOn} className="mt-0.5"
                 onChange={(e) => setEnhanceOn(e.target.checked)} />
               <span className="min-w-0">
@@ -393,8 +436,8 @@ export default function VideoTestStudio() {
                   you typed it.
                 </span>
               </span>
-            </span>
-          </label>
+            </label>
+          </div>
         </div>
 
         {/* THE RENDER RAIL — sticky on a wide screen so the dials and the

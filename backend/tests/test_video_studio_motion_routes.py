@@ -2,29 +2,35 @@
 
 The service has its own file; what only the route can answer is whether every
 piece the panel sends actually ARRIVES — the frame, the instruction, the chosen
-model. A parameter that never reaches the service is invisible to a service
-test and fails silently in front of the user, which is how the enrichment
-button spent a day rewriting prompts with no idea what picture they animate.
+model, the clip length. A parameter that never reaches the service is invisible
+to a service test and fails silently in front of the user, which is how the
+enrichment button spent a day rewriting prompts with no idea what picture they
+animate, and how ✨ Auto wrote the same beat for a 1 s clip and a 15 s one.
 """
 
 
-def test_the_panel_s_three_pieces_reach_the_writer(client, monkeypatch):
-    """image + instruction + model, from ✨ Auto."""
+def test_the_panel_s_pieces_reach_the_writer(client, monkeypatch):
+    """image + instruction + model + the clip length, from ✨ Auto."""
     from app.services import video_motion_prompt as vmp
     seen = {}
 
-    def fake(image_name, instruction=None, model=None):
-        seen.update(image=image_name, instruction=instruction, model=model)
+    def fake(image_name, instruction=None, model=None, seconds=None, shots=1):
+        seen.update(image=image_name, instruction=instruction, model=model,
+                    seconds=seconds, shots=shots)
         return 'She lifts her gaze slowly toward the lens.'
 
     monkeypatch.setattr(vmp, 'suggest_from_frame', fake)
     r = client.post('/api/video-studio/motion/suggest',
                     json={'image': 'staged_1.png', 'instruction': 'make her jump',
-                          'model': 'qwen3-vl:8b'})
+                          'model': 'qwen3-vl:8b', 'seconds': 15.04})
     assert r.status_code == 200
     assert r.get_json()['prompt'].startswith('She lifts her gaze')
     assert seen == {'image': 'staged_1.png', 'instruction': 'make her jump',
-                    'model': 'qwen3-vl:8b'}
+                    'model': 'qwen3-vl:8b', 'seconds': 15.04, 'shots': 1}
+    # A body without a length paces nothing — never a default the dials do
+    # not show.
+    client.post('/api/video-studio/motion/suggest', json={'image': 'staged_1.png'})
+    assert seen['seconds'] is None
 
 
 def test_the_enrichment_is_told_which_frame_the_clip_starts_from(client, monkeypatch):
@@ -32,21 +38,60 @@ def test_the_enrichment_is_told_which_frame_the_clip_starts_from(client, monkeyp
     from app.services import video_motion_prompt as vmp
     seen = {}
 
-    def fake(prompt, image=None, model=None):
-        seen.update(prompt=prompt, image=image, model=model)
+    def fake(prompt, image=None, model=None, seconds=None, shots=1):
+        seen.update(prompt=prompt, image=image, model=model, seconds=seconds,
+                    shots=shots)
         return 'She turns her head slowly to the left.'
 
     monkeypatch.setattr(vmp, 'enhance', fake)
     r = client.post('/api/video-studio/motion/enhance',
                     json={'prompt': 'she turns', 'image': 'staged_1.png',
-                          'model': 'qwen3-vl:8b'})
+                          'model': 'qwen3-vl:8b', 'seconds': 2.29})
     assert r.status_code == 200
     assert seen == {'prompt': 'she turns', 'image': 'staged_1.png',
-                    'model': 'qwen3-vl:8b'}
+                    'model': 'qwen3-vl:8b', 'seconds': 2.29, 'shots': 1}
     # t2v has no frame, and that is not an error — the text alone is enriched.
     client.post('/api/video-studio/motion/enhance',
                 json={'prompt': 'she turns', 'image': None})
     assert seen['image'] is None
+
+
+def test_enrich_at_launch_writes_from_what_the_launch_carries(client, monkeypatch):
+    """The launch body has no `seconds`, only the frame count that will render;
+    the route converts it with the readback's own arithmetic (N-1 intervals at
+    the target's fps) so the launch and the ✨ Enrich button pace the same
+    clip. And the frame is named to the writer only when it will be animated:
+    a text-to-video launch that still carries a stale staged name must not
+    produce a prompt that references <Picture 1>."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    launched = {}
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: launched.update(kw) or
+                        {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+    seen = {}
+
+    def fake(prompt, image=None, model=None, seconds=None, shots=1):
+        seen.update(prompt=prompt, image=image, seconds=seconds, shots=shots)
+        return 'integrated_multimodal_description: [Shot 1] She turns slowly.'
+
+    monkeypatch.setattr(vmp, 'enhance', fake)
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': 'she turns',
+                          'enhance': True, 'frames': 56})
+    assert r.status_code == 200, r.get_json()
+    assert seen['image'] == 'staged_1.png'
+    assert abs(seen['seconds'] - 55 / 24) < 1e-9        # 56 frames at 24 fps
+    # The clip row records the prompt that ran, not the one that was typed.
+    assert launched['prompt'].startswith('integrated_multimodal_description:')
+
+    client.post('/api/video-studio/generate',
+                json={'mode': 't2v', 'image': 'staged_1.png', 'prompt': 'she turns',
+                      'enhance': True, 'frames': 362})
+    assert seen['image'] is None
+    assert abs(seen['seconds'] - 361 / 24) < 1e-9
 
 
 def test_a_refusal_arrives_as_a_sentence_not_a_stack_trace(client, monkeypatch):
@@ -79,3 +124,235 @@ def test_the_model_window_lists_the_providers_own_and_saves_a_choice(client, mon
     assert r.status_code == 200
     assert r.get_json()['model'] == 'qwen3-vl:8b'
     assert saved['name'] == 'qwen3-vl:8b'
+
+
+def test_the_fence_and_a_transport_failure_arrive_as_409s_not_as_a_bare_500(
+        client, monkeypatch):
+    """Both providers. The Ollama fence and the LM Studio one (a subclass, by
+    design) carry the code the panel keys its banner and "unload" offer on; a
+    plain transport failure is a 409 sentence without the code. Measured
+    before the fix: the routes caught ValueError/TypeError only, so the fence
+    — a RuntimeError — fell through as a 500 with nothing to show."""
+    from app.services import video_motion_prompt as vmp
+    from app.services.vision_lmstudio import LocalLmStudioFenceError
+    from app.services.vision_ollama import LocalOllamaFenceError
+
+    def refuse_with(exc):
+        def _refuse(*a, **kw):
+            raise exc
+        return _refuse
+
+    for exc in (LocalOllamaFenceError('the GPU is already in use outside LDS'),
+                LocalLmStudioFenceError('the GPU is already in use outside LDS')):
+        monkeypatch.setattr(vmp, 'suggest_from_frame', refuse_with(exc))
+        monkeypatch.setattr(vmp, 'enhance', refuse_with(exc))
+        for path, body in (('suggest', {'image': 'a.png'}),
+                           ('enhance', {'prompt': 'she turns'})):
+            r = client.post(f'/api/video-studio/motion/{path}', json=body)
+            assert r.status_code == 409, (path, exc)
+            assert r.get_json()['code'] == 'ollama_fence_blocked'
+            assert 'already in use outside LDS' in r.get_json()['error']
+
+    plain = refuse_with(RuntimeError('LM Studio did not answer'))
+    monkeypatch.setattr(vmp, 'suggest_from_frame', plain)
+    monkeypatch.setattr(vmp, 'enhance', plain)
+    for path, body in (('suggest', {'image': 'a.png'}),
+                       ('enhance', {'prompt': 'she turns'})):
+        r = client.post(f'/api/video-studio/motion/{path}', json=body)
+        assert r.status_code == 409
+        assert 'code' not in r.get_json()
+        assert 'LM Studio did not answer' in r.get_json()['error']
+
+
+def test_a_launch_whose_enrichment_failed_still_launches_and_says_so(
+        client, monkeypatch):
+    """The user asked for a clip, not an essay: the fence (or any failure) on
+    the enrichment must not refuse the launch — but the answer carries why it
+    ran the un-enriched prompt, so the panel can say it instead of a clip
+    that silently ignored the checkbox."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    from app.services.vision_ollama import LocalOllamaFenceError
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    launched = {}
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: launched.update(kw) or
+                        {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+
+    def fenced(*a, **kw):
+        raise LocalOllamaFenceError('the GPU is already in use outside LDS')
+
+    monkeypatch.setattr(vmp, 'enhance', fenced)
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': 'she turns',
+                          'enhance': True, 'frames': 56})
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()['enrich_skipped'] == 'the GPU is already in use outside LDS'
+    assert launched['prompt'] == 'she turns'
+
+    # A launch whose enrichment worked carries no such key at all.
+    monkeypatch.setattr(vmp, 'enhance', lambda *a, **kw: 'She turns slowly toward the lens.')
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': 'she turns',
+                          'enhance': True, 'frames': 56})
+    assert r.status_code == 200
+    assert 'enrich_skipped' not in r.get_json()
+
+
+def test_the_enhancement_says_when_it_had_nothing_to_add(client, monkeypatch):
+    """The model can hand the text back as it was — which, in the field, looks
+    exactly like a request that worked. The flag is what lets the panel tell
+    the two apart. (An UNUSABLE answer is not this case: the service raises
+    and the route says so — the test below.)"""
+    from app.services import video_motion_prompt as vmp
+    monkeypatch.setattr(vmp, 'enhance', lambda prompt, **kw: prompt)
+    r = client.post('/api/video-studio/motion/enhance', json={'prompt': '  she turns  '})
+    assert r.status_code == 200
+    assert r.get_json() == {'ok': True, 'prompt': '  she turns  ', 'unchanged': True}
+
+    monkeypatch.setattr(vmp, 'enhance',
+                        lambda prompt, **kw: 'She turns her head slowly to the left.')
+    r = client.post('/api/video-studio/motion/enhance', json={'prompt': 'she turns'})
+    assert r.get_json()['unchanged'] is False
+
+
+def test_the_shot_count_reaches_the_writer_on_all_three_gestures(client, monkeypatch):
+    """`shots` is in every body the panel sends; a route that read it on two of
+    the three gestures would cut a 3-shot ✨ Auto into one shot at launch."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+    seen = []
+    monkeypatch.setattr(vmp, 'suggest_from_frame',
+                        lambda image, **kw: seen.append(kw['shots']) or 'She turns slowly.')
+    monkeypatch.setattr(vmp, 'enhance',
+                        lambda prompt, **kw: seen.append(kw['shots']) or 'She turns slowly.')
+    client.post('/api/video-studio/motion/suggest', json={'image': 'a.png', 'shots': 3})
+    client.post('/api/video-studio/motion/enhance', json={'prompt': 'she turns', 'shots': 3})
+    client.post('/api/video-studio/generate',
+                json={'mode': 't2v', 'prompt': 'she turns', 'enhance': True,
+                      'frames': 241, 'shots': 3})
+    assert seen == [3, 3, 3]
+
+
+def test_the_three_writers_run_inside_the_gpu_exclusive_vision_window(client, monkeypatch):
+    """Parity with the image studio's twins (`/api/studio/describe` and
+    `/enhance-prompt` both enter the window): a writer that ran outside it
+    would fight a queued clip for VRAM — and H3 alone fills most of the card.
+    The plain launch owes no window: it goes to ComfyUI's queue, whose worker
+    already waits on `vision_in_progress`. Measured before the fix: no
+    `gpu_exclusive` anywhere in the route module."""
+    import contextlib
+
+    from app.routes import video_studio as vsr
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+    entered, state = [], {'inside': False}
+
+    @contextlib.contextmanager
+    def window(flag_ttl=300):
+        entered.append(flag_ttl)
+        state['inside'] = True
+        try:
+            yield
+        finally:
+            state['inside'] = False
+
+    monkeypatch.setattr(vsr, 'gpu_exclusive_vision_window', window)
+    wrote = []
+
+    def writer(*a, **kw):
+        # Inside, not merely around: the write is what the window protects.
+        wrote.append(state['inside'])
+        return 'She turns slowly.'
+
+    monkeypatch.setattr(vmp, 'suggest_from_frame', writer)
+    monkeypatch.setattr(vmp, 'enhance', writer)
+    client.post('/api/video-studio/motion/suggest', json={'image': 'a.png'})
+    client.post('/api/video-studio/motion/enhance', json={'prompt': 'she turns'})
+    client.post('/api/video-studio/generate',
+                json={'mode': 't2v', 'prompt': 'she turns', 'enhance': True, 'frames': 56})
+    assert wrote == [True, True, True]
+    # The same patience as the image studio's twins, on all three.
+    assert entered == [600, 600, 600]
+
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 't2v', 'prompt': 'she turns', 'frames': 56})
+    assert r.status_code == 200
+    assert entered == [600, 600, 600], 'a plain launch must not take the vision window'
+
+
+def test_a_queued_clip_refuses_the_buttons_with_its_reason_and_lets_the_launch_through(
+        client, monkeypatch):
+    """The REAL window, with ComfyUI reporting work in its queue (a clip
+    already rendering is exactly that): the ✨ buttons answer 503 with the
+    reason in `detail` — the bare "GPU busy" alone does not say what to wait
+    for — and the launch still launches, un-enriched and saying why."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    from app.job_queue import queue_manager
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    launched = {}
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: launched.update(kw) or
+                        {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+    monkeypatch.setattr(queue_manager, 'has_comfyui_work', lambda: True)
+    calls = []
+    monkeypatch.setattr(vmp, 'suggest_from_frame',
+                        lambda *a, **kw: calls.append('suggest') or 'She turns.')
+    monkeypatch.setattr(vmp, 'enhance',
+                        lambda *a, **kw: calls.append('enhance') or 'She turns.')
+
+    for path, body in (('suggest', {'image': 'a.png'}),
+                       ('enhance', {'prompt': 'she turns'})):
+        r = client.post(f'/api/video-studio/motion/{path}', json=body)
+        assert r.status_code == 503, (path, r.get_json())
+        assert r.get_json()['error'] == 'GPU busy'
+        assert 'queued or active work' in r.get_json()['detail']
+
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': 'she turns',
+                          'enhance': True, 'frames': 56})
+    assert r.status_code == 200, r.get_json()
+    assert 'queued or active work' in r.get_json()['enrich_skipped']
+    assert launched['prompt'] == 'she turns'
+    # The refusal happened BEFORE the writer, not around a wasted call.
+    assert calls == []
+
+
+def test_an_unusable_enrichment_is_a_sentence_on_the_button_and_a_reason_at_launch(
+        client, monkeypatch):
+    """The service refuses an unusable answer in words. The button shows the
+    sentence (a 409, the field untouched); the launch still launches with the
+    typed prompt and carries the same words as the reason."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+
+    def unusable(*a, **kw):
+        raise RuntimeError('The model answered nothing usable as a prompt — your text '
+                           'is unchanged; try again, or pick another model under ⚙.')
+    monkeypatch.setattr(vmp, 'enhance', unusable)
+    r = client.post('/api/video-studio/motion/enhance', json={'prompt': 'she turns'})
+    assert r.status_code == 409
+    assert 'nothing usable' in r.get_json()['error']
+
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    launched = {}
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: launched.update(kw) or
+                        {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+    r = client.post('/api/video-studio/generate',
+                    json={'mode': 't2v', 'prompt': 'she turns', 'enhance': True, 'frames': 56})
+    assert r.status_code == 200, r.get_json()
+    assert 'nothing usable' in r.get_json()['enrich_skipped']
+    assert launched['prompt'] == 'she turns'

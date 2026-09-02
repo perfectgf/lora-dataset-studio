@@ -1,211 +1,628 @@
 """✨ The Motion field, written or enriched by the local LLM.
 
-Two gestures, both asked for from live use and both modelled on the image
-generator's own: an AUTO that proposes the movement from the start frame, and
-an ENHANCER that takes what the user wrote and returns a better version of it —
-following an instruction when the text is one.
+Three callers, all modelled on the image generator's: an AUTO that proposes
+the clip from the start frame, an ENHANCER that takes what the user wrote and
+returns a better version of it — following an instruction when the text is
+one — and the launch itself ("Enrich at launch"), which is the enhancer run on
+the prompt about to be rendered.
 
 They share one engine — `vision_llm`, the waist the image passes already speak
 through, so the provider (Ollama or LM Studio) is the one already configured.
 
 WHAT MAKES THE OUTPUT USABLE, and why each rule is here:
 
-* The craft rules below are H3's, not generic advice. MiniMax H3 is what this
-  studio renders with, its guides are unanimous on ONE camera path in prose
-  (bracket commands like "[Push in]" are a Hailuo *platform* feature and mean
-  nothing to these weights), and its prompt encoder is Qwen3-VL — the same
-  encoder family whose documented strength is camera and lighting language.
+* The prompt is written in H3's OFFICIAL format — MiniMax's own writing guide,
+  the one the ComfyUI text encoder was built against: three labelled fields,
+  `integrated_multimodal_description:`, `overall_soundscape:` and
+  `non_diegetic_music:`, the shots marked "[Shot K] At MM:SS.mmm, the camera
+  cuts to" inside the first. An earlier version wrote loose prose from the
+  hosted platform's guides, which even claimed bracket markers meant nothing
+  to these weights; the format the open weights were trained on is this one.
+* The clip's LENGTH reaches the writer. Every caller sends the seconds the
+  dials are set to, and a shot directive paces the action to fill exactly that.
+  A 1 s clip and a 15 s clip are not the same clip, and a writer that does not
+  know which one it is writing writes the same beat for both — the defect that
+  opened this port ("✨ Auto ignores the length").
 * AUTO is TWO steps, never one. The vision model describes the frame as a
-  FROZEN still with motion forbidden; a second call writes the movement from
-  that description. Asking one call to look AND compose is what produced
-  answers that re-described the picture and ignored every format rule: a
-  caption that already implies motion poisons the writer downstream.
-* The graph decodes AUDIO (`VAEDecodeAudio` feeds `CreateVideo`), so a prompt
-  with no sound clause leaves the soundtrack to chance. It is a format rule
-  here for the same reason the camera is.
-* Everything returned goes to the sampler, so the answer is scrubbed to ONE
-  paragraph: code fences, "Here is your prompt:" lines and bullet markers are
-  stripped, and the surviving lines are JOINED — an earlier version kept only
-  the first line, which silently cut two thirds off any multi-line answer.
+  FROZEN still, motion forbidden — and told to describe the scene actually in
+  front of it, because a VLM asked for a still has been measured inventing a
+  different one; a second call writes the clip from that description. One call
+  asked to look AND compose re-described the picture and ignored every rule.
+* What the format REQUIRES is guaranteed in code, never hoped from the model:
+  the fields on their own lines (the scrub flattens the answer to one line on
+  purpose — meta-commentary is what it removes — and the fields are rebuilt
+  from their labels), the "[Shot 1]" opener, the `<Picture 1>` identity tag
+  (measured missing in half the answers on the image generator's side), the
+  official I2V alignment header, and a field cut mid-sentence by the token
+  budget loses its orphan tail.
+* A text-to-video clip has NO picture: the writer is told so, and neither the
+  tag nor the header is added — a `<Picture 1>` that names nothing lies to the
+  encoder, which only prepends the picture block when a frame is given.
+* The graph decodes AUDIO (`VAEDecodeAudio` feeds `CreateVideo`), which is why
+  the two sound fields are mandatory rather than optional.
 * A refusal is a sentence, never silence: an empty return would leave the field
   as it was and look like a button that does nothing.
 """
 from __future__ import annotations
 
 import logging
+import math
 import os
 import random
 import re
 
 logger = logging.getLogger(__name__)
 
-# Enough for a rich motion line plus its sound clause, short enough that a
-# chatty model cannot turn the field into an essay.
 MAX_TOKENS = 500
-# The long rule block below must not be silently truncated: Ollama's default
-# window in this app is 4096, which the craft rules alone would eat into.
 NUM_CTX = 8192
-# What a usable ANSWER looks like. Below this the model refused in its own way
-# (an empty string, "I cannot", a single word) and saying so beats writing it
-# into the field.
 MIN_CHARS = 12
-# What a usable ASK looks like — deliberately far lower, and not the same
-# number: "she blinks" is a perfectly good motion prompt, and a floor set on
-# the answer's length would have refused to enrich it.
 MIN_ASK_CHARS = 4
 
-# Qwen3's recommended non-thinking sampling, and the reason the two gestures
-# run at different heats: AUTO is pressed again when its idea was not the one
-# wanted, so it must not answer the same thing twice; the enhancer is applied
-# to a sentence somebody chose, so it stays close to it.
 TEMP_AUTO, TEMP_ENHANCE, TOP_P = 0.9, 0.6, 0.8
+# The rest of the writer's recommended non-thinking sampling, sent explicitly
+# because the driver's defaults are not these: top_k 20 and a presence penalty
+# keep a small model from looping on the field labels, and `think` off stops a
+# hybrid model from spending the token budget reasoning about the format
+# instead of writing it. An instruct model ignores the flag at no cost.
+TOP_K, MIN_P, PRESENCE_PENALTY = 20, 0.0, 1.0
+THINK = False
 
-# Cut generation where a small model tends to start commenting on its own
-# answer, so the discipline holds even when the tail rule is under-weighted.
-_STOP = ['```', '\n\nNote', '\n\nThis prompt', '\n\nHere', '\n\nLet me know']
+_STOP = ['```', '\n\nNote', '\n\nThis prompt', '\n\nHere', '\n\nLet me know', '\n\nHope']
 
-# ── What H3 answers to ───────────────────────────────────────────────────────
-# Sourced, not invented: the published H3 prompt guides (structure order, one
-# dominant camera path written in prose, cause-and-effect motion, never
-# re-describing the input frame, resolving on a final state), plus two facts
-# read out of this app's own graph — the encoder is Qwen3-VL (camera and
-# lighting vocabulary lands hard) and the sampler decodes audio.
-_H3_CRAFT = """
-HOW A MINIMAX H3 MOTION PROMPT MUST BE BUILT — in this order, as ONE flowing
-present-tense paragraph:
-1. ACTION — what the subject does, verb-first, as ONE continuous beat from
-   start to finish. Write cause and effect ("she pulls the strap down and the
-   fabric slips off her shoulder"), never an abstract quality ("realistic
-   physics", "amazing"). Never chain separate motions with semicolons: one
-   beat is what the clip can hold, and a list of three is what makes H3 cut.
-2. SECONDARY MOTION — what the action makes move: hair, fabric, skin, liquid,
-   the light on it. Anything that would otherwise sit frozen.
-3. CAMERA — EXACTLY ONE path, in prose, from: push in, pull out, pan, truck,
-   tilt, pedestal, arc, orbit, tracking, zoom, roll, or static framing. Say
-   where it settles. Never stack labels ("drone orbit, whip pan, zoom") — that
-   is what makes H3 cut to a different scene. State it separately from the
-   subject's motion ("She turns. The camera holds a static frame.").
-4. LIGHT — one lighting cue, best as a CHANGE over the clip ("the rim light
-   sweeps across her back as she turns").
-5. SOUND — REQUIRED, never skipped: one short ambient soundscape clause. This
-   model renders audio with the picture, so a prompt with no sound clause gets
-   whatever noise it invents.
-6. ENDING — the state the clip resolves on ("...ending on a close-up of her
-   face, lips parted").
+# The most shots a clip is cut into. The studio renders up to ~15 s, which is
+# 2.5 s a shot at six — already short for a cut to bring genuinely new framing.
+MAX_SHOTS = 6
+
+# ── the craft ───────────────────────────────────────────────────────────────
+# The official format first (the model was trained on it), then the rules that
+# make the description field MOVE. Both gestures share it so a "better" prompt
+# and a "fresh" prompt obey the same physics.
+_H3_CRAFT = """OUTPUT FORMAT — the OFFICIAL MiniMax H3 prompt is EXACTLY three labelled fields, each starting on its own line, in this order (never merge them, never add other fields, never write an "Audio:" line):
+integrated_multimodal_description: [Shot 1] <short style anchor, e.g. "Live-action, cinematic."> <everything visual that happens: subjects, action, camera, lighting> [Shot 2] At 00:05.000, the camera cuts to <the next shot> ...
+overall_soundscape: <1-4 sentences: ambient atmosphere, action sounds, non-verbal human sounds (breathing, footsteps, fabric rustle). NEVER dialogue, singing or music here. Write "N/A" ONLY if explicit silence is requested>
+non_diegetic_music: <the background score as instrumentation + tempo + dynamics, e.g. "Sparse piano notes at a slow tempo, joined by sustained low strings that gradually increase in volume". NEVER abstract emotion words like "moody" or "tense". Write "N/A" if no music fits>
+
+DESCRIPTION FIELD RULES:
+- Open with "[Shot 1]" — Shot 1 NEVER takes a timestamp. Every later shot starts "[Shot K] At MM:SS.mmm, the camera cuts to ..." with strictly increasing timecodes — and there are later shots ONLY when the shot plan asks for them.
+- Present tense, concrete physical cues, describe what HAPPENS: verb-first cause and effect ("she pulls the strap down and the fabric slips off her shoulder"), never an abstract quality ("amazing", "realistic physics") and never an emotion label — trembling hands, an arched back, half-closed eyes say it. Precise verbs (straddles, grips, arches, glides, strokes), never "moves".
+- Quantify every motion with a speed and a direction — slowly, steadily, quickly, toward the camera, to her left. The still gives the model no speed information, and an unquantified motion is the single most common failure.
+- Secondary motion: what the action makes move — hair, fabric, skin, liquid, the light on it — so nothing sits frozen. Realistic physics, no morphing. One lighting cue, best as a CHANGE over the clip.
+- CAMERA GRAMMAR: use ONLY this vocabulary, written as full sentences woven into the shot (never stacked labels): Zoom In/Out, Push In/Pull Out, Pan Left/Right, Truck Left/Right, Tilt Up/Down, Pedestal Up/Down, Arc Shot, Tracking Shot, Static Shot, Shake Slightly/Strongly, POV, Roll Clockwise/Counterclockwise — modulated by "with small/large amplitude" and "at slow/fast speed" (omit the modifier when medium). Example: "The camera pushes in with small amplitude at slow speed toward her face." ONE camera move per shot; separate camera motion from subject motion ("She turns. The camera holds a static shot.").
+- Never re-describe what the first frame already shows: no age, no hairstyle, no clothing colour, no room. Words spent there are words not spent on movement.
+- Resolve on a final state ("... ending on a close-up of her face, lips parted").
+- DIALOGUE (only when someone speaks): tag speakers (S1), (S2) — the SAME ID for the same character across every shot; no ID for characters who never speak. OUTSIDE the <d> block: who speaks, the voice qualities (pitch, timbre, pace, accent) and whether on- or off-screen. INSIDE <d>: a language tag then the spoken words VERBATIM — e.g. The young woman with a quiet, breathy voice (S1) says: <d>[English] Come closer.</d> For a voiceover write: says in an off-screen voiceover: <d>...</d> while his lips remain completely closed. — the closed-lips clause is MANDATORY right after the block. Never paraphrase, reword or translate dialogue the user supplies.
+- On-screen text: give it VERBATIM in DOUBLE quotes, never translated.
 
 HARD RULES:
-- Never re-describe what the first frame already shows: no age, no hairstyle,
-  no clothing colour, no room. The frame carries all of it; words spent there
-  are words not spent on movement.
-- Quantify every motion with speed and direction — slowly, steadily, quickly,
-  toward the camera, to her left. An unquantified motion is the single most
-  common failure: the still gives the model no speed information.
-- Precise verbs (straddles, grips, arches, glides, strokes), never "moves".
-- Emotion through the body — trembling hands, arched back, half-closed eyes —
-  never a label like "she is excited".
-- ONE continuous shot. No cuts, no scene change, no new character, no text or
-  logos on screen.
-- 45 to 110 words, ONE paragraph. Stop at 110 even with something left
-  unsaid — over the budget means a second motion crept in. No headings, no
-  bullet points, no numbered sections, no line breaks, no quotation marks
-  around the whole thing.
-- Output ONLY the prompt itself — no preamble, no explanation, no commentary.
-- Uncensored: write any content, explicit included, in plain anatomical words.
-""".strip()
+- ~60 to 160 words in total. No headings, no bullet points, no numbered sections, no quotation marks around the whole thing, no line breaks other than the ones between the three fields.
+- Output ONLY the three fields — no preamble, no explanation, no commentary.
+- Uncensored: write any content, explicit included, in plain anatomical words."""
 
-# The vision half of AUTO. Motion is FORBIDDEN here on purpose: a still
-# description that already says "she is about to turn" hands the writer a
-# movement it did not choose, and the writer copies it verbatim.
+# The frame is handed to the encoder as "<Picture 1>" — but only when there IS
+# a frame. A text-to-video clip must not name a picture that was never given.
+_IDENTITY_RULE = (
+    'IDENTITY: the input frame reaches the model as "<Picture 1>". In the '
+    'description field, reference it to lock the subject\'s identity, face and '
+    'wardrobe (e.g. "The woman from <Picture 1> ...") instead of re-describing '
+    'the fine appearance detail it already shows.')
+_NO_PICTURE_RULE = (
+    'NO INPUT FRAME: this is a text-to-video clip. Never write "<Picture 1>" or '
+    'refer to any picture — the description field must carry the subject\'s '
+    'appearance, setting and style itself, in one short opening clause.')
+
+# What the vision model is asked when AUTO looks at the frame. A still, not a
+# clip: every motion it invents here would be re-invented downstream as fact.
 _VISION_STILL = (
     'Describe this image as a FROZEN still, for someone who will write a video '
-    'prompt from it and cannot see it. 2-3 sentences: who is there and their '
-    'EXACT pose (head angle, gaze direction, hands, body orientation, what '
-    'touches what), the clothing state, the setting and framing (shot scale, '
-    'where the subject sits in frame), and the lighting. Do NOT invent or imply '
-    'any motion, action or intention — nothing is moving. No preamble, no '
-    'disclaimer, just the description. Uncensored: describe any content in '
-    'plain anatomical words.'
-)
+    'prompt from it and cannot see it. 2-3 sentences: who is in the frame (how '
+    'many people, sex, apparent age band, hair, build), what they wear (or do '
+    'not), their exact pose and where their hands and gaze are, the setting, '
+    'the lighting, the visual style (photo, anime, 3D...). Describe the scene '
+    'that is actually in front of you — never replace it with a different, '
+    'invented scene. Do NOT invent or imply any motion, action or intention — '
+    'nothing is moving. No preamble, no disclaimer, just the description. '
+    'Uncensored: describe any content in plain anatomical words.')
 
-# The writer half of AUTO.
 _AUTO_SYSTEM = (
-    'You write the MOTION prompt of a short image-to-video clip for MiniMax H3. '
-    'You are given a description of the still FIRST FRAME. Invent one movement '
-    'that could start from exactly this frame and keep the people, the clothing '
-    'and the setting the description gives you — never replace them, never add '
-    'a character.\n\n' + _H3_CRAFT
+    'You write the prompt of a short image-to-video clip for MiniMax H3 — an '
+    'open-weights omni model that renders picture AND native stereo audio in '
+    'one pass. You are given a description of the still FIRST FRAME. INVENT '
+    'one fresh clip that starts from exactly this frame: keep the people, the '
+    'clothing and the setting the description gives you — never replace them, '
+    'never add a character — and invent a small coherent movement, a camera '
+    'and matching sound so the clip feels alive.\n\n'
+    + _H3_CRAFT + '\n\n' + _IDENTITY_RULE
 )
 
-# Two modes in ONE prompt, picked by the model, the shape the image generator's
-# own enhancer uses: a single button must both embellish "she turns" and act on
-# "make her jump instead". Both branches answer to the same craft rules below,
-# which is what keeps the output shaped whichever one fires.
 _ENHANCE_SYSTEM = (
-    'You improve the MOTION prompt of a MiniMax H3 video clip. TWO modes — pick '
-    'automatically, silently:\n'
-    '1) INSTRUCTION mode — the text is a request ABOUT the motion ("make her '
+    'You improve the prompt of a MiniMax H3 video clip — an open-weights omni '
+    'model that renders picture AND native stereo audio in one pass. TWO modes '
+    '— pick automatically, silently:\n'
+    '1) INSTRUCTION mode — the text is a request ABOUT the clip ("make her '
     'jump instead", "slower", "have her look at the camera", "translate to '
-    'English", "shorter"): APPLY it and output the resulting motion prompt, '
-    'keeping every part of the movement the instruction does not mention. The '
-    'instruction wins wherever it conflicts, and the result must never describe '
-    'the same element two different ways.\n'
-    '2) ENRICH mode (default, the text is itself a motion) — keep the same '
-    'subject, action and intent, and supply what the craft rules ask for and '
-    'the text is missing.\n\n' + _H3_CRAFT
+    'English", "shorter"): APPLY it and output the resulting prompt, keeping '
+    'every part of the movement the instruction does not mention. The '
+    'instruction wins wherever it conflicts, and the result must never '
+    'describe the same element two different ways.\n'
+    '2) ENRICH mode (default, the text is itself a motion or a whole prompt) — '
+    'keep the same subject, action and intent; if the text already has action, '
+    'DISTRIBUTE it across the shot plan; if it is only a mood or a static '
+    'subject, INVENT a coherent micro-story; and supply everything the format '
+    'asks for that the text is missing.\n\n'
+    + _H3_CRAFT
 )
 
-# Sparks: AUTO is pressed again precisely when its first idea was not wanted,
-# so each press must be able to land somewhere else. Kept generic — the model
-# fits them to whatever the frame holds.
-_SPARK_CAMERA = ('a slow push in', 'a gentle pull out', 'a slow pan', 'a subtle tilt',
-                 'a steady tracking move', 'a slow arc', 'a static frame')
-_SPARK_ENERGY = ('calm and slow', 'sensual and unhurried', 'playful and lively',
-                 'intense and building', 'tender and close')
-_SPARK_FOCUS = ('the hands and what they touch', 'the hips and waist',
-                'the face and gaze', 'the whole body shifting weight',
-                'hair and fabric answering the motion')
+_CLOSING = (
+    'Now produce the MiniMax H3 prompt in the OFFICIAL three-field format — '
+    'integrated_multimodal_description:, overall_soundscape:, '
+    'non_diegetic_music: — following the shot plan below.')
 
+# Sparks — one of each is drawn per free press, so six presses give six clips
+# instead of the model's single favourite. The steered ask carries none: the
+# user's words are the spark.
+_SPARK_CAMERA = (
+    'a slow push in', 'a gentle pull out', 'a slow pan', 'a subtle tilt',
+    'a steady tracking move', 'a slow arc', 'a static frame',
+)
+_SPARK_ENERGY = (
+    'calm and slow', 'sensual and unhurried', 'playful and lively',
+    'intense and building', 'tender and close',
+)
+_SPARK_FOCUS = (
+    'the hands and what they touch', 'the hips and waist', 'the face and gaze',
+    'the whole body shifting weight', 'hair and fabric answering the motion',
+)
+
+
+# ── the shot plan ───────────────────────────────────────────────────────────
+
+def clip_seconds(seconds) -> int:
+    """The clip length the way the directive states it: whole seconds, at least
+    one when the caller knows the length, zero when it does not (the directive
+    then paces nothing). Rounded, not floored — 0.88 s (22 frames at 24 fps) is
+    a one-second clip and 15.04 s is fifteen."""
+    try:
+        s = float(seconds)
+    except (TypeError, ValueError):
+        return 0
+    if not math.isfinite(s) or s <= 0:  # NaN and the infinities included
+        return 0
+    return max(1, int(round(s)))
+
+
+def shot_count(shots, seconds: int) -> int:
+    """How many shots the plan asks for: clamped to [1, MAX_SHOTS], and never
+    more than one per second on a clip shorter than four — a cut every 0.7 s
+    is a flicker, not a montage."""
+    try:
+        n = int(shots)
+    except (TypeError, ValueError):
+        n = 1
+    n = max(1, min(n, MAX_SHOTS))
+    if 1 <= seconds < 4:
+        n = min(n, seconds)
+    return n
+
+
+def shot_cut_marks(seconds: int, count: int) -> str:
+    """The official cut timecodes for `count` shots over `seconds`, evenly
+    spaced and strictly increasing: 10 s in 3 shots → "00:03.300, 00:06.700".
+    Written for the model, so it copies them instead of inventing a timeline."""
+    marks = []
+    for i in range(1, max(2, int(count))):
+        t = round(i * seconds / count, 1)
+        if marks and t <= marks[-1]:
+            t = marks[-1] + 0.5
+        marks.append(t)
+    return ', '.join(f'{int(t // 60):02d}:{t % 60:06.3f}' for t in marks)
+
+
+def _pacing_hint(d: int) -> str:
+    """How much can HAPPEN in `d` seconds. Measured without it: a 2 s clip
+    and a 15 s clip got the same four-beat sequence — the length reached the
+    writer and changed nothing, because "fill the full 2s" does not say that
+    two seconds hold one gesture. Nothing for the middle range: three beats in
+    six seconds is what the craft rules already produce."""
+    if d <= 3:
+        return (f' {d}s holds ONE movement: a single gesture or a single camera '
+                'move carried from its start to its end state — not a sequence '
+                'of beats.')
+    if d >= 8:
+        return (f' {d}s is a long take: write a sequence of successive beats, '
+                'each flowing into the next, with enough distinct action to '
+                f'fill {d}s without repeating a movement.')
+    return ''
+
+
+def shot_directive(seconds=None, shots=1) -> str:
+    """The paragraph that tells the writer HOW LONG the clip is and how many
+    shots to cut it into. This is the whole reason the length is plumbed from
+    the panel: without it the model paces every clip the same way."""
+    d = clip_seconds(seconds)
+    n = shot_count(shots, d)
+    unit = 'second' if d == 1 else 'seconds'
+    if n <= 1:
+        if d:
+            return (
+                f'The clip is {d} {unit} long. Inside the '
+                'integrated_multimodal_description: field, write ONE single '
+                f'continuous shot pacing the action to fill the full {d}s: open '
+                'with "[Shot 1]" (no timestamp) and never write "the camera cuts '
+                f'to" — no cuts.{_pacing_hint(d)}')
+        return (
+            'Inside the integrated_multimodal_description: field, write ONE '
+            'single continuous shot: open with "[Shot 1]" (no timestamp) and '
+            'never write "the camera cuts to" — no cuts.')
+    tail = (
+        ' Use the exact words "the camera cuts to" — the model only cuts when '
+        'the text says so. A cut must bring genuinely NEW framing, viewpoint or '
+        'subject state; never describe the camera as locked or static for the '
+        'whole clip. Keep the SAME character identity, wardrobe and location '
+        'across every shot; the overall_soundscape: and non_diegetic_music: '
+        'fields describe the WHOLE clip and carry across the cuts.')
+    if d:
+        return (
+            f'The clip is {d} {unit} long. Structure the '
+            f'integrated_multimodal_description: field as EXACTLY {n} shots in '
+            'the OFFICIAL multi-shot format: open with "[Shot 1]" (no timestamp) '
+            'describing the first framing; then start each following shot with '
+            '"[Shot K] At <timecode>, the camera cuts to" a NEW framing/angle. '
+            f'Use EXACTLY these cut timecodes, in order: {shot_cut_marks(d, n)}.'
+            + tail)
+    return (
+        f'Structure the integrated_multimodal_description: field as EXACTLY {n} '
+        'shots in the OFFICIAL multi-shot format: open with "[Shot 1]" (no '
+        'timestamp) describing the first framing; start every following shot '
+        'with "[Shot K] At 00:0X.XXX, the camera cuts to" a NEW framing/angle, '
+        'with strictly increasing timecodes inside the clip.' + tail)
+
+
+# ── output hygiene ──────────────────────────────────────────────────────────
+# Lines that are the model talking ABOUT the prompt rather than writing it.
+# `overall(?!_)`: "Overall, the scene..." is chatter, "overall_soundscape:" is
+# a field — the unguarded word swallowed the field in an earlier version.
 _META_LINE = re.compile(
-    r"^(this prompt|here'?s?|here is|note:|overall|the enhanced|the prompt|i |in this|"
-    r"sure|certainly|of course|okay|ok,)", re.I)
-# "Sure! Here is the prompt: she turns…" — the useful half is AFTER the colon,
-# so the lead-in is cut before the line is judged. Dropping the whole line
-# would throw the prompt away with the politeness.
-_LEAD_IN = re.compile(r"^(sure|here'?s?|here is|okay|ok|certainly|of course)\b[^:\n]{0,40}:\s*",
-                      re.I)
+    r"^(this prompt|here'?s?|here is|note:|overall(?!_)|the enhanced|the prompt|i |in this"
+    r"|sure|certainly|of course|okay|ok,|below (?:is|are)|output:|let me know"
+    r"|hope (?:this|that|it|you)|feel free|if you'?d like|as an ai|sorry|i'?m sorry"
+    r"|unfortunately)", re.I)
+# A lead-in that carries the prompt on the same line ("Sure, here it is: She…")
+# is salvaged, not dropped: the text after the colon is the answer.
+_LEAD_IN = re.compile(
+    r"^(sure|here'?s?|here is|okay|ok|certainly|of course|below)\b[^:\n]{0,40}:\s*", re.I)
+# A line that is only a delimiter: a code fence, a docstring quote, a rule.
+_DELIMITER_LINE = re.compile(r'```[\w+-]*|"""|\'\'\'|-{3,}|={3,}')
+# A hybrid model's reasoning, when the provider hands it back inline — the
+# `think` switch travels to Ollama, not to LM Studio's chat endpoint. Two
+# dialects: the block with both tags (cut open by the budget it runs to the
+# end — the answer never came), and the one whose template opens the tag in
+# the prompt, so the output is the reasoning and a bare `</think>` before the
+# answer.
+_THINK_BLOCK = re.compile(r'(?is)<think>.*?(?:</think>|\Z)')
+_BARE_THINK_CLOSE = re.compile(r'(?is)^.*</think>\s*')
+_LABEL_RE = r'(?:integrated_multimodal_description|overall_soundscape|non_diegetic_music)'
+# A label written with markdown emphasis ("**overall_soundscape:**") is still
+# the label; left alone, the stars became the field's first word.
+_EMPHASISED_LABEL = re.compile(rf'(?i)[*_]{{1,3}}\s*({_LABEL_RE})\s*:\s*[*_]{{0,3}}\s*')
 
 
-def _scrub(text) -> str:
-    """ONE paragraph of prompt, and nothing the model said about it.
+def _drop_reasoning(text: str) -> str:
+    if '<think>' in text.lower():
+        return _THINK_BLOCK.sub(' ', text)
+    return _BARE_THINK_CLOSE.sub('', text)
 
-    Ported from the image generator's own scrubber rather than re-invented: the
-    failure modes are the model's, not the app's, and they are the same ones on
-    both sides — a code fence, a "Here is the prompt:" opener, a bulleted list,
-    a whole answer wrapped in quotes. Lines are JOINED, never picked: every
-    surviving line is part of the prompt.
-    """
-    kept = []
-    for raw in str(text or '').split('\n'):
-        line = re.sub(r'^```[a-zA-Z]*$', '', raw.strip()).strip()
-        if not line or line in ('```', '"""', "'''"):
+
+def _scrub(text: str) -> str:
+    """One line of prose from whatever the model wrapped it in: fences, list
+    markers, a "Prompt:" label, a chatty lead-in, a trailing note. The fields
+    are rebuilt from their labels afterwards, which is why flattening is safe."""
+    lines = []
+    for raw in _drop_reasoning(text or '').splitlines():
+        if _DELIMITER_LINE.fullmatch(raw.strip()):
             continue
-        # A numbered or bulleted answer is still the prompt — the marker goes,
-        # the sentence stays.
+        line = _EMPHASISED_LABEL.sub(r'\1: ', raw.replace('**', ''))
+        line = line.strip().strip('`').strip()
+        if not line:
+            continue
+        if re.match(r'^#{1,6}\s', line):
+            # A markdown heading is a title over the answer, not a shot —
+            # unless the model put a label in it.
+            if not re.search(_LABEL_RE, line, flags=re.I):
+                continue
+            line = re.sub(r'^#{1,6}\s+', '', line)
         line = re.sub(r'^(?:[-•*]|\d+[.)])\s+', '', line)
-        # "Motion prompt: she turns…" — the label goes, its sentence stays.
-        line = re.sub(r'^(?:motion |video |final |enhanced )?prompt\s*:\s*', '',
-                      line, flags=re.I)
-        salvaged = _LEAD_IN.sub('', line).strip()
-        if salvaged and salvaged != line:
-            line = salvaged
+        line = re.sub(r'^(?:motion |video |final |enhanced )?prompt\s*:\s*', '', line, flags=re.I)
+        m = _LEAD_IN.match(line)
+        if m:
+            line = line[m.end():].strip()
+            if not line:
+                continue
         elif _META_LINE.match(line):
             continue
-        kept.append(line)
-    out = ' '.join(kept).strip().strip('`').strip()
-    if len(out) > 1 and out[0] in '"\'' and out[-1] in '"\'':
+        lines.append(line)
+    out = ' '.join(lines).strip().strip('`').strip()
+    if len(out) > 1 and out[0] == out[-1] and out[0] in '"\'':
         out = out[1:-1].strip()
     return re.sub(r'\s+', ' ', out)
 
+
+def _purge_hybrid(text: str) -> str:
+    """A model that half-remembers another dialect writes "[Shot 1] At
+    00:00.000", "Timeline:", "[0s-5s] [Shot 2]" or folds the timecode inside
+    the bracket. Each is mapped back to the official grammar; a text without
+    shot markers is left alone."""
+    if '[Shot' not in text:
+        return text
+    out = re.sub(r'(\[Shot\s*1\]\s*)At\s+00[:.]00[:.]000\s*,?\s*', r'\1', text, flags=re.I)
+    out = re.sub(r'\bTimeline\s*:\s*', '', out)
+    out = re.sub(r'\[\d+(?:\.\d+)?s(?:\s*-\s*\d+(?:\.\d+)?s)?\]\s*(?=\[Shot)', '', out, flags=re.I)
+    out = re.sub(r'\[Shot\s*(\d+)\s+At\s+([0-9:.]+)\s*,\s*the camera cuts to\s*\]',
+                 r'[Shot \1] At \2, the camera cuts to', out, flags=re.I)
+    return out
+
+
+_ALIGNMENT_HEADER = (
+    'For the target video, at 0.00 seconds into the target video, '
+    '<Picture 1> (from [Shot 1]) is fully referenced.')
+_IDENTITY_SENTENCE = "The subject's identity, face and wardrobe are locked to <Picture 1>."
+
+
+def has_alignment_header(text: str) -> bool:
+    low = (text or '').lower()
+    return 'is fully referenced' in low or 'align with the target video' in low
+
+
+_HEADER_PHRASE = r'\bis fully referenced\b|\balign with the target video\b'
+# A character that does not end a sentence: the dot in "0.00 seconds" is
+# followed by a digit, not by a space or the end.
+_NOT_END = r'(?:[^.!?\n]|[.!?](?!["\')\]]*(?:\s|$)))'
+# The sentence carrying the header's phrase, wherever the model put it — its
+# own line, or inside the description after the label — from the sentence
+# end, label or shot marker before it to the phrase and its full stop. The
+# phrase closes the official wording, so nothing after it is taken: a
+# description glued to the header without a space stays description.
+_HEADER_SENTENCE = re.compile(
+    rf'(?is)(?:^|(?<=[.!?:\]\n]))\s*{_NOT_END}*?(?:{_HEADER_PHRASE})[.!?]?["\')\]]*\s*')
+
+
+# Where a sentence ends: a full stop followed by space or the end — so the
+# dot inside a timecode ("00:05.000") or a decimal is not one.
+_SENTENCE_END = re.compile(r'[.!?](?=["\')\]]*(?:\s|$))')
+# A tail that stops on a joining word is the budget's cut; one that stops on
+# a noun is a clause that lost its full stop, and stays.
+_FRAGMENT_TAIL = re.compile(
+    r'(?i)(?:^|\s)(?:a|an|the|and|or|but|of|to|with|as|at|in|on|into|onto|from|for'
+    r'|by|her|his|their|its|while|then|that|which|toward|towards|across|through'
+    r'|over|under|before|after|until|she|he|they|we|who|whose|when|where|is|are)$')
+
+
+def _trim_dangling(txt: str, *, truncated: bool = False) -> str:
+    """A field the token budget cut mid-sentence ends on a fragment the model
+    would render as a half-thought. Cut back to the last sentence end — but
+    only when what remains is a real field, never down to a stub, and only
+    when the tail IS a fragment: a final clause that merely lost its full stop
+    ("... ending on a close-up of her face") stays, unless the answer hit the
+    budget, where every unfinished tail is the cut.
+
+    A field that carries content AND a trailing "N/A" (measured: the model
+    copies the placeholder from the format block after a real soundscape)
+    loses the placeholder, whatever its length."""
+    txt = (txt or '').strip()
+    if txt.upper() != 'N/A':
+        # The comma that joined the placeholder goes with it — only that one:
+        # a field's own trailing comma is the fragment signal read below.
+        txt = re.sub(r'[\s,;]*\bN/A\b[.\s]*$', '', txt).strip()
+    if not txt or txt[-1] in '.!?"\'>' or txt.upper() == 'N/A':
+        return txt
+    ends = [m.end() for m in _SENTENCE_END.finditer(txt)]
+    if not ends:
+        return txt
+    tail = txt[ends[-1]:].strip()
+    fragment = (truncated or tail.endswith((',', ';', ':', '-', '—', '–'))
+                or bool(_FRAGMENT_TAIL.search(tail)))
+    if not fragment:
+        return txt
+    kept = txt[:ends[-1]].strip()
+    return kept if len(kept) > 40 else txt
+
+
+def _split_header(pre: str) -> tuple[str, str]:
+    """(header, rest) for the text before the first label: the alignment
+    header when the model wrote one, and whatever surrounds it — a description
+    that lost its label, which an earlier version swallowed with the header,
+    and a sentence written BEFORE the header, which a later one filed as
+    header (it went out above the header instead of into the field)."""
+    pre = (pre or '').strip()
+    if not pre or not has_alignment_header(pre):
+        return '', pre
+    m = _HEADER_SENTENCE.search(pre)
+    if not m:
+        return '', pre
+    rest = f'{pre[:m.start()]} {pre[m.end():]}'
+    return m.group(0).strip(), re.sub(r'[ \t]{2,}', ' ', rest).strip()
+
+
+def _lift_header(desc: str, header: str) -> tuple[str, str]:
+    """A header the model wrote INSIDE the description — after the label,
+    where the split before the first label cannot see it — moves to the
+    header slot, or goes when one is there already. Left in the field it
+    opened the description (the marker hoist then tore its "(from [Shot
+    1])"), and the text-only strip, which looks for the header where the
+    writer puts it, left it in as prose about a picture the encoder never
+    gets."""
+    for _ in range(4):
+        if not has_alignment_header(desc):
+            break
+        m = _HEADER_SENTENCE.search(desc)
+        if not m:
+            break
+        header = header or m.group(0).strip()
+        desc = re.sub(r'[ \t]{2,}', ' ', f'{desc[:m.start()]} {desc[m.end():]}').strip()
+    return desc, header
+
+
+def _lift_audio(desc: str) -> tuple[str, list[str]]:
+    """The "Audio:" tails out of the description — the hosted dialect —
+    each cut at the next shot marker: written inside a shot, the line is
+    THAT shot's sound, and the shots after it stay picture (taken to the
+    end, a two-shot plan lost its second shot to the soundscape). A
+    placeholder tail ("Audio: N/A") is dropped, not carried."""
+    tails = []
+    while True:
+        m = re.search(r'\bAudio\s*:\s*', desc)
+        if not m:
+            return desc, tails
+        nxt = re.search(r'\[Shot\s*\d+\]', desc[m.end():], flags=re.I)
+        end = m.end() + nxt.start() if nxt else len(desc)
+        tail = desc[m.end():end].strip()
+        desc = re.sub(r'[ \t]{2,}', ' ', f'{desc[:m.start()]} {desc[end:]}').strip()
+        if tail and tail.upper() != 'N/A':
+            tails.append(tail)
+
+
+def _join_sound(sound: str, tails: list[str]) -> str:
+    """The soundscape field plus the audio tails, joined — the last one
+    keeps its own punctuation, the ones before it lose theirs."""
+    parts = ([] if sound.strip().upper() in ('', 'N/A') else [sound]) + tails
+    return ', '.join([p.rstrip(' .,;') for p in parts[:-1]] + [parts[-1]])
+
+
+def restructure_fields(text: str, *, truncated: bool = False) -> str:
+    """The three fields on their own lines, whatever the model's line breaks
+    were: the scrub flattened the answer, this finds the labels again. Text
+    before the first label is the alignment header when it is one, otherwise
+    it is description that lost its label. An "Audio:" line — the dialect of
+    the hosted platform — becomes the soundscape it was meant to be."""
+    t = (text or '').strip()
+    if not t:
+        return t
+    hits = list(re.finditer(rf'(?i)({_LABEL_RE})\s*:', t))
+    if not hits:
+        desc, sound, music, header = t, '', '', ''
+    else:
+        header, lead = _split_header(t[:hits[0].start()])
+        fields = {}
+        for i, h in enumerate(hits):
+            end = hits[i + 1].start() if i + 1 < len(hits) else len(t)
+            key = h.group(1).lower()
+            fields[key] = (fields.get(key, '') + ' ' + t[h.end():end].strip()).strip()
+        desc = fields.get('integrated_multimodal_description', '')
+        if lead:
+            desc = f'{lead} {desc}'.strip()
+        sound = fields.get('overall_soundscape', '')
+        music = fields.get('non_diegetic_music', '')
+    desc, header = _lift_header(desc, header)
+    desc, tails = _lift_audio(desc)
+    if tails:
+        # The hosted dialect's "Audio:" tail is soundscape wherever it sits —
+        # joined to the field when the model wrote that one as well.
+        sound = _join_sound(sound, tails)
+    desc, sound, music = (_trim_dangling(desc, truncated=truncated),
+                          _trim_dangling(sound, truncated=truncated),
+                          _trim_dangling(music, truncated=truncated))
+    if not desc:
+        return t
+    m = re.search(r'(?i)(?:^|(?<=[.!?:\]]))\s*\[Shot\s*1\]\s*', desc)
+    if not m:
+        # No marker opening a sentence: the field gets one. A "[Shot 1]"
+        # inside a sentence ("as set up in [Shot 1]") is prose that names
+        # the shot, not the marker — hoisted, it left "(as set up in )".
+        desc = f'[Shot 1] {desc}'
+    elif m.start() > 0:
+        # The marker is there with something in front of it: the marker moves
+        # to the front and the text stays, rather than a second "[Shot 1]".
+        desc = f'[Shot 1] {desc[:m.start()].strip()} {desc[m.end():].strip()}'.strip()
+    lines = [f'integrated_multimodal_description: {desc}',
+             f'overall_soundscape: {sound or "N/A"}',
+             f'non_diegetic_music: {music or "N/A"}']
+    body = '\n'.join(lines)
+    return f'{header}\n\n{body}' if header else body
+
+
+def _prefix_description(text: str, sentence: str) -> str:
+    """Insert `sentence` at the head of the description field — after the
+    label and after "[Shot 1]" when it is there — so the field still opens
+    with its marker."""
+    m = re.search(r'(?i)(integrated_multimodal_description\s*:\s*(?:\[Shot 1\]\s*)?)', text)
+    if m:
+        return f'{text[:m.end()]}{sentence} {text[m.end():]}'
+    return f'{sentence} {text}'
+
+
+def _description_field(text: str) -> str:
+    """What the description field holds — the whole text when the labels are
+    not there — without its label or its "[Shot 1]" opener."""
+    m = re.search(r'(?is)integrated_multimodal_description\s*:\s*(.*?)'
+                  r'(?=\n\s*(?:overall_soundscape|non_diegetic_music)\s*:|\Z)', text or '')
+    body = m.group(1) if m else (text or '')
+    return re.sub(r'(?i)^\s*\[Shot\s*1\]\s*', '', body).strip()
+
+
+def ensure_identity_tag(text: str) -> str:
+    """The prompt names the frame as <Picture 1> or the model has no anchor for
+    who is in the clip — the tag is the ONE thing the encoder pairs with the
+    picture block it prepends. Looked for in the description itself: the
+    header names the picture too, and it is not the anchor."""
+    if not text or 'Picture 1' in _description_field(text):
+        return text
+    return _prefix_description(text, _IDENTITY_SENTENCE)
+
+
+def strip_picture_references(text: str) -> str:
+    """A text-to-video prompt names no picture: the I2V header and the
+    identity sentence go, and a stray "<Picture 1>" becomes the subject it
+    stood for. The encoder prepends a picture block only when a frame is
+    given, so a tag without one names nothing — and the case is real: a
+    prompt enriched as image-to-video, then the panel switched to text-only."""
+    t = text or ''
+    if not t or ('Picture 1' not in t and not has_alignment_header(t)):
+        return t
+    t = _HEADER_SENTENCE.sub('', t)
+    t = t.replace(_IDENTITY_SENTENCE, '')
+    t = re.sub(r'(?i)\s*\(?\bfrom <Picture 1>\)?', '', t)
+    t = re.sub(r'(?i)<Picture 1>', 'the subject', t)
+    t = re.sub(r'(^|[.!?]\s+|\]\s+)the subject', r'\1The subject', t)
+    return re.sub(r'[ \t]{2,}', ' ', t).strip()
+
+
+def inject_alignment_header(text: str) -> str:
+    """The official I2V header, once: it tells the model the picture IS the
+    first frame at 0.00 s, rather than a reference to resemble."""
+    if not text or has_alignment_header(text):
+        return text
+    return f'{_ALIGNMENT_HEADER}\n\n{text}'
+
+
+# Past this many words the answer is at the token budget (~500 tokens of
+# prose with labels and timecodes), so an unfinished tail is the cut, not a
+# missing full stop. The rules ask for 60-160 words; nothing legitimate is
+# near it. Counted on the scrubbed answer: a reasoning model's <think> block
+# is prose that tokenizes lighter than labels and timecodes, and counted raw
+# it made complete answers look cut (a block that DID eat the budget leaves
+# a tail the fragment test sees).
+_BUDGET_WORDS = 280
+
+
+def finish(text: str, *, with_image: bool) -> str:
+    """The raw answer to a prompt the graph can take verbatim. Returns the bare
+    scrubbed core when it is too short to be a prompt — or the bare description
+    when THAT is (a refusal, a stub: labels and a header around nothing would
+    pass any length check) — so the caller's floor sees the model's failure
+    rather than a decorated one."""
+    core = _purge_hybrid(_scrub(text))
+    truncated = len(core.split()) >= _BUDGET_WORDS
+    if len(core) < MIN_CHARS:
+        return core
+    out = restructure_fields(core, truncated=truncated)
+    desc = _description_field(out)
+    if len(desc) < MIN_CHARS:
+        return desc
+    if with_image:
+        return inject_alignment_header(ensure_identity_tag(out))
+    return strip_picture_references(out)
+
+
+# ── the calls ───────────────────────────────────────────────────────────────
 
 def available() -> tuple[bool, str]:
     """(usable, why-not) for the local LLM behind both gestures.
@@ -241,6 +658,14 @@ def _staged_path(image_name) -> str:
     return path
 
 
+def _writer_model(model) -> str | None:
+    """The model both steps use: the caller's, else the ⚙ choice, else the
+    provider's own (None). Resolved HERE so the launch — which sends no model
+    — and a panel that reloaded write with the model that was chosen, rather
+    than the ⚙ window being the only place that ever read the setting."""
+    return str(model or configured_model() or '').strip() or None
+
+
 def describe_still(image_name, model=None) -> str:
     """The first frame as a frozen still — step one of AUTO, and the anchor the
     enhancer uses when a frame is staged. '' when the model gives nothing back:
@@ -250,27 +675,40 @@ def describe_still(image_name, model=None) -> str:
         data = fh.read()
     return ' '.join(str(vision_llm.describe_image(
         data, _VISION_STILL, num_predict=400,
-        model=(model or None)) or '').split())
+        model=_writer_model(model)) or '').split())
 
 
-def _write(system, user, *, temperature, model=None) -> str:
-    """One text call through the configured provider, scrubbed."""
+def _write(system, user, *, temperature, model=None, with_image) -> str:
+    """One text call through the configured provider, finished into the
+    official format. `with_image` decides whether the frame is named: the
+    identity tag and the alignment header go on an image-to-video prompt and
+    on nothing else. Strict, like the image generator's enhancer: a call that
+    fails raises its sentence (the fence keeps its type, so the route can
+    answer 409 with the unload offer) instead of dissolving into ''."""
     from . import vision_llm
-    return _scrub(vision_llm.generate_text(
+    raw = vision_llm.generate_text(
         f'{system}\n\n{user}', num_predict=MAX_TOKENS, num_ctx=NUM_CTX,
-        temperature=temperature, top_p=TOP_P, stop=_STOP, model=(model or None)))
+        temperature=temperature, top_p=TOP_P, top_k=TOP_K, min_p=MIN_P,
+        presence_penalty=PRESENCE_PENALTY, think=THINK, stop=_STOP,
+        model=_writer_model(model), strict=True)
+    return finish(raw or '', with_image=with_image)
 
 
-def suggest_from_frame(image_name, instruction=None, model=None) -> str:
-    """✨ A motion line proposed from the staged start frame.
+def suggest_from_frame(image_name, instruction=None, model=None,
+                       seconds=None, shots=1) -> str:
+    """✨ A clip proposed from the staged start frame, in the official format.
 
-    Two calls: the frame is described as a still, then the movement is written
+    Two calls: the frame is described as a still, then the clip is written
     from that description. The split is the whole point — see the module note.
 
     `instruction` is whatever is already in the Motion field: the frame says
     what is THERE, the instruction says what should HAPPEN in it, and the
     writer is asked to obey it with the people the frame actually shows.
     Without one the proposal is free, and a spark keeps two presses apart.
+
+    `seconds` is the clip length the dials are set to; `shots` how many shots
+    to cut it into (one, until the panel offers more). Both reach the writer
+    as the shot plan, so a 15 s clip is paced as one.
     """
     ok, why = available()
     if not ok:
@@ -294,15 +732,18 @@ def suggest_from_frame(image_name, instruction=None, model=None) -> str:
                f'{random.choice(_SPARK_FOCUS)}. Prefer {random.choice(_SPARK_CAMERA)} '
                f'for the camera. Keep the people, clothing and setting faithful '
                f'to the description above.')
-    text = _write(_AUTO_SYSTEM, ask, temperature=TEMP_AUTO, model=model)
+    ask = f'{ask}\n\n{_CLOSING}\n\n{shot_directive(seconds, shots)}'
+    text = _write(_AUTO_SYSTEM, ask, temperature=TEMP_AUTO, model=model,
+                  with_image=True)
     if len(text) < MIN_CHARS:
         raise ValueError('the model returned nothing usable — try again, or '
                          'write the motion yourself')
     return text
 
 
-def enhance(prompt, image=None, model=None) -> str:
-    """✨ Obey an instruction about the motion, or enrich the motion itself.
+def enhance(prompt, image=None, model=None, seconds=None, shots=1) -> str:
+    """✨ Obey an instruction about the motion, or enrich the motion itself —
+    in the official format, paced to the clip length.
 
     Which of the two happens is the MODEL's call, from the text alone — the
     image generator's own design, and the reason a single button can both
@@ -310,8 +751,10 @@ def enhance(prompt, image=None, model=None) -> str:
 
     `image` is the staged start frame, when there is one: the enhancement is
     then anchored on what the clip will actually animate, so "make her turn
-    toward the window" cannot invent a window. Its description failing is not
-    fatal — the text is still enriched, just unanchored.
+    toward the window" cannot invent a window, and the frame is referenced as
+    <Picture 1>. Its description failing is not fatal — the text is still
+    enriched, just unanchored. No image means text-to-video: the writer is
+    told there is no picture, and none is named or headed.
     """
     base = str(prompt or '').strip()
     if len(base) < MIN_ASK_CHARS:
@@ -329,13 +772,18 @@ def enhance(prompt, image=None, model=None) -> str:
                           f're-describe it:\n{still}\n\n')
         except (ValueError, OSError) as exc:
             logger.info('motion enhance: no frame anchor (%s)', exc)
-    text = _write(_ENHANCE_SYSTEM, f'{anchor}Text: {base}',
-                  temperature=TEMP_ENHANCE, model=model)
+    system = f'{_ENHANCE_SYSTEM}\n\n{_IDENTITY_RULE if image else _NO_PICTURE_RULE}'
+    ask = f'{anchor}Text: {base}\n\n{_CLOSING}\n\n{shot_directive(seconds, shots)}'
+    text = _write(system, ask, temperature=TEMP_ENHANCE, model=model,
+                  with_image=bool(image))
     if len(text) < MIN_CHARS:
-        # The original is returned rather than an error: an enhancement that
-        # could not be made must never cost the user the prompt they wrote.
-        logger.warning('motion enhance: unusable answer, keeping the original')
-        return base
+        # An error, not the original handed back: the caller's field is only
+        # written on success, so the prompt is safe either way — and a click
+        # that "worked" with nothing to show for it hid the model's failure
+        # behind "nothing to add". Same answer as the image studio's writer.
+        logger.warning('motion enhance: unusable answer (%d chars)', len(text))
+        raise RuntimeError('The model answered nothing usable as a prompt — your text '
+                           'is unchanged; try again, or pick another model under ⚙.')
     return text
 
 

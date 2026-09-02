@@ -3712,6 +3712,35 @@ Text-only skips the picture entirely and composes the shot from the prompt.
 Either way, describe the *movement*: the start frame already says what the scene
 looks like.
 
+**Or let a local model write the movement.** ✨ **Auto** looks at the start frame
+and proposes a motion for it; anything already in the field is read as the
+movement you are after and steers the proposal rather than being ignored — the
+answer still takes the field, as ✨ Enrich's does. ✨ **Enrich** rewrites what
+you typed with more detail, anchored on the frame that will actually be
+animated — a text-only clip enriches from the words alone, so nothing is
+invented about a picture the encoder is never given. Both answer in H3's own
+three-field prompt (`integrated_multimodal_description`, `overall_soundscape`,
+`non_diegetic_music`), paced to the clip length you set: three seconds hold one
+gesture carried to its end, ten seconds get a sequence of beats. With a start
+frame the subject is named `<Picture 1>`, the tag H3 binds to the picture it is
+handed, and the reference line the encoder expects is put in front; a text-only
+prompt carries neither. The ⚙ button chooses **the model that writes the
+motion** from whatever your local server lists — Ollama or LM Studio, whichever
+the app is set to — and it is its own choice: tuning the writer never re-points
+the captioner, and leaving it empty uses the provider's vision model. The
+writer takes the GPU the way every vision pass does: it refuses while ComfyUI
+has work queued or rendering — a clip, an image — and says so, and on its way
+in it asks ComfyUI to let go of its models, so the next clip loads H3 again: a
+few seconds, paid once per click. When the writer's model is busy for something
+that is not LDS, the panel says so where you clicked: it waits, watches, and
+replays the click by itself the moment the model is free — or you **Unload it
+and continue**. It is the same hold the queue reports (see *When the queue
+waits for something that is not LDS*), answered here with the panel's own two
+offers. **✨ Enrich at launch** does the rewrite when you press Generate
+instead, so the clip records the prompt that really ran while your field stays
+as you typed it — and if the writer cannot run at that moment, the clip still
+launches with your words and the panel says so.
+
 **The four options are not free, and the panel says what each one costs.**
 ⚡ Turbo swaps in a 4-step distillation LoRA and its double-clock sampler —
 minutes instead of tens of minutes, and a different model rather than merely a

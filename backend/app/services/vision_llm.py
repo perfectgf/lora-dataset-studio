@@ -141,7 +141,12 @@ def describe_frames(frames, prompt, **kw) -> str:
 
 
 def generate_text(prompt: str, **kw) -> str:
-    """Text -> text, through whichever provider is configured."""
+    """Text -> text, through whichever provider is configured.
+
+    The Ollama branch takes every keyword the driver knows (`top_k`, `min_p`,
+    `presence_penalty`, `think`...); the LM Studio branch forwards the subset
+    its chat call accepts and drops the rest — its defaults were measured
+    with the captioners and stay theirs."""
     if provider() == LMSTUDIO:
         from . import vision_lmstudio
         return vision_lmstudio.generate_text(
