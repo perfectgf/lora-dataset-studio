@@ -1069,42 +1069,50 @@ def test_build_cell_workflow_krea_honors_local_base(app, monkeypatch):
 
 def _build_krea_cell(lts, monkeypatch, *, available_classes):
     """Build one real Krea cell (loads krea2_turbo.json) for the node-class resolution
-    tests. Node 30 ships as the canonical ConditioningKrea2Rebalance."""
+    tests. Since the rebalance retired (2026-09-02) no SHIPPED graph names an aliased
+    class, so the resolver is exercised on a PROBE node carrying the one alias the
+    table still knows — the machinery stays generic, and a Canvas plugin graph or a
+    user template may still bring that class. The probe is added AFTER the build
+    (which resolves nothing, see available_classes=None) and resolved explicitly."""
     lora = 'krea\\lora_k_000001000.safetensors'
     monkeypatch.setattr(lts, 'get_krea_loras', lambda: [{'filename': lora}])
     monkeypatch.setattr(lts, 'get_krea_models', lambda: [])
-    return lts._build_cell_workflow(
+    wf = lts._build_cell_workflow(
         user_id='local', checkpoint=lora, strength=0.9, prompt='p', seed=1,
         z_model=None, allowed_loras={lora}, dataset_id=1, train_type='krea',
-        trigger_word='kt', available_classes=available_classes)
+        trigger_word='kt', available_classes=None)
+    wf['probe'] = {'class_type': 'ConditioningKrea2Rebalance',
+                   'inputs': {'preset': 'custom', 'renormalize': False,
+                              'conditioning': ['23', 0]}}
+    return lts._resolve_workflow_node_classes(wf, available_classes)
 
 
 def test_build_krea_cell_rewrites_rebalance_class_to_registered_alias(app, monkeypatch):
     """Résolveur de CLASSES : quand le ComfyUI cible n'enregistre le node de rebalance
     QUE sous le nom permuté (Krea2RebalanceConditioning — le cas de l'install du dev,
     origine du nom permuté qu'on avait d'abord livré), le builder réécrit le class_type
-    du node 30 vers ce nom pour que le graphe ENQUEUÉ valide. Les inputs épinglés
+    du node de rebalance injecté vers ce nom pour que le graphe ENQUEUÉ valide. Les inputs épinglés
     (preset='custom', renormalize=False) restent posés — la réécriture ne touche QUE le
     class_type (inoffensif sur une variante qui ignore ces inputs)."""
     from app.services import lora_test_studio as lts
     with app.app_context():
         wf = _build_krea_cell(lts, monkeypatch,
                               available_classes={'Krea2RebalanceConditioning'})
-        assert wf['30']['class_type'] == 'Krea2RebalanceConditioning'
-        assert wf['30']['inputs']['preset'] == 'custom'
-        assert wf['30']['inputs']['renormalize'] is False
+        assert wf['probe']['class_type'] == 'Krea2RebalanceConditioning'
+        assert wf['probe']['inputs']['preset'] == 'custom'
+        assert wf['probe']['inputs']['renormalize'] is False
 
 
 def test_build_krea_cell_keeps_canonical_class_when_registered(app, monkeypatch):
-    """Quand le ComfyUI cible expose bien la classe canonique, le node 30 la GARDE
+    """Quand le ComfyUI cible expose bien la classe canonique, le node injecté la GARDE
     (pas de réécriture) et les inputs épinglés sont intacts."""
     from app.services import lora_test_studio as lts
     with app.app_context():
         wf = _build_krea_cell(lts, monkeypatch,
                               available_classes={'ConditioningKrea2Rebalance'})
-        assert wf['30']['class_type'] == 'ConditioningKrea2Rebalance'
-        assert wf['30']['inputs']['preset'] == 'custom'
-        assert wf['30']['inputs']['renormalize'] is False
+        assert wf['probe']['class_type'] == 'ConditioningKrea2Rebalance'
+        assert wf['probe']['inputs']['preset'] == 'custom'
+        assert wf['probe']['inputs']['renormalize'] is False
 
 
 def test_build_krea_cell_keeps_canonical_class_without_object_info(app, monkeypatch):
@@ -1114,7 +1122,7 @@ def test_build_krea_cell_keeps_canonical_class_without_object_info(app, monkeypa
     from app.services import lora_test_studio as lts
     with app.app_context():
         wf = _build_krea_cell(lts, monkeypatch, available_classes=None)
-        assert wf['30']['class_type'] == 'ConditioningKrea2Rebalance'
+        assert wf['probe']['class_type'] == 'ConditioningKrea2Rebalance'
 
 
 def test_multiword_trigger_style_lora_is_discoverable_in_studio(app, monkeypatch):
@@ -1251,24 +1259,22 @@ def test_preflight_family_accepts_registered_rebalance_alias(app, tmp_path, monk
         lts.preflight_family('krea', [wf])  # no raise — the alias satisfies the requirement
 
 
-def test_shipped_krea_workflows_pin_rebalance_node(app):
-    """Node 30 must use the class the published pack registers
-    (ConditioningKrea2Rebalance — mots permutés vs l'ancien nom qui 409-bloquait
-    tout le studio Krea) AND pin preset=custom + renormalize=false, so our per-layer
-    weights + multiplier are honored even on the huwhitememes fork (whose preset
-    default 'balanced' ignores per_layer_weights and renormalize=true cancels the
-    multiplier). Both txt2img and img2img graphs carry it."""
+def test_shipped_krea_workflows_carry_no_rebalance_node(app):
+    """INVERTED on 2026-09-02, when the rebalance was retired. Node 30 used to ship
+    in both Krea templates, ON at x4, and "off" was the same node at identity — so
+    every Krea Studio run required the community pack, and a bare ComfyUI got a 409
+    at launch with the toggle off. Measured at a fixed seed, x4 did not refine skin,
+    it re-decided the picture. Now the templates name no custom class at all: the
+    positive prompt feeds the sampler directly, and nothing sits in between."""
     from app.services import lora_test_studio as lts
     with app.app_context():
         for path in (lts.WORKFLOW_KREA_TURBO_PATH, lts.WORKFLOW_KREA_IMG2IMG_PATH):
             wf = lts.load_workflow_local(str(path))
             assert wf, f'{path} unreadable'
-            node = wf['30']
-            assert node['class_type'] == 'ConditioningKrea2Rebalance'
-            assert node['inputs']['preset'] == 'custom'
-            assert node['inputs']['renormalize'] is False
-            # The rebalance vector the service tunes against is still the shipped default.
-            assert node['inputs']['per_layer_weights'].endswith('2.5,5.0,1.1,4.0,1.0')
+            assert '30' not in wf
+            assert not any(n.get('class_type') == 'ConditioningKrea2Rebalance'
+                           for n in wf.values() if isinstance(n, dict)), path
+            assert wf['26']['inputs']['positive'] == ['23', 0]
 
 
 def test_studio_missing_node_hints_names_krea_pack():

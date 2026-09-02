@@ -6,6 +6,17 @@
 
 No account, paid tier or telemetry. API engines and rented GPUs are optional; local and manual workflows remain available.
 
+<h3 align="center">☕ Keep the project in development</h3>
+
+<p align="center">
+  <a href="https://ko-fi.com/perfectgf"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support LoRA Dataset Studio on Ko-fi" height="44"></a>
+</p>
+
+<p align="center">
+  <strong><a href="https://ko-fi.com/perfectgf">ko-fi.com/perfectgf</a></strong> — one-off, no account needed, from the price of a coffee.<br>
+  No paid tier, now or ever, so this is what funds the work: the API credits and rented GPUs every release is tested on, and the hours that go into the next one. <a href="#support-the-project">What it pays for →</a>
+</p>
+
 > New here? Start with [Setup & install](#setup--install), then follow the [end-to-end workflow](docs/guide/workflow.md). The [documentation index](docs/README.md) links every guide. Project news and current development live on [Discord](https://discord.gg/j6hnJBFtXE).
 
 ### 📖 [The complete guide — every feature, screen by screen →](docs/guide/using-the-app.md)
@@ -282,6 +293,8 @@ Directions, not dates. These are discussed openly on the project's Discord, and 
 - **🧠 Watermark cleaning during import** — cleaning that happens **during import** instead of as a separate errand, and automation you can trust unattended. *(Detection keeps catching up: a dedicated detector that needs no vision model ships alongside the Ollama path, manual two-pass cleaning works in datasets and in the Image Bank — and 🔤 Find text now reads burned-in lettering, speech bubbles and subtitles into the same mask funnel.)*
 - **🧩 More base models** — additional Flux-family bases (Chroma, Qwen-Image…) with the same one-click flow as Krea 2.
 
+These are built on personal time, and how fast they arrive depends on how much of it there is. [**Support the project on Ko-fi ☕**](https://ko-fi.com/perfectgf) if you want to see them sooner.
+
 ## Why this instead of ai-toolkit?
 
 "Instead of" is the wrong frame: this app is **not a competitor to [ai-toolkit](https://github.com/ostris/ai-toolkit) — it orchestrates it**. ai-toolkit is the training engine; LoRA Dataset Studio adds the work before, around and after a run.
@@ -518,6 +531,10 @@ The symptom-first fixes — including Windows blank pages, RTX 50-series PyTorch
 Still stuck? **Guide → Getting help** generates a paste-safe diagnostic report, then [Discord](https://discord.gg/j6hnJBFtXE) and [GitHub issues](https://github.com/perfectgf/lora-dataset-studio/issues) are the best places to share it.
 
 ## Support the project
+
+<p align="center">
+  <a href="https://ko-fi.com/perfectgf"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support LoRA Dataset Studio on Ko-fi" height="44"></a>
+</p>
 
 LoRA Dataset Studio is free, open source, and has no paid tier, no telemetry and
 no upsell. It is built and maintained by one person, on personal time — every

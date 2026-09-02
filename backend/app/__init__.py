@@ -303,6 +303,13 @@ _SCHEMA_ADDITIONS = (
     ('lora_test_image', 'error', 'TEXT'),
     ('lora_test_image', 'resolution_multiplier', 'REAL'),
     ('lora_test_image', 'sampler_preset', 'VARCHAR(24)'),
+    # Per-run Krea hi-res fix and app-side finishing (models.LoraTestImage).
+    # NULL on every cell that predates them = "the setting / off", so a 🔄 resume
+    # of an old cell renders exactly what it rendered.
+    ('lora_test_image', 'hires_scale', 'REAL'),
+    ('lora_test_image', 'hires_denoise', 'REAL'),
+    ('lora_test_image', 'finish_sharpen', 'REAL'),
+    ('lora_test_image', 'finish_grain', 'REAL'),
     # WHICH checkpoint produced this image, written at generation time instead of
     # re-parsed from the filename on every render. Existing rows stay NULL until
     # services.checkpoint_link_backfill attributes the ones it can prove.

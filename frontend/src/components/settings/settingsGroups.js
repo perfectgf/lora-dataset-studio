@@ -25,12 +25,19 @@ export const ENGINES_GROUPS = [
     blurb: 'Which engines are on, which one opens preselected, their API keys and models.' },
   { id: 'klein', title: 'Klein (local)', icon: SlidersHorizontal,
     blurb: 'Model file pins and generation quality for the local Klein engine.' },
-  { id: 'krea', title: 'Krea 2 Edit (local)', icon: SlidersVertical,
-    blurb: 'The second local engine — base model, identity LoRA and its dials.' },
+  // The id stays 'krea' — it is persisted in localStorage as this group's
+  // open/closed state and used by the settings deep links. Only the label
+  // follows the fact that the group now holds TWO different Krea graphs: the
+  // Edit engine, and the hi-res fix that belongs to the generation one.
+  { id: 'krea', title: 'Krea 2 (local)', icon: SlidersVertical,
+    blurb: 'The Edit engine — base model, identity LoRA and its dials — and the generation hi-res fix.' },
   { id: 'lora-presets', title: 'Generation LoRA presets', icon: Puzzle,
     blurb: 'Named LoRA chains you pick per run — one list per local engine.' },
-  { id: 'seedvr2', title: 'Upscaling — SeedVR2', icon: ZoomIn,
-    blurb: 'The restoration upscaler: tiling, resolution and VRAM behaviour.' },
+  // Id unchanged (localStorage + deep links); the label follows the card that
+  // joined it — the finishing pass belongs to the improve OUTPUT, not to either
+  // engine, so it has nowhere better to live.
+  { id: 'seedvr2', title: 'Upscale & improve — SeedVR2 and finishing', icon: ZoomIn,
+    blurb: 'The restoration upscaler, and the colour/sharpen/grain pass applied to the result.' },
   { id: 'prompts', title: 'Prompts & improve tuning (advanced)', icon: PenLine,
     blurb: 'Identity prompts per subject type, the improve instruction and its strength knobs.' },
 ]

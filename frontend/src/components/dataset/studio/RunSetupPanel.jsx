@@ -37,7 +37,7 @@ import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
 //                           checkpoints, then generate ») ou POURQUOI il ne peut
 //                           pas (familles mélangées). Jamais un bouton mort muet.
 // Tout le reste — modèle, format, cfg, steps, steps2, seed, ×N, LoRA always-on,
-// rebalance, négatif… — est le MÊME code, donc les deux écrans ne divergent pas.
+// négatif… — est le MÊME code, donc les deux écrans ne divergent pas.
 //   `showStrengths`/`cellTotal` : le mode 🧬 Blend du board charge tous les
 //                           checkpoints dans UNE image, chacun à son poids —
 //                           l'axe strengths n'a plus rien à balayer, et le
@@ -52,7 +52,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
   const navigate = useNavigate();
   // Réglages de génération GLOBAUX (parité Generate, hors prompt builder) remontés par
   // StudioGenerationSettings : objet snake_case déjà prêt à fusionner dans le POST /run
-  // (source unique de vérité pour rebalance/enhancer/precision/format/detail/negative +
+  // (source unique de vérité pour precision/format/detail/negative +
   // pile LoRA « always-on »). Le composant est gaté PAR FAMILLE et se persiste seul.
   const [genSettings, setGenSettings] = useState({});
   // Manques de modèles/nodes remontés par un 409 `studio_missing` au lancement
@@ -275,7 +275,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
           />
 
           {/* Réglages de génération globaux (parité Generate) : format/resolution, +
-              selon la famille sampling/detail/engine (rebalance+enhancer+precision+LoRA
+              selon la famille sampling/detail/engine (precision+LoRA
               always-on)/negative. Source unique de vérité, partagée avec la comparaison. */}
           <StudioGenerationSettings
             family={d.family}

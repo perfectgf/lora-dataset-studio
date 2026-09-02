@@ -747,8 +747,11 @@ def test_index_config_returns_documented_fields(client):
     # Exact field set: the only fields StudioGenerationSettings.jsx reads off
     # config (krea_loras / krea_samplers / krea_schedulers / krea_sampler_presets).
     assert set(body.keys()) == {'krea_loras', 'krea_samplers', 'krea_schedulers',
-                                'krea_sampler_presets'}
+                                'krea_sampler_presets', 'krea_hires_defaults'}
     assert body['krea_loras'] == []
+    # The hi-res default as NUMBERS (the panel prints "Settings default (off)"
+    # from the 1.0 — it must not have to translate a None). Shipped off.
+    assert body['krea_hires_defaults'] == {'scale': 1.0, 'denoise': 0.5, 'steps': 0}
     assert 'er_sde' in body['krea_samplers']
     assert 'simple' in body['krea_schedulers']
     # The presets feed the SAME dropdown as krea_samplers but land in a different

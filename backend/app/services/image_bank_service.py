@@ -8936,6 +8936,36 @@ def start_improve(app, user_id, bank_id, statuses=None, ids=None, engine=None):
                            _improve_job(bank_id, engine, want, ids), total=total)
 
 
+def _finish_improved_blob(engine, dst, src, row_id):
+    """The app-side finishing pass over a just-published Bank ✨ improve blob —
+    the SAME pass the dataset and Canvas improves get, because the button, the
+    engines and the enqueue helper are the same and a user who learns the
+    behaviour on one surface expects it on the other (CLAUDE.md, Bank↔Dataset).
+
+    `src` is the image AS IT WAS before the pass (the bank publishes a NEW
+    generation, so the previous blob is still on disk): that is the colour
+    reference. The engine rule is the shared helper's — colour matching is
+    forced off for SeedVR2, which grades itself inside the node. Off by default,
+    and wrapped whole: a nicety may never be the reason a render is lost."""
+    try:
+        from . import face_dataset_service as fds
+        profile = fds._finishing_profile(engine)
+        if not any(profile[k] > 0 for k in ('colour_strength', 'sharpen', 'grain')):
+            return
+        try:
+            from ..utils import photo_finish
+        except ImportError as exc:
+            logger.warning('bank improve: finishing pass skipped for image %s — %s '
+                           '(install the ML requirements to enable it)', row_id, exc)
+            return
+        photo_finish.apply_to_file(
+            str(dst), reference_path=(str(src) if src else None), seed=int(row_id or 0),
+            colour_strength=profile['colour_strength'], sharpen=profile['sharpen'],
+            grain=profile['grain'], grain_saturation=profile['grain_saturation'])
+    except Exception:
+        logger.exception('bank improve: finishing pass failed for image %s', row_id)
+
+
 def _improve_job(bank_id, engine, statuses=None, ids=None):
     def run(job):
         from . import face_dataset_service as fds
@@ -9036,6 +9066,10 @@ def _improve_job(bank_id, engine, statuses=None, ids=None):
                     failed += 1
                     bank_jobs.bump(job)
                     continue
+                # The finishing pass, on the blob just published, before the
+                # measurement below reads it. `src` still names the PREVIOUS
+                # generation — the colour reference.
+                _finish_improved_blob(engine, dst, src, row.id)
                 row.edit_method = 'improve'
                 row.edit_generation = generation
                 row.edit_baked_rotation = baked

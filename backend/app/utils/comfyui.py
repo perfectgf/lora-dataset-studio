@@ -26,6 +26,7 @@ from __future__ import annotations
 import errno
 import glob
 import logging
+import math
 import os
 import re
 import socket
@@ -1099,7 +1100,7 @@ def _fetch_object_info(timeout=None, force=False):
 def fetch_object_info_classes(timeout=None):
     """Set of node `class_type` names the target ComfyUI exposes = the KEYS of
     `GET /object_info`. Used by the Studio preflight to tell a required CUSTOM
-    node (e.g. the Krea rebalance / detail-daemon nodes a workflow
+    node (e.g. the detail-daemon nodes a workflow
     hardcodes) apart from a missing one BEFORE firing a grid every tile of which
     would fail ComfyUI validation.
 
@@ -2323,8 +2324,8 @@ def get_flux2_klein_models():
 # une valeur hors liste est ignorée), + peuplent les dropdowns du front via /config.
 # Krea 2 = flow-matching (DiT) : seuls les sampler/scheduler connus pour converger
 # proprement (défaut workflow = er_sde / simple, en tête). weight_dtype = options
-# RÉELLES du UNETLoader node 20 ('default' = bf16 sur le fichier fp8 -> pas d'overflow
-# matmul fp8 avec le Krea2T-Enhancer ; 'fp8_e4m3fn' = défaut rapide).
+# RÉELLES du UNETLoader node 20 ('default' = dtype délégué au checkpoint ;
+# 'fp8_e4m3fn' = défaut rapide et sûr pour Krea).
 KREA_ALLOWED_SAMPLERS = [
     'er_sde', 'euler', 'euler_ancestral', 'dpmpp_2m', 'dpmpp_2m_sde',
     'dpmpp_sde', 'res_multistep', 'deis', 'ddim', 'uni_pc',
@@ -2351,7 +2352,7 @@ def inject_krea_loras(workflow, requested, allowed, unet_node="20", consumers=("
     appelants (lora_test_studio), donc ce plancher ne les élargit pas.
     An effective strength of exactly 0.0 is a true no-op: no loader node is
     created. Returns the number of LoRAs injected; 0 leaves the workflow untouched.
-    Independent of the conditioning rebalance (node 30), on the prompt path."""
+    Independent of the conditioning path."""
     if unet_node not in workflow or not isinstance(requested, list):
         return 0
     prev = unet_node
@@ -2387,38 +2388,17 @@ def inject_krea_loras(workflow, requested, allowed, unet_node="20", consumers=("
     return injected
 
 
-# Krea2T-Enhancer (MODEL-side patcher). NODE_CLASS_MAPPINGS key confirmed in SRC.
-KREA2T_ENHANCER_CLASS = "ComfyUI-Krea2T-Enhancer"
-KREA2T_ENHANCER_NODE_ID = "krea2t_enhancer"
-
-
-def inject_krea2t_enhancer(workflow, enabled, strength):
-    """Insert the Krea2T-Enhancer as the LAST MODEL patcher before KSampler(26).
-
-    Wire-aware: consumes whatever currently feeds KSampler.model (node 20, or the
-    last LoRA node when a LoRA stack is present) and repoints KSampler.model to the
-    enhancer. Order-independent w.r.t. LoRA injection (call this AFTER it).
-
-    enabled falsy  -> returns 0, workflow untouched.
-    enabled truthy -> adds one node, returns 1. strength clamped to [0.0, 2.0].
-    Missing KSampler / model input -> returns 0 (fail-safe; never breaks dispatch).
-    """
-    if not enabled:
-        return 0
-    ks = workflow.get("26")
-    if not ks or "model" not in ks.get("inputs", {}):
-        return 0
-    try:
-        s = max(0.0, min(2.0, float(strength)))
-    except (TypeError, ValueError):
-        s = 1.0
-    src = ks["inputs"]["model"]
-    workflow[KREA2T_ENHANCER_NODE_ID] = {
-        "class_type": KREA2T_ENHANCER_CLASS,
-        "inputs": {"model": src, "enabled": True, "strength": s, "debug": False},
-    }
-    ks["inputs"]["model"] = [KREA2T_ENHANCER_NODE_ID, 0]
-    return 1
+# --- Retired: the Krea 2 "conditioning rebalance" and the Krea2T enhancer -----
+# Until 2026-09-02 the Krea graph carried ConditioningKrea2Rebalance (node 30 of
+# krea2_turbo*.json, ON at x4 by default, "off" = the same node at identity) and
+# could take the Krea2T-Enhancer model patcher. Both are gone, for measured
+# reasons: every Krea Studio run required a community pack — a bare ComfyUI got a
+# 409 at launch with the toggle OFF — and an A/B at a fixed seed showed the
+# rebalance at x4 does not refine skin texture, it re-decides the picture
+# (52/255 mean pixel difference, 94% of pixels moved); the enhancer had no
+# recorded use at all. The Krea graph now names core ComfyUI classes only. The
+# `krea_rebalance` and `enhancer_strength` columns stay on LoraTestImage, unwritten,
+# so old rows keep their record and the series signatures they feed stay stable.
 
 
 # --- Krea 2 preset sampler (custom-sampling swap) ----------------------------
@@ -2440,6 +2420,19 @@ _KREA_PS_SAMPLER = 'krea_ps_sampler'
 _KREA_PS_SIGMAS = 'krea_ps_sigmas'
 _KREA_PS_GUIDER = 'krea_ps_guider'
 _KREA_PS_RUN = 'krea_ps_run'
+
+# Hi-res fix (second Krea sampling pass). Both nodes are CORE ComfyUI classes on
+# purpose: the feature has to work on a bare install, so it may not reach for a
+# pack — see inject_krea_hires_fix.
+_KREA_HIRES_UPSCALE = 'krea_hires_upscale'
+_KREA_HIRES_SAMPLER = 'krea_hires_sampler'
+# x2 on the LATENT is x4 the pixels and roughly x4 the second pass's VRAM and
+# time; past that a 4090 starts swapping on ordinary dataset sizes. The ceiling
+# is a guard against an absurd value, not a recommendation — 1.5 is his.
+KREA_HIRES_MAX_SCALE = 2.0
+# Keeps the first pass's composition and rewrites its texture. Higher and pass 2
+# starts re-deciding the picture; much lower and it costs time for nothing.
+KREA_HIRES_DENOISE = 0.5
 
 
 def inject_krea_preset_sampler(workflow, preset, ksampler_node="26"):
@@ -2472,7 +2465,7 @@ def inject_krea_preset_sampler(workflow, preset, ksampler_node="26"):
     CALL IT LAST
     ------------
     It reads `KSampler.model`, which is rewritten by `inject_krea_loras` (LoRA
-    chain) and again by `inject_krea2t_enhancer`. Called before either, it would
+    chain). Called before it, it would
     wire the guider and the scheduler to the bare UNETLoader and drop the whole
     stack — with no error, and a render that merely looks wrong. The order is
     pinned by test_krea_preset_sampler_contract.
@@ -2557,6 +2550,131 @@ def inject_krea_preset_sampler(workflow, preset, ksampler_node="26"):
     # param override, the workflow-portability assertions — as if it were the live
     # sampler, which is a lie the next reader has to disprove.
     del workflow[ksampler_node]
+    return 1
+
+
+def inject_krea_hires_fix(workflow, scale, *, steps=None, denoise=None,
+                          ksampler_node="26"):
+    """Add a SECOND Krea sampling pass at a higher latent resolution ("hi-res fix").
+
+        KSampler(pass 1) → LatentUpscaleBy(scale) → KSampler(pass 2, denoise<1)
+
+    WHY A SECOND PASS AND NOT A BIGGER LATENT
+    -----------------------------------------
+    Asking the first pass for the final resolution and asking a second pass to
+    redraw an upscaled latent are not the same picture. Krea 2, like every
+    diffusion transformer, composes at the resolution it samples: pushed far past
+    its comfortable size in ONE pass it loses framing and starts duplicating
+    subjects, and staying small caps the detail no upscaler can invent afterwards.
+    Sampling small and re-sampling large lets the model DRAW the detail rather
+    than interpolate it, which is what separates this from `LatentUpscaleBy` alone.
+
+    `denoise` is the whole dial. At 1.0 the second pass ignores the first and
+    renders a different image at the larger size; low enough and it changes
+    nothing. The shipped default (0.5) keeps the composition and rewrites texture.
+
+    CALL IT AFTER THE MODEL INJECTIONS, BEFORE THE PRESET SAMPLER
+    ------------------------------------------------------------
+    Pass 2 is cloned from pass 1, `model` included — ahead of `inject_krea_loras`
+    it would clone a model input that injection is about to rewrite, and only
+    pass 1 would carry the LoRAs. Ahead is also silent: both
+    passes render, the second one just quietly drops the whole stack.
+
+    It composes with `inject_krea_preset_sampler` in that order for free, and
+    deliberately so: that function repoints every consumer of the node it
+    replaces, which by then is our LatentUpscaleBy. Pass 1 becomes the preset
+    chain, pass 2 stays the core KSampler cloned here — same dials, standard
+    sampler. Reversing the two would leave this looking for a node the preset
+    swap has already deleted, and return 0 with no hi-res pass at all.
+
+    ONLY `KSampler`. `KSamplerAdvanced` carries no `denoise` (it truncates with
+    `start_at_step` instead), so cloning one and writing `denoise` onto it would
+    produce a node whose main dial does nothing — the failure that looks like it
+    worked. Anything else -> 0, untouched.
+
+    `scale` falsy or <= 1.0 -> 0, workflow untouched: OFF adds no node, so an
+    install that never turns this on renders byte-identically to before.
+    Clamped to KREA_HIRES_MAX_SCALE (a x2 latent is already x4 the pixels and the
+    VRAM). `steps` None = pass 1's own count; `denoise` None = KREA_HIRES_DENOISE.
+    Mutates `workflow` in place and returns 1 when the pass was added.
+    """
+    try:
+        scale = float(scale or 0)
+    except (TypeError, ValueError):
+        return 0
+    # NaN before the comparison, not after: `nan <= 1.0` is False, so a NaN would
+    # sail past the OFF test, and `min(MAX, nan)` then returns MAX — a corrupt
+    # value would not disable the pass, it would enable it at full strength.
+    if not math.isfinite(scale) or scale <= 1.0:
+        return 0
+    scale = min(KREA_HIRES_MAX_SCALE, scale)
+
+    ks = workflow.get(ksampler_node)
+    if not isinstance(ks, dict) or ks.get('class_type') != 'KSampler':
+        return 0
+    ins = ks.get('inputs') or {}
+    if not all(k in ins for k in ('model', 'positive', 'negative', 'latent_image')):
+        return 0
+
+    try:
+        denoise = KREA_HIRES_DENOISE if denoise is None else float(denoise)
+    except (TypeError, ValueError):
+        denoise = KREA_HIRES_DENOISE
+    if not math.isfinite(denoise):
+        denoise = KREA_HIRES_DENOISE
+    denoise = max(0.05, min(1.0, denoise))
+
+    inherited = int(ins.get('steps', 8) or 8)
+    if steps is None:
+        pass2_steps = inherited
+    else:
+        # float() first, then finiteness, then int(): `int(float('inf'))` raises
+        # OverflowError, which is neither TypeError nor ValueError, and a bare
+        # `int(steps)` here would let a corrupt value escape as a 500.
+        try:
+            steps_raw = float(steps)
+        except (TypeError, ValueError):
+            steps_raw = float('nan')
+        pass2_steps = (max(1, min(50, int(steps_raw))) if math.isfinite(steps_raw)
+                       else inherited)
+
+    workflow[_KREA_HIRES_UPSCALE] = {
+        'class_type': 'LatentUpscaleBy',
+        # nearest-exact on a LATENT, deliberately. The smooth methods (bilinear,
+        # bicubic) blend neighbouring latent cells, and a blended latent is not a
+        # half-way image — it is a slightly wrong one the second pass then has to
+        # argue with. Nearest keeps every cell intact and lets the sampler, which
+        # is the only thing here that knows what the picture is, add the rest.
+        'inputs': {'upscale_method': 'nearest-exact',
+                   'scale_by': scale,
+                   'samples': [ksampler_node, 0]},
+        '_meta': {'title': f'Krea hi-res fix: upscale x{scale:g}'},
+    }
+    # Clone pass 1 whole, then override the four inputs that make it pass 2. Every
+    # dial the caller set upstream (sampler, scheduler, cfg, seed) rides along
+    # rather than being re-decided here — the same discipline as the preset
+    # sampler swap. Lists are copied, not shared: two nodes holding the SAME link
+    # object is a mutation hazard nobody would think to look for.
+    pass2 = {k: (list(v) if isinstance(v, list) else v) for k, v in ins.items()}
+    pass2['latent_image'] = [_KREA_HIRES_UPSCALE, 0]
+    pass2['steps'] = pass2_steps
+    pass2['denoise'] = denoise
+    workflow[_KREA_HIRES_SAMPLER] = {
+        'class_type': 'KSampler',
+        'inputs': pass2,
+        '_meta': {'title': f'Krea hi-res fix: pass 2 (denoise {denoise:g})'},
+    }
+
+    # Repoint whatever consumed pass 1's latent onto pass 2 — by SCAN, like the
+    # preset sampler and for the same reason: the VAEDecode is node 27 in
+    # krea2_turbo*.json and node 12 in the hand-built edit graph. The upscale node
+    # is skipped by name; it is the one consumer that must keep reading pass 1.
+    for node_id, node in workflow.items():
+        if node_id == _KREA_HIRES_UPSCALE or not isinstance(node, dict):
+            continue
+        for key, value in (node.get('inputs') or {}).items():
+            if isinstance(value, list) and len(value) == 2 and value[0] == ksampler_node:
+                node['inputs'][key] = [_KREA_HIRES_SAMPLER, 0]
     return 1
 
 

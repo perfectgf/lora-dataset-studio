@@ -10,7 +10,7 @@
  *   • FORMAT   (toutes)      → <ResolutionSelector> → resolution_tier (fast|standard|hq|max)
  *   • SAMPLING (krea)        → sampler + scheduler (whitelist backend, '' = Auto)
  *   • DETAIL   (sdxl)        → detail_amount (DetailDaemon, 0–1)
- *   • ENGINE   (krea)        → rebalance(+strength), enhancer(+strength), precision,
+ *   • ENGINE   (krea)        → precision, finition,
  *                              + pile LoRA « always-on » (permanent_loras)
  *   • NEGATIVE (zimage)      → negative (textarea)
  *
@@ -35,6 +35,10 @@ import StudioSection from './StudioSection';
 import {
   KREA_SAMPLER_PRESETS_FALLBACK, presetChoice, splitSamplerChoice,
 } from '../../../utils/kreaSamplerChoice';
+import {
+  FINISH_REFERENCE, HIRES_SCALE_CHOICES, finishPayload, fmtScale,
+  hiresDefaultLabel, hiresIsOn, hiresPayload, normaliseHiresDefaults,
+} from '../../../utils/studioFinishKnobs';
 
 // Repli si /api/index_config n'est pas encore chargé (doit refléter la whitelist
 // backend KREA_ALLOWED_* — la liste réelle vient de config.krea_samplers/schedulers).
@@ -106,10 +110,19 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
     load('wdt_v2', null),
     load('wdt', null),
   ));
-  const [rebalanceOn, setRebalanceOnS] = useState(() => load('rebalance', true, (v) => v === 'true'));
-  const [rebalanceStrength, setRebalanceStrengthS] = useState(() => load('rebalanceStr', 4.0, parseFloat));
-  const [enhancerOn, setEnhancerOnS] = useState(() => load('enhancer', false, (v) => v === 'true'));
-  const [enhancerStrength, setEnhancerStrengthS] = useState(() => load('enhancerStr', 1.0, parseFloat));
+  // Hi-res fix (2e passe Krea) et finition, PAR RUN. `hiresScale` '' = laisser
+  // le défaut Settings (nommé dans le menu) ; '1' = off pour ce run ; sinon le
+  // facteur, en chaîne comme le <select> le rend. Les deux passes de finition
+  // partent à 0 = off : une cellule Studio n'a pas de défaut Settings à suivre.
+  // Les trois formes de fil sont décidées dans utils/studioFinishKnobs.js.
+  const [hiresScale, setHiresScaleS] = useState(() => load('hiresScale', ''));
+  // null = "never touched here" : le curseur AFFICHE le défaut Settings et le
+  // payload n'envoie PAS hires_denoise, donc le rewrite du réglage s'applique.
+  // Un 0.5 en dur ici écrasait silencieusement un krea_hires.denoise à 0.7 tout
+  // en affichant « Settings default (1.5×, rewrite 0.7) » dans le menu.
+  const [hiresDenoise, setHiresDenoiseS] = useState(() => load('hiresDenoise', null, parseFloat));
+  const [finishSharpen, setFinishSharpenS] = useState(() => load('finSharpen', 0, parseFloat));
+  const [finishGrain, setFinishGrainS] = useState(() => load('finGrain', 0, parseFloat));
   const [permStack, setPermStack] = useState([]);   // remonté par ZImageLoraConfig
 
   // Setters qui persistent en même temps (miroir du pattern RunSetupPanel/SettingsPanel).
@@ -124,10 +137,10 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
   const setSampler = (v) => { setSamplerS(v); save('sampler', v); };
   const setScheduler = (v) => { setSchedulerS(v); save('scheduler', v); };
   const setWeightDtype = (v) => { setWeightDtypeS(v); save('wdt_v2', v); };
-  const setRebalanceOn = (v) => { setRebalanceOnS(v); save('rebalance', v); };
-  const setRebalanceStrength = (v) => { setRebalanceStrengthS(v); save('rebalanceStr', v); };
-  const setEnhancerOn = (v) => { setEnhancerOnS(v); save('enhancer', v); };
-  const setEnhancerStrength = (v) => { setEnhancerStrengthS(v); save('enhancerStr', v); };
+  const setHiresScale = (v) => { setHiresScaleS(v); save('hiresScale', v); };
+  const setHiresDenoise = (v) => { setHiresDenoiseS(v); save('hiresDenoise', v); };
+  const setFinishSharpen = (v) => { setFinishSharpenS(v); save('finSharpen', v); };
+  const setFinishGrain = (v) => { setFinishGrainS(v); save('finGrain', v); };
 
   // --- Config Krea (sampler/scheduler + candidats LoRA always-on) --------------
   // Fetch uniquement en Krea (les autres familles n'ont besoin de rien de /config).
@@ -149,6 +162,13 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
   // connaître — et lui offrir ceux qu'il connaît est alors exactement juste.
   const kreaSamplerPresets = config?.krea_sampler_presets?.length
     ? config.krea_sampler_presets : KREA_SAMPLER_PRESETS_FALLBACK;
+  // Le défaut Settings du hi-res fix, en nombres, pour que l'option « défaut »
+  // du menu DISE ce qu'elle vaut. Mémoïsé : cet objet est une dépendance de
+  // l'effet qui remonte `settings`, et un objet neuf à chaque rendu relancerait
+  // l'effet → setState du parent → rendu → objet neuf : la boucle. Repli = off
+  // (un serveur trop ancien pour l'envoyer n'ajoute jamais la passe).
+  const hiresDefaults = useMemo(
+    () => normaliseHiresDefaults(config?.krea_hires_defaults), [config]);
 
   // Candidats LoRA « always-on » : liste fournie par le studio riche (family-scopée,
   // payload) sinon dérivée de config.krea_loras (on écarte les `lora_*` = perso entraînés,
@@ -190,10 +210,11 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
       if (samplerChoice.sampler_preset) s.sampler_preset = samplerChoice.sampler_preset;
       if (scheduler) s.scheduler = scheduler;
       s.weight_dtype = weightDtype;
-      s.rebalance = rebalanceOn;
-      s.rebalance_strength = rebalanceStrength;
-      s.enhancer = enhancerOn;
-      s.enhancer_strength = enhancerStrength;
+      // Hi-res fix + finition : trois formes de fil pour le premier (différé /
+      // off explicite / valeur), clés OMISES quand off pour la seconde — décidé
+      // dans utils/studioFinishKnobs.js, pas ici, pour que node --test le voie.
+      Object.assign(s, hiresPayload({ scale: hiresScale, denoise: hiresDenoise }, hiresDefaults));
+      Object.assign(s, finishPayload({ sharpen: finishSharpen, grain: finishGrain }));
       // Pile always-on scindée : ☑ batch → AXE de test (cellules avec/sans, géré
       // serveur), sinon appliqué à CHAQUE cellule comme avant.
       const alwaysOn = permStack.filter((e) => !e.batch)
@@ -205,7 +226,8 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
     }
     onChange?.(s);
   }, [isZ, isSdxl, isKrea, resolutionTier, resolutionMultiplier, aspectPicker, aspect, negative, detailAmount, sampler, scheduler,
-      weightDtype, rebalanceOn, rebalanceStrength, enhancerOn, enhancerStrength, permStack, onChange]);
+      weightDtype, permStack, onChange,
+      hiresScale, hiresDenoise, hiresDefaults, finishSharpen, finishGrain]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -279,6 +301,46 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
               </select>
             </label>
           </div>
+
+          {/* HI-RES FIX — 2e passe Krea (LatentUpscaleBy + KSampler, nœuds du cœur).
+              '' = le défaut Settings, NOMMÉ dans l'option ; '1' = off pour ce run,
+              qui bat un défaut Settings à 1.5 ; sinon le facteur du run. */}
+          <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2">
+            <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted uppercase tracking-wide">
+              Hi-res fix (second pass)
+              <select
+                value={hiresScale}
+                onChange={(e) => setHiresScale(e.target.value)}
+                aria-label="Krea hi-res fix (second sampling pass)"
+                className="w-full bg-app/60 border border-border rounded-md px-2 py-1.5 text-content text-[0.8125rem] focus:border-primary focus:outline-none normal-case tracking-normal"
+              >
+                <option value="">{hiresDefaultLabel(hiresDefaults)}</option>
+                <option value="1">Off for this run</option>
+                {HIRES_SCALE_CHOICES.map((v) => (
+                  <option key={v} value={String(v)}>{fmtScale(v)} the latent</option>
+                ))}
+              </select>
+            </label>
+            <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
+              Samples small, upscales the latent, re-samples at the larger size — the model
+              draws the detail instead of interpolating it. 1.5× ≈ 2.25× the pixels and time.
+            </span>
+            {hiresIsOn(hiresScale, hiresDefaults) && (
+              <>
+                <LockableSlider
+                  label="How much the second pass may rewrite"
+                  value={hiresDenoise ?? hiresDefaults.denoise}
+                  min="0.05" max="1" step="0.05"
+                  storageKey={k('hires_denoise_lock')}
+                  onChange={(e) => setHiresDenoise(parseFloat(e.target.value))}
+                />
+                <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
+                  0.5 = keeps the composition, rewrites the texture · near 1 = a different
+                  picture at the larger size
+                </span>
+              </>
+            )}
+          </div>
         </StudioSection>
       )}
 
@@ -298,64 +360,11 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
         </StudioSection>
       )}
 
-      {/* ENGINE (krea) — rebalance + enhancer + precision + LoRA always-on. */}
+      {/* ENGINE (krea) — precision + finition + LoRA always-on. */}
       {isKrea && (
         <StudioSection title="Engine" storageKey={k('sec_engine')} anchorId="st-engine">
-          {/* NSFW / texture rebalance (node 30). Miroir exact du mode Generate. */}
-          <label className="flex items-center justify-between gap-2 text-[0.6875rem] text-content-muted uppercase tracking-wide cursor-pointer">
-            <span>NSFW / texture rebalance</span>
-            <input
-              type="checkbox"
-              checked={rebalanceOn}
-              onChange={(e) => setRebalanceOn(e.target.checked)}
-              aria-label="Krea conditioning rebalance (uncensor and skin texture)"
-              className="accent-primary w-4 h-4"
-            />
-          </label>
-          <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
-            Lifts the safety-filtered conditioning taps → uncensored output + less plastic skin. Off = pure SFW.
-          </span>
-          {rebalanceOn && (
-            <>
-              <LockableSlider
-                label="Strength"
-                value={rebalanceStrength}
-                min="1" max="8" step="0.5"
-                storageKey={k('rebalance_lock')}
-                onChange={(e) => setRebalanceStrength(parseFloat(e.target.value))}
-              />
-              <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">4 = default · ↑ stronger effect</span>
-            </>
-          )}
-
-          {/* Krea2T Enhancer (patcher texte-adhérence, indépendant du rebalance). */}
-          <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2.5">
-            <label className="flex items-center justify-between gap-2 text-[0.6875rem] text-content-muted uppercase tracking-wide cursor-pointer">
-              <span>Krea2T Enhancer (NSFW adherence) · experimental</span>
-              <input
-                type="checkbox"
-                checked={enhancerOn}
-                onChange={(e) => setEnhancerOn(e.target.checked)}
-                aria-label="Krea2T text-adherence enhancer (model-side patcher)"
-                className="accent-primary w-4 h-4"
-              />
-            </label>
-            <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
-              Model-side text-adherence patch (independent of rebalance). Off = workflow unchanged.
-            </span>
-            {enhancerOn && (
-              <>
-                <LockableSlider
-                  label="Strength"
-                  value={enhancerStrength}
-                  min="0" max="2" step="0.1"
-                  storageKey={k('enhancer_lock')}
-                  onChange={(e) => setEnhancerStrength(parseFloat(e.target.value))}
-                />
-                <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">1.0 = default · 0–2 range</span>
-              </>
-            )}
-
+          {/* Précision du loader, finition, LoRA always-on. */}
+          <div className="flex flex-col gap-2.5">
             {/* Précision du loader (node 20 weight_dtype). */}
             <label className="flex flex-col gap-1 text-[0.6875rem] text-content-muted uppercase tracking-wide mt-1">
               Precision
@@ -373,6 +382,40 @@ export default function StudioGenerationSettings({ family = 'zimage', storagePre
             </label>
             <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
               FP8 e4m3fn is the Krea-safe default. “ComfyUI default” delegates the dtype to the checkpoint and may use much more VRAM; try it only as a compatibility fallback.
+            </span>
+          </div>
+
+          {/* FINITION — côté app, sur la cellule rendue (utils/photo_finish) :
+              sharpen + grain. Pas de ColorMatch ici : une cellule Studio est du
+              txt2img, il n'y a pas d'image « d'avant » à laquelle se recaler.
+              0 = off, clé omise du payload (NULL sur la ligne). */}
+          <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2.5">
+            <span className="text-[0.6875rem] text-content-muted uppercase tracking-wide">
+              Finishing (after render)
+            </span>
+            <LockableSlider
+              label="Sharpen"
+              value={finishSharpen}
+              min="0" max="1.5" step="0.05"
+              storageKey={k('fin_sharpen_lock')}
+              format={(v) => (Number(v) > 0 ? v : 'off')}
+              onChange={(e) => setFinishSharpen(parseFloat(e.target.value))}
+            />
+            <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
+              0 = off · {FINISH_REFERENCE.sharpen} = reference · local contrast at 1 px, the
+              octave diffusion leaves empty — past ~1 the halo reads as an outline
+            </span>
+            <LockableSlider
+              label="Film grain"
+              value={finishGrain}
+              min="0" max="0.05" step="0.002"
+              storageKey={k('fin_grain_lock')}
+              format={(v) => (Number(v) > 0 ? v : 'off')}
+              onChange={(e) => setFinishGrain(parseFloat(e.target.value))}
+            />
+            <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70 -mt-1">
+              0 = off · {FINISH_REFERENCE.grain} = reference (±2.5 levels: texture, never noise) ·
+              what stops a render looking plastic
             </span>
           </div>
 

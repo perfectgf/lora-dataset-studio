@@ -58,11 +58,12 @@ from . import face_dataset_service as fds, trash
 from . import lora_training as lt
 from ..job_queue import GPU_ARBITER_LOCK, queue_manager
 from ..utils.comfyui import (FAMILY_LABELS, KREA_ALLOWED_SAMPLERS, KREA_ALLOWED_SCHEDULERS,
+                             KREA_HIRES_DENOISE, KREA_HIRES_MAX_SCALE,
                              KREA_ALLOWED_WEIGHT_DTYPES, apply_optimal_sampler_params,
                              family_of_lora, format_trained_lora_label, get_family_loras,
                              get_krea_loras,
                              get_krea_models, get_sdxl_loras, get_zimage_loras,
-                             get_zimage_models, inject_krea2t_enhancer,
+                             get_zimage_models,
                              load_workflow_local, resolve_checkpoint_ckpt_name)
 from ..utils.zimage_helper import apply_zimage_settings
 
@@ -1467,24 +1468,110 @@ def apply_klein_lora_test_settings(workflow, *, lora_name, strength, prompt, see
     return workflow
 
 
+def krea_hires_settings() -> dict:
+    """{'scale', 'steps', 'denoise'} for the optional second Krea pass, read from
+    `krea_hires.*`. Ready to splat onto `apply_krea_lora_test_settings`.
+
+    A scale that does not enlarge comes back as `scale: None`, not 1.0: None is
+    the OFF state `inject_krea_hires_fix` understands as "add no node", so ONE
+    place decides what off looks like and a neutral value can never turn into a
+    phantom pass. A malformed setting degrades to OFF rather than to some
+    arbitrary factor — this is read once per cell, and a bad config quietly
+    quadrupling the cost of a whole grid is the expensive kind of wrong.
+
+    `steps` 0/absent -> None -> pass 2 inherits pass 1's count."""
+    from ..utils.comfyui import KREA_HIRES_MAX_SCALE, KREA_HIRES_DENOISE
+    # Every dial is read whatever `scale` says: a run that arms the pass from the
+    # panel while the global switch is off (the shipped default) still owes the
+    # configured rewrite and step count — only `scale` carries the OFF state.
+    try:
+        scale = float(cfg.get('krea_hires.scale'))
+    except (TypeError, ValueError):
+        scale = 1.0
+    # NaN first: every comparison against it is False, so `scale <= 1.0` would
+    # let it through and the clamp below would hand back the CEILING. A corrupt
+    # setting has to mean OFF, never "on, at maximum".
+    scale_off = (not math.isfinite(scale)) or scale <= 1.0
+    try:
+        denoise = float(cfg.get('krea_hires.denoise'))
+    except (TypeError, ValueError):
+        denoise = KREA_HIRES_DENOISE
+    if not math.isfinite(denoise):
+        denoise = KREA_HIRES_DENOISE
+    denoise = max(0.05, min(1.0, denoise))
+    # int() of an infinite float raises OverflowError — neither TypeError nor
+    # ValueError — so the finiteness check has to come BEFORE the conversion, or
+    # a corrupt value takes every Krea run down with a 500 instead of degrading.
+    try:
+        steps_raw = float(cfg.get('krea_hires.steps') or 0)
+    except (TypeError, ValueError):
+        steps_raw = 0.0
+    steps = int(steps_raw) if math.isfinite(steps_raw) else 0
+    return {'scale': None if scale_off else min(KREA_HIRES_MAX_SCALE, scale),
+            'steps': steps if steps > 0 else None,
+            'denoise': denoise}
+
+
+def krea_hires_defaults() -> dict:
+    """The `krea_hires.*` setting as NUMBERS, for the Studio panel to display as
+    its "Settings default". Distinct from `krea_hires_settings()`, whose OFF
+    comes back as `scale: None` for the injector: a panel needs the 1.0 to show
+    "off", not a None it would have to translate. Malformed -> the shipped
+    default, never a crash on a page that only wants to print a label."""
+    out = {}
+    for key, shipped in (('scale', 1.0), ('denoise', KREA_HIRES_DENOISE), ('steps', 0)):
+        try:
+            v = float(cfg.get(f'krea_hires.{key}'))
+        except (TypeError, ValueError):
+            v = shipped
+        out[key] = v if math.isfinite(v) else shipped
+    out['steps'] = int(out['steps'])
+    return out
+
+
+def _krea_hires_for_cell(hires_scale, hires_denoise) -> dict:
+    """The three `hires_*` kwargs for ONE cell: the run's own values when the
+    panel sent some, the `krea_hires.*` setting otherwise.
+
+    Per-run `hires_scale` 1.0 is an explicit OFF — it wins over a setting that
+    says 1.5, because that is what "off for this run" means. None (the panel
+    left it alone) defers to the setting, which is the "starting point, not a
+    lock" contract every other per-run knob on this panel follows. `steps` has
+    no per-run form and always follows the setting."""
+    base = krea_hires_settings()
+    if hires_scale is not None:
+        try:
+            v = float(hires_scale)
+        except (TypeError, ValueError):
+            v = None
+        if v is not None and math.isfinite(v):
+            base['scale'] = None if v <= 1.0 else min(KREA_HIRES_MAX_SCALE, v)
+    if hires_denoise is not None and base['scale'] is not None:
+        try:
+            v = float(hires_denoise)
+        except (TypeError, ValueError):
+            v = None
+        if v is not None and math.isfinite(v):
+            base['denoise'] = max(0.05, min(1.0, v))
+    return {f'hires_{k}': v for k, v in base.items()}
+
+
 def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed,
                                   width, height, cfg=None, steps=None, batch_size=1,
                                   filename_prefix=None, allowed_loras=None, extra_loras=None,
-                                  rebalance=None, sampler=None, scheduler=None,
-                                  weight_dtype=None, enhancer_strength=None,
+                                  sampler=None, scheduler=None,
+                                  weight_dtype=None,
                                   base_model=None, allowed_bases=None,
-                                  sampler_preset=None):
+                                  sampler_preset=None, hires_scale=None,
+                                  hires_steps=None, hires_denoise=None):
     """Configure une cellule de test sur le workflow Krea 2 Turbo : le LoRA testé est
     injecté après le UNETLoader (node 20 → KSampler node 26), + prompt/seed/dims/steps/cfg.
     `extra_loras` = LoRA « always-on » (style/utilitaire) chaînés EN PLUS dans le même
     maillon (appliqués tels quels à cette cellule, hors batch). Krea est MONO-passe (pas
     de steps2).
 
-    `rebalance` (node 30, NSFW/texture rebalance) - même sémantique que la génération
-    (routes.py) : None = on NE touche PAS le node, défaut ON du workflow ; ≤1.0 = OFF
-    (multiplier=1.0 + per_layer_weights neutres → passthrough SFW) ; >1.0 = ON à cette
-    force (clampé 1..8). Mutate en place. Lève ValueError si le LoRA testé n'est pas dans
-    sa whitelist (anti path-injection).
+    Mutate en place. Lève ValueError si le LoRA testé n'est pas dans sa whitelist
+    (anti path-injection).
 
     `base_model` : UNET Krea local à charger dans le node 20 à la place du défaut
     câblé du workflow — même mécanique de base que SDXL (`base_ckpt`) / Z-Image
@@ -1531,22 +1618,6 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
         _set("20", "weight_dtype", weight_dtype)
     if filename_prefix is not None:
         _set("28", "filename_prefix", filename_prefix)
-    # Node 30 (ConditioningKrea2Rebalance) : reweight des taps de conditioning Qwen3-VL.
-    # ON (>1) relève les taps filtrés-sécurité → sortie non censurée + peau moins « plastique » ;
-    # OFF (≤1) = passthrough identité (SFW). None = laisser le défaut du workflow (ON 4.0).
-    # Le workflow épingle preset="custom" + renormalize=false sur le node : la classe
-    # ConditioningKrea2Rebalance est publiée par DEUX packs (l'original nova452 à 3 inputs
-    # ET le fork huwhitememes qui ajoute preset/renormalize). Sur le fork, preset défaut
-    # "balanced" IGNORE per_layer_weights et renormalize=true annule l'effet de multiplier ;
-    # "custom" + renormalize=false garantissent NOS poids/force quelle que soit l'install
-    # (inputs inconnus = silencieusement ignorés par ComfyUI sur l'original).
-    if rebalance is not None and isinstance(workflow.get("30"), dict):
-        m = max(1.0, min(8.0, float(rebalance)))
-        if m <= 1.0:
-            _set("30", "multiplier", 1.0)
-            _set("30", "per_layer_weights", "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0")
-        else:
-            _set("30", "multiplier", m)
     # LoRA testé + always-on : une seule chaîne node 20 → 26 (même mécanique que la
     # génération Krea). `allowed` contient TOUT le pool Krea (les always-on y sont).
     from ..utils.comfyui import inject_krea_loras
@@ -1572,11 +1643,16 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
         # JSON, never mounted in the graph.
         allowed |= {r["filename"] for r in requested[1:]}
     inject_krea_loras(workflow, requested, allowed=allowed)
-    # Krea2T-Enhancer (patcher texte-adhérence) injecté APRÈS les LoRA (wire-aware :
-    # se branche sur ce qui alimente KSampler.model). enhancer_strength None = OFF ;
-    # sinon ON à cette force (clampée 0..2 dans inject_krea2t_enhancer).
-    if enhancer_strength is not None:
-        inject_krea2t_enhancer(workflow, True, enhancer_strength)
+    # Hi-res fix (2e passe latente) : APRES l'injection des LoRA — la passe 2
+    # est un clone de la passe 1, `model` compris, donc la cloner avant la
+    # câblerait sur l'UNETLoader nu et la passe 2 tournerait SANS les LoRA, sans
+    # erreur. Et AVANT le preset sampler, qui repointe tout consommateur du node
+    # qu'il remplace : à ce moment-là c'est notre LatentUpscaleBy, donc les deux
+    # se composent sans que ni l'un ni l'autre ait à connaître l'autre.
+    # hires_scale None/≤1 = OFF = aucun node ajouté (rendu identique à avant).
+    from ..utils.comfyui import inject_krea_hires_fix
+    inject_krea_hires_fix(workflow, hires_scale, steps=hires_steps,
+                          denoise=hires_denoise)
     # Preset sampler LAST, and it has to stay last: it reads KSampler.model, which
     # both injections above rewrite. Ahead of them it would wire the guider to the
     # bare UNETLoader and drop the whole stack, silently. `sampler_preset` None/off
@@ -1600,11 +1676,12 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
 # the enqueued graph validates). Add an entry only for a node we have SEEN register
 # under two names — never a speculative alias.
 NODE_CLASS_ALIASES = {
-    # Krea 2 "conditioning rebalance" (node 30 of krea2_turbo*.json). The published
-    # pack (nova452/ComfyUI-Conditioning-Rebalance) registers it as
-    # ConditioningKrea2Rebalance — the name our templates carry — but some installs,
-    # incl. the dev's own (the origin of the permuted name we first shipped), register
-    # the very same node as Krea2RebalanceConditioning.
+    # No SHIPPED graph names this class any more (the Krea rebalance was retired on
+    # 2026-09-02 — see utils/comfyui, "Retired"). Kept because it is the one alias
+    # we have actually SEEN: the published pack (nova452/ComfyUI-Conditioning-
+    # Rebalance) registers ConditioningKrea2Rebalance, some installs register the
+    # very same node as Krea2RebalanceConditioning — and a user's own template or a
+    # Canvas plugin graph may still carry it. The resolver stays generic.
     'ConditioningKrea2Rebalance': ('Krea2RebalanceConditioning',),
 }
 
@@ -1654,14 +1731,14 @@ def _target_node_classes():
 def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
                          allowed_loras, width=TEST_WIDTH, height=TEST_HEIGHT,
                          cfg=None, steps=None, steps2=None, dataset_id=None, train_type='zimage',
-                         extra_loras=None, rebalance=None, negative=None, sampler=None,
-                         scheduler=None, weight_dtype=None, enhancer_strength=None,
+                         extra_loras=None, negative=None, sampler=None,
+                         scheduler=None, weight_dtype=None,
                          detail_amount=None, trigger_word=None, available_classes=None,
-                         sampler_preset=None):
+                         sampler_preset=None, hires_scale=None, hires_denoise=None):
     """Load the ZTurbo (Z-Image) / HQ (SDXL) / Krea workflow and configure one grid cell.
     `extra_loras` = LoRA « always-on » (style/utilitaire) appliqués à CETTE cellule en plus
-    du checkpoint testé (hors batch). `rebalance` = node 30 NSFW/texture (Krea uniquement,
-    None ailleurs). Raises ValueError if the workflow file is unloadable.
+    du checkpoint testé (hors batch). Raises ValueError if the workflow file is
+    unloadable.
 
     `available_classes` = the target ComfyUI's /object_info class set (from
     `_target_node_classes()`, fetched once per run). When provided, the built graph's
@@ -1717,16 +1794,22 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
             workflow, lora_name=checkpoint, strength=strength, prompt=prompt,
             seed=seed, width=width, height=height, cfg=cfg, steps=steps,
             batch_size=1, filename_prefix=fname, allowed_loras=allowed_krea,
-            extra_loras=extra_loras, rebalance=rebalance,
+            extra_loras=extra_loras,
             sampler=sampler, scheduler=scheduler, weight_dtype=weight_dtype,
-            enhancer_strength=enhancer_strength, sampler_preset=sampler_preset,
+            sampler_preset=sampler_preset,
             # Base Krea locale optionnelle (z_model, même canal que SDXL/Z-Image) ;
             # None = UNET câblé du workflow. Whitelist = scan disque (anti-injection).
             base_model=z_model, allowed_bases=set(get_krea_models()),
+            # Hi-res fix : le réglage du RUN quand le panneau en a donné un,
+            # sinon le réglage global (krea_hires.*). Résolu ICI, dans le seul
+            # builder que toutes les voies traversent (grille Studio, Canvas,
+            # resume), pour que « défaut Settings » et « valeur du run » soient
+            # départagés à un seul endroit. OFF par défaut, donc une install qui
+            # n'y touche pas construit le même graphe qu'avant.
+            **_krea_hires_for_cell(hires_scale, hires_denoise),
         )
-        # Résolveur de classes (node 30 = ConditioningKrea2Rebalance) : si le ComfyUI
-        # cible n'expose ce node QUE sous un nom permuté (ex. l'install du dev :
-        # Krea2RebalanceConditioning), réécrire le class_type vers le nom réel pour que
+        # Résolveur de classes (NODE_CLASS_ALIASES) : si le ComfyUI cible n'expose un
+        # node QUE sous un nom permuté, réécrire le class_type vers le nom réel pour que
         # le graphe enqueué valide. available_classes None = on garde le canonique.
         return _resolve_workflow_node_classes(workflow, available_classes)
     if (train_type or 'zimage').lower() == 'flux2klein':
@@ -1860,16 +1943,17 @@ def _persist_and_enqueue_cell(img, user_id, dataset_id, prompt, build_workflow) 
 
 
 def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=None,
-                        weight_dtype=None, enhancer=None, enhancer_strength=None,
+                        weight_dtype=None,
                         detail_amount=None, resolution_tier=None, resolution_multiplier=None,
-                        init_image=None, denoise=None, sampler_preset=None) -> dict:
+                        init_image=None, denoise=None, sampler_preset=None,
+                        hires_scale=None, hires_denoise=None,
+                        finish_sharpen=None, finish_grain=None) -> dict:
     """Normalise + valide les réglages de génération GLOBAUX d'un run (parité Generate),
     filtrés PAR FAMILLE (un sampler Krea n'a aucun sens en Z-Image). Renvoie un dict prêt
     à la fois à persister sur LoraTestImage ET à passer à `_build_cell_workflow`. Chaque
     valeur hors périmètre/whitelist retombe à None (le workflow garde alors son défaut).
 
-    Encodages : `enhancer_strength` NULL = Krea2T OFF (sinon force ON, clampée 0..2, défaut
-    1.0 quand `enhancer` truthy sans force) ; `negative` vide → None ; `denoise` clampé
+    Encodages : `negative` vide → None ; `denoise` clampé
     0.05..1.0 ; `resolution_tier` doit être dans RESOLUTION_TIERS."""
     fam = (run_family or 'zimage').lower()
     neg = ((negative or '').strip() or None) if fam == 'zimage' else None
@@ -1885,12 +1969,6 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
                   else None)
     sch = scheduler if (fam == 'krea' and scheduler in KREA_ALLOWED_SCHEDULERS) else None
     wdt = weight_dtype if (fam == 'krea' and weight_dtype in KREA_ALLOWED_WEIGHT_DTYPES) else None
-    enh = None
-    if fam == 'krea' and enhancer:
-        try:
-            enh = max(0.0, min(2.0, float(enhancer_strength if enhancer_strength is not None else 1.0)))
-        except (TypeError, ValueError):
-            enh = 1.0
     dta = None
     if fam == 'sdxl' and detail_amount is not None:
         try:
@@ -1909,10 +1987,54 @@ def _sanitize_gen_knobs(run_family, *, negative=None, sampler=None, scheduler=No
         except (TypeError, ValueError):
             den = None
     ini = ((init_image or '').strip() or None) if fam == 'krea' else None
+
+    # Hi-res fix (Krea only). Three states, and None is the one that matters:
+    #   None  -> the krea_hires.* setting decides at build time ("not set here")
+    #   1.0   -> OFF for this run, whatever the setting says
+    #   >1    -> this factor, clamped to the injector's ceiling
+    # A value that does not parse, or is not finite, is "not set here" — never a
+    # silent 1.0 (which would override a Settings default the user relies on)
+    # and never a silent maximum (`min(MAX, nan)` IS the maximum; every
+    # comparison against NaN is False and the clamp hands the ceiling back).
+    from ..utils.comfyui import KREA_HIRES_MAX_SCALE
+    hrs = None
+    if fam == 'krea' and hires_scale is not None:
+        try:
+            v = float(hires_scale)
+        except (TypeError, ValueError):
+            v = None
+        if v is not None and math.isfinite(v):
+            hrs = 1.0 if v <= 1.0 else min(KREA_HIRES_MAX_SCALE, v)
+    hrd = None
+    if fam == 'krea' and hires_denoise is not None:
+        try:
+            v = float(hires_denoise)
+        except (TypeError, ValueError):
+            v = None
+        if v is not None and math.isfinite(v):
+            hrd = max(0.05, min(1.0, v))
+
+    # Finishing (Krea only, engine-agnostic passes only). None/<=0 = off = NULL
+    # on the row: there is no setting to fall back to for a Studio cell, so
+    # "not set here" and "off" are the same state and share one representation.
+    def _finish(value, ceiling):
+        if fam != 'krea' or value is None:
+            return None
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(v) or v <= 0:
+            return None
+        return min(ceiling, v)
+    fsh = _finish(finish_sharpen, 3.0)
+    fgr = _finish(finish_grain, 0.2)
     return {'negative': neg, 'sampler': smp, 'sampler_preset': smp_preset,
             'scheduler': sch, 'weight_dtype': wdt,
-            'enhancer_strength': enh, 'detail_amount': dta, 'resolution_tier': tier,
-            'resolution_multiplier': mult, 'init_image': ini, 'denoise': den}
+            'detail_amount': dta, 'resolution_tier': tier,
+            'resolution_multiplier': mult, 'init_image': ini, 'denoise': den,
+            'hires_scale': hrs, 'hires_denoise': hrd,
+            'finish_sharpen': fsh, 'finish_grain': fgr}
 
 
 # --- Studio preflight (model files on disk + custom nodes in ComfyUI) ---------
@@ -2225,11 +2347,10 @@ def preflight_family(family, workflows):
 # restart ComfyUI". Same spirit as klein_edit_helper.KLEIN_NODE_PACKS; an unknown
 # node simply gets no hint (the generic message still shows), never an error.
 STUDIO_NODE_PACKS = {
-    # Krea 2 Turbo rebalance (node 30 of krea2_turbo*.json). The class is published by
-    # BOTH the original nova452/ComfyUI-Conditioning-Rebalance (3 inputs) and the
-    # huwhitememes fork (adds preset/renormalize) under the same key, so preflight-by-
-    # class accepts either; the workflow pins preset=custom + renormalize=false so our
-    # per-layer weights win on the fork too.
+    # Krea 2 conditioning rebalance — RETIRED from the shipped graphs on 2026-09-02
+    # (utils/comfyui, "Retired"). The hint stays: a user template or a Canvas plugin
+    # graph may still name the class, and the pack is published by BOTH the original
+    # nova452/ComfyUI-Conditioning-Rebalance and the huwhitememes fork under one key.
     'ConditioningKrea2Rebalance': {
         'pack': 'ComfyUI-Conditioning-Rebalance',
         'url': 'https://github.com/nova452/ComfyUI-Conditioning-Rebalance',
@@ -2322,7 +2443,10 @@ def _preflight_run(user_id, run_family, checkpoint, bases, allowed, prompt, seed
     KSampler, the preflight finds nothing missing, and the run is enqueued to fail
     tile by tile on a ComfyUI validation error — the exact grid of mute failures
     this preflight exists to replace. Any future knob that adds a node class owes
-    the same thread."""
+    the same thread.
+
+    The hi-res fix is NOT threaded, on purpose: it adds core classes only
+    (LatentUpscaleBy, KSampler), which no install can be missing."""
     wfs = []
     seen = set()
     for base in (bases or [None]):
@@ -2700,21 +2824,28 @@ class StudioGenSettings:
     count: object = 1
     permanent_loras: object = None
     batch_loras: object = None
-    rebalance: object = None
-    rebalance_strength: object = None
     negative: object = None
     sampler: object = None
     # Preset du sampler maison (Krea). None = off = KSampler standard.
     sampler_preset: object = None
     scheduler: object = None
     weight_dtype: object = None
-    enhancer: object = None
-    enhancer_strength: object = None
     detail_amount: object = None
     resolution_tier: object = None
     resolution_multiplier: object = None
     init_image: object = None
     denoise: object = None
+    # Krea hi-res fix, per run. None = the krea_hires.* setting; 1.0 = off for
+    # THIS run whatever the setting says. Steps are not per-run: they follow
+    # the setting (0 = inherit pass 1), one dial fewer on a panel that is
+    # already a wall.
+    hires_scale: object = None
+    hires_denoise: object = None
+    # App-side finishing on the finished cell. None/0 = off. Krea only, like
+    # the pass that inspired it; no colour match here — a Studio cell is
+    # text-to-image, there is no "before" image to match to.
+    finish_sharpen: object = None
+    finish_grain: object = None
     # Case « Trigger word » : False = ne pas préfixer le trigger word du dataset
     # au prompt. None/True = comportement historique (injection au montage).
     inject_trigger: object = None
@@ -2737,20 +2868,20 @@ class StudioGenSettings:
             count=d.get('count'),
             permanent_loras=d.get('permanent_loras'),
             batch_loras=d.get('batch_loras'),
-            rebalance=d.get('rebalance'),
-            rebalance_strength=d.get('rebalance_strength'),
             negative=d.get('negative'),
             sampler=d.get('sampler'),
             sampler_preset=d.get('sampler_preset'),
             scheduler=d.get('scheduler'),
             weight_dtype=d.get('weight_dtype'),
-            enhancer=d.get('enhancer'),
-            enhancer_strength=d.get('enhancer_strength'),
             detail_amount=d.get('detail_amount'),
             resolution_tier=d.get('resolution_tier'),
             resolution_multiplier=d.get('resolution_multiplier'),
             init_image=d.get('init_image'),
             denoise=d.get('denoise'),
+            hires_scale=d.get('hires_scale'),
+            hires_denoise=d.get('hires_denoise'),
+            finish_sharpen=d.get('finish_sharpen'),
+            finish_grain=d.get('finish_grain'),
             inject_trigger=d.get('inject_trigger'))
 
 
@@ -2786,20 +2917,20 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     count = settings.count
     permanent_loras = settings.permanent_loras
     batch_loras = settings.batch_loras
-    rebalance = settings.rebalance
-    rebalance_strength = settings.rebalance_strength
     negative = settings.negative
     sampler = settings.sampler
     sampler_preset = settings.sampler_preset
     scheduler = settings.scheduler
     weight_dtype = settings.weight_dtype
-    enhancer = settings.enhancer
-    enhancer_strength = settings.enhancer_strength
     detail_amount = settings.detail_amount
     resolution_tier = settings.resolution_tier
     resolution_multiplier = settings.resolution_multiplier
     init_image = settings.init_image
     denoise = settings.denoise
+    hires_scale = settings.hires_scale
+    hires_denoise = settings.hires_denoise
+    finish_sharpen = settings.finish_sharpen
+    finish_grain = settings.finish_grain
     # Case « Trigger word » (décochée → False) : le prompt part alors tel quel,
     # sans le trigger du dataset — persisté par cellule pour un resume fidèle.
     inject_trigger = settings.inject_trigger is not False
@@ -2852,29 +2983,16 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     # chaque LoRA coché batch (les always-on ci-dessus s'appliquent partout).
     batch_axis = _batch_lora_axis(batch_loras, run_family)
 
-    # NSFW / texture rebalance (node 30) - Krea UNIQUEMENT (les autres familles n'ont pas
-    # ce node). Encodage en UN seul FLOAT, persisté → resume fidèle :
-    #   rebalance=False        → 1.0 (OFF, passthrough SFW)
-    #   rebalance=True         → rebalance_strength clampé 1..8 (ON, défaut 4.0)
-    #   None / non-Krea        → None (on laisse le défaut ON du workflow, node intact)
-    cell_rebalance = None
-    if run_family == 'krea' and rebalance is not None:
-        if rebalance:
-            try:
-                cell_rebalance = max(1.0, min(8.0, float(rebalance_strength if rebalance_strength is not None else 4.0)))
-            except (TypeError, ValueError):
-                cell_rebalance = 4.0
-        else:
-            cell_rebalance = 1.0
-
     # Réglages de génération GLOBAUX du run (parité Generate), validés + gatés par famille.
     knobs = _sanitize_gen_knobs(
         run_family, negative=negative, sampler=sampler, scheduler=scheduler,
         sampler_preset=sampler_preset,
-        weight_dtype=weight_dtype, enhancer=enhancer, enhancer_strength=enhancer_strength,
+        weight_dtype=weight_dtype,
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         resolution_multiplier=resolution_multiplier,
-        init_image=init_image, denoise=denoise)
+        init_image=init_image, denoise=denoise,
+        hires_scale=hires_scale, hires_denoise=hires_denoise,
+        finish_sharpen=finish_sharpen, finish_grain=finish_grain)
 
     cells = build_matrix(checkpoints, strengths, aspects, cfgs, steps_list, steps2_list)
 
@@ -2950,7 +3068,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
                    sampler_preset=knobs['sampler_preset'])
 
     # Classes du ComfyUI cible, lues UNE fois pour toute la grille : le builder s'en
-    # sert pour réécrire les nodes à variantes (node 30 Krea) vers le nom réellement
+    # sert pour réécrire les nodes à variantes (NODE_CLASS_ALIASES) vers le nom réellement
     # enregistré. None (probe échouée) = on garde les noms canoniques.
     available_classes = _target_node_classes()
     # WHICH lineage checkpoint each selected LoRA is, stamped on every cell it
@@ -2986,15 +3104,18 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
                                 run_id=run_id,
                                 status='pending', z_model=zm, aspect=cell_aspect,
                                 prompt=cell_prompt, cfg=cell_cfg, steps=cell_steps, steps2=cell_steps2,
-                                extra_loras=cell_extra_json, krea_rebalance=cell_rebalance,
+                                extra_loras=cell_extra_json,
                                 negative=knobs['negative'], sampler=knobs['sampler'],
                                 sampler_preset=knobs['sampler_preset'],
                                 scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
-                                enhancer_strength=knobs['enhancer_strength'],
                                 detail_amount=knobs['detail_amount'],
                                 resolution_tier=knobs['resolution_tier'],
                                 resolution_multiplier=knobs['resolution_multiplier'],
                                 init_image=knobs['init_image'], denoise=knobs['denoise'],
+                                hires_scale=knobs['hires_scale'],
+                                hires_denoise=knobs['hires_denoise'],
+                                finish_sharpen=knobs['finish_sharpen'],
+                                finish_grain=knobs['finish_grain'],
                                 # NULL quand la case est cochée (défaut) : la ligne reste
                                 # octet pour octet celle d'avant la colonne.
                                 inject_trigger=None if inject_trigger else False,
@@ -3008,12 +3129,12 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
                                              cfg=cell_cfg, steps=cell_steps, steps2=cell_steps2,
                                              dataset_id=dataset_id,
                                              train_type=run_family, extra_loras=wf_extra,
-                                             rebalance=cell_rebalance,
                                              negative=knobs['negative'], sampler=knobs['sampler'],
                                              sampler_preset=knobs['sampler_preset'],
                                              scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
-                                             enhancer_strength=knobs['enhancer_strength'],
                                              detail_amount=knobs['detail_amount'],
+                                             hires_scale=knobs['hires_scale'],
+                                             hires_denoise=knobs['hires_denoise'],
                                              trigger_word=(ds.trigger_word
                                                            if inject_trigger else None),
                                              available_classes=available_classes))
@@ -3192,36 +3313,29 @@ def _cmp_collect_extra_loras(run_type, permanent_loras, external_loras):
     return extra_loras, externals
 
 
-def _cmp_cell_knobs(run_type, batch_loras, rebalance, rebalance_strength,
-                    negative, sampler, scheduler, weight_dtype, enhancer,
-                    enhancer_strength, detail_amount, resolution_tier,
+def _cmp_cell_knobs(run_type, batch_loras,
+                    negative, sampler, scheduler, weight_dtype,
+                    detail_amount, resolution_tier,
                     resolution_multiplier, init_image, denoise,
-                    sampler_preset=None):
+                    sampler_preset=None, hires_scale=None, hires_denoise=None,
+                    finish_sharpen=None, finish_grain=None):
     """Les réglages portés par chaque cellule, déplacés tels quels : l'axe
-    ⚖ batch, l'encodage du rebalance Krea, et les réglages globaux validés
-    et gatés par famille. Retourne (batch_axis, cell_rebalance, knobs)."""
+    ⚖ batch et les réglages globaux validés et gatés par famille.
+    Retourne (batch_axis, knobs)."""
     # Axe « ⚖ batch » : chaque config tourne une fois SANS puis une fois AVEC
     # chaque LoRA coché batch (même mécanique que create_run).
     batch_axis = _batch_lora_axis(batch_loras, run_type)
-    # Rebalance Krea (node 30) - même encodage float que create_run (None=défaut, ≤1=OFF, >1=ON@force).
-    cell_rebalance = None
-    if run_type == 'krea' and rebalance is not None:
-        if rebalance:
-            try:
-                cell_rebalance = max(1.0, min(8.0, float(rebalance_strength if rebalance_strength is not None else 4.0)))
-            except (TypeError, ValueError):
-                cell_rebalance = 4.0
-        else:
-            cell_rebalance = 1.0
     # Réglages de génération GLOBAUX (parité Generate), validés + gatés par famille.
     knobs = _sanitize_gen_knobs(
         run_type, negative=negative, sampler=sampler, scheduler=scheduler,
         sampler_preset=sampler_preset,
-        weight_dtype=weight_dtype, enhancer=enhancer, enhancer_strength=enhancer_strength,
+        weight_dtype=weight_dtype,
         detail_amount=detail_amount, resolution_tier=resolution_tier,
         resolution_multiplier=resolution_multiplier,
-        init_image=init_image, denoise=denoise)
-    return batch_axis, cell_rebalance, knobs
+        init_image=init_image, denoise=denoise,
+        hires_scale=hires_scale, hires_denoise=hires_denoise,
+        finish_sharpen=finish_sharpen, finish_grain=finish_grain)
+    return batch_axis, knobs
 
 
 def _cmp_preflight(user_id, run_type, selections, externals, valid_models,
@@ -3368,7 +3482,7 @@ def _cmp_build_cell_plan(valid_models, selections, combos, strengths,
 
 def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
                        knobs, run_type, batch_axis, prompt_axis, seeds, seed,
-                       run_id, extra_loras, cell_rebalance, origin_of,
+                       run_id, extra_loras, origin_of,
                        combine, stack_triggers, available_classes,
                        inject_trigger=True):
     """La matérialisation du plan, déplacée telle quelle : pour chaque
@@ -3411,15 +3525,18 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
                                 seed=cell_seed, run_seed=seed, run_id=run_id,
                                 status='pending', z_model=zm, aspect=cell_aspect,
                                 prompt=cell_prompt, cfg=cell_cfg, steps=cell_steps, steps2=cell_steps2,
-                                extra_loras=cell_extra_json, krea_rebalance=cell_rebalance,
+                                extra_loras=cell_extra_json,
                                 negative=knobs['negative'], sampler=knobs['sampler'],
                                 sampler_preset=knobs['sampler_preset'],
                                 scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
-                                enhancer_strength=knobs['enhancer_strength'],
                                 detail_amount=knobs['detail_amount'],
                                 resolution_tier=knobs['resolution_tier'],
                                 resolution_multiplier=knobs['resolution_multiplier'],
                                 init_image=knobs['init_image'], denoise=knobs['denoise'],
+                                hires_scale=knobs['hires_scale'],
+                                hires_denoise=knobs['hires_denoise'],
+                                finish_sharpen=knobs['finish_sharpen'],
+                                finish_grain=knobs['finish_grain'],
                                 inject_trigger=None if inject_trigger else False,
                                 record_id=origin_of.get(cp, (None, None))[0],
                                 step=origin_of.get(cp, (None, None))[1])
@@ -3433,12 +3550,12 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
                                      height=height, cfg=cell_cfg, steps=cell_steps,
                                      steps2=cell_steps2, dataset_id=ds.id,
                                      train_type=run_type, extra_loras=wf_extra,
-                                     rebalance=cell_rebalance,
                                      negative=knobs['negative'], sampler=knobs['sampler'],
                                      sampler_preset=knobs['sampler_preset'],
                                      scheduler=knobs['scheduler'], weight_dtype=knobs['weight_dtype'],
-                                     enhancer_strength=knobs['enhancer_strength'],
                                      detail_amount=knobs['detail_amount'],
+                                     hires_scale=knobs['hires_scale'],
+                                     hires_denoise=knobs['hires_denoise'],
                                      # Pile combinée : TOUS les triggers de la pile,
                                      # celui du LoRA de tête en premier. Case
                                      # « Trigger word » décochée → aucun, pile comprise.
@@ -3460,8 +3577,8 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
     (équité). Le prompt : `prompt` commun si fourni, sinon l'identity_prompt du
     dataset de CHAQUE cellule (chaque LoRA a son trigger). 1 selection => run mono-LoRA.
 
-    Parité Generate (2026-07-01) : always-on LoRA, rebalance Krea, steps2 SDXL et les
-    réglages globaux (négatif/sampler/scheduler/precision/enhancer/detail/tier) sont
+    Parité Generate (2026-07-01) : always-on LoRA, steps2 SDXL et les
+    réglages globaux (négatif/sampler/scheduler/precision/detail/tier) sont
     partagés par TOUTES les cellules du run (gatés + validés par famille via _sanitize_gen_knobs).
 
     `combine=True` (≥2 sélections) bascule du mode COMPARAISON (1 cellule par LoRA,
@@ -3492,20 +3609,20 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
     count = settings.count
     permanent_loras = settings.permanent_loras
     batch_loras = settings.batch_loras
-    rebalance = settings.rebalance
-    rebalance_strength = settings.rebalance_strength
     negative = settings.negative
     sampler = settings.sampler
     sampler_preset = settings.sampler_preset
     scheduler = settings.scheduler
     weight_dtype = settings.weight_dtype
-    enhancer = settings.enhancer
-    enhancer_strength = settings.enhancer_strength
     detail_amount = settings.detail_amount
     resolution_tier = settings.resolution_tier
     resolution_multiplier = settings.resolution_multiplier
     init_image = settings.init_image
     denoise = settings.denoise
+    hires_scale = settings.hires_scale
+    hires_denoise = settings.hires_denoise
+    finish_sharpen = settings.finish_sharpen
+    finish_grain = settings.finish_grain
     # Case « Trigger word » — même contrat que create_run (False = prompt brut).
     inject_trigger = settings.inject_trigger is not False
     run_type, models = _cmp_resolve_run_family(selections)
@@ -3513,11 +3630,13 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
         models, z_model, z_models, seed, count, prompt, prompts)
     extra_loras, externals = _cmp_collect_extra_loras(
         run_type, permanent_loras, external_loras)
-    batch_axis, cell_rebalance, knobs = _cmp_cell_knobs(
-        run_type, batch_loras, rebalance, rebalance_strength, negative,
-        sampler, scheduler, weight_dtype, enhancer, enhancer_strength,
+    batch_axis, knobs = _cmp_cell_knobs(
+        run_type, batch_loras, negative,
+        sampler, scheduler, weight_dtype,
         detail_amount, resolution_tier, resolution_multiplier, init_image,
-        denoise, sampler_preset=sampler_preset)
+        denoise, sampler_preset=sampler_preset,
+        hires_scale=hires_scale, hires_denoise=hires_denoise,
+        finish_sharpen=finish_sharpen, finish_grain=finish_grain)
 
     _dataset_and_checkpoints = _cmp_preflight(
         user_id, run_type, selections, externals, valid_models,
@@ -3525,7 +3644,7 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
         sampler_preset=knobs['sampler_preset'])
 
     # Classes du ComfyUI cible, lues UNE fois pour tout le run (cf. create_run) →
-    # réécriture des nodes à variantes (node 30 Krea) vers le nom réellement enregistré.
+    # réécriture des nodes à variantes (NODE_CLASS_ALIASES) vers le nom réellement enregistré.
     available_classes = _target_node_classes()
     # Origine (run + step) de chaque LoRA sélectionné : explicite quand l'appelant
     # la connaît (canvas), sinon relue du tag de déploiement. Une seule résolution
@@ -3546,7 +3665,7 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
     ids = _cmp_enqueue_cells(
         user_id, cell_plan, members, _dataset_and_checkpoints, knobs,
         run_type, batch_axis, prompt_axis, seeds, seed, run_id,
-        extra_loras, cell_rebalance, origin_of, combine, stack_triggers,
+        extra_loras, origin_of, combine, stack_triggers,
         available_classes, inject_trigger=inject_trigger)
     # `len(members)`, pas `len(stack_extra)` : celui-ci vit maintenant DANS la boucle
     # et vaudrait la dernière combinaison — ou n'existerait pas du tout sur un plan
@@ -3746,7 +3865,7 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
             allowed_cache[key] = {c['filename'] for c in list_test_checkpoints(d, fam)} if d else set()
         return allowed_cache[key]
     # Classes du ComfyUI cible, lues UNE fois pour tout le resume → réécriture des nodes
-    # à variantes (node 30 Krea) vers le nom réellement enregistré (cf. create_run).
+    # à variantes (NODE_CLASS_ALIASES) vers le nom réellement enregistré (cf. create_run).
     available_classes = _target_node_classes()
     n = 0
     for img in rows:
@@ -3800,14 +3919,18 @@ def resume_run(user_id, dataset_id=None, run_id=None) -> dict:
                                             cfg=img.cfg, steps=img.steps, steps2=img.steps2,
                                             dataset_id=img.dataset_id,
                                             train_type=cell_family, extra_loras=cell_extra,
-                                            rebalance=img.krea_rebalance,
                                             negative=getattr(img, 'negative', None),
                                             sampler=getattr(img, 'sampler', None),
                                             sampler_preset=getattr(img, 'sampler_preset', None),
                                             scheduler=getattr(img, 'scheduler', None),
                                             weight_dtype=getattr(img, 'weight_dtype', None),
-                                            enhancer_strength=getattr(img, 'enhancer_strength', None),
                                             detail_amount=getattr(img, 'detail_amount', None),
+                                            # Per-run hi-res fix persisted on the cell: a
+                                            # resume renders what it replaces, not what
+                                            # Settings says today. NULL (legacy cell) =
+                                            # the setting, exactly as at its first run.
+                                            hires_scale=getattr(img, 'hires_scale', None),
+                                            hires_denoise=getattr(img, 'hires_denoise', None),
                                             # Case « Trigger word » décochée au lancement
                                             # (colonne False) → le resume reste fidèle ;
                                             # sinon tête + triggers de pile, comme à l'enfilement.
@@ -3849,6 +3972,86 @@ def _cleanup_output_file(filename, failed):
             os.remove(p)
     except OSError:
         pass
+
+
+def _photo_finish_or_none(img):
+    """The finishing module, or None with ONE plain log line when it cannot load.
+
+    numpy lives in requirements-ml, not in the base install (start.bat). Imported
+    only once a stage is actually ON — so an install that never turned finishing
+    on never imports it — and an install that turned it on without the ML
+    requirements gets a sentence naming the fix, not a traceback per cell."""
+    try:
+        from ..utils import photo_finish
+        return photo_finish
+    except ImportError as exc:
+        logger.warning('lora-test link: finishing pass skipped for image %s — %s '
+                       '(install the ML requirements to enable it)',
+                       getattr(img, 'id', None), exc)
+        return None
+
+
+def _finish_test_image(img, dst):
+    """The app-side finishing pass over a just-linked LoraTestImage file.
+
+    Two kinds of row land here and they are finished DIFFERENTLY, on purpose:
+
+    * an ordinary Studio cell (derivation_kind NULL): sharpen/grain from the
+      cell's OWN persisted knobs (the panel), off when the row says nothing.
+      No colour match — it is text-to-image, there is no "before" to match.
+    * a ◉ Canvas ✨ improve (CANVAS_IMAGE_IMPROVE): exactly what the dataset
+      ✨ improve gets — `improve.*` from Settings, with the PARENT as the colour
+      reference — so the two surfaces the same button lives on finish the same
+      way. The engine is read off the row: `improve_profile` is written for a
+      Klein pass and left NULL for SeedVR2 (lora_test_studio.improve_canvas_image),
+      which is the one fact that decides whether colour matching may run.
+
+    Anything else (📷 camera angles, unknown kinds) is left alone. Wrapped
+    whole: a finishing pass is a nicety, and it may never be the reason a render
+    the user waited for is lost."""
+    try:
+        kind = getattr(img, 'derivation_kind', None)
+        if kind is None:
+            sharpen = getattr(img, 'finish_sharpen', None) or 0.0
+            grain = getattr(img, 'finish_grain', None) or 0.0
+            if sharpen <= 0 and grain <= 0:
+                return
+            # The grain's colour mix is the one dial the cell does not carry: it
+            # follows `improve.grain_saturation`, read through the SAME clamp the
+            # dataset lane uses (NaN-safe, honours 0 = luminance-only) rather than
+            # a bare `or 0.2` that would turn a legitimate 0 into 0.2.
+            saturation = fds._finishing_profile('klein')['grain_saturation']
+            photo_finish = _photo_finish_or_none(img)
+            if photo_finish is None:
+                return
+            photo_finish.apply_to_file(
+                dst, seed=int(img.id or 0), sharpen=float(sharpen), grain=float(grain),
+                grain_saturation=saturation)
+            return
+        if kind != CANVAS_IMAGE_IMPROVE:
+            return
+        engine = 'klein' if getattr(img, 'improve_profile', None) else 'seedvr2'
+        profile = fds._finishing_profile(engine)
+        if not any(profile[k] > 0 for k in ('colour_strength', 'sharpen', 'grain')):
+            return
+        photo_finish = _photo_finish_or_none(img)
+        if photo_finish is None:
+            return
+        reference_path = None
+        if profile['colour_strength'] > 0 and getattr(img, 'parent_image_id', None):
+            # lds-allow-bare-lora-test-query: the parent of a derived row, by id.
+            parent = db.session.get(LoraTestImage, img.parent_image_id)
+            if parent is not None and parent.filename:
+                candidate = os.path.join(fds._dataset_dir(parent.dataset_id), parent.filename)
+                if os.path.isfile(candidate):
+                    reference_path = candidate
+        photo_finish.apply_to_file(
+            dst, reference_path=reference_path, seed=int(img.id or 0),
+            colour_strength=profile['colour_strength'], sharpen=profile['sharpen'],
+            grain=profile['grain'], grain_saturation=profile['grain_saturation'])
+    except Exception:
+        logger.exception('lora-test link: finishing pass failed for image %s',
+                         getattr(img, 'id', None))
 
 
 def link_completed_test_image(job_id, filename, failed=False, reason=None):
@@ -3916,6 +4119,11 @@ def link_completed_test_image(job_id, filename, failed=False, reason=None):
                 img.error = ('The finished image could not be retrieved from ComfyUI '
                              '(not on disk, and the /view API fetch failed).')
                 logger.warning(f"lora-test link: file not on disk and /view API fetch failed for {filename}")
+        # The app-side finishing pass, on the file now at `dst` — only when the
+        # link succeeded (a row just flipped to 'failed' above has no file to
+        # finish). Off by default; see _finish_test_image for which rows get what.
+        if img.status == 'done':
+            _finish_test_image(img, dst)
     db.session.commit()
 
 
