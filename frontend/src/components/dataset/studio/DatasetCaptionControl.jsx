@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Dices } from 'lucide-react';
 import { apiFetch, postJson } from '../../../api/fetchClient';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
@@ -84,7 +85,11 @@ function DatasetCaptionDialog({ open, onClose, onChoose }) {
 
   if (!open) return null;
 
-  return (
+  /* Portaillée : montée sous un ancêtre qui ouvre un contexte d'empilement
+     (`lg:sticky` de l'aside du Studio, ou le `transform` du canvas), un
+     z-index posé ici est PLAFONNÉ par cet ancêtre et un `overflow-auto`
+     le découpe. Voir studioModalsArePortaled.contract.test.js. */
+  return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-3 sm:p-4"
       role="dialog" aria-modal="true" aria-labelledby="caption-dataset-title" ref={dialogRef}
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -179,6 +184,8 @@ function DatasetCaptionDialog({ open, onClose, onChoose }) {
         </div>
       </div>
     </div>
+    ,
+    document.body,
   );
 }
 

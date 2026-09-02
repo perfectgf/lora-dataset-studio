@@ -6,6 +6,7 @@
 // banner explaining what the (free) key unlocks — the credential is the same
 // one Settings → Scraping & sources already stores for the scraper.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
 import { apiFetch } from '../../../api/fetchClient';
 import { useToast } from '../../common/Toast';
@@ -118,7 +119,17 @@ export default function CivitaiBrowserModal({ open, onClose, onUse, picks = null
 
   const sel = 'rounded border border-border bg-app/60 px-1.5 py-1 text-content text-[0.6875rem]';
 
-  return (
+  /* PORTAILLÉE SUR `document.body`, et ce n'est pas une préférence.
+     Cette modale est montée depuis StudioRunSetup, qui vit dans l'`<aside
+     lg:sticky lg:overflow-auto>` de ComparisonStudio. `position: sticky` OUVRE un
+     contexte d'empilement : le `z-[9999]` ci-dessous y est plafonné et ne peut pas
+     passer au-dessus de la grille de résultats, sœur de l'aside et plus loin dans
+     le DOM — d'où les 👍/👎 des cellules peints PAR-DESSUS les prompts. Et
+     `overflow-auto` la DÉCOUPE en prime. Le portail sort du contexte fautif ; il
+     n'y a pas de z-index qui répare ça de l'intérieur.
+     ⚠️ Invisible aux suites : ni un test de source ni un rendu SSR n'a de layout.
+     Seule une capture tranche. Même piège, même fix que CaptionEditorDialog. */
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4"
       role="dialog" aria-modal="true" aria-label="Browse top Civitai prompts" ref={ref}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -299,6 +310,7 @@ export default function CivitaiBrowserModal({ open, onClose, onUse, picks = null
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

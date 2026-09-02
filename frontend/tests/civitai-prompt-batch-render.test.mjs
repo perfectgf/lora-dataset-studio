@@ -1,68 +1,77 @@
 /**
- * 📝 Le lot Civitai, EXÉCUTÉ — pas lu comme du texte.
+ * Le bouton 🌐 Civitai, EXÉCUTÉ — et pourquoi sa modale, elle, ne peut plus l'être.
  *
- * `civitaiBrowser.contract.test.js` épingle qui passe quoi à qui. C'est utile et
- * c'est aveugle à la seule chose qui casse un écran : le rendu. La modale
- * appelle `useToast()` à sa racine (qui JETTE hors de son provider), porte un
- * `<HelpBadge>` (`useNavigate`) et un `<Link>` ; sa branche `batchable` est du
- * JSX qu'aucun test n'exécutait. Un ReferenceError là-dedans parse, passe le
- * lint, passe le contrat de source, et blanchit l'écran au premier clic.
+ * ── Ce que ce fichier couvre ────────────────────────────────────────────────
+ * `CivitaiBrowserButton` rend dans ses deux états (avec et sans lot). C'est un
+ * composant ordinaire : le harnais l'exécute, donc un ReferenceError dans une de
+ * ses branches devient un test rouge au lieu d'un écran blanc.
  *
- * Ce que ce fichier prouve, et rien de plus :
- *   1. la modale rend dans les DEUX états, avec et sans lot ;
- *   2. sans hôte accepteur, elle ne fait pousser AUCUN pied de lot — la moitié
- *      qu'un test de feature oublie toujours ;
- *   3. le pied annonce ce que le lot contient.
+ * ── Ce qu'il NE couvre PLUS, et c'est un coût assumé ────────────────────────
+ * `CivitaiBrowserModal` est désormais PORTAILLÉE sur `document.body` — le seul
+ * fix possible au bug d'empilement (cf. studioModalsArePortaled.contract.
+ * test.js : montée sous l'`<aside lg:sticky lg:overflow-auto>`, son z-index est
+ * plafonné et sa boîte découpée, et les 👍/👎 des cellules se peignaient
+ * par-dessus les prompts).
  *
- * ⚠️ Ce qu'il NE prouve PAS, dit franchement : aucun événement ne part
- * (`renderToStaticMarkup`), et les cartes arrivent par un `useEffect` inerte
- * côté serveur — la liste est VIDE ici, donc la case d'UNE carte n'est pas
- * exercée. Elle reste couverte par le contrat de source et, désormais, par
- * l'état `civitai` de la sonde responsive.
+ * Or `react-dom/server` REFUSE les portails, littéralement — mesuré ici :
+ *   « Portals are not currently supported by the server renderer. »
+ * Ce n'est donc pas « le markup est vide » : le rendu JETTE. Aucune assertion
+ * SSR n'est possible sur cette modale, ni sur son markup ni même sur le simple
+ * fait qu'elle s'exécute. Le correctif juste a coûté cette couverture.
+ *
+ * Ce qui la couvre à la place, et il faut que ce soit dit ici pour que personne
+ * ne « répare » le trou en retirant le portail :
+ *   · le contrat de source (`civitaiBrowser.contract.test.js`) — qui passe quoi,
+ *     et le gate `batchable` ;
+ *   · l'état `civitai` de la sonde responsive, qui ouvre la vraie modale dans un
+ *     vrai navigateur, à cinq tailles ;
+ *   · ⚠️ avec une réserve : `data-probe-layer` est « apparié avec rien » dans le
+ *     contrôle de chevauchement de la sonde. Son vert ne dit donc RIEN de ce
+ *     bug-là. Sur cette classe de défaut, seule une capture tranche.
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { createElement, render } from './support/mountJsx.mjs'
 
-const { default: CivitaiBrowserModal } =
-  await import('../src/components/dataset/studio/CivitaiBrowserModal.jsx')
 const { default: CivitaiBrowserButton } =
   await import('../src/components/dataset/studio/CivitaiBrowserButton.jsx')
-/* La modale porte un <HelpBadge> (useNavigate) et un <Link> vers les réglages :
-   dans l'app elle vit sous le routeur, le harnais ne le fournit pas. */
+/* Le bouton ouvre une modale qui contient un <Link> : dans l'app il vit sous le
+   routeur, le harnais ne le fournit pas. */
 const { MemoryRouter } = await import('react-router')
 
 const noop = () => {}
 const underRouter = (Component) => (props) =>
   createElement(MemoryRouter, null, createElement(Component, props))
 
-const modal = (props) => render(underRouter(CivitaiBrowserModal),
-  { open: true, onClose: noop, onUse: noop, ...props })
-
-test('la modale rend SANS lot — l’état d’avant la feature, intact', () => {
-  const html = modal({})
-  assert.ok(html.includes('Civitai top prompts'), 'la modale doit rendre')
-  assert.ok(!html.includes('civitai-batch-footer'), 'aucun pied de lot sans hôte accepteur')
-  assert.ok(!html.includes('role="checkbox"'), 'aucune case sans hôte accepteur')
+test('le bouton rend sans lot — l’état d’avant la feature', () => {
+  const html = render(underRouter(CivitaiBrowserButton), { prompt: '', onPrompt: noop })
+  assert.ok(html.includes('Civitai'), 'le bouton doit rendre')
 })
 
-test('la modale rend AVEC un lot — la branche batchable s’exécute vraiment', () => {
-  const html = modal({ picks: ['un prompt', 'un autre'], onTogglePick: noop })
-  assert.ok(html.includes('civitai-batch-footer'), 'le pied du lot manque')
-  assert.match(html, /2 prompts/, 'le pied doit dire ce que le lot contient')
-})
-
-test('un lot vide garde la modale cochable, sans pied à zéro', () => {
-  const html = modal({ picks: [], onTogglePick: noop })
-  assert.ok(html.includes('Civitai top prompts'))
-  assert.ok(!html.includes('civitai-batch-footer'), 'pas de pied à zéro')
-})
-
-test('le bouton rend dans les deux états', () => {
-  const withPicks = render(underRouter(CivitaiBrowserButton),
+test('le bouton rend avec un lot — la branche du compte s’exécute', () => {
+  const html = render(underRouter(CivitaiBrowserButton),
     { prompt: '', onPrompt: noop, picks: ['a', 'b', 'c'], onTogglePick: noop })
-  assert.ok(withPicks.includes('Civitai'))
-  const bare = render(underRouter(CivitaiBrowserButton), { prompt: '', onPrompt: noop })
-  assert.ok(bare.includes('Civitai'))
+  assert.ok(html.includes('Civitai'))
+})
+
+test('la modale portaillée est HORS de portée du harnais — mesuré, pas supposé', async () => {
+  /* La perte de couverture décrite en tête est ÉTABLIE ici, pas affirmée. Le
+     jour où react-dom/server saura rendre un portail, ce test rougira — et
+     quelqu'un lira l'en-tête et rétablira les assertions perdues au lieu de
+     découvrir le trou des années plus tard. */
+  const { default: CivitaiBrowserModal } =
+    await import('../src/components/dataset/studio/CivitaiBrowserModal.jsx')
+  // Sans DOM, on n'atteint même pas createPortal ; on stube le strict minimum
+  // pour que le refus du rendu serveur soit ce qu'on observe.
+  globalThis.document = { body: { nodeType: 1 } }
+  try {
+    assert.throws(
+      () => render(underRouter(CivitaiBrowserModal),
+        { open: true, onClose: noop, onUse: noop, picks: ['a'], onTogglePick: noop }),
+      /Portals are not currently supported by the server renderer/,
+    )
+  } finally {
+    delete globalThis.document
+  }
 })

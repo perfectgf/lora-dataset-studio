@@ -4,6 +4,7 @@
 // `onResult`, which decides whether to overwrite a non-empty field. The model may be
 // cold (a few seconds) so the busy state uses a generous server timeout.
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Search } from 'lucide-react';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { fetchWithCsrfRetry, getCsrfToken } from '../../../api/fetchClient';
@@ -82,7 +83,12 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
     onClose();
   }
 
-  return (
+  /* PORTAILLÉE, même raison que CivitaiBrowserModal : ce composant est monté par
+     StudioRunSetup, qui vit dans l'`<aside lg:sticky lg:overflow-auto>` de
+     ComparisonStudio. `sticky` ouvre un contexte d'empilement qui plafonne le
+     z-index posé dedans, et `overflow-auto` découpe. Le portail est le seul fix ;
+     aucun z-index ne sort d'un contexte parent. */
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4"
       role="dialog" aria-modal="true" aria-label="Describe an image into a test prompt" ref={ref}
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -143,6 +149,7 @@ export default function DescribeImageModal({ open, onClose, onResult }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

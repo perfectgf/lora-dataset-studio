@@ -12,6 +12,7 @@
  * only (no ComfyUI), so it works offline.
  */
 import { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useToast } from '../../common/Toast';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 import { fetchWithCsrfRetry, getCsrfToken } from '../../../api/fetchClient';
@@ -93,7 +94,11 @@ export default function ExportGridModal({ open, onClose, datasetId, family, run,
     }
   }
 
-  return (
+  /* Portaillée : montée sous un ancêtre qui ouvre un contexte d'empilement
+     (`lg:sticky` de l'aside du Studio, ou le `transform` du canvas), un
+     z-index posé ici est PLAFONNÉ par cet ancêtre et un `overflow-auto`
+     le découpe. Voir studioModalsArePortaled.contract.test.js. */
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4"
       role="dialog" aria-modal="true" aria-label="Export grid" ref={ref}
       onClick={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}>
@@ -183,5 +188,7 @@ export default function ExportGridModal({ open, onClose, datasetId, family, run,
         </div>
       </div>
     </div>
+    ,
+    document.body,
   );
 }

@@ -17,6 +17,7 @@
  * pas) : le serveur vérifie le modèle choisi et son 409 le nomme.
  */
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { apiFetch, postJson } from '../../../api/fetchClient';
 import { useCapabilities } from '../../../context/CapabilitiesContext';
 import { useToast } from '../../common/Toast';
@@ -60,7 +61,11 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
   // A model pulled elsewhere (or picked before Ollama went down) stays selectable —
   // silently dropping the user's choice is worse than offering an unconfirmed name.
   const choices = model && !models.includes(model) ? [model, ...models] : models;
-  return (
+  /* Portaillée : montée sous un ancêtre qui ouvre un contexte d'empilement
+     (`lg:sticky` de l'aside du Studio, ou le `transform` du canvas), un
+     z-index posé ici est PLAFONNÉ par cet ancêtre et un `overflow-auto`
+     le découpe. Voir studioModalsArePortaled.contract.test.js. */
+  return createPortal(
     <div className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/80 p-3"
       onClick={(e) => { e.stopPropagation(); onClose(); }}
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }}>
@@ -103,6 +108,8 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
         </div>
       </div>
     </div>
+    ,
+    document.body,
   );
 }
 

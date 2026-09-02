@@ -9,6 +9,7 @@
  * Le focus-trap garde Tab dans le dialog (useFocusTrap).
  */
 import { useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useFocusTrap } from '../../../hooks/useFocusTrap';
 
 export default function QuickVoteModal({ vote, datasetId, fmt }) {
@@ -18,7 +19,9 @@ export default function QuickVoteModal({ vote, datasetId, fmt }) {
   if (!vote.voteQueue || !vote.current) return null;
   const cur = vote.current;
 
-  return (
+  /* Portaillée : un z-index posé sous un ancêtre sticky/transform y est
+     plafonné. Voir studioModalsArePortaled.contract.test.js. */
+  return createPortal(
     <div ref={ref}
       className="fixed inset-0 z-[9999] bg-black/95 flex flex-col items-center justify-center p-4 gap-3"
       onTouchStart={vote.onTouchStart} onTouchEnd={vote.onTouchEnd}
@@ -47,5 +50,7 @@ export default function QuickVoteModal({ vote, datasetId, fmt }) {
           className="px-7 py-3 rounded-2xl text-2xl border border-green-400/60 bg-green-500/20 text-green-200 hover:bg-green-500/30">👍</button>
       </div>
     </div>
+    ,
+    document.body,
   );
 }
