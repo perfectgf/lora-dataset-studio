@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { postJson } from '../../hooks/useDataset';
 import { launchButtonLabel } from '../../utils/launchProgress';
 import SettingsLink from '../common/SettingsLink';
+import CloudTierEstimate from '../shared/CloudTierEstimate';
 import { customBasePushView } from './customBasePush.js';
 import { baseName, fmtBytes } from './panelFormatters';
 import {
@@ -20,13 +21,6 @@ import {
 
 const _FAMILY_LABEL = { zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL', flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima' };
 
-function _fmtDuration(min) {
-  if (min == null) return '—';
-  if (min < 90) return `~${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `~${h} h ${m} min` : `~${h} h`;
-}
 
 /* Custom-base gate inside the cloud dialog: a custom base trains from a
    PRIVATE repo on the user's Hugging Face account (lds-base-<hash>). This
@@ -169,33 +163,6 @@ function CustomBasePushSection({ datasetId, trainType, variant, base, onReadyCha
   );
 }
 
-function CloudTierEstimate({ tier, fullMode, maxRuntimeMinutes }) {
-  const estimate = cloudTierEstimateView(tier, { fullMode });
-  return (
-    <>
-      <span className="block text-content-subtle text-[0.75rem] tabular-nums">
-        {tier.dph_total != null ? `$${tier.dph_total.toFixed(3)}/h` : 'price n/a'}
-        {estimate.available ? (
-          <>
-            {' · '}{_fmtDuration(estimate.minutes)}
-            {estimate.cost != null ? ` · ≈ $${estimate.cost.toFixed(2)} total` : ''}
-          </>
-        ) : fullMode ? (
-          <span className="text-amber-200"> · full-model estimate unavailable — hourly price only</span>
-        ) : (
-          <span> · duration and cost unavailable</span>
-        )}
-      </span>
-      {estimate.exceedsCap && (
-        <span className="block text-amber-300 text-[0.6875rem]">
-          ⚠ Longer than the {Math.round((maxRuntimeMinutes || 480) / 60)} h runtime cap — the run would be cut short{fullMode
-            ? '; the latest full-model checkpoint may not have reached Hugging Face'
-            : ' (saved LoRA checkpoints are rescued)'}. Pick a faster GPU or raise the cap in Settings.
-        </span>
-      )}
-    </>
-  );
-}
 
 /* Launch-time GPU speed picker. Fetches live vast.ai offers grouped by GPU
    class (slowest→fastest), each with price/h and an APPROXIMATE training time

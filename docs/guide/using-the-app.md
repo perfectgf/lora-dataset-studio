@@ -3618,7 +3618,21 @@ and replacing is whole-set: they are one identity, not an album.
 
 **Training** holds one set of dials and two destinations, this PC or a rented
 pod, and **Checkpoints** appears in the rail once a run has really brought files
-back.
+back. Above the dials sits the same readiness card an image dataset has — what
+still stands in the way (no clips, a target nobody can train yet, missing
+references, an ai-toolkit too old for this model, weights not yet downloaded),
+each with a Fix → that jumps to where it is fixed.
+
+**☁ Train in the cloud…** opens the same window an image dataset gets: every GPU
+class the market offers under your price cap, its price per hour, a *rough*
+duration and total for this set (one measured run, scaled — the window says
+so), a warning when the run would outlive the runtime cap, and this month's spend
+against your budget. Nothing is rented until you pick a class and press the
+button. Before the window even opens, the cloud-lane preflight runs: a blocker
+(no vast.ai key, no clips) stops there and says why; warnings are put to you once,
+together. And when the account already has a run on a pod for this set, "second
+pod, billed separately — launch anyway?" is a question you answer, not an error
+you read.
 
 What is *not* here yet, and deliberately: the quality passes (duplicates,
 watermarks, safe zone, defects) run on the bank's shots and on the source files,

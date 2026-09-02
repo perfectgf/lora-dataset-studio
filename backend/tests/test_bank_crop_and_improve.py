@@ -135,6 +135,176 @@ def test_crop_publishes_the_box_and_the_resolver_serves_it(client, app, tmp_path
             assert im.size == (400, 300)
 
 
+def test_crop_encodes_once_and_only_the_box(client, app, tmp_path, monkeypatch):
+    """nofaceman, back once the feature was out: "sometimes takes 3-5 seconds
+    or more to do the cropping". Every crop paid TWO lossless WebP encodes, one
+    of them of the WHOLE image — staged only to be reopened, cut and thrown
+    away — at about a second per megapixel each. Pin the shape that makes it
+    fast: one encode, of the box alone, and no full-frame blob left behind."""
+    from app.services import image_bank_service as banks
+    from app.services import image_encoding
+
+    bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})
+    image_id = _ids(app, bank_id)[0]
+
+    encoded = []
+    real_save_edit = image_encoding.save_edit
+
+    def counting_save_edit(im, fp, fmt, policy, **kw):
+        encoded.append((im.size, fmt, policy))
+        return real_save_edit(im, fp, fmt, policy, **kw)
+    monkeypatch.setattr(image_encoding, 'save_edit', counting_save_edit)
+
+    r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
+                    json={'x': 100, 'y': 50, 'w': 400, 'h': 300})
+    assert r.status_code == 200, r.get_json()
+
+    assert encoded == [((400, 300), 'WEBP', image_encoding.LOSSLESS)], (
+        'the crop must encode the box once — a full-frame (1000, 600) entry here '
+        'is the staging copy coming back')
+    with app.app_context():
+        edited = banks.edited_image_path(bank_id, image_id, 1).parent
+    assert sorted(p.name for p in edited.iterdir()) == [f'{image_id}.e1.webp']
+
+
+def test_crop_cuts_the_displayed_pixels_exactly_and_ships_no_exif(client, app, tmp_path, monkeypatch):
+    """The box is drawn on the image as the browser shows it — EXIF turn
+    applied — so the cut must follow those pixels byte for byte (the blob is
+    lossless), and must not carry the orientation tag that would make the
+    browser turn the result a second time."""
+    from PIL import ImageOps
+    from app.services import image_bank_service as banks
+    from app.services import image_encoding
+
+    src = tmp_path / 'src'
+    src.mkdir()
+    exif = Image.Exif()
+    exif[0x0112] = 6                       # shown turned: a 1000×600 file displays as 600×1000
+    _photo().save(str(src / 'a.jpg'), 'JPEG', quality=92, exif=exif.tobytes())
+    r = client.post('/api/bank/create', json={'name': 'TURNED', 'folder': str(src)})
+    assert r.status_code == 200, r.get_json()
+    bank_id = r.get_json()['id']
+    image_id = _ids(app, bank_id)[0]
+
+    # The WebP writer never copies `info` on its own, so the blob cannot prove
+    # the wash: look at the image HANDED to the encoder instead.
+    handed = []
+    real_save_edit = image_encoding.save_edit
+
+    def capturing_save_edit(im, fp, fmt, policy, **kw):
+        handed.append(im)
+        return real_save_edit(im, fp, fmt, policy, **kw)
+    monkeypatch.setattr(image_encoding, 'save_edit', capturing_save_edit)
+
+    r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
+                    json={'x': 50, 'y': 120, 'w': 300, 'h': 500})
+    assert r.status_code == 200, r.get_json()
+    assert (r.get_json()['width'], r.get_json()['height']) == (300, 500)
+    assert len(handed) == 1
+    assert not handed[0].info.get('exif') and not handed[0].info.get('icc_profile'), (
+        'the source metadata rode along into the cut — the browser would turn it twice')
+
+    with Image.open(str(src / 'a.jpg')) as s:
+        expected = ImageOps.exif_transpose(s).crop((50, 120, 350, 620)).convert('RGB')
+    with app.app_context():
+        blob = banks.edited_image_path(bank_id, image_id, 1)
+    with Image.open(str(blob)) as b:
+        b.load()
+        assert b.size == (300, 500)
+        assert not b.info.get('exif')
+        assert b.convert('RGB').tobytes() == expected.tobytes()
+
+
+def test_crop_keeps_the_alpha_of_a_transparent_source(client, app, tmp_path):
+    """A PNG with holes stays a PNG with holes: the cut is RGBA when the
+    source carries alpha, and the alpha channel is the source's own — neither
+    flattened to RGB nor composited over black."""
+    from app.services import image_bank_service as banks
+
+    src = tmp_path / 'src'
+    src.mkdir()
+    im = _photo(400, 300).convert('RGBA')
+    hole = Image.new('L', (400, 300), 255)
+    for y in range(80, 160):
+        for x in range(120, 260):
+            hole.putpixel((x, y), 0)        # a transparent window inside the box
+    im.putalpha(hole)
+    im.save(str(src / 'holes.png'), 'PNG')
+    r = client.post('/api/bank/create', json={'name': 'ALPHA', 'folder': str(src)})
+    assert r.status_code == 200, r.get_json()
+    bank_id = r.get_json()['id']
+    image_id = _ids(app, bank_id)[0]
+
+    r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
+                    json={'x': 100, 'y': 50, 'w': 200, 'h': 150})
+    assert r.status_code == 200, r.get_json()
+    with app.app_context():
+        blob = banks.edited_image_path(bank_id, image_id, 1)
+    with Image.open(str(blob)) as b:
+        b.load()
+        assert b.mode == 'RGBA'
+        expected = im.crop((100, 50, 300, 200))
+        assert b.getchannel('A').tobytes() == expected.getchannel('A').tobytes()
+        # Colour is compared where it can be seen: lossless WebP cleans the RGB
+        # under fully transparent pixels (libwebp's default, `exact` off), and
+        # that was already true of the blob before the cut went single-pass.
+        seen = expected.getchannel('A').point(lambda a: 255 if a else 0)
+        black = Image.new('RGB', expected.size)
+        assert (Image.composite(b.convert('RGB'), black, seen).tobytes()
+                == Image.composite(expected.convert('RGB'), black, seen).tobytes())
+
+
+def test_crop_clamps_an_overflowing_box_and_says_so(client, app, tmp_path):
+    """A box drawn past the edge is cut down to what exists, and the reply
+    announces the CLAMPED size — that is what the grid lays the tile out from."""
+    from app.services import image_bank_service as banks
+
+    bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})     # 1000×600
+    image_id = _ids(app, bank_id)[0]
+    r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
+                    json={'x': 900, 'y': 500, 'w': 400, 'h': 300})
+    assert r.status_code == 200, r.get_json()
+    assert (r.get_json()['width'], r.get_json()['height']) == (100, 100)
+    with app.app_context():
+        blob = banks.edited_image_path(bank_id, image_id, 1)
+    with Image.open(str(blob)) as b:
+        assert b.size == (100, 100)
+
+
+def test_a_failed_crop_leaves_the_previous_generation_in_place(client, app, tmp_path, monkeypatch):
+    """The blob is published atomically: when the encode of a second crop dies
+    half-way, the row still points at the first generation, the resolver still
+    serves it, and no half-written file is left in edited/ for a reader to trip
+    on."""
+    from app.extensions import db
+    from app.models import BankImage, ImageBank
+    from app.services import image_bank_service as banks
+    from app.services import image_encoding
+
+    bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})
+    image_id = _ids(app, bank_id)[0]
+    r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
+                    json={'x': 100, 'y': 50, 'w': 400, 'h': 300})
+    assert r.status_code == 200, r.get_json()
+
+    def disk_full(im, fp, fmt, policy, **kw):
+        raise OSError('disk full')
+    monkeypatch.setattr(image_encoding, 'save_edit', disk_full)
+    r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
+                    json={'x': 10, 'y': 10, 'w': 100, 'h': 100})
+    assert r.status_code == 400
+    assert 'could not be prepared for cropping' in r.get_json()['error']
+
+    with app.app_context():
+        bank = db.session.get(ImageBank, bank_id)
+        row = db.session.get(BankImage, image_id)
+        assert row.edit_generation == 1
+        first = banks.edited_image_path(bank_id, image_id, 1)
+        assert banks.resolved_image_path(bank, row) == str(first)
+        assert first.is_file()
+        assert sorted(p.name for p in first.parent.iterdir()) == [f'{image_id}.e1.webp']
+
+
 def test_crop_clears_the_measurements_so_the_next_pass_re_reads_it(client, app, tmp_path):
     """The half of the request that is easy to forget: nofaceman asked to crop
     AND re-analyse in the same place. A score read off the pre-crop pixels would
@@ -177,15 +347,23 @@ def test_a_second_crop_moves_the_blob_and_the_thumbnail_name(client, app, tmp_pa
     bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})
     image_id = _ids(app, bank_id)[0]
 
+    # BOTH boxes are off-origin, and the first one's y is not a multiple of the
+    # 40-row stripe: the region (60, 40, 260, 190) of the first crop and the
+    # same region of the untouched source hold different pixels, so only a cut
+    # made in the first generation can satisfy the comparison below. (With the
+    # first box at the origin, "cut the raw source instead" passed unnoticed.)
     client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
-                json={'x': 0, 'y': 0, 'w': 500, 'h': 400})
+                json={'x': 100, 'y': 50, 'w': 500, 'h': 400})
     with app.app_context():
         row = db.session.get(BankImage, image_id)
         first_blob = banks.edited_image_path(bank_id, image_id, row.edit_generation)
         first_thumb = banks._thumb_path(bank_id, row)
+    with Image.open(str(first_blob)) as im:
+        first_pixels = im.convert('RGB')
+        first_pixels.load()
 
     r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop',
-                    json={'x': 0, 'y': 0, 'w': 200, 'h': 150})
+                    json={'x': 60, 'y': 40, 'w': 200, 'h': 150})
     assert r.get_json()['edit_generation'] == 2
 
     with app.app_context():
@@ -200,6 +378,7 @@ def test_a_second_crop_moves_the_blob_and_the_thumbnail_name(client, app, tmp_pa
         with Image.open(str(second_blob)) as im:
             # Cut from the FIRST crop, which is what the user was looking at.
             assert im.size == (200, 150)
+            assert im.convert('RGB').tobytes() == first_pixels.crop((60, 40, 260, 190)).tobytes()
 
 
 def test_a_crop_bakes_the_turn_in_and_revert_hands_it_back(client, app, tmp_path):
@@ -222,6 +401,12 @@ def test_a_crop_bakes_the_turn_in_and_revert_hands_it_back(client, app, tmp_path
                     json={'x': 0, 'y': 0, 'w': 600, 'h': 900})
     assert r.status_code == 200, r.get_json()
     assert r.get_json()['rotation'] == 0
+    # The blob's size is the witness that the TURNED pixels were cut: on the
+    # untouched 1000×600 source the same box would clamp to 600×600.
+    assert (r.get_json()['width'], r.get_json()['height']) == (600, 900)
+    with app.app_context():
+        with Image.open(str(banks.edited_image_path(bank_id, image_id, 1))) as im:
+            assert im.size == (600, 900)
 
     with app.app_context():
         row = db.session.get(BankImage, image_id)
@@ -299,17 +484,26 @@ def test_undoing_the_watermark_clean_takes_the_edit_made_on_top_of_it(client, ap
 @pytest.mark.parametrize('box', [
     {'x': 0, 'y': 0, 'w': 0, 'h': 100},        # empty
     {'x': 0, 'y': 0, 'w': 'wide', 'h': 100},   # not a number
+    {'x': 5000, 'y': 0, 'w': 100, 'h': 100},   # a real box, entirely outside the 1000×600 image
 ])
 def test_an_unusable_box_is_refused_and_changes_nothing(client, app, tmp_path, box):
     from app.extensions import db
     from app.models import BankImage
+    from app.services import image_bank_service as banks
 
     bank_id, _ = _mkbank(client, tmp_path, {'a.jpg': _photo()})
     image_id = _ids(app, bank_id)[0]
     r = client.post(f'/api/bank/{bank_id}/image/{image_id}/crop', json=box)
     assert r.status_code == 400
+    # The same answer whether the box was empty before or after clamping — not
+    # the generic "could not be prepared", which would send the user after a
+    # broken file.
+    assert r.get_json()['error'] == 'invalid crop box'
     with app.app_context():
         assert db.session.get(BankImage, image_id).edit_method is None
+        edited = banks._edited_dir(bank_id)
+    # Nothing was written — not a blob, not a half-written .part- either.
+    assert not edited.exists() or not any(edited.iterdir())
 
 
 def test_crop_needs_its_four_numbers_and_a_real_image(client, app, tmp_path):

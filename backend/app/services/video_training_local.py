@@ -549,6 +549,144 @@ def video_training_progress(video_dataset_id, user_id=None) -> dict:
             'resolution_note': resolution_note(ds), **parsed}
 
 
+def training_preflight(user_id, video_dataset_id, lane='local') -> dict:
+    """Pre-launch report for a video dataset — the same shape the image lane's
+    preflight answers with (`checks` + `verdict`), so the same readiness card
+    renders it and the same "blockers stop, warnings ask once" rule applies
+    before a pod is rented.
+
+    The video launcher already refuses everything below, one refusal at a time,
+    AFTER the click — which on the cloud lane is after the money question was
+    answered. This asks all of it at once, before, and it invents nothing: every
+    row is a probe the launcher runs itself (installed_arch_available,
+    weights_report, resolution_note, reference_dirs, the guardrails' fleet and
+    budget reads), only asked earlier.
+
+    Rows carry a `scope`, exactly as the image preflight's do: 'dataset' rows
+    are true on any lane, 'machine' rows read THIS box and are dropped for the
+    cloud lane, 'cloud' rows are account prerequisites and are dropped for the
+    local lane. `can_override` is always False here — none of these are quality
+    guard-rails a user may waive; they are either facts about the set or about
+    the machine that will run it.
+    """
+    from . import cloud_training as ct
+    from . import gpu_speed
+    from . import video_bank_service as _vbs
+    ds = VideoDataset.query.filter_by(id=int(video_dataset_id),
+                                      user_id=user_id).first()
+    if ds is None:
+        raise ValueError('video dataset not found')
+    lane = 'cloud' if lane == 'cloud' else 'local'
+    profile = video_targets.get(getattr(ds, 'target_profile', None)) or {}
+    label = profile.get('label', ds.target_profile or 'this target')
+    arch = profile.get('aitk_arch')
+    checks = []
+
+    def _check(cid, clabel, status, detail, target=None, scope='dataset'):
+        checks.append({'id': cid, 'label': clabel, 'status': status,
+                       'detail': detail, 'target': target, 'scope': scope})
+
+    # ---- the dataset itself ---------------------------------------------------
+    clips = _count_clips(str(ds.output_dir or ''))
+    _check('clips', 'Clips on disk',
+           'ok' if clips else 'fail',
+           f'{clips} clip(s) in the dataset folder' if clips
+           else 'no clip or still on disk — there would be nothing to train on; '
+                'promote the set again from its bank',
+           target='clips')
+    _check('target', 'Target model',
+           'ok' if profile.get('training_verified') else 'fail',
+           f'{label} has been trained end to end' if profile.get('training_verified')
+           else f'no LoRA trainer is known to exist for {label} yet',
+           target='training')
+    if profile.get('requires_references'):
+        refs = _vbs.reference_dirs(ds)
+        _check('references', 'Identity references',
+               'ok' if refs else 'fail',
+               f'{len(refs)} reference(s) attached' if refs
+               else f'{label} trains against reference images and this set has none '
+                    'attached — attach 1-4 in the References section',
+               target='references')
+    if profile.get('licence_note'):
+        _check('licence', 'Licence', 'warn', str(profile['licence_note']),
+               target='training')
+    note = resolution_note(ds)
+    if note:
+        _check('resolution', 'Resolution', 'warn', note, target='clips')
+    if gpu_speed.video_latent_rows(ds.frames) is None:
+        _check('frames', 'Frame count', 'warn',
+               f'{ds.frames} frames is off the measured grid — the run trains, '
+               'but no time or cost estimate can be given for it')
+
+    # ---- this machine (local lane only) ----------------------------------------
+    if lane == 'local':
+        installed = bool(lt.is_installed())
+        _check('aitoolkit', 'ai-toolkit',
+               'ok' if installed else 'fail',
+               'installed and configured' if installed
+               else 'ai-toolkit is not configured — set its folder in Settings',
+               scope='machine')
+        if installed and arch:
+            available = installed_arch_available(arch)
+            _check('arch', f'{label} in the installed ai-toolkit',
+                   'ok' if available else 'fail',
+                   'this architecture is registered' if available
+                   else 'the installed ai-toolkit predates this architecture — '
+                        'update it (git pull in its folder), then relaunch',
+                   scope='machine')
+            if video_training.training_adapter_for(arch) and not supports_training_adapter(arch):
+                _check('adapter', 'Training adapter', 'warn',
+                       'this ai-toolkit cannot load the training adapter this '
+                       'target prefers — the run trains without it',
+                       scope='machine')
+            report = weights_report(arch)
+            if report is not None:
+                _check('weights', 'Model weights',
+                       'ok' if report['present'] else 'warn',
+                       'present in the models folder' if report['present']
+                       else f'about {report["gigabytes"]} GB will be downloaded from '
+                            f'{report["repo"]} on the first run — the launch asks first',
+                       scope='machine')
+
+    # ---- the account (cloud lane only) -----------------------------------------
+    if lane == 'cloud':
+        configured = bool(ct.cfg.secret('VAST_API_KEY'))
+        _check('vast', 'vast.ai account',
+               'ok' if configured else 'fail',
+               'API key configured' if configured
+               else 'no vast.ai API key — add it in Settings before renting a GPU',
+               scope='cloud')
+        c = ct.cfg.get('cloud') or {}
+        limit = max(1, int((c.get('max_concurrent_runs') or 1)))
+        actives = ct.get_active_runs()
+        _check('fleet', 'Cloud run limit',
+               'warn' if len(actives) >= limit else 'ok',
+               f'{len(actives)} of {limit} allowed run(s) already on a pod — '
+               'the launch will be refused until one finishes'
+               if len(actives) >= limit else f'{len(actives)} of {limit} run(s) active',
+               scope='cloud')
+        budget = float(c.get('monthly_budget_usd') or 0)
+        if budget > 0:
+            spent = ct.month_spend_usd()
+            _check('budget', 'Monthly budget',
+                   'warn' if spent >= budget else 'ok',
+                   f'${spent:.2f} of ${budget:.2f} spent this month'
+                   + (' — the launch will be refused' if spent >= budget else ''),
+                   scope='cloud')
+
+    statuses = {c['status'] for c in checks}
+    verdict = ('blocked' if 'fail' in statuses
+               else 'warnings' if 'warn' in statuses else 'ready')
+    return {
+        'lane': lane, 'checks': checks, 'verdict': verdict,
+        'blockers': [c['detail'] for c in checks if c['status'] == 'fail'],
+        'warnings': [c['detail'] for c in checks if c['status'] == 'warn'],
+        # No quality guard-rail here to waive: every fail is a fact about the set
+        # or the machine. Said explicitly so the card never offers the box.
+        'can_override': False,
+    }
+
+
 def list_run_checkpoints(video_dataset_id, user_id=None) -> list:
     """The saves this dataset's local run has written, newest step first.
 

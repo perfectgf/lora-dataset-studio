@@ -317,7 +317,8 @@ def video_dataset_train_cloud(dataset_id):
             do_i2v=bool(body.get('do_i2v', False)),
             sample_prompts=body.get('sample_prompts'),
             distillation=body.get('distillation') or 'auto',
-            gpu_name=body.get('gpu_name')))
+            gpu_name=body.get('gpu_name'),
+            allow_parallel_run=bool(body.get('allow_parallel_run'))))
     except video_training.VideoTrainingUnsupported as e:
         return jsonify({'error': str(e)}), 400
     except ValueError as e:
@@ -331,6 +332,31 @@ def video_dataset_train_cloud(dataset_id):
         # The launch guard: already running, fleet limit, budget. 409 — the
         # request was well-formed, the state refuses it.
         return jsonify({'error': str(e)}), 409
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/preflight')
+def video_dataset_train_preflight(dataset_id):
+    """Pre-launch report — `checks` + `verdict`, the image preflight's shape, so
+    the same readiness card renders it. `?lane=cloud` drops the rows that read
+    THIS machine (ai-toolkit, weights) and adds the account ones (vast key, run
+    limit, budget); absent or `local` is the reverse.
+
+    Its own route and not `/dataset/<id>/train/preflight`, for the reason every
+    video route is: the two dataset tables share one integer space.
+
+    No capability gate in front of it, on purpose. The image route 409s without
+    ai-toolkit, and its caller treats a non-200 as "no objection" — which is the
+    silent no-op this report exists to prevent on the lane where money is about
+    to be spent. A missing tool is a ROW here, not an absence of answer."""
+    from ..services import video_training_local as vtl
+    try:
+        report = vtl.training_preflight(LOCAL_USER, dataset_id,
+                                        lane=request.args.get('lane') or 'local')
+    except ValueError as e:
+        if 'not found' in str(e):
+            return _missing(dataset_id)
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True, **report})
 
 
 @bp.get('/video-dataset/<int:dataset_id>/train/cloud/offers')

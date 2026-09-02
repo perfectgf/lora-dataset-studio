@@ -143,7 +143,8 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                                 distillation='auto',
                                 resume_ckpt_paths=None, resume_step=None,
                                 parent_run_id=None, auto_retry_of=None,
-                                auto_retry_count=0, _provision=None) -> dict:
+                                auto_retry_count=0, allow_parallel_run=False,
+                                _provision=None) -> dict:
     """Rent a pod and train a LoRA on a built video dataset.
 
     `low_vram` defaults to FALSE here and True in the builder, and the asymmetry
@@ -213,7 +214,12 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
 
     fam = 'video'
     with ct._launch_reservation_lock:
-        ct._assert_launch_guardrails(ds.id, fam, crd.VIDEO)
+        # `allow_parallel_run` is the answer to the guardrails' own question
+        # (the confirmable `PARALLEL_RUN:` refusal). The face lane relays it;
+        # the video lane dropped it on the floor, which turned "second pod,
+        # billed separately — launch anyway?" into a dead error.
+        ct._assert_launch_guardrails(ds.id, fam, crd.VIDEO,
+                                     allow_parallel_run=bool(allow_parallel_run))
         run = CloudTrainingRun(
             dataset_id=ds.id, status='preparing',
             dataset_table=crd.VIDEO,

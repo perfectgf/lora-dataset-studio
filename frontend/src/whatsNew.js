@@ -100,6 +100,21 @@ export const WHATS_NEW = [
     to: '/gallery',
   },
   {
+    id: '2026-09-02-video-cloud-launch-window',
+    date: '2026-09-02',
+    title: 'See the price, the time and the total before renting a GPU for a video run',
+    blurb:
+      'A video set used to rent a pod on one click, with the cost hidden inside a '
+      + 'closed dropdown. ☁ Train in the cloud now opens the same window as an image '
+      + 'dataset: every GPU class with its price per hour, a rough duration and total '
+      + 'for this set, a warning when the run would outlive the runtime cap, and this '
+      + 'month’s spend against your budget. A readiness card above the launch says what '
+      + 'still stands in the way — no clips, no references, a missing key — before '
+      + 'anything is spent, and “second pod, billed separately?” is a question you can '
+      + 'answer instead of an error.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-02-krea-rebalance-and-enhancer-retired',
     date: '2026-09-02',
     title: 'Krea grids start on a bare ComfyUI — the rebalance and the enhancer are gone',
