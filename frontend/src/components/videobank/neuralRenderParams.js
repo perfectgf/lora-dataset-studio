@@ -15,7 +15,13 @@
 
 export const NR_DEFAULTS = Object.freeze({
   tone: 1.0, structure: 1.0, automask: false, temporal: 'auto',
+  // The levers the model does not expose, measured on a photoreal frame: the
+  // default adds ~7 % fine detail, strength x2 ~17 %, x3 ~30 %, two passes
+  // ~12 %, a 2x working size ~12 % (seen at 1:1).
+  strength: 1.0, passes: 1, scale: 1,
 })
+export const STRENGTH_MAX = 3
+export const PASSES_MAX = 3
 
 /** Optical Flow's width floor, mirrored from the backend's TEMPORAL_MIN_WIDTH.
  *  Below it temporal mode is refused by the driver; `auto` falls back to still. */
@@ -46,11 +52,16 @@ const clamp01x2 = (v, fallback) => {
 export function normalizeNrParams(raw) {
   const r = raw || {}
   const temporal = TEMPORAL_MODES.some((m) => m.id === r.temporal) ? r.temporal : NR_DEFAULTS.temporal
+  const strength = Number(r.strength)
+  const passes = Number(r.passes)
   return {
     tone: clamp01x2(r.tone, NR_DEFAULTS.tone),
     structure: clamp01x2(r.structure, NR_DEFAULTS.structure),
     automask: !!r.automask,
     temporal,
+    strength: Number.isFinite(strength) ? Math.min(STRENGTH_MAX, Math.max(0, Math.round(strength * 10) / 10)) : NR_DEFAULTS.strength,
+    passes: Number.isInteger(passes) ? Math.min(PASSES_MAX, Math.max(1, passes)) : NR_DEFAULTS.passes,
+    scale: String(r.scale) === '2' ? 2 : 1,
   }
 }
 
@@ -64,8 +75,9 @@ export function presetFor(params) {
 
 /** What `auto` will do for a clip of this width — said BEFORE the render, so
  *  nobody discovers the fallback in a log. `null` width = unknown, say so. */
-export function temporalOutcome(mode, width) {
+export function temporalOutcome(mode, width, passes = 1) {
   if (mode === 'off') return 'still mode'
+  if (passes > 1) return mode === 'on' ? 'refused: extra passes run in still mode' : 'still mode (extra passes)'
   if (width == null) return mode === 'on' ? 'temporal mode (refused if the clip is narrower than 704 px)' : 'auto — decided per clip'
   if (width < TEMPORAL_MIN_WIDTH) {
     return mode === 'on'
@@ -73,6 +85,13 @@ export function temporalOutcome(mode, width) {
       : `still mode (${width} px wide, temporal needs ${TEMPORAL_MIN_WIDTH})`
   }
   return 'temporal mode'
+}
+
+/** How much longer than the plain render this will take, as a multiplier:
+ *  each pass is one run, a 2x working size is four times the pixels. */
+export function costMultiplier(params) {
+  const p = normalizeNrParams(params)
+  return p.passes * (p.scale === 2 ? 4 : 1)
 }
 
 /** The one sentence the buttons show when the lane is not set up, built from the

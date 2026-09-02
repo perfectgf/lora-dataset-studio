@@ -21,6 +21,20 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
   const leader = useRef(null)
   const follower = useRef(null)
   const [swapped, setSwapped] = useState(false)
+  // 1:1 shows the pixels the render changed; fitted to the pane they vanish.
+  // At 1:1 both panes scroll, and one pane's scroll drives the other.
+  const [oneToOne, setOneToOne] = useState(false)
+  const panes = useRef([])
+  const syncingScroll = useRef(false)
+  const followScroll = (from) => (e) => {
+    if (syncingScroll.current) return
+    const other = panes.current[1 - from]
+    if (!other) return
+    syncingScroll.current = true
+    other.scrollLeft = e.currentTarget.scrollLeft
+    other.scrollTop = e.currentTarget.scrollTop
+    syncingScroll.current = false
+  }
   const [failed, setFailed] = useState({ original: false, render: false })
   const sides = sidesFor(swapped)
   const srcFor = (key) => (key === 'original' ? originalSrc : renderSrc)
@@ -71,11 +85,14 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
           This side could not be loaded — the file may have been restored or removed.
         </p>
       ) : (
-        <video ref={isLeader ? leader : follower} src={srcFor(side.key)}
-          controls={isLeader} muted={!isLeader} preload="metadata" playsInline
-          onError={() => setFailed((f) => ({ ...f, [side.key]: true }))}
-          aria-label={side.label}
-          className="max-h-[70vh] w-full rounded-md bg-black object-contain" />
+        <div ref={(el) => { panes.current[isLeader ? 0 : 1] = el }} onScroll={followScroll(isLeader ? 0 : 1)}
+          className={oneToOne ? 'max-h-[70vh] overflow-auto rounded-md bg-black' : ''}>
+          <video ref={isLeader ? leader : follower} src={srcFor(side.key)}
+            controls={isLeader} muted={!isLeader} preload="metadata" playsInline
+            onError={() => setFailed((f) => ({ ...f, [side.key]: true }))}
+            aria-label={side.label}
+            className={oneToOne ? 'max-w-none' : 'max-h-[70vh] w-full rounded-md bg-black object-contain'} />
+        </div>
       )}
     </figure>
   )
@@ -88,8 +105,13 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
       <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface-overlay p-3">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="min-w-0 truncate text-sm font-semibold text-content">⇔ {title || 'Original vs neural render'}</h2>
+          <button type="button" onClick={() => setOneToOne((z) => !z)} aria-pressed={oneToOne}
+            title="Show the pixels at their real size — the detail the render adds is invisible once the frame is shrunk to fit"
+            className={`ml-auto min-h-10 rounded-md border px-2 py-1 text-xs lg:min-h-0 ${oneToOne ? 'border-border-strong bg-surface-raised text-content' : 'border-border text-content-muted hover:text-content'}`}>
+            1:1
+          </button>
           <button type="button" onClick={() => setSwapped((s) => !s)}
-            className="ml-auto min-h-10 rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content lg:min-h-0">
+            className="min-h-10 rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content lg:min-h-0">
             Swap sides
           </button>
           <button type="button" onClick={onClose} aria-label="Close the comparison"
@@ -99,6 +121,7 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
         </div>
         <p className="text-[0.6875rem] text-content-subtle">
           The left player leads: play, pause and seek there and the right one follows in step (the right one is muted).
+          {oneToOne ? ' At 1:1, scrolling one pane scrolls the other.' : ' Press 1:1 to see the pixels at their real size.'}
         </p>
         <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
           {player(sides[0], true)}

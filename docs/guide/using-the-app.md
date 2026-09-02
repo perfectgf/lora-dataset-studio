@@ -3700,6 +3700,17 @@ tones — the setting for flat art and anime, where the default greys pure white
 decide where it acts (marginal). The other controls the model exposes do nothing
 through this bridge and are not offered.
 
+**Making it visible.** The model's own answer is subtle on video (about 7 % more
+fine detail on a photoreal frame, measured). Three levers push past it, and all
+three are in the dialog: **Strength** above 1 carries the render beyond the
+model's answer (2 roughly doubles the added detail, 3 triples it — the same
+control the game mod calls Detail strength); **Passes** feed the render back
+through the model (extra passes run in still mode); **Render at 2×** works on
+four times the pixels and delivers the clip at its own size. The Render button
+says how much longer than a plain pass the combination takes. And in the
+comparison, press **1:1**: fitted to the pane, the pixels the render changed
+vanish; at their real size they show.
+
 **Frames.** *Temporal* keeps the model's history across frames with motion the
 driver estimates; it needs a clip **at least 704 px wide** (measured: 700 fails,
 704 passes, whatever the height). *Auto* picks it when the clip allows and falls

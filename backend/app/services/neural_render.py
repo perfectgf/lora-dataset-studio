@@ -124,7 +124,13 @@ SCENE_CUT_DEFAULT = 0.10   # see infer/dlss5nr_infer.py for the measurement behi
 CRF_DEFAULT = 17
 
 DEFAULT_PARAMS = {'tone': 1.0, 'structure': 1.0, 'automask': False,
-                  'temporal': 'auto', 'scene_cut': SCENE_CUT_DEFAULT}
+                  'temporal': 'auto', 'scene_cut': SCENE_CUT_DEFAULT,
+                  # The levers the model does not expose (measured, see the
+                  # child): extrapolation past its answer, extra passes, a 2x
+                  # working size delivered at the clip's size.
+                  'strength': 1.0, 'passes': 1, 'scale': 1}
+STRENGTH_MAX = 3.0
+PASSES_MAX = 3
 TEMPORAL_MODES = ('auto', 'on', 'off')
 
 JOB_KIND = 'neural_render'
@@ -270,6 +276,26 @@ def normalize_params(raw) -> dict:
         if mode not in TEMPORAL_MODES:
             raise NeuralRenderError("temporal must be 'auto', 'on' or 'off'")
         out['temporal'] = mode
+    if 'strength' in raw and raw['strength'] is not None:
+        try:
+            k = float(raw['strength'])
+        except (TypeError, ValueError):
+            raise NeuralRenderError(f'strength must be a number between 0 and {STRENGTH_MAX:g}')
+        if not 0.0 <= k <= STRENGTH_MAX:
+            raise NeuralRenderError(f'strength must be between 0 and {STRENGTH_MAX:g}')
+        out['strength'] = round(k, 2)
+    if 'passes' in raw and raw['passes'] is not None:
+        try:
+            n = int(raw['passes'])
+        except (TypeError, ValueError):
+            raise NeuralRenderError(f'passes must be a whole number between 1 and {PASSES_MAX}')
+        if not 1 <= n <= PASSES_MAX:
+            raise NeuralRenderError(f'passes must be between 1 and {PASSES_MAX}')
+        out['passes'] = n
+    if 'scale' in raw and raw['scale'] is not None:
+        if str(raw['scale']) not in ('1', '2'):
+            raise NeuralRenderError('scale must be 1 or 2')
+        out['scale'] = int(raw['scale'])
     if 'scene_cut' in raw and raw['scene_cut'] is not None:
         try:
             cut = float(raw['scene_cut'])
@@ -281,12 +307,19 @@ def normalize_params(raw) -> dict:
     return out
 
 
-def decide_temporal(mode, width, nvof=True) -> tuple[bool, str]:
+def decide_temporal(mode, width, nvof=True, passes=1) -> tuple[bool, str]:
     """Whether THIS clip is rendered with history, and why in one clause.
     ``on`` below the floor is a refusal, not a silent downgrade — the user
     asked for something the clip cannot have."""
     if mode == 'off':
         return False, 'still mode'
+    if passes > 1:
+        # Extra passes feed the model its own answer; a frame history would
+        # then describe the wrong picture. Asked for explicitly, it is a refusal
+        # the dialog already words; on auto it is simply still mode.
+        if mode == 'on':
+            raise NeuralRenderError('temporal mode and extra passes exclude each other — choose one')
+        return False, 'still mode (extra passes)'
     if not nvof:
         if mode == 'on':
             raise NeuralRenderError('temporal mode needs NVIDIA Optical Flow, which this driver does not provide')
@@ -333,7 +366,9 @@ def worker_argv(src, dst, params, temporal_on, ffmpeg=None) -> list:
         '--tone', str(params['tone']), '--structure', str(params['structure']),
         '--automask', '1' if params['automask'] else '0',
         '--temporal', 'on' if temporal_on else 'off',
-        '--scene-cut', str(params['scene_cut']), '--crf', str(CRF_DEFAULT))
+        '--scene-cut', str(params['scene_cut']), '--crf', str(CRF_DEFAULT),
+        '--strength', str(params.get('strength', 1.0)), '--passes', str(params.get('passes', 1)),
+        '--scale', str(params.get('scale', 1)))
 
 
 def render_video(src, dst, params, *, on_progress=None, cancel=None, timeout_s=None) -> dict:
@@ -348,7 +383,8 @@ def render_video(src, dst, params, *, on_progress=None, cancel=None, timeout_s=N
         raise NeuralRenderError('ffmpeg is needed to read and write the clip')
     dims = clip_dimensions(src)
     width = dims[0] if dims else None
-    temporal_on, mode_note = decide_temporal(params['temporal'], width, nvof=st['driver_nvof'])
+    temporal_on, mode_note = decide_temporal(params['temporal'], width, nvof=st['driver_nvof'],
+                                             passes=int(params.get('passes', 1)))
     argv = worker_argv(src, dst, params, temporal_on)
     env = infer_env.worker_env(worker_python(), PYTHONUTF8='1')
     proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,

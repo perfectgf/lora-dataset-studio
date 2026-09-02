@@ -92,8 +92,9 @@ export const WHATS_NEW = [
       + 'and fabric gain structure the source only implied. In a dataset the render '
       + 'replaces the clip and the original is kept (Restore); in the studio it is a '
       + 'new clip to compare. A ⇔ Compare button plays the original and the render '
-      + 'side by side, in step. Windows + NVIDIA only; Setup installs the bridge, you '
-      + 'bring the model file.',
+      + 'side by side, in step, with a 1:1 zoom. Strength, passes and a 2× working size '
+      + 'push the effect well past the model\'s default. Windows + NVIDIA only; Setup '
+      + 'installs the bridge, you bring the model file.',
     to: '/datasets',
   },
   {

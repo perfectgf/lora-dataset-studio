@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  NR_DEFAULTS, NR_PRESETS, TEMPORAL_MODES, normalizeNrParams, presetFor,
-  temporalOutcome, nrRefusal,
+  NR_DEFAULTS, NR_PRESETS, TEMPORAL_MODES, STRENGTH_MAX, PASSES_MAX, normalizeNrParams, presetFor,
+  temporalOutcome, nrRefusal, costMultiplier,
 } from './neuralRenderParams'
 import { HelpBadge } from '../../help/HelpMode'
 
@@ -31,13 +31,13 @@ export default function NeuralRenderDialog({
   }, [onClose])
 
   const set = (patch) => setParams((p) => normalizeNrParams({ ...p, ...patch }))
-  const dial = (key, label, hint) => (
+  const dial = (key, label, hint, max = 2, step = 0.05) => (
     <label className="flex flex-col gap-1 text-xs text-content-muted">
       <span className="flex items-center justify-between">
         <span>{label}</span>
         <span className="font-mono tabular-nums text-content">{params[key].toFixed(2)}</span>
       </span>
-      <input type="range" min="0" max="2" step="0.05" value={params[key]}
+      <input type="range" min="0" max={max} step={step} value={params[key]}
         aria-label={label} onChange={(e) => set({ [key]: e.target.value })}
         className="w-full" />
       <span className="text-[0.6875rem] text-content-subtle">{hint}</span>
@@ -85,6 +85,31 @@ export default function NeuralRenderDialog({
           Automatic mask <span className="text-content-subtle">(the model decides where it acts; marginal)</span>
         </label>
 
+        {/* The three levers the model does not expose — the ones that make the
+            difference visible. Strength past 1 carries the render beyond the
+            model's own answer (what the game mod calls Detail strength);
+            passes feed the answer back through; 2x works on four times the
+            pixels and delivers at the clip's size. Priced on the button. */}
+        {dial('strength', 'Strength', `1 is the model's picture. Above it carries on past it — the fastest way to a visible change; 2 roughly doubles the added detail, ${STRENGTH_MAX} triples it.`, STRENGTH_MAX, 0.1)}
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-xs text-content-muted">Passes</legend>
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Passes">
+            {Array.from({ length: PASSES_MAX }, (_, i) => i + 1).map((n) => (
+              <button key={n} type="button" onClick={() => set({ passes: n })} aria-pressed={params.passes === n}
+                className={`min-h-10 rounded-full border px-3 py-0.5 text-[0.6875rem] font-semibold lg:min-h-0 ${
+                  params.passes === n ? 'border-border-strong bg-surface-raised text-content'
+                    : 'border-border text-content-muted hover:text-content'}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+          <p className="text-[0.6875rem] text-content-subtle">Each extra pass feeds the render back through the model. Extra passes run in still mode.</p>
+        </fieldset>
+        <label className="flex items-center gap-2 text-xs text-content-muted">
+          <input type="checkbox" checked={params.scale === 2} onChange={(e) => set({ scale: e.target.checked ? 2 : 1 })} />
+          Render at 2× <span className="text-content-subtle">(finer detail, four times the work; the clip keeps its size)</span>
+        </label>
+
         <fieldset className="flex flex-col gap-1">
           <legend className="text-xs text-content-muted">Frames</legend>
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Temporal mode">
@@ -99,7 +124,7 @@ export default function NeuralRenderDialog({
             ))}
           </div>
           <p className="text-[0.6875rem] text-content-subtle">
-            {TEMPORAL_MODES.find((m) => m.id === params.temporal)?.hint} → {temporalOutcome(params.temporal, width)}.
+            {TEMPORAL_MODES.find((m) => m.id === params.temporal)?.hint} → {temporalOutcome(params.temporal, width, params.passes)}.
           </p>
         </fieldset>
 
@@ -112,7 +137,7 @@ export default function NeuralRenderDialog({
             onClick={() => onRender?.(normalizeNrParams(params))}
             title={refusal || undefined}
             className="min-h-10 rounded-md border border-border-strong bg-surface-raised px-3 py-1 text-sm font-semibold text-content hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-0">
-            {busy ? '…' : '✨ Render'}
+            {busy ? '…' : costMultiplier(params) > 1 ? `✨ Render (≈ ×${costMultiplier(params)} time)` : '✨ Render'}
           </button>
         </div>
       </div>

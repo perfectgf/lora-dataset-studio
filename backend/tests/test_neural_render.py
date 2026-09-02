@@ -22,7 +22,7 @@ from app.services import neural_render as nr
 def test_defaults_and_ranges():
     p = nr.normalize_params({})
     assert p == {'tone': 1.0, 'structure': 1.0, 'automask': False, 'temporal': 'auto',
-                 'scene_cut': nr.SCENE_CUT_DEFAULT}
+                 'scene_cut': nr.SCENE_CUT_DEFAULT, 'strength': 1.0, 'passes': 1, 'scale': 1}
     assert nr.normalize_params({'tone': '0', 'structure': 2, 'automask': 1, 'temporal': 'ON'})[
         'temporal'] == 'on'
     for bad in ({'tone': 2.5}, {'structure': -0.1}, {'tone': 'x'}, {'temporal': 'maybe'},
@@ -442,3 +442,44 @@ def test_the_original_of_a_rendered_clip_is_served_and_absent_otherwise(app, cli
     assert r.headers.get('Accept-Ranges') == 'bytes'
     assert client.get(f'/api/video-dataset/{ds_id}/clip/{ids[1]}/original').status_code == 404
     assert client.get(f'/api/video-dataset/999/clip/{ids[0]}/original').status_code == 404
+
+
+# ── the levers the model does not expose ────────────────────────────────────
+
+def test_strength_passes_and_scale_are_validated_and_carried():
+    p = nr.normalize_params({'strength': 2.5, 'passes': '3', 'scale': 2})
+    assert (p['strength'], p['passes'], p['scale']) == (2.5, 3, 2)
+    for bad in ({'strength': 3.5}, {'strength': -1}, {'passes': 0}, {'passes': 4}, {'scale': 3}, {'scale': 'x'}):
+        with pytest.raises(nr.NeuralRenderError):
+            nr.normalize_params(bad)
+    argv = nr.worker_argv('a.mp4', 'b.mp4', p, temporal_on=False, ffmpeg='ff.exe')
+    for flag, value in (('--strength', '2.5'), ('--passes', '3'), ('--scale', '2')):
+        assert argv[argv.index(flag) + 1] == value
+
+
+def test_extra_passes_force_still_mode_and_refuse_an_explicit_temporal():
+    assert nr.decide_temporal('auto', 1024, passes=2) == (False, 'still mode (extra passes)')
+    assert nr.decide_temporal('auto', 1024, passes=1) == (True, 'temporal mode')
+    with pytest.raises(nr.NeuralRenderError, match='exclude'):
+        nr.decide_temporal('on', 1024, passes=3)
+
+
+def test_the_child_scales_up_for_the_model_and_back_for_the_file():
+    """A 2x render works on 2w x 2h and DELIVERS w x h: a dataset's clips keep
+    the size the target profile gave them, whatever the working size."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        'dlss5nr_infer', str(nr.cfg.BACKEND_DIR / 'infer' / 'dlss5nr_infer.py'))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.decode_filter(1024, 576, 1024, 576) == 'null'
+    assert mod.decode_filter(1024, 576, 2048, 1152) == 'scale=2048:1152:flags=lanczos'
+    assert mod.encode_filter(1024, 576, 1024, 576) == []
+    assert mod.encode_filter(2048, 1152, 1024, 576) == ['-vf', 'scale=1024:576:flags=lanczos']
+    import numpy as np
+    fin = np.full((2, 2, 3), 0.5, np.float32)
+    fout = np.full((2, 2, 3), 0.6, np.float32)
+    assert mod.apply_strength(np, fin, fout, 1.0) is fout
+    assert float(mod.apply_strength(np, fin, fout, 2.0)[0, 0, 0]) == pytest.approx(0.7)
+    assert float(mod.apply_strength(np, fin, fout, 0.0)[0, 0, 0]) == pytest.approx(0.5)
+    assert float(mod.apply_strength(np, fin, np.full((2, 2, 3), 0.9, np.float32), 3.0)[0, 0, 0]) == 1.0

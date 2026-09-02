@@ -168,6 +168,27 @@ def _channel_order(np, fin, fout):
     return 'rgb' if score(raw) <= score(swp) else 'bgr'
 
 
+def decode_filter(src_w, src_h, rw, rh):
+    """The decoder's -vf: Lanczos to the model's working size when it differs
+    from the source (an odd edge, or a 2x render); 'null' otherwise."""
+    return f'scale={rw}:{rh}:flags=lanczos' if (rw, rh) != (src_w, src_h) else 'null'
+
+
+def encode_filter(rw, rh, w, h):
+    """The encoder's -vf: back to the file's size after a 2x render, so a
+    dataset keeps the size its target profile gave every clip."""
+    return ['-vf', f'scale={w}:{h}:flags=lanczos'] if (rw, rh) != (w, h) else []
+
+
+def apply_strength(np, fin, fout, strength):
+    """out = in + k * (model - in). k = 1 is the model's picture; above it
+    carries on past it (what the game mod's 'Detail strength' does, and why the
+    game looked transformed at 1.43); below 1 fades it towards the input."""
+    if abs(strength - 1.0) < 1e-6:
+        return fout
+    return np.clip(fin + np.float32(strength) * (fout - fin), 0.0, 1.0)
+
+
 def _grey_thumb(np, frame_u8, w, h):
     tw = min(FLOW_WIDTH, w)
     sx = max(1, w // tw)
@@ -188,6 +209,12 @@ def main():
     ap.add_argument('--temporal', choices=('on', 'off'), default='off')
     ap.add_argument('--scene-cut', type=float, default=SCENE_CUT_DEFAULT)
     ap.add_argument('--crf', type=int, default=17)
+    # The three levers the model does not expose but the eye needs — measured
+    # on a photoreal frame: the default adds ~7 % fine detail, strength x2
+    # ~17 %, x3 ~30 %, two passes ~12 %, rendering at 2x ~12 % at 1:1.
+    ap.add_argument('--strength', type=float, default=1.0)   # out = in + k * (model - in); 1 = the model's answer
+    ap.add_argument('--passes', type=int, default=1)         # feed the answer back through the model
+    ap.add_argument('--scale', type=int, default=1)          # render at 2x, deliver at the clip's size
     ap.add_argument('--gpu-index', type=int, default=0)
     ap.add_argument('--progress-every', type=int, default=6)
     args = ap.parse_args()
@@ -212,7 +239,18 @@ def main():
     # care either way, so the decode pads nothing and scales by at most a pixel.
     w = meta['width'] - meta['width'] % 2
     h = meta['height'] - meta['height'] % 2
+    scale = 2 if int(args.scale) >= 2 else 1
+    passes = max(1, min(3, int(args.passes)))
+    strength = max(0.0, min(3.0, float(args.strength)))
+    # The model works on rw x rh (2x when asked); the file keeps w x h — a
+    # dataset's clips must all keep the size the target profile gave them.
+    rw, rh = w * scale, h * scale
     temporal = args.temporal == 'on'
+    if passes > 1 and temporal:
+        # A second pass feeds the model its own answer; the history the
+        # temporal contract keeps would then describe the wrong frame, and
+        # switching contracts per frame rebuilds the feature every time.
+        fail('extra passes run in still mode — set temporal off (or auto)')
     if temporal and w < TEMPORAL_MIN_WIDTH:
         fail(f'temporal mode needs a frame at least {TEMPORAL_MIN_WIDTH} px wide '
              f'(this one is {w}) — render it in still mode instead')
@@ -234,8 +272,8 @@ def main():
         fail('temporal mode needs NVIDIA Optical Flow (nvofapi64.dll from the display driver)')
 
     F = ctypes.POINTER(ctypes.c_float)
-    nbytes = w * h * 3
-    vf = f'scale={w}:{h}:flags=lanczos' if (w, h) != (meta['width'], meta['height']) else 'null'
+    nbytes = rw * rh * 3
+    vf = decode_filter(meta['width'], meta['height'], rw, rh)
     dec = subprocess.Popen(
         [ffmpeg, '-v', 'error', '-i', args.src, '-vf', vf, '-f', 'rawvideo',
          '-pix_fmt', 'rgb24', '-'],
@@ -244,7 +282,8 @@ def main():
     video_only = os.path.join(tmp_dir, 'video.mp4')
     enc = subprocess.Popen(
         [ffmpeg, '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
-         '-s', f'{w}x{h}', '-r', meta['rate'], '-i', '-',
+         '-s', f'{rw}x{rh}', '-r', meta['rate'], '-i', '-',
+         *encode_filter(rw, rh, w, h),
          '-c:v', 'libx264', '-preset', 'medium', '-crf', str(int(args.crf)),
          '-pix_fmt', 'yuv420p', '-movflags', '+faststart', video_only],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -263,12 +302,12 @@ def main():
             buf = dec.stdout.read(nbytes)
             if len(buf) < nbytes:
                 break
-            u8 = np.frombuffer(buf, np.uint8).reshape(h, w, 3)
+            u8 = np.frombuffer(buf, np.uint8).reshape(rh, rw, 3)
             fin = np.ascontiguousarray(u8.astype(np.float32) / 255.0)
             fout = np.empty_like(fin)
             reset = 1
             if temporal:
-                grey = _grey_thumb(np, u8, w, h)
+                grey = _grey_thumb(np, u8, rw, rh)
                 if prev_grey is not None and prev_grey.shape == grey.shape:
                     cut = float(np.abs(grey - prev_grey).mean())
                     reset = 1 if cut > args.scene_cut else 0
@@ -277,7 +316,7 @@ def main():
             e = ctypes.create_string_buffer(4096)
             t1 = time.perf_counter()
             ok = lib.dlss5nr_process(
-                fin.ctypes.data_as(F), fout.ctypes.data_as(F), w, h,
+                fin.ctypes.data_as(F), fout.ctypes.data_as(F), rw, rh,
                 1, 3,                                   # style, preset: inert, kept at the bridge's defaults
                 ctypes.c_float(1.0), ctypes.c_float(float(args.tone)),
                 ctypes.c_float(float(args.structure)), ctypes.c_float(-1.0),
@@ -288,7 +327,21 @@ def main():
             if order is None:
                 order = _channel_order(np, fin, fout)
             if order == 'bgr':
-                fout = fout[..., ::-1]
+                fout = np.ascontiguousarray(fout[..., ::-1])
+            for _ in range(passes - 1):
+                again = np.empty_like(fout)
+                e2 = ctypes.create_string_buffer(4096)
+                t2 = time.perf_counter()
+                ok = lib.dlss5nr_process(
+                    fout.ctypes.data_as(F), again.ctypes.data_as(F), rw, rh,
+                    1, 3, ctypes.c_float(1.0), ctypes.c_float(float(args.tone)),
+                    ctypes.c_float(float(args.structure)), ctypes.c_float(-1.0),
+                    1 if args.automask else 0, 1, 0, e2, len(e2))
+                ms += (time.perf_counter() - t2) * 1000
+                if not ok:
+                    raise RuntimeError(f'frame {done}, extra pass: ' + (e2.value.decode('utf-8', 'replace') or 'the model refused the frame'))
+                fout = np.ascontiguousarray(again[..., ::-1]) if order == 'bgr' else again
+            fout = apply_strength(np, fin, fout, strength)
             out_u8 = (np.clip(fout, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
             enc.stdin.write(out_u8.tobytes())
             done += 1
@@ -346,6 +399,7 @@ def main():
         fail(f'writing the output failed: {mux.stderr.strip()[-400:]}')
 
     emit('done', frames=done, width=w, height=h, temporal=temporal, resets=resets,
+         strength=strength, passes=passes, scale=scale,
          channel_order=order, mean_ms=round(ms_total / done, 1), max_ms=round(ms_max, 1),
          audio=bool(meta['audio']))
     sys.stdout.flush()
