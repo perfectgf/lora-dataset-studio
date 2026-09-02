@@ -516,6 +516,15 @@ def video_studio_generate():
     # shows the prompt that ran.
     prompt = (vmp.inject_alignment_header(prompt) if mode == 'i2v'
               else vmp.strip_picture_references(prompt))
+    if not vmp.has_motion(prompt):
+        # Judged AFTER the rewrite, on the description alone: a prompt that
+        # was nothing but the header, or labels around nothing — a clip's
+        # prompt pasted back with its motion deleted — passed the check above
+        # and reached the sampler empty.
+        return jsonify({'ok': False,
+                        'error': 'The prompt carries no motion once its header and '
+                                 'labels are set aside — describe what you want to '
+                                 'see move.'}), 400
     lora = data.get('lora') or None
     if lora and lts._is_unsafe_external_lora_name(lora):
         # The same guard the image studio applies to a LoRA name: this string

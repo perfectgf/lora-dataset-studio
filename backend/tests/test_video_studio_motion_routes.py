@@ -399,3 +399,67 @@ def test_a_launch_heads_an_image_to_video_prompt_once_and_unnames_the_picture_in
     assert not vmp.has_alignment_header(launched['prompt'])
     assert 'Picture 1' not in launched['prompt']
     assert 'turns toward the window' in launched['prompt']
+
+
+def test_a_typed_prompt_in_the_headers_english_launches_whole_and_nothing_launches_empty(
+        client, monkeypatch):
+    """Refuted through this route: the header was known by a PHRASE, and
+    "is fully referenced" / "align with the target video" are prompt
+    English. A text-to-video prompt typed with one reached the sampler
+    amputated — 76 of 128 characters, "sunset.from" — or EMPTY, the
+    emptiness check sitting before the rewrite; an image-to-video one was
+    not given the official header at all. The header is known by its shape
+    now, and the text is judged again after the rewrite."""
+    from app.services import video_motion_prompt as vmp
+    from app.services import video_test_studio as vts
+    monkeypatch.setattr('app.capabilities.probe',
+                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    launched = {}
+    monkeypatch.setattr(vts, 'enqueue_clip',
+                        lambda user, **kw: launched.update(kw) or
+                        {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
+    typed = [
+        'Wide shot of a studio where every prop is fully referenced',
+        'A woman walks along a beach at sunset, the golden light is fully referenced '
+        'to that hour, and she turns slowly toward the camera',
+        'A woman walks along a beach at sunset. The mural behind her is fully '
+        'referenced from a 1970s tourism poster. She turns toward the camera.',
+        'Grade the shot so the tones align with the target video, then hold.',
+        "The colours align with the target video's palette throughout the clip.",
+        'A slow push in. Everything must align with the target video reference.',
+        'For the target video, at 3 seconds she turns toward the camera and the light settles.',
+        'A slow push in.\nFor the target video, at 2 seconds in, the camera settles on her face.\n'
+        'She turns away.',
+    ]
+    for p in typed:
+        r = client.post('/api/video-studio/generate',
+                        json={'mode': 't2v', 'prompt': p, 'frames': 56})
+        assert r.status_code == 200, (p, r.get_json())
+        assert launched['prompt'] == p
+        r = client.post('/api/video-studio/generate',
+                        json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': p, 'frames': 56})
+        assert r.status_code == 200, (p, r.get_json())
+        assert launched['prompt'] == vmp._ALIGNMENT_HEADER + '\n\n' + p
+    # A prompt that is nothing but the header, or labels around the identity
+    # sentence, is nothing once they are set aside: refused on both modes,
+    # never launched.
+    launched.clear()
+    for p in (vmp._ALIGNMENT_HEADER,
+              vmp._ALIGNMENT_HEADER + '\n\nintegrated_multimodal_description: [Shot 1] '
+              + vmp._IDENTITY_SENTENCE + '\noverall_soundscape: rain'):
+        r = client.post('/api/video-studio/generate',
+                        json={'mode': 't2v', 'prompt': p, 'frames': 56})
+        assert r.status_code == 400, (p, r.get_json())
+        assert 'no motion' in r.get_json()['error']
+        r = client.post('/api/video-studio/generate',
+                        json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': p, 'frames': 56})
+        assert r.status_code == 400, (p, r.get_json())
+    assert not launched
+    # The end-frame line of the reference writer, pasted with its motion, is
+    # replaced by this launch's header — the picture is the first frame here.
+    pasted = ('How the reference pictures align with the target video — <Picture 1> '
+              '(from [Shot 1]) aligns with the 5.00-second mark of the target video.\n\n'
+              'She turns toward the camera.')
+    client.post('/api/video-studio/generate',
+                json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': pasted, 'frames': 56})
+    assert launched['prompt'] == vmp._ALIGNMENT_HEADER + '\n\nShe turns toward the camera.'

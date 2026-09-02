@@ -368,15 +368,35 @@ _ALIGNMENT_HEADER = (
 _IDENTITY_SENTENCE = "The subject's identity, face and wardrobe are locked to <Picture 1>."
 
 
-def has_alignment_header(text: str) -> bool:
-    low = (text or '').lower()
-    return 'is fully referenced' in low or 'align with the target video' in low
-
-
-_HEADER_PHRASE = r'\bis fully referenced\b|\balign with the target video\b'
 # A character that does not end a sentence: the dot in "0.00 seconds" is
 # followed by a digit, not by a space or the end.
 _NOT_END = r'(?:[^.!?\n]|[.!?](?!["\')\]]*(?:\s|$)))'
+# The header is known by its SHAPE — the official opener at the start of a
+# line, to its full stop — never by a phrase: "is fully referenced" and
+# "align with the target video" are ordinary prompt English ("grade the shot
+# so the tones align with the target video, then hold"), and read by the
+# phrase a hand-typed prompt carrying one reached the sampler amputated
+# around it, or empty. Two openers: the image-to-video line this app writes,
+# and the end-frame line of the reference writer, which a prompt pasted from
+# there carries. And the line names a picture — the opening alone is prompt
+# English too ("For the target video, at 3 seconds she turns"), and read on
+# the opening alone a typed line went: a 400 for a prompt that was only it,
+# a line silently gone from a longer one. The same test a MODEL's sentence
+# passes (`_header_sentence`): the wording, and a picture in it.
+_HEADER_LINE = re.compile(
+    rf'(?im)^[ \t]*(?:For the target video, at [0-9.]+ seconds?\b'
+    rf'|How the reference pictures align with the target video\b)'
+    rf'(?=[^\n]*picture)'
+    rf'{_NOT_END}*[.!?]?["\')\]]*[ \t]*\n*')
+
+
+def has_alignment_header(text: str) -> bool:
+    """Whether the text carries the official header line — by its shape,
+    see `_HEADER_LINE`."""
+    return bool(_HEADER_LINE.search(text or ''))
+
+
+_HEADER_PHRASE = r'\bis fully referenced\b|\balign with the target video\b'
 # The sentence carrying the header's phrase, wherever the model put it — its
 # own line, or inside the description after the label — from the sentence
 # end, label or shot marker before it to the phrase and its full stop. The
@@ -384,6 +404,21 @@ _NOT_END = r'(?:[^.!?\n]|[.!?](?!["\')\]]*(?:\s|$)))'
 # description glued to the header without a space stays description.
 _HEADER_SENTENCE = re.compile(
     rf'(?is)(?:^|(?<=[.!?:\]\n]))\s*{_NOT_END}*?(?:{_HEADER_PHRASE})[.!?]?["\')\]]*\s*')
+
+
+def _header_sentence(text: str):
+    """The sentence a MODEL wrote as the header, wherever it put it — the
+    official line copied from the text it enriched, or its own paraphrase of
+    it — known by the header's phrase AND a picture named in the same
+    sentence. The phrase alone is prompt English, and read on the phrase
+    alone the lift took a description sentence for the header. What the
+    lift takes goes out as the official line: the launch knows a header by
+    that shape, and never heads it twice. (An end frame, when it comes,
+    will want the numbers of the end-frame line kept.)"""
+    for m in _HEADER_SENTENCE.finditer(text or ''):
+        if 'picture' in m.group(0).lower():
+            return m
+    return None
 
 
 # Where a sentence ends: a full stop followed by space or the end — so the
@@ -434,19 +469,18 @@ def _trim_dangling(txt: str, *, truncated: bool = False) -> str:
 
 
 def _split_header(pre: str) -> tuple[str, str]:
-    """(header, rest) for the text before the first label: the alignment
-    header when the model wrote one, and whatever surrounds it — a description
-    that lost its label, which an earlier version swallowed with the header,
-    and a sentence written BEFORE the header, which a later one filed as
-    header (it went out above the header instead of into the field)."""
+    """(header, rest) for the text before the first label: the official
+    header when the model wrote one — in its own words too, `_header_sentence`
+    — and whatever surrounds it: a description that lost its label, which an
+    earlier version swallowed with the header, and a sentence written BEFORE
+    the header, which a later one filed as header (it went out above the
+    header instead of into the field)."""
     pre = (pre or '').strip()
-    if not pre or not has_alignment_header(pre):
-        return '', pre
-    m = _HEADER_SENTENCE.search(pre)
+    m = _header_sentence(pre) if pre else None
     if not m:
         return '', pre
     rest = f'{pre[:m.start()]} {pre[m.end():]}'
-    return m.group(0).strip(), re.sub(r'[ \t]{2,}', ' ', rest).strip()
+    return _ALIGNMENT_HEADER, re.sub(r'[ \t]{2,}', ' ', rest).strip()
 
 
 def _lift_header(desc: str, header: str) -> tuple[str, str]:
@@ -458,12 +492,10 @@ def _lift_header(desc: str, header: str) -> tuple[str, str]:
     writer puts it, left it in as prose about a picture the encoder never
     gets."""
     for _ in range(4):
-        if not has_alignment_header(desc):
-            break
-        m = _HEADER_SENTENCE.search(desc)
+        m = _header_sentence(desc)
         if not m:
             break
-        header = header or m.group(0).strip()
+        header = header or _ALIGNMENT_HEADER
         desc = re.sub(r'[ \t]{2,}', ' ', f'{desc[:m.start()]} {desc[m.end():]}').strip()
     return desc, header
 
@@ -575,29 +607,53 @@ def ensure_identity_tag(text: str) -> str:
     return _prefix_description(text, _IDENTITY_SENTENCE)
 
 
+# The identity sentence however the model reflowed it: replaced as a literal,
+# a copy broken across a line stayed, and its "<Picture 1>" then became "the
+# subject" — a sentence locking the subject to itself.
+_IDENTITY_RE = re.compile(
+    r'(?i)[ \t]*' + r'\s+'.join(map(re.escape, _IDENTITY_SENTENCE.split())) + r'[ \t]*')
+
+
 def strip_picture_references(text: str) -> str:
     """A text-to-video prompt names no picture: the I2V header and the
     identity sentence go, and a stray "<Picture 1>" becomes the subject it
     stood for. The encoder prepends a picture block only when a frame is
     given, so a tag without one names nothing — and the case is real: a
-    prompt enriched as image-to-video, then the panel switched to text-only."""
+    prompt enriched as image-to-video, then the panel switched to text-only.
+    The header is the official line, by shape — its opening, naming a
+    picture: a prompt typed in the header's English, its opening included,
+    keeps every line it has."""
     t = text or ''
     if not t or ('Picture 1' not in t and not has_alignment_header(t)):
         return t
-    t = _HEADER_SENTENCE.sub('', t)
-    t = t.replace(_IDENTITY_SENTENCE, '')
+    t = _HEADER_LINE.sub('', t)
+    t = _IDENTITY_RE.sub(' ', t)
     t = re.sub(r'(?i)\s*\(?\bfrom <Picture 1>\)?', '', t)
     t = re.sub(r'(?i)<Picture 1>', 'the subject', t)
     t = re.sub(r'(^|[.!?]\s+|\]\s+)the subject', r'\1The subject', t)
+    t = re.sub(r'[ \t]+\n', '\n', t)
     return re.sub(r'[ \t]{2,}', ' ', t).strip()
 
 
 def inject_alignment_header(text: str) -> str:
     """The official I2V header, once: it tells the model the picture IS the
-    first frame at 0.00 s, rather than a reference to resemble."""
-    if not text or has_alignment_header(text):
+    first frame at 0.00 s, rather than a reference to resemble. A header line
+    already there is replaced, not kept — the reference writer's end-frame
+    line, pasted from there, says the picture is the LAST frame, the reverse
+    of what this launch does — so the text carries one header, this one, and
+    the call is its own fixed point."""
+    if not (text or '').strip():
         return text
-    return f'{_ALIGNMENT_HEADER}\n\n{text}'
+    body = _HEADER_LINE.sub('', text).strip()
+    return f'{_ALIGNMENT_HEADER}\n\n{body}' if body else _ALIGNMENT_HEADER
+
+
+def has_motion(text: str) -> bool:
+    """Whether a prompt still says anything once the header, the identity
+    sentence and the labels are set aside — what the launch asks AFTER its
+    rewrite. Asked before it, a clip's prompt pasted back with its motion
+    deleted passed as text and reached the sampler empty."""
+    return bool(_description_field(strip_picture_references(text)))
 
 
 # Past this many words the answer is at the token budget (~500 tokens of

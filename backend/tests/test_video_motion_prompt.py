@@ -913,3 +913,120 @@ def test_a_shot_named_inside_a_sentence_is_prose_not_the_marker():
     assert vmp.finish(raw, with_image=False).splitlines()[0] == (
         'integrated_multimodal_description: [Shot 1] A slow push-in (as set up in '
         '[Shot 1]) follows her across the room until she reaches the door.')
+
+
+# --- the refutation of the header decision --------------------------------------
+
+def test_the_header_is_known_by_its_shape_not_by_its_english():
+    """Refuted on a phrase: "is fully referenced" and "align with the target
+    video" are ordinary prompt English, and a prompt typed by hand that
+    carried one lost the sentence around it — 76 of 128 characters, or the
+    whole prompt. The header is a line with the official opening that names
+    a picture; nothing else is one — not a line typed with the opening's
+    words and no picture in it, which the opening alone took for the header
+    (a 400 on its own, a line silently gone from a longer prompt)."""
+    typed = [
+        'Wide shot of a studio where every prop is fully referenced',
+        'A woman walks along a beach at sunset, the golden light is fully referenced '
+        'to that hour, and she turns slowly toward the camera',
+        'A woman walks along a beach at sunset. The mural behind her is fully '
+        'referenced from a 1970s tourism poster. She turns toward the camera.',
+        'Grade the shot so the tones align with the target video, then hold.',
+        "The colours align with the target video's palette throughout the clip.",
+        'A slow push in. Everything must align with the target video reference.',
+        'For the target video, at 3 seconds she turns toward the camera and the light settles.',
+        'A slow push in.\nFor the target video, at 2 seconds in, the camera settles on her face.\n'
+        'She turns away.',
+    ]
+    for p in typed:
+        assert not vmp.has_alignment_header(p), p
+        assert vmp.strip_picture_references(p) == p, p
+        assert vmp.inject_alignment_header(p) == vmp._ALIGNMENT_HEADER + '\n\n' + p, p
+    # The official line, alone or glued to the description on one line, is
+    # the header, and only it goes.
+    assert vmp.has_alignment_header(vmp._ALIGNMENT_HEADER)
+    assert vmp.strip_picture_references(vmp._ALIGNMENT_HEADER) == ''
+    assert vmp.strip_picture_references(
+        vmp._ALIGNMENT_HEADER + ' She turns toward the camera.') == 'She turns toward the camera.'
+    # The reference writer's end-frame line, pasted from there, is a header
+    # too: it goes from a text-only launch, and an image-to-video launch
+    # replaces it — here the picture is the FIRST frame, not the last.
+    l2va = ('How the reference pictures align with the target video — <Picture 1> '
+            '(from [Shot 1]) aligns with the 5.00-second mark of the target video.\n\n'
+            'She turns.')
+    assert vmp.has_alignment_header(l2va)
+    assert vmp.strip_picture_references(l2va) == 'She turns.'
+    assert vmp.inject_alignment_header(l2va) == vmp._ALIGNMENT_HEADER + '\n\nShe turns.'
+    # A header wherever its line sits, and at any timecode: the official line
+    # pasted UNDER the motion, with the picture at 1.50 s, is one header —
+    # gone from a text-only launch, and replaced by this launch's line above
+    # the motion, where the picture is the first frame.
+    late = ('She turns toward the camera.\n'
+            'For the target video, at 1.50 seconds into the target video, <Picture 1> '
+            '(from [Shot 1]) is fully referenced.')
+    assert vmp.has_alignment_header(late)
+    assert vmp.strip_picture_references(late) == 'She turns toward the camera.'
+    assert vmp.inject_alignment_header(late) == vmp._ALIGNMENT_HEADER + '\n\nShe turns toward the camera.'
+    # Its own fixed point, on every shape.
+    for p in typed + [l2va, late, vmp._ALIGNMENT_HEADER + '\n\nShe turns.']:
+        once = vmp.inject_alignment_header(p)
+        assert vmp.inject_alignment_header(once) == once, p
+        assert once.count(vmp._ALIGNMENT_HEADER) == 1, p
+
+
+def test_a_model_s_header_is_lifted_by_phrase_and_picture_and_written_official():
+    """The writers copy the header from the text they enrich, and a copy may
+    be paraphrased and land anywhere — so a MODEL's answer is still read by
+    the phrase, but only in a sentence that names a picture: the phrase
+    alone is prompt English, and read alone it took a description sentence
+    for the header. What is lifted goes out as the official line, so the
+    launch, which knows a header by its shape, never heads it twice."""
+    para = ('At 0.00 seconds <Picture 1> is fully referenced.\n'
+            'integrated_multimodal_description: [Shot 1] <Picture 1> turns toward the window.\n'
+            'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(para, with_image=True)
+    assert out.startswith(vmp._ALIGNMENT_HEADER + '\n\n')
+    assert out.count('fully referenced') == 1 and 'At 0.00 seconds <Picture 1>' not in out
+    assert vmp.inject_alignment_header(out) == out
+    # The same paraphrase inside the description is lifted the same way.
+    inside = ('integrated_multimodal_description: [Shot 1] <Picture 1> turns toward the window. '
+              'At 0.00 seconds <Picture 1> is fully referenced.\n'
+              'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    out = vmp.finish(inside, with_image=True)
+    assert out.startswith(vmp._ALIGNMENT_HEADER + '\n\n')
+    assert out.count('fully referenced') == 1 and 'At 0.00 seconds <Picture 1>' not in out
+    assert 'integrated_multimodal_description: [Shot 1] <Picture 1> turns toward the window.' in out
+    # A sentence in the phrase's English that names no picture is description,
+    # with a frame and without one.
+    prose = ('integrated_multimodal_description: [Shot 1] She grades the shot so the tones '
+             'align with the target video, then holds.\n'
+             'overall_soundscape: N/A\nnon_diegetic_music: N/A')
+    for with_image in (False, True):
+        out = vmp.finish(prose, with_image=with_image)
+        assert 'the tones align with the target video, then holds.' in out, with_image
+        assert out.count(vmp._ALIGNMENT_HEADER) == (1 if with_image else 0), with_image
+
+
+def test_the_identity_sentence_goes_however_the_model_reflowed_it():
+    """Replaced as a literal, a copy the model broke across a line stayed —
+    and its "<Picture 1>" then became "the subject", a sentence locking the
+    subject to itself."""
+    reflowed = ("integrated_multimodal_description: [Shot 1] The subject's identity, face and\n"
+                "wardrobe are locked to <Picture 1>. She turns toward the window.\n"
+                'overall_soundscape: N/A')
+    assert vmp.strip_picture_references(reflowed) == (
+        'integrated_multimodal_description: [Shot 1] She turns toward the window.\n'
+        'overall_soundscape: N/A')
+
+
+def test_a_prompt_has_motion_when_something_is_left_once_the_picture_talk_is_set_aside():
+    """The launch's second look: the header, the identity sentence and the
+    labels are not motion."""
+    assert vmp.has_motion('she turns')
+    assert vmp.has_motion(vmp._ALIGNMENT_HEADER
+                          + '\n\nintegrated_multimodal_description: [Shot 1] <Picture 1> turns.')
+    assert not vmp.has_motion(vmp._ALIGNMENT_HEADER)
+    assert not vmp.has_motion(vmp._ALIGNMENT_HEADER + '\n\nintegrated_multimodal_description: '
+                              '[Shot 1] ' + vmp._IDENTITY_SENTENCE)
+    assert not vmp.has_motion('integrated_multimodal_description: [Shot 1]\noverall_soundscape: rain')
+    assert not vmp.has_motion('')
