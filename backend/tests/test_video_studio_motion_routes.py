@@ -430,6 +430,8 @@ def test_a_typed_prompt_in_the_headers_english_launches_whole_and_nothing_launch
         'For the target video, at 3 seconds she turns toward the camera and the light settles.',
         'A slow push in.\nFor the target video, at 2 seconds in, the camera settles on her face.\n'
         'She turns away.',
+        'For the target video, at 3 seconds she turns toward the camera. The picture '
+        'on the wall behind her falls.',
     ]
     for p in typed:
         r = client.post('/api/video-studio/generate',
@@ -463,3 +465,14 @@ def test_a_typed_prompt_in_the_headers_english_launches_whole_and_nothing_launch
     client.post('/api/video-studio/generate',
                 json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': pasted, 'frames': 56})
     assert launched['prompt'] == vmp._ALIGNMENT_HEADER + '\n\nShe turns toward the camera.'
+    # The official line glued mid-line, or behind a no-break space, is one
+    # header wherever it starts: replaced on image-to-video — never stacked
+    # under a second — and gone on text-to-video, the sentences around it kept.
+    for p in ('She turns slowly. ' + vmp._ALIGNMENT_HEADER + ' Then she smiles.',
+              '\u00a0' + vmp._ALIGNMENT_HEADER + '\n\nShe turns slowly. Then she smiles.'):
+        client.post('/api/video-studio/generate',
+                    json={'mode': 'i2v', 'image': 'staged_1.png', 'prompt': p, 'frames': 56})
+        assert launched['prompt'] == vmp._ALIGNMENT_HEADER + '\n\nShe turns slowly. Then she smiles.'
+        client.post('/api/video-studio/generate',
+                    json={'mode': 't2v', 'prompt': p, 'frames': 56})
+        assert launched['prompt'] == 'She turns slowly. Then she smiles.'

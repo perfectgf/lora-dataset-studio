@@ -378,21 +378,30 @@ _NOT_END = r'(?:[^.!?\n]|[.!?](?!["\')\]]*(?:\s|$)))'
 # phrase a hand-typed prompt carrying one reached the sampler amputated
 # around it, or empty. Two openers: the image-to-video line this app writes,
 # and the end-frame line of the reference writer, which a prompt pasted from
-# there carries. And the line names a picture — the opening alone is prompt
-# English too ("For the target video, at 3 seconds she turns"), and read on
-# the opening alone a typed line went: a 400 for a prompt that was only it,
-# a line silently gone from a longer one. The same test a MODEL's sentence
-# passes (`_header_sentence`): the wording, and a picture in it.
+# there carries. And the SENTENCE names a picture — the opening alone is
+# prompt English too ("For the target video, at 3 seconds she turns"), and
+# read on the opening alone a typed line went: a 400 for a prompt that was
+# only it, a line silently gone from a longer one. In the sentence, not on
+# the line: read for a picture anywhere on the line, "For the target video,
+# at 3 seconds she turns toward the camera. The picture on the wall falls."
+# lost its first sentence. The same test a MODEL's sentence passes
+# (`_header_sentence`): the wording, and a picture in it. And the sentence
+# starts where a sentence can — a line start, or the boundary after one —
+# behind any blank but a newline (a no-break space included): the official
+# line glued after a sentence, or pasted behind U+00A0, was not seen, and an
+# image-to-video launch headed it twice. What follows the full stop is taken
+# only up to and with a line break: removed from the middle of a line, the
+# sentence leaves the space between its neighbours.
 _HEADER_LINE = re.compile(
-    rf'(?im)^[ \t]*(?:For the target video, at [0-9.]+ seconds?\b'
+    rf'(?im)(?:^|(?<=[.!?:\]\n]))[^\S\n]*'
+    rf'(?:For the target video, at [0-9.]+ seconds?\b'
     rf'|How the reference pictures align with the target video\b)'
-    rf'(?=[^\n]*picture)'
-    rf'{_NOT_END}*[.!?]?["\')\]]*[ \t]*\n*')
+    rf'{_NOT_END}*?picture{_NOT_END}*[.!?]?["\')\]]*(?:[^\S\n]*\n+)?')
 
 
 def has_alignment_header(text: str) -> bool:
-    """Whether the text carries the official header line — by its shape,
-    see `_HEADER_LINE`."""
+    """Whether the text carries the official header — a sentence of its
+    shape, wherever it starts, see `_HEADER_LINE`."""
     return bool(_HEADER_LINE.search(text or ''))
 
 
@@ -620,9 +629,9 @@ def strip_picture_references(text: str) -> str:
     stood for. The encoder prepends a picture block only when a frame is
     given, so a tag without one names nothing — and the case is real: a
     prompt enriched as image-to-video, then the panel switched to text-only.
-    The header is the official line, by shape — its opening, naming a
-    picture: a prompt typed in the header's English, its opening included,
-    keeps every line it has."""
+    The header is the official sentence, by shape — its opening, naming a
+    picture, wherever it starts: a prompt typed in the header's English, its
+    opening included, keeps every sentence it has."""
     t = text or ''
     if not t or ('Picture 1' not in t and not has_alignment_header(t)):
         return t
@@ -637,11 +646,13 @@ def strip_picture_references(text: str) -> str:
 
 def inject_alignment_header(text: str) -> str:
     """The official I2V header, once: it tells the model the picture IS the
-    first frame at 0.00 s, rather than a reference to resemble. A header line
-    already there is replaced, not kept — the reference writer's end-frame
-    line, pasted from there, says the picture is the LAST frame, the reverse
-    of what this launch does — so the text carries one header, this one, and
-    the call is its own fixed point."""
+    first frame at 0.00 s, rather than a reference to resemble. A header
+    already there — wherever its sentence starts — is replaced, not kept:
+    the reference writer's end-frame line, pasted from there, says the
+    picture is the LAST frame, the reverse of what this launch does — so the
+    text carries one header, this one, and the call is its own fixed point.
+    (When a last frame is wired into the workflow, its end-frame line must
+    survive here instead of being replaced.)"""
     if not (text or '').strip():
         return text
     body = _HEADER_LINE.sub('', text).strip()

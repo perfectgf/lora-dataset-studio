@@ -924,7 +924,12 @@ def test_the_header_is_known_by_its_shape_not_by_its_english():
     whole prompt. The header is a line with the official opening that names
     a picture; nothing else is one — not a line typed with the opening's
     words and no picture in it, which the opening alone took for the header
-    (a 400 on its own, a line silently gone from a longer prompt)."""
+    (a 400 on its own, a line silently gone from a longer prompt). And the
+    header is one SENTENCE: the picture is named in it, not anywhere on its
+    line — a typed line opening with the official words, with a picture in
+    its NEXT sentence, lost its first sentence to the header — and it is
+    found wherever it starts, glued after a sentence or behind a no-break
+    space, where an image-to-video launch headed it twice."""
     typed = [
         'Wide shot of a studio where every prop is fully referenced',
         'A woman walks along a beach at sunset, the golden light is fully referenced '
@@ -937,6 +942,8 @@ def test_the_header_is_known_by_its_shape_not_by_its_english():
         'For the target video, at 3 seconds she turns toward the camera and the light settles.',
         'A slow push in.\nFor the target video, at 2 seconds in, the camera settles on her face.\n'
         'She turns away.',
+        'For the target video, at 3 seconds she turns toward the camera. The picture '
+        'on the wall behind her falls.',
     ]
     for p in typed:
         assert not vmp.has_alignment_header(p), p
@@ -967,8 +974,19 @@ def test_the_header_is_known_by_its_shape_not_by_its_english():
     assert vmp.has_alignment_header(late)
     assert vmp.strip_picture_references(late) == 'She turns toward the camera.'
     assert vmp.inject_alignment_header(late) == vmp._ALIGNMENT_HEADER + '\n\nShe turns toward the camera.'
+    # The official line glued between two sentences of one line, or behind a
+    # no-break space, is the header where it starts: one header out, the
+    # sentences around it kept — headed once, not twice.
+    glued = 'She turns slowly. ' + vmp._ALIGNMENT_HEADER + ' Then she smiles.'
+    nbsp = '\u00a0' + vmp._ALIGNMENT_HEADER + '\n\nShe turns.'
+    assert vmp.has_alignment_header(glued) and vmp.has_alignment_header(nbsp)
+    assert vmp.strip_picture_references(glued) == 'She turns slowly. Then she smiles.'
+    assert vmp.strip_picture_references(nbsp) == 'She turns.'
+    assert vmp.inject_alignment_header(glued) == (
+        vmp._ALIGNMENT_HEADER + '\n\nShe turns slowly. Then she smiles.')
+    assert vmp.inject_alignment_header(nbsp) == vmp._ALIGNMENT_HEADER + '\n\nShe turns.'
     # Its own fixed point, on every shape.
-    for p in typed + [l2va, late, vmp._ALIGNMENT_HEADER + '\n\nShe turns.']:
+    for p in typed + [l2va, late, glued, nbsp, vmp._ALIGNMENT_HEADER + '\n\nShe turns.']:
         once = vmp.inject_alignment_header(p)
         assert vmp.inject_alignment_header(once) == once, p
         assert once.count(vmp._ALIGNMENT_HEADER) == 1, p
