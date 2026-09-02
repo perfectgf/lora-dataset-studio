@@ -192,8 +192,9 @@ def gpu_exclusive_vision_window(flag_ttl=300):
             # enum's own property answers for whichever incarnation of the
             # class the member belongs to. The suite once reloaded
             # utils.comfyui, and a member of the old class was never `in` a
-            # tuple of the new one.
-            if not getattr(verdict, 'permits_ollama', False):
+            # tuple of the new one. `is not True` keeps the gate fail-closed:
+            # a stand-in whose attribute is merely truthy does not open it.
+            if getattr(verdict, 'permits_ollama', False) is not True:
                 if queue_manager._get_system_state('vision_in_progress') == token:
                     queue_manager._set_system_state('vision_in_progress', None)
                 _active_vision_window_tokens.discard(token)
