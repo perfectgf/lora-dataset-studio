@@ -11,6 +11,7 @@
  * that emptied itself would read as "you have no models".
  */
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { apiFetch, putJson } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
 import { motionModelUrl, motionModelsUrl } from './videoStudioApi';
@@ -52,7 +53,15 @@ export default function MotionModelDialog({ onClose, onSaved }) {
 
   const models = state?.models || [];
 
-  return (
+  /* PORTAILLÉE sur `document.body`, comme toute modale du Studio.
+     Aujourd'hui elle est montée en SŒUR de l'`<aside lg:sticky>` du lane vidéo
+     (VideoTestStudio) et non dedans, donc son `z-50` passe encore — mesuré. Le
+     portail est posé quand même : un `sticky` ou un `transform` sur un ancêtre,
+     ou trois lignes de déplacement du montage, la feraient basculer SANS qu'une
+     seule suite rougisse (c'est exactement ce qui est arrivé au navigateur
+     Civitai). La règle est tenue par studioModalsArePortaled.contract.test.js,
+     qui recense CE dossier et ses sous-dossiers. */
+  return createPortal(
     <div role="dialog" aria-modal="true" aria-label="Model that writes the motion"
       data-probe-layer
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-2 sm:p-4"
@@ -116,6 +125,7 @@ export default function MotionModelDialog({ onClose, onSaved }) {
           </div>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   );
 }
