@@ -87,6 +87,15 @@ test('enrichment: the server\'s refusal is kept as said; a reply that names no p
     async (b) => { bodies.push(b); return { seed: 1 } })
   assert.equal(mute.enrichSkipped, ENRICH_UNKNOWN)
   assert.deepEqual(bodies.map((b) => b.prompt), ['p', 'p'])
+  // A prompt that is nothing but blanks is "no prompt" too: carried as is, it
+  // would send the rest with an empty prompt and a 400 each (the mutation
+  // that drops the trim() survived the tests above — refuted 2026-09-02).
+  bodies = []
+  const blank = await queueClips([frame('a'), frame('b')], { mode: 'i2v', prompt: 'p', enhance: true },
+    async (b) => { bodies.push(b); return { seed: 1, prompt: '   \n ' } })
+  assert.equal(blank.enrichSkipped, ENRICH_UNKNOWN)
+  assert.deepEqual(bodies.map((b) => b.prompt), ['p', 'p'])
+  assert.deepEqual(bodies.map((b) => 'enhance' in b), [true, false])
   const single = await queueClips([frame('a')], { mode: 'i2v', prompt: 'p', enhance: true }, async () => ({ seed: 1 }))
   assert.equal(single.enrichSkipped, null)
   // Without the checkbox nothing is asked and nothing is carried: the prompt
