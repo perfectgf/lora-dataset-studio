@@ -83,6 +83,34 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-free-memory-button',
+    date: '2026-09-02',
+    title: 'A 🧹 button beside the machine-load numbers gives the RAM back',
+    blurb:
+      'ComfyUI keeps every model of the day cached in RAM after it leaves the '
+      + 'card (measured: 34 GB on an idle ComfyUI), and the vision model stays '
+      + 'warm for captioning — neither returns it by itself. 🧹 next to the '
+      + 'CPU · GPU · VRAM · RAM readout (top bar and Canvas toolbar) unloads '
+      + 'both and re-reads the machine; the toast says what actually came back. '
+      + 'Refused while something is rendering or training, and a model another '
+      + 'tool loaded is never touched.',
+    to: '/canvas',
+  },
+  {
+    id: '2026-09-02-civitai-prompts-in-the-batch',
+    date: '2026-09-02',
+    title: 'Tick several Civitai prompts straight into the batch',
+    blurb:
+      'In the 🌐 Civitai browser every prompt-bearing card now has a ☐ Batch '
+      + 'box: tick as many as you like without leaving the browser, and the '
+      + 'next Run test replays them all — one pass per prompt, same checkpoints, '
+      + 'same settings, same seed, alongside the saved prompts you ticked. The '
+      + 'count shows under the prompt field and on the 🌐 button; ⤵ Use prompt '
+      + 'still drops a single one into the field. On the Test Studio and the '
+      + 'board’s 🎨 Generate alike.',
+    to: '/studio',
+  },
+  {
     id: '2026-09-02-video-checkpoints-and-loras',
     date: '2026-09-02',
     title: 'A video set gets its Checkpoints & LoRAs section — deploy, continue, clear, step by step',

@@ -117,6 +117,36 @@ export function machineLoadSummary(segments) {
   return `Machine load: ${segments.map((x) => `${x.label} ${x.text}`).join(' · ')}`;
 }
 
+/** 🧹 What the free-memory button says when it is done — from what the server
+ *  MEASURED (a before/after of the OS's own numbers), never from what it asked
+ *  for. Three facts, in the order a person checks them: how much came back,
+ *  where RAM stands now, and which lever did (or did not) act. */
+export function freeMemorySummary(result) {
+  const r = result || {};
+  const has = (v) => typeof v === 'number' && Number.isFinite(v);
+  const parts = [];
+  if (has(r.freed_gb) && r.freed_gb >= 0.1) {
+    parts.push(`Freed ${formatGb(r.freed_gb)} GB of RAM`);
+  } else if (has(r.freed_gb)) {
+    parts.push('No RAM came back');
+  } else {
+    parts.push('Memory release asked');
+  }
+  if (has(r.ram_after_gb) && has(r.ram_total_gb)) {
+    parts.push(`RAM now ${formatGb(r.ram_after_gb)}/${formatGb(r.ram_total_gb)} GB`);
+  }
+  if (has(r.vram_before_gb) && has(r.vram_after_gb)) {
+    parts.push(`VRAM ${formatGb(r.vram_before_gb)} → ${formatGb(r.vram_after_gb)} GB`);
+  }
+  const levers = [];
+  if (r.comfyui === 'freed') levers.push('ComfyUI unloaded its models');
+  else if (r.comfyui === 'offline') levers.push('ComfyUI is not running');
+  else levers.push('ComfyUI did not confirm');
+  if (r.vision_released === true) levers.push('vision model released');
+  else if (r.vision_released === false) levers.push('no vision model of LDS to release');
+  return `${parts.join(' · ')} (${levers.join(', ')}).`;
+}
+
 /* --- polling policy ---------------------------------------------------------
  * A readout is worth ~5 s of staleness; a BACKGROUND tab is worth none at all.
  * A canvas left open overnight in a background tab would otherwise fork

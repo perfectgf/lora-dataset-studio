@@ -451,6 +451,15 @@ export const VIDEO_LANE_TOPICS = [
      'gpu temperature', 'temperature', 'how hot is my gpu', 'degrees', 'temp',
      'no temperature', 'temperature missing', 'watch the machine from any page'],
     '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
+  // 🧹 The button beside that readout: the same anchor, because the guide
+  // explains it in the same paragraph — what holds the memory, what the
+  // button gives back, and when it refuses.
+  action('system-free-memory', '🧹 Free memory — unload what ComfyUI and the vision model keep in RAM',
+    ['free memory', 'free ram', 'ram full', 'ram is full', 'memory full', 'out of memory',
+     'clear ram', 'release memory', 'unload models', 'unload comfyui models', 'comfyui ram',
+     'ram does not go down', 'memory not freed', 'vram full', 'free vram', 'clear vram',
+     'unload vision model', 'unload ollama', 'unload lm studio', 'broom', 'cleanup memory'],
+    '/canvas', 'using-the-app', 'the-lora-canvas-every-run-on-one-board'),
   action('canvas-image-delete', '🗑 Delete a picture straight from the board',
     ['delete an image from the canvas', 'delete a pinned image', 'remove an image',
      'bin a render', 'trash a render', 'delete a bad render', 'delete from the board',

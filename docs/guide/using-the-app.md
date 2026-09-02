@@ -3838,6 +3838,22 @@ Test Studio, the Bank or a dataset without keeping Task Manager — or a ComfyUI
 resource monitor — open. It starts folded, polls only while it is unfolded and
 the tab is visible, and remembers your choice separately from the board's.
 
+**🧹 Free memory.** Beside the unfolded numbers sits a broom, for the case the
+readout keeps showing: RAM full and not coming down while nothing runs. Two
+things hold it. ComfyUI keeps every model it loaded in the session cached in
+system RAM once it leaves the card (measured: 34 GB on an idle ComfyUI after
+a day of Krea, Klein and video models) and never lets go on its own; the
+vision model LDS loaded for captioning stays warm so a batch does not reload
+it per image. **🧹** asks ComfyUI to unload and free (`/free`, the same lever
+LDS pulls before a training) and releases the vision model LDS itself loaded,
+then reads the machine again and says what actually came back — "Freed 32 GB
+of RAM · RAM now 12/48 GB · VRAM 16 → 0.9 GB". The models reload on the next
+job (a minute at most), nothing else changes. It is refused, with the reason,
+while ComfyUI's queue is not empty or a training runs — unloading under a job
+would only make that job reload everything — and a model another tool loaded
+into Ollama or LM Studio is never touched (that is the fence's rule; the
+Ollama-fence dialog is where a consented eviction lives).
+
 **Deleting a picture from the board.** A pinned image carries **✕** and **🗑**,
 and they are not the same thing. **✕** takes it off the board and remembers where
 it was, so re-pinning it from its gallery puts it back at the same spot and size.

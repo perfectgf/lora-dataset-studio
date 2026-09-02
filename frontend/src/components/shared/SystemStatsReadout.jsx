@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch } from '../../api/fetchClient';
+import { apiFetch, postJson } from '../../api/fetchClient';
+import { useToast } from '../common/Toast';
 import { HelpBadge } from '../../help/HelpMode';
 import {
-  POLL_MS, machineLoadSummary, readMachineLoadPref, shouldPoll,
+  POLL_MS, freeMemorySummary, machineLoadSummary, readMachineLoadPref, shouldPoll,
   systemStatsSegments, writeMachineLoadPref,
 } from '../../utils/systemStats';
 
@@ -54,9 +55,13 @@ const TONE_CLASS = {
 export default function SystemStatsReadout({
   prefKey, defaultEnabled, testId, helpTopic,
 }) {
+  const toast = useToast();
   const [enabled, setEnabled] = useState(
     () => readMachineLoadPref(undefined, prefKey, defaultEnabled));
   const [stats, setStats] = useState(null);
+  // 🧹 One release at a time: the button is disabled while the server unloads
+  // and re-reads (a couple of seconds), so a double press cannot queue two.
+  const [freeing, setFreeing] = useState(false);
   // Kept in a ref so the poll loop reads the CURRENT value without being torn
   // down and rebuilt (and re-fetching) on every visibility flicker.
   const enabledRef = useRef(enabled);
@@ -95,6 +100,26 @@ export default function SystemStatsReadout({
     });
   };
 
+  /* 🧹 Give the memory back. What holds it on a machine running LDS is
+     ComfyUI's model cache (every model of the day, offloaded to RAM when it
+     leaves the card, kept until asked) and the vision model kept warm for
+     captioning — neither returns it by itself. The server pulls both levers,
+     refuses while something renders or trains, and answers with what the OS
+     measured; the toast repeats THAT, then the readout re-polls at once. */
+  const freeMemory = async () => {
+    if (freeing) return;
+    setFreeing(true);
+    try {
+      const d = await postJson('/api/system/free-memory', {});
+      toast.success(freeMemorySummary(d));
+    } catch (err) {
+      toast.error(err?.message || 'Could not free the memory');
+    } finally {
+      setFreeing(false);
+      poll();
+    }
+  };
+
   const segments = systemStatsSegments(stats);
 
   // Nothing measurable on this machine (a container with no card and no
@@ -117,6 +142,18 @@ export default function SystemStatsReadout({
             </span>
           ))}
         </span>
+      )}
+      {/* 🧹 Only while the numbers are on screen — it belongs to the reading
+          it acts on, and a folded readout must not widen the header for a
+          button nobody asked for. Same 40 px target rule as ▾. */}
+      {enabled && (
+        <button type="button" onClick={freeMemory} disabled={freeing}
+          data-testid={`${testId}-free`} aria-busy={freeing}
+          title="Free memory: unload the models ComfyUI keeps cached in RAM and VRAM, and the vision model LDS loaded. They reload on the next job. Refused while something is rendering or training."
+          aria-label="Free memory"
+          className="flex h-10 items-center rounded border border-border bg-app/40 px-1.5 text-content-subtle/70 text-[0.625rem] hover:text-content disabled:cursor-wait disabled:opacity-60 lg:h-6 lg:px-1">
+          {freeing ? '…' : '🧹'}
+        </button>
       )}
       <button type="button" onClick={toggle} aria-pressed={enabled}
         data-testid={`${testId}-toggle`}

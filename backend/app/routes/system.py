@@ -287,6 +287,23 @@ def machine_stats():
     return jsonify(system_stats.machine_stats())
 
 
+@bp.post('/free-memory')
+def free_memory():
+    """🧹 The button beside the load readout: unload what ComfyUI and the
+    vision server keep cached in RAM / VRAM, then read the machine again.
+
+    Refused (409, with the reason) while a training runs or ComfyUI's queue is
+    not empty — unloading under a job only makes that job reload everything.
+    The answer carries the measured before/after so the toast says what
+    actually happened, and `comfyui: offline` when there was nothing to free
+    there (that is not a failure)."""
+    from ..services import memory_release
+    try:
+        return jsonify(memory_release.free_memory())
+    except memory_release.MemoryReleaseBusy as e:
+        return jsonify({'ok': False, 'error': str(e)}), 409
+
+
 @bp.get('/ollama-fence')
 def ollama_fence_state():
     """Is the local Ollama fence standing in the way, and because of what?
