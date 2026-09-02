@@ -386,6 +386,20 @@ test('the detail drawer opens from ⓘ Details, not from touching a card', () =>
   assert.match(canvas, /onOpen=\{\(pill, e\) => onOpenActions\(lane, n\.node, pill, e\)\}/);
 });
 
+test('📤 Civitai is a row of the shared popover, and BOTH hosts open the same dialog from it', () => {
+  // The row lives in the popover (one set of actions, one set of labels)…
+  assert.match(popover, /data-testid="checkpoint-civitai"/);
+  assert.match(popover, /onPublish\(node, pill\)/);
+  // …and never on a run card: a page is made from ONE save.
+  assert.match(popover, /typeof onPublish === 'function' && !a\.isRun/);
+  // Each host hands the checkpoint to the shared dialog — a host that forgot
+  // would show the popover without the row, silently.
+  assert.match(graph, /onPublish=\{handlePublish\}/);
+  assert.match(canvas, /onPublish=\{\(node, pill\) => setPublishCk\(\{ node, pill \}\)\}/);
+  assert.match(graph, /<CivitaiPublishModal context=\{\{ kind: 'checkpoint'/);
+  assert.match(canvas, /<CivitaiPublishModal context=\{\{ kind: 'checkpoint'/);
+});
+
 test('a generation launched from the board is the BOARD’s state, recoverable', () => {
   // Reported from real use: closing the settings panel (or leaving the page) lost
   // the run in flight, because the run id lived in the panel's own hook.

@@ -7450,6 +7450,18 @@ def checkpoint_notes_for(record_id):
             if r.note}
 
 
+def _civitai_links_for(record_id):
+    """{step: link} of this run's checkpoints already on Civitai — the pill's
+    📤 badge. Best-effort like the notes: a pill only GAINS a badge here, and a
+    failure in the link store must never blank a node of the tree."""
+    try:
+        from .civitai_publish import links_for_record
+        return links_for_record(record_id)
+    except Exception:
+        logger.debug('civitai links unavailable for record %s', record_id, exc_info=True)
+        return {}
+
+
 def training_activity() -> dict:
     """🏋️ Is anything training RIGHT NOW — locally or on a rented pod.
 
@@ -8360,7 +8372,20 @@ def run_deletion_impact(record_id) -> dict | None:
         'canvas_positions': _count(CanvasNodePosition),
         'children_detached': _count_children(rec),
         'archived_images_released': released,
+        # 📤 Civitai links are DETACHED, not deleted (the page stays on the
+        # site and stays offered to the dataset's pictures). Counted so the
+        # confirmation can say so; additive, the dialog ignores what it does
+        # not know.
+        'civitai_links_detached': _count_civitai_links(rec),
     }
+
+
+def _count_civitai_links(rec) -> int:
+    try:
+        from ..models import CivitaiLink
+        return int(CivitaiLink.query.filter_by(record_id=rec.id).count())
+    except Exception:
+        return 0
 
 
 def _count_children(rec) -> int:
@@ -8439,6 +8464,11 @@ def delete_run_record(record_id, cascade=False) -> str:
         (LoraTestImage.query
          .filter_by(record_id=rec.id)
          .update({'record_id': None, 'step': None}, synchronize_session=False))
+        # 📤 Its Civitai links survive the same way: the page still exists on
+        # the site, and the dataset's pictures can still be posted under it —
+        # they only lose the record (see models.CivitaiLink).
+        from .civitai_publish import detach_links_of_run
+        detach_links_of_run(rec.id)
         # Delete FK children first and flush, so deleting the parent row can't hit
         # an IntegrityError (the "delete 500" trap — no cascade on these tables).
         CheckpointNote.query.filter_by(record_id=rec.id).delete(
@@ -8528,6 +8558,7 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
             node['checkpoint_ready'] = None
     _cnotes = checkpoint_notes_for(rec.id)
     _cprev = checkpoint_previews_for(rec.id)
+    _clinks = _civitai_links_for(rec.id)
     # Deployment (testable + the deployed copy's own name) comes from the SHARED
     # annotator, so the graph pills and the Checkpoints panel rows answer "is this
     # deployed, and which ComfyUI file is it?" with the same join. Scoped to THIS
@@ -8547,6 +8578,13 @@ def _lineage_node(rec, crun, requested_id, failed_local_id):
             _ck['preview_url'] = _pv.get('url')
             _ck['preview_status'] = _pv.get('status')
             _ck['preview_count'] = _pv.get('count') or 0
+        # 📤 The Civitai page this save IS — keyed by the FILE, not the step:
+        # the numbered save and the final of a run that ended on it share a
+        # step, and each is its own version on the site. The popover says
+        # "On Civitai" from this, without a request per pill.
+        _cl = _clinks.get(_ck.get('filename') or '')
+        if _cl:
+            _ck['civitai'] = _cl
     return node
 
 

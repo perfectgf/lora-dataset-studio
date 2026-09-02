@@ -2899,6 +2899,10 @@ def delete_dataset(user_id, dataset_id):
     # Where the lane itself sat and how much room it kept: same story again, and
     # at most one row.
     canvas_lane = CanvasLanePlacement.query.filter_by(dataset_id=dataset_id).all()
+    # 📤 Civitai links of its checkpoints: nothing left to post under them once
+    # the dataset's pictures are gone (the pages on the site are untouched).
+    from ..models import CivitaiLink
+    civitai_links = CivitaiLink.query.filter_by(dataset_id=dataset_id).all()
     dataset_path = _dataset_path(dataset_id)
     trashed_path = None
     try:
@@ -2933,6 +2937,8 @@ def delete_dataset(user_id, dataset_id):
             db.session.delete(pin)
         for placement in canvas_lane:
             db.session.delete(placement)
+        for link in civitai_links:
+            db.session.delete(link)
         # Force the child DELETEs to reach the DB BEFORE the parent's. The child
         # models declare only a table-level ForeignKey (no relationship()), so the
         # unit of work has no ordering dependency between them and would otherwise

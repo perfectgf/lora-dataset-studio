@@ -1099,6 +1099,13 @@ DEFAULTS = {
     # Each: {filename (loras-relative), strength [0..2], x, y (board coords)}.
     # Cap 16, deduped by filename — sanitized in the PUT route.
     'canvas': {'external_loras': []},
+    # 📤 Publish to Civitai. The API is always civitai.com; `link_host` is the
+    # domain the app OPENS links on (civitai.red is the same site and account
+    # behind a second domain, and the session cookie is per domain — a user
+    # signed in on the mirror lands on a 404 for their own draft otherwise).
+    # The key itself is CIVITAI_API_KEY, shared with the scraper and the 🌐
+    # prompt browser.
+    'civitai': {'link_host': 'civitai.com'},                  # 'civitai.com' | 'civitai.red'
 }
 
 _lock = threading.Lock()

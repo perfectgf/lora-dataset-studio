@@ -546,6 +546,14 @@ export const PAGE_TOPICS = [
      'no prompt published', 'prompts missing', 'civitai api key', 'load more',
      'safe mature everything', 'content level', 'top of the week'],
     '/studio', 'dataset-guide', '6-after-training-pick-the-right-checkpoint'),
+  // 📤 One dialog, two doors (the checkpoint popover on the ◉ Canvas / run
+  // graph, and the shared image viewer everywhere it opens): one topic.
+  action('civitai-publish', '📤 Publish a LoRA and its images to Civitai',
+    ['civitai', 'civitai.red', 'publish', 'publish lora', 'upload lora', 'upload checkpoint',
+     'model page', 'draft', 'post image', 'post to civitai', 'share image', 'share lora',
+     'link checkpoint', 'mark the page', 'trigger words', 'base model', 'generation data',
+     'prompt', 'seed', 'metadata', 'api key', 'not linked', 'wizard', 'nsfw'],
+    '/gallery', 'using-the-app', 'publish-a-lora-and-its-images-to-civitai'),
   // 🎬 Les scènes vivent dans le même rail que le lot d'historique, monté par le
   // Studio de test ET par « Generate from the board » : un seul sujet pour les deux.
   // Les DEUX sources (banque et dataset) partagent ce sujet : c'est le même

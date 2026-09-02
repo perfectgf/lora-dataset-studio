@@ -39,6 +39,7 @@ import { continueAttemptOutcome } from '../../utils/continueOutcome';
 import { postWithConfirmations } from '../../utils/trainingRefusals';
 import PreviewLightbox from '../dataset/PreviewLightbox';
 import GeneratedImageLightbox from '../shared/GeneratedImageLightbox';
+import CivitaiPublishModal from '../shared/CivitaiPublishModal';
 import { clampPopoverToViewport, POPOVER_H, POPOVER_W } from '../dataset/checkpointPopover.js';
 import { useCheckpointActions } from '../../hooks/useCheckpointActions';
 import { useCanvasImageImprove } from '../../hooks/useCanvasImageImprove';
@@ -1483,6 +1484,8 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
   // The open actions popover: { lane, node, pill, anchor } | null. `pill` is null
   // when a run CARD was clicked — the same popover, with only its run-level rows.
   const [openCk, setOpenCk] = useState(null);
+  // 📤 Civitai — the checkpoint whose popover asked for the publish dialog.
+  const [publishCk, setPublishCk] = useState(null);
   // 🖼 The open gallery: {recordId, step} for a checkpoint pill, or
   // {kind:'run', recordId, node} for a whole run card. Declared here because the
   // card-click handler below opens it.
@@ -2775,6 +2778,7 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
               onDeploy={handleDeployCheckpoint}
               onDelete={handleDeleteCheckpoint}
               onDetails={(node) => setOpenNode(node)}
+              onPublish={(node, pill) => setPublishCk({ node, pill })}
               onClose={closePopover} />
           </div>
         );
@@ -2857,6 +2861,18 @@ export default function LineageCanvas({ entries, positions, imageNodes, allImage
       {/* 🔍 A pill's preview, full-screen. The thumbnail was already clickable on
           the board and did nothing at all — the host passed no handler. */}
       <PreviewLightbox target={bigPreview} onClose={() => setBigPreview(null)} />
+
+      {/* 📤 Civitai — the shared publish dialog for the checkpoint whose popover
+          asked for it. A link made or removed here changes the pill's `civitai`
+          stamp, so the lane is re-read when it closes. */}
+      {publishCk && (
+        <CivitaiPublishModal context={{ kind: 'checkpoint', node: publishCk.node, pill: publishCk.pill }}
+          onClose={() => {
+            const ds = publishCk.node?.dataset_id;
+            setPublishCk(null);
+            if (ds != null) Promise.resolve(onRefetchDataset?.(ds)).catch(() => { /* the poll retries */ });
+          }} />
+      )}
 
       {/* A PINNED image's full record: every setting it was made with, its
           prompt, and the copy buttons. The node on the board is the picture;

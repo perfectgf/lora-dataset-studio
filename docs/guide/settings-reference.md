@@ -465,8 +465,12 @@ Credentials for the built-in web scraper. **All of these apply immediately — n
 None of these has a Test button; you find out they work on your next scan.
 
 - **Reddit client ID** → `REDDIT_CLIENT_ID` (secret). Optional. Reddit scans work out of the box using a shared public client ID, but that ID is rate-limited across everyone who uses it, so you can hit *"rate limiting requests, retry in Ns"* (429) before your first scan of the day. Your own free ID gives you a private quota and clears those. **Trap:** on reddit.com/prefs/apps, create the app as type **installed app** — a *web app* or *script* comes with a client secret, and Reddit then rejects the anonymous login this app uses (every scan fails with **401**). The field has a built-in step-by-step guide.
-- **Civitai API key** → `CIVITAI_API_KEY` (secret). Optional. Without it, Civitai scans return **SFW results only**; add a key to reach adult content you're entitled to use.
+- **Civitai API key** → `CIVITAI_API_KEY` (secret). Optional. One key, three uses: without it Civitai scans return **SFW results only** (add it to reach adult content you're entitled to use); it reads the prompts in the 🌐 Civitai browser; and it is what **📤 Publish to Civitai** signs with (a model page created from a checkpoint, an image posted under it). Free accounts have one: civitai.com → Account settings → API Keys.
 - **Pexels API key (required for Pexels)** → `PEXELS_API_KEY` (secret). **Required** for any Pexels search — there's no shared fallback. The free quota is **200 requests/hour and 20,000/month**. [Create one here](https://www.pexels.com/api/key/). Note the standing warning: an API key alone does **not** authorize dataset or machine-learning use — configure this only if Pexels has explicitly authorized your use case.
+
+### Civitai publishing
+
+- **Open Civitai links on** → `civitai.link_host`. `civitai.com` (default) or `civitai.red`. The publisher's API calls always go to civitai.com; this only decides which domain the links the app shows you open on. civitai.red is the same site and account behind a second domain, but the sign-in is per domain — a **draft** model page is private to its owner, so opened on the domain you are not signed in on, your own draft answers a 404. Pick the one you use. The key is `CIVITAI_API_KEY` above; there is no second credential.
 
 ### Klein rescue — small scraped images
 

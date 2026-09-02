@@ -5,6 +5,8 @@ import { useImageZoomPan } from '../../hooks/useImageZoomPan';
 import RepairDialog from './RepairDialog';
 import ImproveModal from './ImproveModal';
 import CameraAnglePicker from './CameraAnglePicker';
+import CivitaiPublishModal from './CivitaiPublishModal';
+import { civitaiVerbRefusal } from './civitaiPublish';
 import { useCameraAngles } from '../../hooks/useCameraAngles';
 import { useImageDownload } from '../../hooks/useImageDownload';
 import { useCapabilities } from '../../context/CapabilitiesContext';
@@ -229,6 +231,10 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
   // ✨ The improve modal — settings on demand, result in place. Held HERE like
   // every other layer, so the keydown effect can stand down under it.
   const [improveOpen, setImproveOpen] = useState(false);
+  // 📤 Post to Civitai — a layer of this viewer like the three above it: the
+  // picture is a library row on every host, and the page it belongs to is
+  // resolved from the checkpoint stamped on that row, never from the host.
+  const [civitaiOpen, setCivitaiOpen] = useState(false);
   const shootCameraViews = useCameraAngles();
   /* 🔍 Are the facts on screen? They are what this viewer is FOR, so they open
      with it — but they are not what you want while you are looking. Measured at
@@ -268,7 +274,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     // before it closes the viewer, so the key never throws away the render you
     // were in the middle of inspecting.
     const onKey = (e) => {
-      if (repairOpen || improveOpen) return;
+      if (repairOpen || improveOpen || civitaiOpen) return;
       // 📷 The picker is a layer like ✦: while it is open, keys pressed inside
       // its tree never get here (its root stops them), and a key pressed with
       // focus elsewhere must not walk or close the viewer UNDER the dial —
@@ -289,7 +295,7 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [img, onClose, repairOpen, cameraOpen, improveOpen, zoom, onPrev, onNext]);
+  }, [img, onClose, repairOpen, cameraOpen, improveOpen, civitaiOpen, zoom, onPrev, onNext]);
   useEffect(() => { if (img) closeRef.current?.focus(); }, [img]);
   /* Folding the details resizes the frame under a held zoom, and a view that
      was legally at its edge before is a strip of backdrop afterwards. Settle
@@ -540,6 +546,21 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
                 Camera angles
               </button>
             )}
+            {/* 📤 Post it on Civitai — under the model page its checkpoint is
+                linked to, with the prompt, seed and settings it was made with.
+                Same footer, same gate (a library row), same rule: disabled
+                with its reason rather than hidden. */}
+            {hasRow && (
+              <button type="button" data-testid="lightbox-civitai"
+                onClick={(e) => { e.stopPropagation(); setCivitaiOpen(true); }}
+                disabled={busy || !!civitaiVerbRefusal(img)}
+                title={civitaiVerbRefusal(img)
+                  || 'Post this image on Civitai, under the model page its checkpoint is linked to, with its prompt, seed and settings'}
+                className="min-h-10 lg:min-h-0 inline-flex items-center gap-2 rounded-lg border border-indigo-400/50 bg-indigo-500/20 px-3 py-1.5 text-[0.75rem] font-semibold text-indigo-100 hover:bg-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-45">
+                <span aria-hidden>📤</span>
+                Civitai
+              </button>
+            )}
             {actions}
           </div>
           {dl.error && (
@@ -568,6 +589,13 @@ export default function GeneratedImageLightbox({ img, alt, actions = null,
       {improveOpen && hasRow && (
         <ImproveModal img={img} host="library" datasetId={datasetId}
           subjectType={subjectType} onClose={() => setImproveOpen(false)} />
+      )}
+      {/* 📤 The Civitai dialog — a layer like ✦, 📷 and ✨: the keydown effect
+          stands down while it is open, and it addresses the row's own
+          checkpoint stamp, which is the same on every host. */}
+      {civitaiOpen && hasRow && (
+        <CivitaiPublishModal context={{ kind: 'image', img }}
+          onClose={() => setCivitaiOpen(false)} />
       )}
       {cameraOpen && hasRow && (
         <CameraAnglePicker

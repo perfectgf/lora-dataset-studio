@@ -1126,6 +1126,48 @@ class CheckpointNote(db.Model):
                                           name='uq_checkpoint_note'),)
 
 
+class CivitaiLink(db.Model):
+    """📤 Which Civitai model VERSION one training save IS.
+
+    Keyed by (record_id, step, filename) — three columns, not two, because a
+    run that ends on a numbered save writes TWO files at its last step (the
+    numbered `…_000001000.safetensors` and the step-less final `….safetensors`),
+    and `list_checkpoints` only renumbers the final when the run overshot the
+    last numbered save. Keyed on the step alone, publishing the final would
+    silently overwrite the link of the numbered save (measured before this
+    table existed). `filename` is the save's own basename, as the pill carries
+    it.
+
+    No ForeignKey, like CheckpointNote: a run record can be removed from the
+    lineage graph while the page it produced stays on Civitai, so removal
+    DETACHES the link (record_id → NULL) instead of deleting it — a dataset's
+    linked pages stay offered to the pictures that predate the stamp, which is
+    the ordinary case for every image made with a run's FINAL save (its
+    deployed name carries no step, so it is generated with `record_id` NULL).
+    `dataset_id` is denormalised for exactly that lookup. New table → created
+    by db.create_all(), no migration of existing rows."""
+    __tablename__ = 'civitai_link'
+    id = db.Column(db.Integer, primary_key=True)
+    record_id = db.Column(db.Integer, nullable=True, index=True)
+    step = db.Column(db.Integer, nullable=False)
+    filename = db.Column(db.String(255), nullable=False, default='')
+    dataset_id = db.Column(db.Integer, nullable=False, index=True)
+    model_id = db.Column(db.Integer, nullable=False)
+    version_id = db.Column(db.Integer, nullable=False)
+    model_name = db.Column(db.String(255), nullable=False, default='')
+    version_name = db.Column(db.String(255), nullable=False, default='')
+    # The Civitai `baseModel` string the version was created with — it travels
+    # into every image posted under it (`meta.baseModel`).
+    base_model = db.Column(db.String(64), nullable=True)
+    # True = published, False = still a draft, NULL = not known (a page marked
+    # by address answered no status).
+    published = db.Column(db.Boolean, nullable=True)
+    created_at = db.Column(db.DateTime, default=naive_utcnow)
+    updated_at = db.Column(db.DateTime, default=naive_utcnow, onupdate=naive_utcnow)
+    __table_args__ = (db.UniqueConstraint('record_id', 'step', 'filename',
+                                          name='uq_civitai_link'),)
+
+
 class CheckpointPreview(db.Model):
     """The Lab's inline-generated preview for one checkpoint (record_id, step):
     a same-prompt/same-seed image so an experienced user can eyeball how the LoRA
