@@ -104,6 +104,7 @@ export default function Dlss5InstallCard({ caps, onDone }) {
       <ul className="mt-3 flex flex-col gap-1">
         <Row ok={st.os_ok}>Windows {st.os_ok ? '' : '— the model is a Direct3D 12 library and runs nowhere else (no Linux, no Docker)'}</Row>
         <Row ok={st.driver_ngx}>NVIDIA display driver {st.driver_ngx ? '' : '— its NGX runtime was not found on this machine'}</Row>
+        <Row ok={st.worker}>Video extra in the app&apos;s interpreter (numpy for the render process){st.worker ? '' : ' — install it from the list below'}</Row>
         <Row ok={st.bridge}>Neural rendering bridge v{st.bridge_version} (MIT, from {st.bridge_url?.replace('https://', '')})</Row>
         <Row ok={st.model}>
           Your <code className="rounded bg-surface-raised px-1 font-mono text-xs">{st.model_file}</code>
