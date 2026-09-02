@@ -82,3 +82,18 @@ test('a block with no model name still says something true', () => {
                               message: 'A local Ollama model is already in use outside LDS.' });
   assert.match(m.detail, /already in use outside LDS/);
 });
+
+test('the notice names the server the fence state reports', () => {
+  // Someone on LM Studio told to look in Ollama looks at a daemon that holds
+  // nothing. The provider comes from the fence state, not from the refusal.
+  const lm = fenceNoticeModel({ phase: 'waiting', models: ['qwen/qwen3-vl-4b'], elapsedMs: 0,
+                               provider: 'lmstudio' });
+  assert.match(lm.detail, /qwen\/qwen3-vl-4b in LM Studio/);
+  assert.doesNotMatch(lm.detail, /Ollama/);
+  const gaveUp = fenceNoticeModel({ phase: 'gave-up', models: [], elapsedMs: AUTO_RETRY_CAP_MS,
+                                   provider: 'lmstudio' });
+  assert.match(gaveUp.detail, /a model in LM Studio/);
+  // No provider yet (the first poll has not answered): Ollama, the default.
+  const first = fenceNoticeModel({ phase: 'waiting', models: ['other:8b'], elapsedMs: 0 });
+  assert.match(first.detail, /other:8b in Ollama/);
+});

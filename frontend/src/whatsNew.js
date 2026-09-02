@@ -172,6 +172,18 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-09-02-fence-one-click-one-answer',
+    date: '2026-09-02',
+    title: 'A click that waited for a busy local model runs once — and the notice names your server',
+    blurb:
+      'When another tool held your local model, LDS waited and replayed the click '
+      + 'the moment it was free — and kept that replay armed after you had already '
+      + 'clicked again, so ✨ Enhance could write two answers into the field, or '
+      + 'report one failure twice. One click is one answer now, on every surface '
+      + 'the fence guards. And the notice names the server you actually run: on '
+      + 'LM Studio it no longer sends you to look in Ollama.',
+  },
+  {
     id: '2026-09-02-krea-rebalance-and-enhancer-retired',
     date: '2026-09-02',
     title: 'Krea grids start on a bare ComfyUI — the rebalance and the enhancer are gone',

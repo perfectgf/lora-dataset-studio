@@ -6,9 +6,10 @@
  * model goes away. The user's click is not lost, so the common case — Ollama's
  * own idle unload a few minutes later — costs nothing at all.
  *
- * Shared deliberately: the fence guards every local Ollama call (Test Studio's
- * ✨ Enhance and 🔎 Describe, captioning), and a per-button copy of this would
- * drift the moment one of them changed.
+ * Shared deliberately: the fence guards every local LLM call (Test Studio's
+ * ✨ Enhance and 🔎 Describe, the Video Test Studio's ✨ Auto and ✨ Enrich,
+ * captioning), and a per-button copy of this would drift the moment one of
+ * them changed.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../api/fetchClient';
@@ -32,10 +33,15 @@ export default function useOllamaFence({ onError } = {}) {
   const timerRef = useRef(null);
   const startedRef = useRef(0);
   const aliveRef = useRef(true);
+  // Which vigil is current. A poll that was already past its fetch when the
+  // vigil was stopped — by a new click, "stop waiting", the unload — reads
+  // this when it comes back, and acts on nothing if it is no longer its own.
+  const vigilRef = useRef(0);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = null;
+    vigilRef.current += 1;
   }, []);
 
   useEffect(() => {
@@ -43,19 +49,21 @@ export default function useOllamaFence({ onError } = {}) {
     return () => { aliveRef.current = false; stopTimer(); };
   }, [stopTimer]);
 
-  /* Re-run what was refused. Returns true when the fence took it again — the
-     model can be freed and immediately claimed by the other tool, and the
+  /* Re-run what was refused, for the vigil `vigil` — the stamp read after
+     the stop that preceded it. A click made while the replay runs owns the
+     notice and the kept action from then on; a replay that comes back
+     superseded touches neither. Returns true when the fence took it again —
+     the model can be freed and immediately claimed by the other tool, and the
      caller has to put the vigil back on watch or it dies here. */
-  const replay = useCallback(async () => {
+  const replay = useCallback(async (vigil) => {
+    if (vigil !== vigilRef.current) return false;
     const action = actionRef.current;
     if (!action) { setState(null); return false; }
     setState((s) => (s ? { ...s, phase: 'retrying' } : s));
     try {
       await action();
-      if (aliveRef.current) setState(null);
-      return false;
     } catch (e) {
-      if (!aliveRef.current) return false;
+      if (!aliveRef.current || vigil !== vigilRef.current) return false;
       if (isOllamaFenceError(e)) {
         // Still fenced: keep waiting rather than throw the user back to the
         // start, but do not restart the patience clock.
@@ -68,40 +76,51 @@ export default function useOllamaFence({ onError } = {}) {
       onErrorRef.current?.(e);
       return false;
     }
+    if (aliveRef.current && vigil === vigilRef.current) {
+      actionRef.current = null;
+      setState(null);
+    }
+    return false;
   }, []);
 
   const tick = useCallback(async () => {
     if (!aliveRef.current) return;
+    const vigil = vigilRef.current;
     const elapsedMs = Date.now() - startedRef.current;
     let free = false;
     let models = [];
+    let provider;
     try {
       // background: a vigil that may run for ten minutes must not toast every
       // time the server blinks — the offline indicator already owns that story.
       const data = await apiFetch('/api/system/ollama-fence', { background: true });
       free = data?.blocked === false;
       models = data?.models || [];
+      // The server the user runs, so the notice names LM Studio to someone on
+      // LM Studio — the refusal itself does not say, the fence state does.
+      provider = data?.provider;
     } catch {
       // Cannot read the state (old backend, server down): stay put and keep
       // the notice as it is. The user's buttons still work.
       free = false;
     }
-    if (!aliveRef.current) return;
+    if (!aliveRef.current || vigil !== vigilRef.current) return;
     if (free) {
       stopTimer();
+      const mine = vigilRef.current;
       // Freed, then taken again before we could use it: go back on watch
       // instead of leaving a "waiting" notice that nothing is watching.
-      if (await replay() && aliveRef.current) {
+      if (await replay(mine) && aliveRef.current && mine === vigilRef.current) {
         timerRef.current = setTimeout(tick, nextPollDelay(elapsedMs));
       }
       return;
     }
     if (elapsedMs >= AUTO_RETRY_CAP_MS) {
       stopTimer();
-      setState((s) => (s ? { ...s, phase: 'gave-up', elapsedMs, models } : s));
+      setState((s) => (s ? { ...s, phase: 'gave-up', elapsedMs, models, provider } : s));
       return;
     }
-    setState((s) => (s && s.phase === 'waiting' ? { ...s, elapsedMs, models } : s));
+    setState((s) => (s && s.phase === 'waiting' ? { ...s, elapsedMs, models, provider } : s));
     timerRef.current = setTimeout(tick, nextPollDelay(elapsedMs));
   }, [replay, stopTimer]);
 
@@ -118,33 +137,57 @@ export default function useOllamaFence({ onError } = {}) {
    * Every other failure propagates untouched — this hook only knows one story.
    */
   const runGuarded = useCallback(async (action) => {
+    // A new click supersedes whatever an earlier one left waiting. Left armed,
+    // the vigil fired after THIS click had gone through and ran it a second
+    // time — one click, two answers written into the field — and ran a click
+    // that had failed for another reason again, toasting it twice. And the
+    // cleanup is conditional on the stamp for the same reason in reverse: a
+    // click that comes back after a NEWER one took over must not clear that
+    // one's notice or its kept action.
+    stopTimer();
+    const mine = vigilRef.current;
     actionRef.current = action;
     try {
       await action();
-      if (aliveRef.current) setState(null);
-      return true;
     } catch (e) {
-      if (!isOllamaFenceError(e)) { setState(null); throw e; }
+      if (!isOllamaFenceError(e)) {
+        if (mine === vigilRef.current) { actionRef.current = null; setState(null); }
+        throw e;
+      }
+      // Superseded while it ran — the surface changed setup and stopped
+      // waiting, a newer click took over, the component went away: nobody
+      // wants THIS click replayed. Not silently, though: the refusal goes to
+      // the caller's catch like any other failure, and shows there.
+      if (!aliveRef.current || mine !== vigilRef.current) throw e;
       beginWaiting(e?.message);
       return false;
     }
-  }, [beginWaiting]);
+    if (aliveRef.current && mine === vigilRef.current) {
+      actionRef.current = null;
+      setState(null);
+    }
+    return true;
+  }, [beginWaiting, stopTimer]);
 
   /** The consent click: evict the other model, then resume. */
   const unloadAndRetry = useCallback(async () => {
     setState((s) => (s ? { ...s, phase: 'unloading' } : s));
     stopTimer();
+    const mine = vigilRef.current;
     try {
       await postJson('/api/system/ollama-fence/unload', { confirmed_unload_external: true });
     } catch (e) {
+      if (!aliveRef.current || mine !== vigilRef.current) return false;
       // The server refuses what it cannot prove and says why (still busy,
       // unreachable). Show that, and go back to waiting rather than dead-end.
       setState((s) => (s ? { ...s, phase: 'waiting', message: e?.message || s.message } : s));
       timerRef.current = setTimeout(tick, nextPollDelay(Date.now() - startedRef.current));
       return false;
     }
-    // The other tool can reload a model between our unload and our retry.
-    if (await replay() && aliveRef.current) {
+    // The other tool can reload a model between our unload and our retry —
+    // and a click made during the unload already ran itself: the replay
+    // knows it from the stamp and stands down.
+    if (await replay(mine) && aliveRef.current && mine === vigilRef.current) {
       timerRef.current = setTimeout(tick, nextPollDelay(Date.now() - startedRef.current));
     }
     return true;

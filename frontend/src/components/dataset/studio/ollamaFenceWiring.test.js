@@ -42,15 +42,18 @@ test('the guard polls the fence state and resumes without a click', () => {
   assert.match(hook, /'\/api\/system\/ollama-fence'/);
   assert.match(hook, /background: true/);
   // The poll's whole purpose: a free runner replays the action, no click.
-  assert.match(hook, /if \(free\) \{\s*\n\s*stopTimer\(\);/);
-  assert.match(hook, /await replay\(\)/);
+  // The replay carries the vigil it was started under, so a click made
+  // while it runs supersedes it (RUN in tests/ollama-fence-hook-replay.test.mjs).
+  assert.match(hook, /if \(free\) \{\s*\n\s*stopTimer\(\);\s*\n\s*const mine = vigilRef\.current;/);
+  assert.match(hook, /await replay\(mine\)/);
   assert.match(hook, /AUTO_RETRY_CAP_MS/);
 });
 
 test('a model freed then immediately taken again puts the vigil back on watch', () => {
   // replay() reports whether the fence took it again; both callers must
   // reschedule, or the notice would say "waiting" with nothing watching.
-  const reschedules = hook.match(/if \(await replay\(\) && aliveRef\.current\)/g) || [];
+  const reschedules = hook.match(
+    /if \(await replay\(mine\) && aliveRef\.current && mine === vigilRef\.current\)/g) || [];
   assert.equal(reschedules.length, 2);
 });
 
