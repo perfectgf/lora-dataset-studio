@@ -750,7 +750,24 @@ async function main() {
           // Wait for the chrome rather than for a fixed sleep: a fixed sleep is
           // either too short on a cold load or wasted on a warm one, and this
           // now runs thirty times instead of six.
-          await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          try {
+            await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          } catch (first) {
+            /* ONE retry, and only for a page whose spec says chrome exists.
+               The very first load of a run pays for everything at once — a cold
+               browser, a bundle nobody has parsed, a server that has just been
+               restarted — and when it overran, the fallback below measured the
+               page with ZERO chrome surfaces and reported "the probe measured
+               nothing" as a violation. Twice in one session, both times on the
+               narrowest viewport (the first one measured) and never on the same
+               page a second time: a red that says "slow", not "broken", is a
+               red the next person learns to ignore. A page that genuinely has
+               no chrome after two loads still reports. */
+            if (!pageSpec.states || pageSpec === UNKNOWN_PAGE) throw first;
+            await page.goto('about:blank');
+            await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForSelector('[data-probe-chrome]', { timeout: 20000 });
+          }
           // A page whose chrome paints BEFORE its data (the Gallery's filter
           // rail) names the element that proves the data arrived; without it
           // the 900 ms settle below is a race against the fetch.
