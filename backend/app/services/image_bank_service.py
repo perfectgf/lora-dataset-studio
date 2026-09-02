@@ -5037,7 +5037,17 @@ def crop_image(user_id, bank_id, image_id, x, y, w, h, *,
     The user's file is never written to (the crop is a blob in the bank's own
     ``edited/``), the previous generation is kept until the new one is published,
     and every measured lane is invalidated so the next pass re-reads THIS image —
-    which is what makes "crop, then re-analyse, then curate" work at all."""
+    which is what makes "crop, then re-analyse, then curate" work at all.
+
+    ONE decode, ONE encode. nofaceman came back about the speed ("sometimes takes
+    3-5 seconds or more to do the cropping"): the crop used to stage an upright
+    lossless WebP of the WHOLE image first — the working file the ✨ improve and
+    the watermark cleaners need, because they edit a file — and then reopen that
+    copy, cut it, and encode the cut a second time. Lossless WebP at the app's
+    effort costs about a second per megapixel written on a Windows desktop (half
+    that on Linux), so a plain reframing paid for the full frame plus the box
+    and threw the full frame away. The box is now cut straight from the
+    resolved source by ``_cut_edited_copy``."""
     bank = get_bank(user_id, bank_id)
     if not bank:
         raise ValueError('bank not found')
@@ -5056,21 +5066,16 @@ def crop_image(user_id, bank_id, image_id, x, y, w, h, *,
     src = resolved_image_path(bank, row)
     if not src or not os.path.isfile(src):
         raise ValueError('the image could not be read from its folder')
-    from .face_dataset_service import _apply_watermark_crop
     generation = int(row.edit_generation or 0) + 1
     baked = (row.edit_baked_rotation if row.edit_method
              else (int(row.rotation or 0) % 360 or None))
     try:
-        dst = _stage_edited_copy(bank_id, row, src, generation)
+        dst = _cut_edited_copy(bank_id, row, src, generation, box)
+    except _EmptyCropBox:
+        raise ValueError('invalid crop box') from None
     except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
             Image.DecompressionBombWarning) as exc:
         raise ValueError(f'the image could not be prepared for cropping: {exc}') from exc
-    if not _apply_watermark_crop(str(dst), box):
-        try:
-            dst.unlink(missing_ok=True)
-        except OSError:
-            pass   # rollback is best-effort: the crop target may never have landed
-        raise ValueError('invalid crop box')
     row.edit_method = 'crop'
     row.edit_generation = generation
     row.edit_baked_rotation = baked
@@ -8655,11 +8660,59 @@ def _stage_clean_copy(bank_id, row, src_path) -> Path:
                                label='bank watermark clean')
 
 
-def _stage_edited_copy(bank_id, row, src_path, generation) -> Path:
-    """The ✂ crop / ✨ improve working image, in the Bank's ``edited/``."""
-    return _stage_upright_webp(
-        edited_image_path(bank_id, row.id, generation), src_path,
-        label='bank image edit')
+class _EmptyCropBox(ValueError):
+    """The box, once clamped to the image, has no pixel left in it."""
+
+
+def _cut_edited_copy(bank_id, row, src_path, generation, box) -> Path:
+    """The ✂ crop's blob in the Bank's ``edited/``, cut straight from the
+    resolved source: ONE decode, ONE lossless encode — of the box alone.
+
+    Everything the staging copy used to guarantee still holds. The cut is made
+    on the upright pixels the box was drawn on (``exif_transpose``, as the
+    staging copy did), the box is clamped to the image the same way, the blob
+    carries no metadata (an orientation tag would make the browser turn it a
+    second time), and it is published atomically so the previous generation
+    keeps serving until the new one exists. What is gone is the full-frame
+    lossless WebP that was written, reopened and thrown away in between.
+
+    Measured through the real route (Flask test client, a real photograph,
+    Pillow 12.3 / libwebp 1.6, best of three, on a Windows desktop): the POST
+    went from 3.4 s to 0.7 s at 2 MP and from 7.0 s to 1.6 s at 6 MP — the
+    encoder was 97 % of it before and after, two calls then one. Linux runs
+    both halves about twice as fast; the ratio is the same.
+
+    Raises ``_EmptyCropBox`` when the clamped box has no pixel (nothing is
+    written) and lets the source's own errors through."""
+    dst = edited_image_path(bank_id, row.id, generation)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(f'.{dst.name}.part-{uuid.uuid4().hex[:8]}')
+    try:
+        with safe_bank_source(src_path, label='bank image edit') as source:
+            source.load()
+            oriented = ImageOps.exif_transpose(source)
+            box = (max(0, int(box[0])), max(0, int(box[1])),
+                   min(oriented.width, int(box[2])),
+                   min(oriented.height, int(box[3])))
+            if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+                raise _EmptyCropBox('invalid crop box')
+            mode = ('RGBA' if ('A' in oriented.getbands()
+                               or 'transparency' in getattr(oriented, 'info', {}))
+                    else 'RGB')
+            # A fresh image, like the staging copy: the cut brings no `info`
+            # (EXIF, ICC) along, so the blob is exactly the pixels.
+            cut = Image.new(mode, (box[2] - box[0], box[3] - box[1]))
+            cut.paste(oriented.crop(box).convert(mode))
+        image_encoding.save_edit(cut, str(tmp), 'WEBP', image_encoding.LOSSLESS)
+        os.replace(tmp, dst)
+    except (OSError, ValueError, MemoryError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning):
+        try:
+            tmp.unlink()
+        except OSError:
+            pass   # rollback is best-effort: the temp may never have landed
+        raise
+    return dst
 
 
 def start_watermark_crop(app, user_id, bank_id, statuses=None, ids=None):
