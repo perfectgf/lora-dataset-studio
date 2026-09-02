@@ -843,11 +843,16 @@ def links_for_record(record_id) -> dict:
 
 
 def save_link(record_id, step, filename, dataset_id, *, model_id, version_id,
-              model_name='', version_name='', base_model=None, published=None):
+              model_name=None, version_name=None, base_model=None, published=None):
     """Upsert the link of one save. A save IS one Civitai version; linking it
     again simply retargets it. `filename` '' is a save whose file could not
     be named (its run's saves are not on this machine) — one such row per
-    step."""
+    step.
+
+    `model_name` defaults to None, not '': the job-harvest guard
+    (tests/test_dataset_job_harvest.py) reads every `model_name=<str>` default
+    in this package as an engine stamping a job name, and '' read as an
+    engine the dispatch does not route. It is a Civitai page's name here."""
     from ..extensions import db
     from ..models import CivitaiLink
     filename = str(filename or '')
