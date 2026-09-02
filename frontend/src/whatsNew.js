@@ -83,6 +83,33 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-krea-rebalance-and-enhancer-retired',
+    date: '2026-09-02',
+    title: 'Krea grids start on a bare ComfyUI — the rebalance and the enhancer are gone',
+    blurb:
+      'The Krea Studio graph now uses core ComfyUI nodes only: nothing to install, '
+      + 'and no more "custom node missing" at launch on a fresh setup. The NSFW / '
+      + 'texture rebalance toggle is retired — measured at a fixed seed, x4 did not '
+      + 'refine skin, it re-decided the whole picture (94% of pixels moved) — and so '
+      + 'is the experimental Krea2T Enhancer, which nobody used. Cells rendered with '
+      + 'either keep their record in the database; a resume renders them without.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-krea-hires-fix-and-finishing',
+    date: '2026-09-02',
+    title: 'A second pass for Krea, and a finishing touch after Upscale & improve',
+    blurb:
+      'Krea can now sample small and re-sample an upscaled latent — the model draws '
+      + 'the detail instead of interpolating it. Set the default in Settings ▸ Image '
+      + 'engines ▸ Krea 2, or pick it per run from the Studio\'s Sampling section. '
+      + 'And ✨ Upscale & improve gets a finishing pass the app runs itself: put the '
+      + 'source\'s colours back after a Klein pass, sharpen the finest detail, add a '
+      + 'touch of film grain — nothing to install, all off until you turn them on. '
+      + 'Sharpen and grain are also per run, in the Studio\'s Engine section.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-09-01-motion-auto-instructed',
     date: '2026-09-01',
     title: '✨ Auto obeys what you type, and you choose the model behind it',

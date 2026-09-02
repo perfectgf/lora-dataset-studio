@@ -262,7 +262,7 @@ export default function ComparisonStudio({ selection, baseModels = [], axes = nu
         // Base du run : '' (entrée « Official », Krea) ou rien de coché → absent,
         // le backend garde alors le défaut de la famille (UNET câblé / 1er modèle).
         z_model: selectedBase || undefined,
-        // Réglages globaux (resolution_tier, negative/sampler/detail/rebalance/…),
+        // Réglages globaux (resolution_tier, negative/sampler/detail/…),
         // déjà gatés PAR FAMILLE côté backend — champs vides absents = défauts gardés.
         ...genSettings,
         // 🎛 CFG / steps / 2e passe, EN DERNIER : ce que l'utilisateur vient de

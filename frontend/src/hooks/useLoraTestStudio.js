@@ -45,8 +45,8 @@ export function useLoraTestStudio(datasetId, family = null) {
     setLaunching(true);
     try {
       // `genSettings` = réglages GLOBAUX snake_case remontés par StudioGenerationSettings
-      // (resolution_tier, negative, sampler, scheduler, weight_dtype, rebalance(+_strength),
-      // enhancer(+_strength), detail_amount, permanent_loras) — déjà gatés PAR FAMILLE côté
+      // (resolution_tier, negative, sampler, scheduler, weight_dtype,
+      // detail_amount, permanent_loras) — déjà gatés PAR FAMILLE côté
       // serveur ; les champs vides sont absents (le backend garde alors ses défauts).
       const d = await postJson(`/api/dataset/${datasetId}/lora-test/run`,
         { checkpoints, strengths, seed, prompt, z_models: zModels, aspects, cfgs, steps: stepsList, steps2: steps2List, count, family, ...genSettings });
