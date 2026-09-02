@@ -507,6 +507,9 @@ _INDEX_ADDITIONS = (
     # the additive ALTER creates the column, only this list creates the index.
     ('video_test_clip', 'vfi_of'),
     ('video_test_clip', 'nr_of'),
+    # Same gap, found by the same crossing (an additive column declared
+    # index=True with no index line): closed while the list was open.
+    ('training_run_record', 'parent_record_id'),
 )
 
 

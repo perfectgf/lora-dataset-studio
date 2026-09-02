@@ -8,6 +8,7 @@ write-once backup, and the restore that undoes it.
 """
 import hashlib
 import io
+import json
 import re
 import zipfile
 
@@ -82,28 +83,28 @@ def _runtime(tmp_path, bridge=True, shim=True, model=True, small=False):
 
 def test_status_ready_only_when_everything_is_there(tmp_path):
     root = _runtime(tmp_path)
-    ok = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=True)
+    ok = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=True, ffmpeg_ok=True)
     assert ok['ready'] and ok['missing'] == [] and ok['driver_nvof']
     assert ok['runtime_dir'] == str(root)
 
 
 def test_status_names_what_is_missing_in_words(tmp_path):
     root = _runtime(tmp_path, bridge=False, model=False)
-    st = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': False}, worker_ok=True)
+    st = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': False}, worker_ok=True, ffmpeg_ok=True)
     assert not st['ready']
     assert any('bridge' in m and 'Setup' in m for m in st['missing'])
     assert any(nr.MODEL_FILE in m and str(root) in m for m in st['missing'])
     # Linux/Docker: the OS line, and nothing that pretends a driver could fix it.
-    st = nr.status(root, os_name='posix', driver={'ngx': False, 'nvof': False}, worker_ok=False)
+    st = nr.status(root, os_name='posix', driver={'ngx': False, 'nvof': False}, worker_ok=False, ffmpeg_ok=True)
     assert st['missing'][0].startswith('Windows')
     assert not any('driver' in m for m in st['missing'])
     # A driver-less Windows machine.
-    st = nr.status(_runtime(tmp_path / 'b'), os_name='nt', driver={'ngx': False, 'nvof': False}, worker_ok=True)
+    st = nr.status(_runtime(tmp_path / 'b'), os_name='nt', driver={'ngx': False, 'nvof': False}, worker_ok=True, ffmpeg_ok=True)
     assert any('NVIDIA display driver' in m for m in st['missing'])
 
 
 def test_a_render_process_without_numpy_is_named_and_sent_to_setup(tmp_path):
-    st = nr.status(_runtime(tmp_path), os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=False)
+    st = nr.status(_runtime(tmp_path), os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=False, ffmpeg_ok=True)
     assert not st['ready'] and not st['worker']
     assert any('numpy' in m and 'Setup' in m for m in st['missing'])
 
@@ -111,7 +112,7 @@ def test_a_render_process_without_numpy_is_named_and_sent_to_setup(tmp_path):
 def test_a_forwarder_under_the_models_name_is_called_out(tmp_path):
     """The classic trap: the 108 KB forwarder from a game mod, saved under the
     model's name. Present is not enough — the size says which file it is."""
-    st = nr.status(_runtime(tmp_path, small=True), os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=True)
+    st = nr.status(_runtime(tmp_path, small=True), os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=True, ffmpeg_ok=True)
     assert not st['ready']
     assert any('not the model' in m for m in st['missing'])
 
@@ -363,3 +364,65 @@ def test_the_child_drains_ffmpeg_stderr_so_a_chatty_encoder_cannot_block():
     pump.join(timeout=10)
     assert out == b'ok'
     assert len(tail) == 10 and tail[-1].startswith('line 3999')
+
+
+def test_a_missing_ffmpeg_is_named_and_sent_to_setup(tmp_path):
+    st = nr.status(_runtime(tmp_path), os_name='nt', driver={'ngx': True, 'nvof': True},
+                   worker_ok=True, ffmpeg_ok=False)
+    assert not st['ready'] and not st['ffmpeg']
+    assert any('ffmpeg' in m and 'Setup' in m for m in st['missing'])
+
+
+def test_the_childs_last_words_survive_os_exit():
+    """os._exit skips every buffer flush; the protocol's lines only reach the
+    parent because emit() flushes each one. Exercised with the real module:
+    a child that emits, then fails through os._exit, is read whole."""
+    import subprocess
+    import sys
+    script = str(nr.cfg.BACKEND_DIR / 'infer' / 'dlss5nr_infer.py')
+    code = chr(10).join([
+        'import importlib.util, sys',
+        'spec = importlib.util.spec_from_file_location("w", sys.argv[1])',
+        'm = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)',
+        'm.emit("frame", done=3)',
+        'm.fail("boom")',
+    ])
+    proc = subprocess.run([sys.executable, '-c', code, script], capture_output=True, text=True, timeout=60)
+    lines = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+    assert proc.returncode == 1
+    assert lines == [{'event': 'frame', 'done': 3}, {'event': 'error', 'message': 'boom'}]
+
+
+def test_every_additive_indexed_column_has_its_index_line(app):
+    """The migration that ADDS a column never creates its index; only
+    _INDEX_ADDITIONS does. The existing contract checks that list against the
+    models one way; this is the other way, so the next index=True column added
+    through _SCHEMA_ADDITIONS cannot ship index-less on every older database
+    (vfi_of did, for a week)."""
+    from app import _INDEX_ADDITIONS, _SCHEMA_ADDITIONS
+    from app.extensions import db
+    indexed = set(_INDEX_ADDITIONS)
+    missing = []
+    with app.app_context():
+        for table, col, _type in _SCHEMA_ADDITIONS:
+            model_table = db.metadata.tables.get(table)
+            if model_table is None or col not in model_table.c:
+                continue
+            if model_table.c[col].index and (table, col) not in indexed:
+                missing.append((table, col))
+    assert not missing, f'index=True columns added by migration but never indexed on old databases: {missing}'
+
+
+def test_backups_leave_with_their_clips_and_with_the_dataset(app, client, tmp_path, monkeypatch):
+    ds_id, ids, out = _dataset(app, tmp_path)
+    _stub_render(monkeypatch)
+    _run_job_inline(monkeypatch)
+    r = client.post(f'/api/video-dataset/{ds_id}/neural-render', json={'ids': []})
+    assert r.status_code == 200
+    root = nr.backup_dir(ds_id)
+    assert sorted(p.name for p in root.iterdir()) == ['clip_0001.mp4', 'clip_0002.mp4']
+    r = client.post(f'/api/video-dataset/{ds_id}/clips/remove', json={'ids': [ids[0]]})
+    assert r.status_code == 200 and r.get_json()['removed'] == 1
+    assert sorted(p.name for p in root.iterdir()) == ['clip_0002.mp4']
+    assert client.delete(f'/api/video-dataset/{ds_id}').status_code == 200
+    assert not root.exists()

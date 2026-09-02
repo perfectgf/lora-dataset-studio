@@ -185,7 +185,7 @@ def runtime_files(root=None) -> dict:
     }
 
 
-def status(root=None, os_name=None, driver=None, worker_ok=None) -> dict:
+def status(root=None, os_name=None, driver=None, worker_ok=None, ffmpeg_ok=None) -> dict:
     """The capability, as the Setup card and the two verbs read it.
 
     Every absence is a SENTENCE naming the gesture that fixes it, and the
@@ -216,6 +216,12 @@ def status(root=None, os_name=None, driver=None, worker_ok=None) -> dict:
         missing.append('an NVIDIA display driver (the NGX runtime it installs was not found)')
     if os_ok and not worker_ok:
         missing.append('the video extra (numpy for the render process) — install it from Setup')
+    # ffmpeg reads and writes the clip. Asked through the one definition of
+    # 'the encoder works' (a RUN, cached), never a path check.
+    if ffmpeg_ok is None:
+        ffmpeg_ok = bool(ffmpeg_tools.ffmpeg_ready()['ok']) if os_ok else False
+    if os_ok and not ffmpeg_ok:
+        missing.append('ffmpeg (the video extra installs it) — install it from Setup')
     if not files['bridge'] or not files['shim']:
         missing.append('the neural rendering bridge — install it from Setup')
     if files['model_present_but_small']:
@@ -228,6 +234,7 @@ def status(root=None, os_name=None, driver=None, worker_ok=None) -> dict:
         'driver_ngx': bool(drv['ngx']),
         'driver_nvof': bool(drv['nvof']),
         'worker': bool(worker_ok),
+        'ffmpeg': bool(ffmpeg_ok),
         'bridge': bool(files['bridge'] and files['shim']),
         'model': bool(files['model']),
         'model_size': files['model_size'],
@@ -562,6 +569,34 @@ def _render_one_in_place(dataset_id, out_dir, filename, params, cancel=None) -> 
             except OSError:
                 pass
     return result
+
+
+def forget_backups(dataset_id, filenames=None) -> int:
+    """Drop the kept originals of clips that left the dataset (every backup when
+    ``filenames`` is None — the dataset itself is gone). A backup without its
+    clip can never be restored: a re-promotion creates a NEW dataset id, so
+    the folder would only ever grow. Called by the routes that remove clips
+    and delete datasets, after the removal succeeded."""
+    root = backup_dir(dataset_id)
+    if not root.is_dir():
+        return 0
+    if filenames is None:
+        shutil.rmtree(root, ignore_errors=True)
+        return 1
+    dropped = 0
+    for name in filenames:
+        path = root / os.path.basename(str(name))
+        if path.is_file():
+            try:
+                path.unlink()
+                dropped += 1
+            except OSError:
+                pass
+    try:
+        root.rmdir()          # only when empty
+    except OSError:
+        pass
+    return dropped
 
 
 def restore_dataset_clips(user_id, dataset_id, clip_ids=None) -> dict:

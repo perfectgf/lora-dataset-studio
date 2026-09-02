@@ -183,9 +183,14 @@ def video_dataset_remove_clips(dataset_id):
     ids = data.get('ids')
     if not isinstance(ids, list):
         return jsonify({'error': 'ids must be a list of clip ids'}), 400
+    # The kept originals of the doomed clips are read BEFORE the rows go: a
+    # backup whose clip left can never be restored and would only accumulate.
+    doomed = svc.dataset_clip_filenames(LOCAL_USER, dataset_id, ids)
     out = svc.remove_dataset_clips(LOCAL_USER, dataset_id, ids)
     if out is None:
         return _missing(dataset_id)
+    if out.get('removed'):
+        nr.forget_backups(dataset_id, doomed)
     return jsonify({'ok': True, **out})
 
 
@@ -213,6 +218,7 @@ def video_dataset_delete(dataset_id):
     promoted, so the user can re-cut at a different length without re-triaging."""
     if not svc.delete_video_dataset(LOCAL_USER, dataset_id):
         return _missing(dataset_id)
+    nr.forget_backups(dataset_id)      # the kept originals go with the set
     return jsonify({'ok': True})
 
 

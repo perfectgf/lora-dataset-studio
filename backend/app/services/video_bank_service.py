@@ -3326,6 +3326,21 @@ def set_dataset_clip_caption(user_id, dataset_id, clip_id, caption) -> dict | No
 DATASET_CLIP_DELETE_MODE = 'app_trash'
 
 
+def dataset_clip_filenames(user_id, dataset_id, clip_ids) -> list:
+    """The filenames behind ``clip_ids`` in this dataset — read before a removal
+    so what else hangs off a clip (its kept original, see neural_render) can be
+    dropped with it. Unknown ids and other datasets' ids are simply absent."""
+    ds = get_video_dataset(user_id, dataset_id)
+    if ds is None:
+        return []
+    ids = {int(i) for i in (clip_ids or []) if str(i).lstrip('-').isdigit()}
+    if not ids:
+        return []
+    rows = (VideoDatasetClip.query
+            .filter(VideoDatasetClip.dataset_id == ds.id, VideoDatasetClip.id.in_(ids)).all())
+    return [r.filename for r in rows]
+
+
 def remove_dataset_clips(user_id, dataset_id, clip_ids) -> dict | None:
     """Drop clips OUT of a built dataset — the encode, never the triage.
 
