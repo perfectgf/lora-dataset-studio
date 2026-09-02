@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-neural-render',
+    date: '2026-09-02',
+    title: 'Re-render video clips with DLSS 5 Neural Rendering',
+    blurb:
+      'A Neural render button on the clips of a video dataset and on the finished '
+      + 'clips of the Test Studio runs the NVIDIA DLSS 5 model over them: skin, hair '
+      + 'and fabric gain structure the source only implied. In a dataset the render '
+      + 'replaces the clip and the original is kept (Restore); in the studio it is a '
+      + 'new clip to compare. Windows + NVIDIA only; Setup installs the bridge, you '
+      + 'bring the model file.',
+    to: '/datasets',
     id: '2026-09-02-video-studio-preview-size',
     date: '2026-09-02',
     title: 'A Preview size slider in the Video Test Studio’s start frame picker',

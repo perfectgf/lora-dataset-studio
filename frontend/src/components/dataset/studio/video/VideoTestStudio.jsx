@@ -39,10 +39,11 @@ import VideoLoraPicker from './VideoLoraPicker';
 import VideoOptionsPanel from './VideoOptionsPanel';
 import MotionModelDialog from './MotionModelDialog';
 import VideoSourcePicker from './VideoSourcePicker';
+import NeuralRenderDialog from '../../../videobank/NeuralRenderDialog';
 import { shortLoraName } from './videoLoraGroups';
 import {
   buildGeneratePayload, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
-  isRunning, optionsUrl, clipVfiUrl, motionEnhanceUrl, motionSuggestUrl,
+  isRunning, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, motionEnhanceUrl, motionSuggestUrl,
 } from './videoStudioApi';
 
 /* Turbo ON by default. Without it the base is undistilled and a first clip is
@@ -171,6 +172,11 @@ export default function VideoTestStudio() {
   // the new card simply appears and renders. `vfiBusy` only guards the double
   // click between the POST and that first poll.
   const [vfiBusy, setVfiBusy] = useState(null);
+  // ✨ Neural render. `nrClip` is the finished clip the dialog was opened
+  // for; the render itself is a queued row like any other, so the list's
+  // poll shows it land and `nrBusy` only guards the double click.
+  const [nrClip, setNrClip] = useState(null);
+  const [nrBusy, setNrBusy] = useState(null);
   // ✨ The Motion helpers. `motionBusy` names WHICH one is running so the two
   // buttons cannot both spin, and the enhancer toggle is a per-run choice —
   // remembered nowhere, because it changes what the sampler reads.
@@ -180,6 +186,19 @@ export default function VideoTestStudio() {
   // buttons send it without re-reading a setting on every click.
   const [modelOpen, setModelOpen] = useState(false);
   const [motionModel, setMotionModel] = useState('');
+  const neuralRender = async (clip, params) => {
+    setNrBusy(clip.id);
+    try {
+      await postJson(clipNeuralRenderUrl(clip.id), params);
+      setNrClip(null);
+      toast.info?.('Neural render queued — the new clip appears below when it is done.');
+      await refreshClips();
+    } catch (e) {
+      toast.error(e?.message || 'That clip could not be neural-rendered.');
+    } finally {
+      setNrBusy(null);
+    }
+  };
   const smooth = async (clip) => {
     setVfiBusy(clip.id);
     try {
@@ -470,12 +489,23 @@ export default function VideoTestStudio() {
         <h2 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">
           Clips — newest first
         </h2>
-        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={smooth} vfiBusy={vfiBusy} />
+        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={smooth} vfiBusy={vfiBusy}
+          onNeuralRender={(clip) => setNrClip(clip)} nrBusy={nrBusy} />
       </section>
 
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
         onRun={generate} runLabel="▶ Generate clip" note={reason} />
 
+      {/* ✨ The neural render dials, asked once per clip. The capability's own
+          sentences come with the options payload, so the dialog can refuse
+          in words on a machine without the model. */}
+      {nrClip && (
+        <NeuralRenderDialog status={options?.neural_render} busy={nrBusy === nrClip.id}
+          subject={`Clip #${nrClip.id}${nrClip.seconds ? ` (${nrClip.seconds}s)` : ''}.`}
+          consequence="The render is a NEW clip in this list; the original stays as it is."
+          onRender={(params) => neuralRender(nrClip, params)}
+          onClose={() => setNrClip(null)} />
+      )}
       {/* ⚙ The model that writes the motion, on demand. */}
       {modelOpen && (
         <MotionModelDialog onClose={() => setModelOpen(false)}

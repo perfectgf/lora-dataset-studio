@@ -7,6 +7,7 @@ import CameraInstallCard from './CameraInstallCard'
 import VideoStudioInstallCard from './VideoStudioInstallCard'
 import KreaInstallCard from './KreaInstallCard'
 import SeedVr2InstallCard from './SeedVr2InstallCard'
+import Dlss5InstallCard from './Dlss5InstallCard'
 import { HelpBadge } from '../../help/HelpMode'
 import { fmtSize } from './fmtSize'
 
@@ -253,6 +254,7 @@ export default function InstallEverything({ plan, caps, onDone }) {
       <SeedVr2InstallCard caps={caps} onDone={onDone} />
       <CameraInstallCard caps={caps} onDone={onDone} />
       <VideoStudioInstallCard caps={caps} onDone={onDone} />
+      <Dlss5InstallCard caps={caps} onDone={onDone} />
 
       {/* Path 3 — the one-by-one menu, always visible (install/repair a single component). */}
       <section className="rounded-xl border border-border bg-surface p-5">

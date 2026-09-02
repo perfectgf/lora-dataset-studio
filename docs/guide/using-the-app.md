@@ -3672,6 +3672,43 @@ and the timecode. And there is no export button because there is nothing to
 export to: the dataset **is** its folder, flat, `.mp4` plus homonym `.txt`, which
 is exactly what every trainer reads.
 
+## Neural render for video clips
+
+NVIDIA's **DLSS 5 Neural Rendering** model re-renders a frame's materials and
+lighting: skin, hair and fabric gain structure the source only implied. It was
+built for games, but a plain video is a valid input, and the app runs it over a
+finished clip in two places:
+
+- **A video dataset, Clips section** — select clips, then **✨ Neural render**.
+  The render **replaces the clip in place** (the folder IS the dataset, so the
+  file the trainer reads must be the render) and the **original is kept** outside
+  the dataset. **🩹 Restore** brings it back at any time, for the selection or
+  for every rendered clip. A clip rendered twice is rendered from its original
+  both times — renders never stack.
+- **The Video Test Studio, clip history** — **✨ Neural** on a finished clip
+  makes a **new clip** in the list, tagged `neural render`; the original stays,
+  so the pair can be compared.
+
+**The dials.** *Tone* is how much the model relights (0 keeps the clip's own
+tones — the setting for flat art and anime, where the default greys pure whites).
+*Structure* is how much micro-detail is added. *Automatic mask* lets the model
+decide where it acts (marginal). The other controls the model exposes do nothing
+through this bridge and are not offered.
+
+**Frames.** *Temporal* keeps the model's history across frames with motion the
+driver estimates; it needs a clip **at least 704 px wide** (measured: 700 fails,
+704 passes, whatever the height). *Auto* picks it when the clip allows and falls
+back to *Still* otherwise, and says so. A scene cut resets the history.
+
+**What it needs.** Windows and an NVIDIA GPU with a recent driver — the model is a
+Direct3D 12 library, so there is no Linux or Docker path. Setup installs the
+small open-source **bridge**; the **model file** (`nvngx_dlssnr.dll`) is NVIDIA's
+and yours to place in the folder Setup names — the app does not download it and
+offers no link. NVIDIA ships it for the RTX 50 series; the model itself decides
+on which GPU it runs, and a refusal is shown in its own words on the first clip
+you render. On an RTX 4090 a 1080p frame takes about 30 ms (the model alone),
+about 130 ms end to end with decoding and encoding.
+
 ## Test a video LoRA before you trust it
 
 Training a video LoRA gives you a `.safetensors` and a loss curve. Neither of
