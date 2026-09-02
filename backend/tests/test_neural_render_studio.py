@@ -1,0 +1,138 @@
+"""✨ Neural render in the Video Test Studio — a NEW clip, never an edit.
+
+Same rule as ↗ Smooth (test_video_studio_vfi.py): the studio exists to compare,
+so the render is its own row, pointing back at its source through `nr_of`, and
+the source keeps its file and its status. The child is replaced by a stand-in;
+the thread that flips the row is run to completion before asserting.
+"""
+import os
+
+import pytest
+
+from app.services import neural_render as nr
+from app.services import video_test_studio as vts
+
+
+def _clip(app, **kw):
+    from app.extensions import db
+    from app.models import VideoTestClip
+    with app.app_context():
+        row = VideoTestClip(**{'status': 'done', 'filename': 'clip.mp4', 'mode': 'i2v',
+                               'fps': 24, 'frames': 56, 'prompt': 'she turns',
+                               'lora': 'x.safetensors', 'seed': 7, **kw})
+        db.session.add(row)
+        db.session.commit()
+        return row.id
+
+
+def _ready(monkeypatch):
+    monkeypatch.setattr(nr, 'status', lambda root=None, os_name=None, driver=None: {
+        'ready': True, 'missing': [], 'driver_nvof': True})
+
+
+def _join_thread(src_id):
+    thread = nr._STUDIO_THREADS.get(src_id)
+    if thread is not None:
+        thread.join(timeout=10)
+
+
+def test_the_render_is_a_new_row_pointing_at_its_source(app, tmp_path, monkeypatch):
+    from app.models import VideoTestClip
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    (tmp_path / 'clip.mp4').write_bytes(b'ORIGINAL')
+    _ready(monkeypatch)
+    seen = {}
+
+    def fake(src, dst, params, **kw):
+        seen['src'] = src
+        with open(dst, 'wb') as fh:
+            fh.write(b'RENDERED')
+        return {'frames': 56, 'mode_note': 'still mode', 'mean_ms': 12.0}
+    monkeypatch.setattr(nr, 'render_video', fake)
+    src_id = _clip(app)
+    with app.app_context():
+        out = nr.start_studio_render(app, 'local', src_id, {'tone': 0.5, 'temporal': 'off'})
+        assert out['params']['tone'] == 0.5
+        new_id = out['clip_id']
+        assert new_id != src_id
+    _join_thread(src_id)
+    with app.app_context():
+        new = VideoTestClip.query.get(new_id)
+        src = VideoTestClip.query.get(src_id)
+        assert new.nr_of == src_id
+        assert new.status == 'done' and new.filename and new.filename != 'clip.mp4'
+        assert (tmp_path / new.filename).read_bytes() == b'RENDERED'
+        # The source is untouched: same file, same bytes, still done.
+        assert src.status == 'done' and src.filename == 'clip.mp4'
+        assert (tmp_path / 'clip.mp4').read_bytes() == b'ORIGINAL'
+        assert seen['src'] == os.path.join(str(tmp_path), 'clip.mp4')
+        # The settings travel so the card still says what made the source.
+        assert new.lora == 'x.safetensors' and new.seed == 7 and new.prompt == 'she turns'
+
+
+def test_a_failed_render_lands_as_failed_with_the_childs_sentence(app, tmp_path, monkeypatch):
+    from app.models import VideoTestClip
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    (tmp_path / 'clip.mp4').write_bytes(b'ORIGINAL')
+    _ready(monkeypatch)
+
+    def boom(src, dst, params, **kw):
+        raise nr.NeuralRenderError('the model refused the frame')
+    monkeypatch.setattr(nr, 'render_video', boom)
+    src_id = _clip(app)
+    with app.app_context():
+        new_id = nr.start_studio_render(app, 'local', src_id, {})['clip_id']
+    _join_thread(src_id)
+    with app.app_context():
+        new = VideoTestClip.query.get(new_id)
+        assert new.status == 'failed' and 'refused the frame' in new.error
+        assert new.filename is None
+
+
+def test_refusals_are_sentences(app, tmp_path, monkeypatch):
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    _ready(monkeypatch)
+    with app.app_context():
+        with pytest.raises(nr.NeuralRenderError, match='not found'):
+            nr.start_studio_render(app, 'local', 999, {})
+        pending = _clip(app, status='pending', filename=None)
+        with pytest.raises(nr.NeuralRenderError, match='not finished'):
+            nr.start_studio_render(app, 'local', pending, {})
+        gone = _clip(app, filename='gone.mp4')
+        with pytest.raises(nr.NeuralRenderError, match='no longer on disk'):
+            nr.start_studio_render(app, 'local', gone, {})
+    monkeypatch.setattr(nr, 'status', lambda root=None, os_name=None, driver=None: {
+        'ready': False, 'missing': ['Windows — x'], 'driver_nvof': False})
+    with app.app_context():
+        with pytest.raises(nr.NeuralRenderError, match='Windows'):
+            nr.start_studio_render(app, 'local', _clip(app), {})
+
+
+def test_the_route_and_the_clip_payload(app, client, tmp_path, monkeypatch):
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    (tmp_path / 'clip.mp4').write_bytes(b'ORIGINAL')
+    _ready(monkeypatch)
+    monkeypatch.setattr(nr, 'render_video', lambda src, dst, params, **kw: (
+        open(dst, 'wb').write(b'R') and {'frames': 1, 'mode_note': 'still mode'}))
+    src_id = _clip(app)
+    r = client.post(f'/api/video-studio/clip/{src_id}/neural-render', json={'tone': 3})
+    assert r.status_code == 400 and 'tone' in r.get_json()['error']
+    r = client.post(f'/api/video-studio/clip/{src_id}/neural-render', json={'tone': 0})
+    assert r.status_code == 200
+    new_id = r.get_json()['clip_id']
+    _join_thread(src_id)
+    r = client.get('/api/video-studio/clips')
+    rows = {c['id']: c for c in r.get_json()['clips']}
+    assert rows[new_id]['nr_of'] == src_id
+    assert rows[src_id]['nr_of'] is None
+    r = client.post('/api/video-studio/clip/999/neural-render', json={})
+    assert r.status_code == 400
+
+
+def test_the_column_is_migrated_for_legacy_databases():
+    """A database created before this wave has no `nr_of`; the additive
+    migration list must carry it or every studio read dies on a legacy file."""
+    from app import __init__ as pkg  # noqa: F401 — the list lives in the package init
+    import app as app_pkg
+    src = open(os.path.join(os.path.dirname(app_pkg.__file__), '__init__.py'), encoding='utf-8').read()
+    assert "('video_test_clip', 'nr_of', 'INTEGER')" in src

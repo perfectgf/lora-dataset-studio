@@ -1780,6 +1780,9 @@ class VideoTestClip(db.Model):
     # new artefact with its own frame rate — never an edit of the original,
     # which would destroy the comparison the studio exists for.
     vfi_of = db.Column(Integer, nullable=True, index=True)
+    # ✨ The clip this one was neural-rendered FROM (DLSS 5), or NULL — the same
+    # rule: a new artefact next to the original, never an edit of it.
+    nr_of = db.Column(Integer, nullable=True, index=True)
 
     rating = db.Column(Integer, nullable=False, default=0)  # 1 | -1 | 0, same scale as the image studio
     created_at = db.Column(DateTime, default=db.func.current_timestamp())

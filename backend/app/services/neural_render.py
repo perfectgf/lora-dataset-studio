@@ -185,7 +185,7 @@ def runtime_files(root=None) -> dict:
     }
 
 
-def status(root=None, os_name=None, driver=None) -> dict:
+def status(root=None, os_name=None, driver=None, worker_ok=None) -> dict:
     """The capability, as the Setup card and the two verbs read it.
 
     Every absence is a SENTENCE naming the gesture that fixes it, and the
@@ -195,6 +195,18 @@ def status(root=None, os_name=None, driver=None) -> dict:
     """
     os_ok = (os_name or os.name) == 'nt'
     drv = driver if driver is not None else (_driver_files() if os_ok else {'ngx': False, 'nvof': False})
+    # The child needs numpy in the interpreter it runs under. The app's own
+    # requirements do not carry numpy; the video extra does, in the same
+    # interpreter this lane resolves — so the question is the video lane's
+    # decode probe, asked with its own cache key (one subprocess per TTL, not
+    # one per poll). Injectable for tests, which must not probe the machine.
+    if worker_ok is None:
+        if os_ok:
+            from .. import capabilities as _caps
+            worker_ok = _caps._cached_import('video_decode', worker_python(),
+                                             _caps.CAPABILITY_IMPORTS['video'])
+        else:
+            worker_ok = False
     files = runtime_files(root)
     root_str = str(Path(root) if root else runtime_dir())
     missing = []
@@ -202,6 +214,8 @@ def status(root=None, os_name=None, driver=None) -> dict:
         missing.append('Windows — the DLSS 5 model is a Direct3D 12 library and runs nowhere else')
     elif not drv['ngx']:
         missing.append('an NVIDIA display driver (the NGX runtime it installs was not found)')
+    if os_ok and not worker_ok:
+        missing.append('the video extra (numpy for the render process) — install it from Setup')
     if not files['bridge'] or not files['shim']:
         missing.append('the neural rendering bridge — install it from Setup')
     if files['model_present_but_small']:
@@ -213,6 +227,7 @@ def status(root=None, os_name=None, driver=None) -> dict:
         'os_ok': os_ok,
         'driver_ngx': bool(drv['ngx']),
         'driver_nvof': bool(drv['nvof']),
+        'worker': bool(worker_ok),
         'bridge': bool(files['bridge'] and files['shim']),
         'model': bool(files['model']),
         'model_size': files['model_size'],

@@ -82,30 +82,36 @@ def _runtime(tmp_path, bridge=True, shim=True, model=True, small=False):
 
 def test_status_ready_only_when_everything_is_there(tmp_path):
     root = _runtime(tmp_path)
-    ok = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': True})
+    ok = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=True)
     assert ok['ready'] and ok['missing'] == [] and ok['driver_nvof']
     assert ok['runtime_dir'] == str(root)
 
 
 def test_status_names_what_is_missing_in_words(tmp_path):
     root = _runtime(tmp_path, bridge=False, model=False)
-    st = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': False})
+    st = nr.status(root, os_name='nt', driver={'ngx': True, 'nvof': False}, worker_ok=True)
     assert not st['ready']
     assert any('bridge' in m and 'Setup' in m for m in st['missing'])
     assert any(nr.MODEL_FILE in m and str(root) in m for m in st['missing'])
     # Linux/Docker: the OS line, and nothing that pretends a driver could fix it.
-    st = nr.status(root, os_name='posix', driver={'ngx': False, 'nvof': False})
+    st = nr.status(root, os_name='posix', driver={'ngx': False, 'nvof': False}, worker_ok=False)
     assert st['missing'][0].startswith('Windows')
     assert not any('driver' in m for m in st['missing'])
     # A driver-less Windows machine.
-    st = nr.status(_runtime(tmp_path / 'b'), os_name='nt', driver={'ngx': False, 'nvof': False})
+    st = nr.status(_runtime(tmp_path / 'b'), os_name='nt', driver={'ngx': False, 'nvof': False}, worker_ok=True)
     assert any('NVIDIA display driver' in m for m in st['missing'])
+
+
+def test_a_render_process_without_numpy_is_named_and_sent_to_setup(tmp_path):
+    st = nr.status(_runtime(tmp_path), os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=False)
+    assert not st['ready'] and not st['worker']
+    assert any('numpy' in m and 'Setup' in m for m in st['missing'])
 
 
 def test_a_forwarder_under_the_models_name_is_called_out(tmp_path):
     """The classic trap: the 108 KB forwarder from a game mod, saved under the
     model's name. Present is not enough — the size says which file it is."""
-    st = nr.status(_runtime(tmp_path, small=True), os_name='nt', driver={'ngx': True, 'nvof': True})
+    st = nr.status(_runtime(tmp_path, small=True), os_name='nt', driver={'ngx': True, 'nvof': True}, worker_ok=True)
     assert not st['ready']
     assert any('not the model' in m for m in st['missing'])
 
