@@ -220,6 +220,8 @@ _SCHEMA_ADDITIONS = (
     ('video_clip', 'caption_fields', 'TEXT'),
     ('video_clip', 'caption_tokens', 'INTEGER'),
     ('video_test_clip', 'vfi_of', 'INTEGER'),
+    # The clip a studio clip was neural-rendered FROM (DLSS 5), same reading as vfi_of.
+    ('video_test_clip', 'nr_of', 'INTEGER'),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),
@@ -500,6 +502,14 @@ _INDEX_ADDITIONS = (
     ('bank_image', 'medium'),
     ('lora_test_image', 'record_id'),
     ('lora_test_image', 'parent_image_id'),
+    # Both lineage pointers of the video studio are declared index=True; vfi_of
+    # shipped without this line, so a database older than it had no index —
+    # the additive ALTER creates the column, only this list creates the index.
+    ('video_test_clip', 'vfi_of'),
+    ('video_test_clip', 'nr_of'),
+    # Same gap, found by the same crossing (an additive column declared
+    # index=True with no index line): closed while the list was open.
+    ('training_run_record', 'parent_record_id'),
 )
 
 

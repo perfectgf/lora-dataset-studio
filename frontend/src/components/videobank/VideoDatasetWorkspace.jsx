@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Clapperboard, Copy, Folder } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
-import { postForm, postJson } from '../../api/fetchClient'
+import { apiFetch, postForm, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import { captionFrequencyEntries } from '../dataset/captionCategory'
@@ -11,8 +11,11 @@ import VideoCheckpointManager from './VideoCheckpointManager'
 import { videoPreflightUrl } from './videoCloudLaunch'
 import VideoDatasetGrid from './VideoDatasetGrid'
 import VideoDatasetLightbox from './VideoDatasetLightbox'
+import NeuralRenderDialog from './NeuralRenderDialog'
 import {
-  videoDatasetClipCaptionUrl, videoDatasetReferencesUrl, videoDatasetRemoveClipsUrl,
+  videoDatasetClipCaptionUrl, videoDatasetClipOriginalUrl, videoDatasetNeuralRenderCancelUrl,
+  videoDatasetNeuralRenderRestoreUrl,
+  videoDatasetNeuralRenderUrl, videoDatasetReferencesUrl, videoDatasetRemoveClipsUrl,
 } from './videoBankApi'
 import { toggleSelection, selectRange } from './videoTriage'
 import { VIDEO_DATASET_SECTIONS } from './videoDatasetSections'
@@ -77,6 +80,13 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
   // is gone.
   const [saveCount, setSaveCount] = useState(0)
   const [trainingRefresh, setTrainingRefresh] = useState(0)
+  // ✨ Neural render (DLSS 5). `nr` is the GET's answer — the capability's own
+  // sentences, the job on THIS dataset, the ids currently playing a render —
+  // read once on open and then only while a pass runs (the workspace's 2 s
+  // poll never carries it). `nrOpen` holds the ids the dialog was opened for.
+  const [nr, setNr] = useState(null)
+  const [nrOpen, setNrOpen] = useState(null)
+  const [nrBusy, setNrBusy] = useState(false)
 
   const counts = useMemo(() => clipCounts(items), [items])
   const shown = useMemo(() => visibleClips(items, { query, filter, sort }),
@@ -211,6 +221,61 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
     else toast.success(report)
     await refresh()
   }, [selected, items, ds.id, refresh, toast])
+
+  const readNr = useCallback(async () => {
+    try {
+      const d = await apiFetch(videoDatasetNeuralRenderUrl(ds.id))
+      setNr(d)
+      return d
+    } catch {
+      return null
+    }
+  }, [ds.id])
+  useEffect(() => { readNr() }, [readNr])
+  // Poll only while a pass runs, and once more after it ends — the grid's
+  // thumbnails do not change (a render keeps the frame), the badge count does.
+  const nrRunning = !!(nr?.job && !nr.job.finished)
+  useEffect(() => {
+    if (!nrRunning) return undefined
+    const t = setInterval(async () => {
+      const d = await readNr()
+      if (d?.job?.finished) {
+        if (d.job.error) toast.warning(`Neural render stopped: ${d.job.error}`)
+        else toast.success(`Neural render done — ${d.job.done} of ${d.job.total} clips rendered.`)
+        await refresh()
+      }
+    }, 1500)
+    return () => clearInterval(t)
+  }, [nrRunning, readNr, refresh, toast])
+
+  const startNr = useCallback(async (ids, params) => {
+    setNrBusy(true)
+    try {
+      await postJson(videoDatasetNeuralRenderUrl(ds.id), { ids, ...params })
+      setNrOpen(null)
+      toast.info?.(`Neural render started on ${ids.length || counts.total} clips — originals are kept.`)
+      await readNr()
+    } catch (e) {
+      toast.error(e?.message || 'Could not start the neural render.')
+    } finally {
+      setNrBusy(false)
+    }
+  }, [ds.id, counts.total, readNr, toast])
+  const cancelNr = useCallback(async () => {
+    try { await postJson(videoDatasetNeuralRenderCancelUrl(ds.id), {}) } catch { /* the poll will say */ }
+  }, [ds.id])
+  const restoreNr = useCallback(async (ids) => {
+    try {
+      const d = await postJson(videoDatasetNeuralRenderRestoreUrl(ds.id), { ids })
+      toast.success(`${d.restored} original${d.restored === 1 ? '' : 's'} restored.`)
+      await readNr()
+      await refresh()
+    } catch (e) {
+      toast.error(e?.message || 'Could not restore the originals.')
+    }
+  }, [ds.id, readNr, refresh, toast])
+  const renderedIds = nr?.rendered_ids || []
+  const selectedRendered = selected.filter((id) => renderedIds.includes(id))
 
   // Two lists, one rule, stated once in videoDatasetClips.lightboxTargets: the
   // clip comes from the FULL set, the stepping comes from the filtered one. The
@@ -466,6 +531,31 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
                   : `${shown.length} of ${counts.total} shown. `}
                 {captionCoverageNote(counts, ds.trigger_word)}
               </p>
+              {/* ✨ What the neural render is doing to this set, in one line:
+                  progress and a Stop while it runs, the count of clips playing
+                  a render (with the way back) when it is not. Nothing when
+                  neither is true — a line about an idle feature is chrome. */}
+              {(nrRunning || renderedIds.length > 0) && (
+                <p id="vds-clips-nr" role="status" className="flex flex-wrap items-center gap-2 text-xs text-content-muted">
+                  {nrRunning ? (
+                    <>
+                      <span>✨ Neural render: {nr.job.done} of {nr.job.total} clips{nr.job.detail ? ` — ${nr.job.detail}` : ''}</span>
+                      <button type="button" onClick={cancelNr}
+                        className="min-h-10 rounded border border-border bg-surface-raised px-2 py-0.5 text-[0.6875rem] text-content-muted hover:text-content lg:min-h-0">
+                        Stop
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span>✨ {renderedIds.length} clip{renderedIds.length === 1 ? '' : 's'} play{renderedIds.length === 1 ? 's' : ''} a neural render (originals kept).</span>
+                      <button type="button" onClick={() => restoreNr([])}
+                        className="min-h-10 rounded border border-border bg-surface-raised px-2 py-0.5 text-[0.6875rem] text-content-muted hover:text-content lg:min-h-0">
+                        🩹 Restore all originals
+                      </button>
+                    </>
+                  )}
+                </p>
+              )}
               <VideoDatasetGrid datasetId={ds.id} clips={shown} selected={selected}
                 onToggle={toggle} onOpen={(clip) => setOpenId(clip.id)}
                 emptyMessage={items.length
@@ -486,6 +576,21 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
                   className="min-h-10 rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:bg-surface lg:min-h-0">
                   Clear
                 </button>
+                {/* ✨ DLSS 5 over the selection, in place — the dialog says what
+                    happens to the clips and refuses, in words, on a machine
+                    without the model. Never hidden: a user without an NVIDIA
+                    card still reads what this button would have done. */}
+                <button type="button" onClick={() => setNrOpen(selected)} disabled={nrRunning}
+                  title={nr?.status && !nr.status.ready ? 'Neural rendering is not set up on this machine — open the dialog to see what is missing' : 'Re-render the selected clips with DLSS 5 Neural Rendering (originals kept)'}
+                  className="min-h-10 rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-50 lg:min-h-0">
+                  ✨ Neural render
+                </button>
+                {selectedRendered.length > 0 && !nrRunning && (
+                  <button type="button" onClick={() => restoreNr(selectedRendered)}
+                    className="min-h-10 rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:text-content lg:min-h-0">
+                    🩹 Restore original{selectedRendered.length === 1 ? '' : 's'} ({selectedRendered.length})
+                  </button>
+                )}
                 <button type="button" onClick={() => removeClips(selected)}
                   className="ml-auto min-h-10 rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:border-rose-500/60 hover:text-rose-300 lg:min-h-0">
                   🗑 Remove from dataset
@@ -615,8 +720,19 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
           onPrev={() => setOpenId(player.prevId ?? openId)}
           onNext={() => setOpenId(player.nextId ?? openId)}
           onRemove={(clip) => removeClips([clip.id])}
+          compareSrc={renderedIds.includes(player.clip.id)
+            ? videoDatasetClipOriginalUrl(ds.id, player.clip.id) : null}
           hasPrev={player.prevId != null}
           hasNext={player.nextId != null} />
+      )}
+
+      {nrOpen && (
+        <NeuralRenderDialog status={nr?.status} busy={nrBusy}
+          width={ds.width || null}
+          subject={`${nrOpen.length || counts.total} clip${(nrOpen.length || counts.total) === 1 ? '' : 's'} of this set.`}
+          consequence="Each clip is re-rendered in place and the original is kept — 🩹 Restore brings it back at any time."
+          onRender={(params) => startNr(nrOpen, params)}
+          onClose={() => setNrOpen(null)} />
       )}
     </div>
   )

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { videoDatasetClipMediaUrl } from './videoBankApi'
+import SideBySideVideo from './SideBySideVideo'
 import { clipDurationS, isStillFile, lightboxKeyAction } from './videoDatasetClips'
 import { clipLabel } from './videoClipFragment'
 
@@ -24,10 +25,17 @@ import { clipLabel } from './videoClipFragment'
 export default function VideoDatasetLightbox({
   datasetId, clip, caption, onCaptionChange, onSave, onClose, onPrev, onNext,
   onRemove, hasPrev, hasNext, saving,
+  // ⇔ The kept original of a neural-rendered clip, or null: with it the
+  // lightbox offers the side-by-side comparison, without it the button does
+  // not exist — there is nothing to compare a clip that plays its original to.
+  compareSrc = null,
 }) {
   const [failed, setFailed] = useState(false)
+  // ⇔ Whether the side-by-side comparison is open. Reset with the clip: the
+  // next clip may play no render at all.
+  const [comparing, setComparing] = useState(false)
   const typing = useRef(false)
-  useEffect(() => { setFailed(false) }, [clip?.id])
+  useEffect(() => { setFailed(false); setComparing(false) }, [clip?.id])
 
   // ⌨ Esc closes, ← → step. Guarded on `typing`, and that guard is not a nicety:
   // without it every arrow key pressed while writing a caption would jump to
@@ -88,6 +96,11 @@ export default function VideoDatasetLightbox({
             <img key={clip.id} src={src} alt={clip.caption || clip.filename}
               onError={() => setFailed(true)}
               className="max-h-[60vh] w-full object-contain" />
+          ) : comparing ? (
+            /* The single player yields to the pair while the comparison is
+               open: two players of the same clip fighting for sound is not a
+               comparison. Closing brings this one back, at the clip's start. */
+            <p className="p-6 text-center text-xs text-white/60">Comparing with the original…</p>
           ) : (
             <video key={clip.id} src={src} controls autoPlay preload="metadata"
               onError={() => setFailed(true)}
@@ -115,6 +128,13 @@ export default function VideoDatasetLightbox({
               className="min-h-10 rounded-md border border-white/20 px-2 py-1 text-white hover:bg-white/10 disabled:opacity-30 lg:min-h-0">
               Next →
             </button>
+            {compareSrc && !still && (
+              <button type="button" onClick={() => setComparing(true)}
+                title="Play the kept original next to this neural render, in step"
+                className="min-h-10 rounded-md border border-white/20 px-2 py-1 text-white hover:bg-white/10 lg:min-h-0">
+                ⇔ Compare with original
+              </button>
+            )}
             <button type="button" onClick={() => onRemove(clip)}
               title="Remove this clip from the dataset — the bank keeps the shot"
               className="min-h-10 rounded-md border border-white/20 px-2 py-1 text-white hover:border-rose-400/60 hover:text-rose-300 lg:min-h-0">
@@ -138,6 +158,10 @@ export default function VideoDatasetLightbox({
           </span>
         </label>
       </div>
+      {comparing && compareSrc && (
+        <SideBySideVideo originalSrc={compareSrc} renderSrc={src} title={clip.filename}
+          onClose={() => setComparing(false)} />
+      )}
     </div>
   )
 }

@@ -27,6 +27,7 @@ import { SETTINGS_SECTION_TOPICS } from './topics/settingsSections.js';
 import { WORKSPACE_SECTION_TOPICS } from './topics/workspaceSections.js';
 import { PAGE_TOPICS } from './topics/pages.js';
 import { VIDEO_LANE_TOPICS } from './topics/videoLane.js';
+import { NEURAL_RENDER_TOPICS } from './topics/neuralRender.js';
 import { SETTINGS_FIELD_TOPICS } from './topics/settingsFields.js';
 import { ACTION_TOPICS } from './topics/actions.js';
 
@@ -35,6 +36,7 @@ const TOPICS = [
   ...WORKSPACE_SECTION_TOPICS,
   ...PAGE_TOPICS,
   ...VIDEO_LANE_TOPICS,
+  ...NEURAL_RENDER_TOPICS,
   ...SETTINGS_FIELD_TOPICS,
   ...ACTION_TOPICS,
 ];

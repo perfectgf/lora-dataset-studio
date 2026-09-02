@@ -23,6 +23,9 @@ export const loraImportUrl = () => '/api/video-studio/lora/import';
 /** ↗ Smooth a finished clip — RIFE interpolation, as a new clip. */
 export const clipVfiUrl = (id) => `/api/video-studio/clip/${id}/vfi`;
 
+/** ✨ Neural render a finished clip — DLSS 5 Neural Rendering, as a new clip. */
+export const clipNeuralRenderUrl = (id) => `/api/video-studio/clip/${id}/neural-render`;
+
 /** ✨ The Motion field's two helpers: propose from the start frame, or enrich
  * what is already written. Both answer with a prompt the user can still edit —
  * neither is a launch. */

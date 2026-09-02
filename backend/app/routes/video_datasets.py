@@ -21,6 +21,8 @@ from flask import Blueprint, jsonify, request, send_file
 
 from ..config import LOCAL_USER
 from ..services import video_bank_service as svc
+from ..services import bank_jobs
+from ..services import neural_render as nr
 from ..services import video_targets
 
 logger = logging.getLogger(__name__)
@@ -181,9 +183,14 @@ def video_dataset_remove_clips(dataset_id):
     ids = data.get('ids')
     if not isinstance(ids, list):
         return jsonify({'error': 'ids must be a list of clip ids'}), 400
+    # The kept originals of the doomed clips are read BEFORE the rows go: a
+    # backup whose clip left can never be restored and would only accumulate.
+    doomed = svc.dataset_clip_filenames(LOCAL_USER, dataset_id, ids)
     out = svc.remove_dataset_clips(LOCAL_USER, dataset_id, ids)
     if out is None:
         return _missing(dataset_id)
+    if out.get('removed'):
+        nr.forget_backups(dataset_id, doomed)
     return jsonify({'ok': True, **out})
 
 
@@ -211,6 +218,7 @@ def video_dataset_delete(dataset_id):
     promoted, so the user can re-cut at a different length without re-triaging."""
     if not svc.delete_video_dataset(LOCAL_USER, dataset_id):
         return _missing(dataset_id)
+    nr.forget_backups(dataset_id)      # the kept originals go with the set
     return jsonify({'ok': True})
 
 
@@ -631,3 +639,81 @@ def video_dataset_cloud_run_details(dataset_id, run_id):
         return jsonify(vck.run_details(LOCAL_USER, dataset_id, run_id))
     except LookupError as e:
         return jsonify({'error': str(e)}), 404
+
+
+# ── ✨ Neural render (DLSS 5) — in place, original kept ──────────────────────
+
+@bp.get('/video-dataset/<int:dataset_id>/neural-render')
+def video_dataset_neural_render_state(dataset_id):
+    """What the ✨ button needs before it is pressed and while it runs: the
+    capability's own sentences (``ready`` + ``missing``), the job snapshot of
+    the pass on THIS dataset (None when idle), and which clips currently play
+    a render — derived from the backup folder, which is the only state there
+    is. Polled only while a pass runs; the workspace's own 2 s poll never
+    carries this."""
+    if svc.get_video_dataset(LOCAL_USER, dataset_id) is None:
+        return _missing(dataset_id)
+    return jsonify({'ok': True, 'status': nr.status(),
+                    'job': nr.dataset_job(dataset_id),
+                    'rendered_ids': nr.rendered_clip_ids(LOCAL_USER, dataset_id)})
+
+
+@bp.post('/video-dataset/<int:dataset_id>/neural-render')
+def video_dataset_neural_render_start(dataset_id):
+    """Body {ids: [...] (empty = every clip), tone, structure, automask,
+    temporal, scene_cut}. Renders the clips IN PLACE — the folder is the
+    dataset, so the render must be the file the trainer reads — after copying
+    each original, once, to the backup folder outside the dataset. One job per
+    dataset (409 while one runs, like every bank pass); progress is read from
+    the GET above."""
+    from flask import current_app
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    if not isinstance(ids, list):
+        return jsonify({'error': 'ids must be a list of clip ids'}), 400
+    try:
+        out = nr.start_dataset_render(current_app._get_current_object(), LOCAL_USER,
+                                      dataset_id, ids, data)
+    except nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except bank_jobs.BankJobBusy:
+        return jsonify({'error': 'a pass is already running on this dataset'}), 409
+    return jsonify({'ok': True, **out})
+
+
+@bp.post('/video-dataset/<int:dataset_id>/neural-render/cancel')
+def video_dataset_neural_render_cancel(dataset_id):
+    """Stop the running pass: the clip being rendered keeps its original (the
+    replacement is a single ``os.replace`` at the very end), the ones already
+    done stay rendered."""
+    if svc.get_video_dataset(LOCAL_USER, dataset_id) is None:
+        return _missing(dataset_id)
+    return jsonify({'ok': True, 'cancelled': nr.cancel_dataset_job(dataset_id)})
+
+
+@bp.get('/video-dataset/<int:dataset_id>/clip/<int:clip_id>/original')
+def video_dataset_clip_original(dataset_id, clip_id):
+    """The ORIGINAL bytes of a neural-rendered clip, for the side-by-side
+    player: the clip's own media route now serves the render, this serves
+    what it replaced. Range-capable like the media route (the player seeks).
+    404 when the clip plays no render — there is nothing to compare with."""
+    path = nr.original_clip_path(LOCAL_USER, dataset_id, clip_id)
+    if path is None:
+        return jsonify({'error': 'this clip plays no render — no original to show'}), 404
+    return send_file(path, mimetype='video/mp4', conditional=True, max_age=0)
+
+
+@bp.post('/video-dataset/<int:dataset_id>/neural-render/restore')
+def video_dataset_neural_render_restore(dataset_id):
+    """🩹 Body {ids: [...] (empty = every rendered clip)}. Moves each original
+    back over its render; a restored clip has no backup left and therefore
+    reports as not rendered — the file and the fact cannot disagree."""
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    if not isinstance(ids, list):
+        return jsonify({'error': 'ids must be a list of clip ids'}), 400
+    try:
+        out = nr.restore_dataset_clips(LOCAL_USER, dataset_id, ids)
+    except nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify({'ok': True, **out})

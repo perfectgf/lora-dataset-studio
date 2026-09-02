@@ -39,12 +39,28 @@ import test from 'node:test';
 
 const HERE = new URL('./', import.meta.url);
 
-/** [{ file, source }] de chaque composant du dossier qui peint un plein-écran. */
-function fullScreenOverlays() {
-  return readdirSync(HERE)
-    .filter((f) => f.endsWith('.jsx'))
-    .map((file) => ({ file, source: readFileSync(new URL(file, HERE), 'utf8') }))
-    .filter(({ source }) => /className="fixed inset-0/.test(source));
+/** [{ file, source }] de chaque composant qui peint un plein-écran, dans ce
+ *  dossier ET SES SOUS-DOSSIERS.
+ *
+ *  La récursion n'est pas une élégance : la première version lisait le dossier À
+ *  PLAT, et `video/MotionModelDialog.jsx` — une modale plein-écran, montée par le
+ *  Video Test Studio — lui était donc invisible. Une garde qui s'arrête à un
+ *  niveau de profondeur laisse à la prochaine arborescence le soin de la
+ *  contourner sans le faire exprès. */
+function fullScreenOverlays(dir = HERE, prefix = '') {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const at = new URL(entry.name + (entry.isDirectory() ? '/' : ''), dir);
+    if (entry.isDirectory()) {
+      out.push(...fullScreenOverlays(at, `${prefix}${entry.name}/`));
+    } else if (entry.name.endsWith('.jsx')) {
+      const source = readFileSync(at, 'utf8');
+      if (/className="fixed inset-0/.test(source)) {
+        out.push({ file: prefix + entry.name, source });
+      }
+    }
+  }
+  return out;
 }
 
 test('la liste des modales du Studio n’est pas vide — sinon la garde ne garde rien', () => {
@@ -52,6 +68,25 @@ test('la liste des modales du Studio n’est pas vide — sinon la garde ne gard
   assert.ok(found.length >= 2,
     `attendu au moins 2 plein-écrans dans ce dossier, trouvé ${found.length} `
     + '— le motif de détection a dû changer, la garde ne prouve plus rien');
+});
+
+test('l’énumération DESCEND vraiment dans les sous-dossiers', () => {
+  /* L'épingle qui manquait, et son histoire : la première version lisait le
+     dossier à plat, donc `video/MotionModelDialog.jsx` lui échappait. Une fois
+     ce fichier portaillé, RETIRER la récursion ne fait plus rougir le test
+     ci-dessous — il verrait juste moins de fichiers, tous conformes. La règle
+     serait alors gardée par rien, et le prochain sous-dossier repartirait
+     invisible.
+     On exige donc que l'énumération RAPPORTE au moins un fichier venu d'un
+     sous-dossier : un compte n'est une preuve que s'il est EXERCÉ. */
+  const found = fullScreenOverlays();
+  const nested = found.filter(({ file }) => file.includes('/'));
+  assert.ok(nested.length >= 1,
+    'aucun plein-écran trouvé sous un sous-dossier : la récursion est morte, '
+    + `et ${found.length} fichier(s) à plat ne prouvent rien de l'arborescence`);
+  assert.ok(nested.some(({ file }) => file.endsWith('MotionModelDialog.jsx')),
+    'video/MotionModelDialog.jsx n’est plus vu par l’énumération — '
+    + `vus : ${nested.map((f) => f.file).join(', ') || 'aucun'}`);
 });
 
 test('CHAQUE modale plein-écran du Studio est portaillée sur document.body', () => {

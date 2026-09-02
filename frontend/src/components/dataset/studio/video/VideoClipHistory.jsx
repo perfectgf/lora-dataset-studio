@@ -11,13 +11,15 @@
  * talking the moment it loads is a list nobody leaves open. The controls are
  * there for whoever wants to hear it.
  */
-import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, Loader2, Waves } from 'lucide-react';
+import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, Loader2, Waves, Sparkles } from 'lucide-react';
 import { clipVideoUrl, isRunning } from './videoStudioApi';
 import { clipTags } from './videoClipTags';
 
 const ACTION = 'flex items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[0.6875rem] min-h-10 lg:min-h-0';
 
-export default function VideoClipHistory({ clips, onRate, onDelete, onReuse, onVfi, vfiBusy }) {
+export default function VideoClipHistory({
+  clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy, onCompare,
+}) {
   if (!clips.length) {
     return (
       <p className="rounded-xl border border-dashed border-border bg-surface px-3 py-6 text-center text-sm text-content-subtle">
@@ -92,6 +94,29 @@ export default function VideoClipHistory({ clips, onRate, onDelete, onReuse, onV
                     className={`${ACTION} border-border text-content-muted hover:text-content disabled:opacity-40`}>
                     <Waves aria-hidden="true" className="h-3.5 w-3.5" />
                     {vfiBusy === clip.id ? '…' : 'Smooth'}
+                  </button>
+                )}
+                {/* ✨ DLSS 5 Neural Rendering over a finished clip — a NEW clip,
+                    same rule as Smooth: the studio compares, it never edits.
+                    Offered on every finished clip, a render included: a second
+                    pass with other dials is a legitimate comparison. */}
+                {clip.status === 'done' && onNeuralRender && (
+                  <button type="button" onClick={() => onNeuralRender(clip)}
+                    disabled={nrBusy === clip.id}
+                    title="Re-render this clip with DLSS 5 Neural Rendering, as a new clip"
+                    className={`${ACTION} border-border text-content-muted hover:text-content disabled:opacity-40`}>
+                    <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
+                    {nrBusy === clip.id ? '…' : 'Neural'}
+                  </button>
+                )}
+                {/* ⇔ A rendered clip against the clip it was rendered from, in
+                    step — the comparison this whole screen exists for, on the
+                    one pair where nothing but the render differs. */}
+                {clip.status === 'done' && clip.nr_of && onCompare && (
+                  <button type="button" onClick={() => onCompare(clip)}
+                    title={`Play clip #${clip.nr_of} (the source) next to this render, in step`}
+                    className={`${ACTION} border-border text-content-muted hover:text-content`}>
+                    ⇔ Compare
                   </button>
                 )}
                 <button type="button" onClick={() => onDelete(clip)} title="Delete this clip"

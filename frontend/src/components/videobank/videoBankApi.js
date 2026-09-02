@@ -164,6 +164,24 @@ export function videoDatasetReferencesUrl(datasetId) {
 
 /** 🗑 Drop clips OUT of a built set. A POST and not a DELETE because it carries a
  * LIST — see the route's own docstring. The bank keeps every shot. */
+/** ✨ Neural render (DLSS 5) on a video dataset: GET = capability + job + the
+ * ids currently playing a render; POST = start (in place, originals kept);
+ * /cancel and /restore are what their names say. */
+export function videoDatasetNeuralRenderUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/neural-render`
+}
+/** The ORIGINAL bytes of a neural-rendered dataset clip (404 when the clip
+ * plays no render) — the left side of the ⇔ comparison. */
+export function videoDatasetClipOriginalUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/original`
+}
+export function videoDatasetNeuralRenderCancelUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/neural-render/cancel`
+}
+export function videoDatasetNeuralRenderRestoreUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/neural-render/restore`
+}
+
 export function videoDatasetRemoveClipsUrl(datasetId) {
   return `/api/video-dataset/${datasetId}/clips/remove`
 }
