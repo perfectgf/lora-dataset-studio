@@ -83,6 +83,14 @@ const WITHOUT_TARGET = [
       + '(training-default-family, and the cloud guard-rails card) — focusing '
       + 'either would ring the wrong half for half the readers.',
   },
+  {
+    file: 'VideoCloudLaunchDialog.jsx',
+    section: 'training',
+    reason: 'The link sits under the OFFERS ERROR of the video launch window, and '
+      + 'that error has three causes with three different fields (the vast.ai key, '
+      + 'the price cap, the fleet limit) — the message names the cause, a single '
+      + 'focus would ring the wrong field for two of the three readers.',
+  },
 ]
 
 // ---- the URL itself --------------------------------------------------------

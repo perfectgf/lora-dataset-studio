@@ -5,7 +5,9 @@ import { postForm, postJson } from '../../api/fetchClient'
 import { useToast } from '../common/Toast'
 import { HelpBadge } from '../../help/HelpMode'
 import { captionFrequencyEntries } from '../dataset/captionCategory'
+import TrainingReadiness from '../dataset/TrainingReadiness'
 import VideoTrainingBlock from './VideoTrainingBlock'
+import { videoPreflightUrl } from './videoCloudLaunch'
 import VideoDatasetGrid from './VideoDatasetGrid'
 import VideoDatasetLightbox from './VideoDatasetLightbox'
 import {
@@ -554,7 +556,16 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
 
           <section className={sectionCls('training')} aria-hidden={section !== 'training'}>
             {heading('training')}
-            <div id="vds-training-launch">
+            <div id="vds-training-launch" className="flex flex-col gap-2">
+              {/* The image lane's readiness card, reading the VIDEO preflight —
+                  one card, two lanes, the parity rule made literal. Local lane
+                  here (this machine's toolkit and weights); the cloud lane's
+                  report is asked by the launch window, right before the money.
+                  Fix → jumps to the section a row names. */}
+              <TrainingReadiness datasetId={ds.id}
+                endpoint={videoPreflightUrl(ds.id, 'local')}
+                refreshKey={`${counts.total}:${ds.references}:${ds.target_profile}`}
+                onJump={(target) => setSection(target)} />
               <VideoTrainingBlock ds={{ ...ds, clips: counts.total }}
                 onCheckpointGroups={setCheckpointGroups} />
             </div>

@@ -12,6 +12,9 @@ import {
   isActive, launchBlockedReason, runSummary, canRetry, canContinue, stepLabel,
 } from './videoCloudStatus'
 import { ensureLicenceAck } from './licenceAck'
+import { postWithConfirmations } from '../../utils/trainingRefusals'
+import VideoCloudLaunchDialog from './VideoCloudLaunchDialog'
+import { CLOUD_STATUS_URL, preflightGate, videoPreflightUrl } from './videoCloudLaunch'
 
 /** Targets that have been trained end to end at least once — locally or on a
  * rented pod, it does not matter which: what the note below cares about is
@@ -73,9 +76,13 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
   const [run, setRun] = useState(null)
   const [groups, setGroups] = useState([])
   const [busyCloud, setBusyCloud] = useState(false)
-  const [tiers, setTiers] = useState(null)
-  const [gpuName, setGpuName] = useState('')
-  const [tiersBusy, setTiersBusy] = useState(false)
+  // The launch WINDOW — the image lane's dialog, for video: one radio per GPU
+  // class with its price, the rough duration and total for this set, the
+  // runtime-cap warning, and the month's spend. It replaced an inline <select>
+  // that rented a pod on a click with the cost hidden in a closed dropdown.
+  const [cloudDialog, setCloudDialog] = useState(false)
+  const [cloudStatus, setCloudStatus] = useState(null)
+  const [opening, setOpening] = useState(false)
 
   const pollLocal = useCallback(async () => {
     try {
@@ -113,18 +120,6 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
   // its "Checkpoints" destination on the answer. Reported on the COUNT, so a
   // caller passing an inline arrow does not re-fire it on every render.
   useEffect(() => { onCheckpointGroups?.(groups.length) }, [groups.length, onCheckpointGroups])
-
-  const fetchTiers = async () => {
-    setTiersBusy(true)
-    try {
-      const d = await apiFetch(`${videoDatasetCloudUrl(ds.id)}/offers?steps=${steps}`)
-      setTiers(d.tiers || [])
-    } catch (e) {
-      toast.error(e?.message || 'Could not list GPU offers.')
-    } finally {
-      setTiersBusy(false)
-    }
-  }
 
   const startLocal = async (acceptDownload = false) => {
     // The licence question comes BEFORE anything is spent — not after the
@@ -186,15 +181,59 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
     })) return
     setBusyCloud(true)
     try {
-      await postJson(url, body)
+      // The guardrails' `PARALLEL_RUN:` refusal is a QUESTION by contract
+      // ("second pod, billed separately — launch anyway?"). Posting bare turned
+      // it into a dead error on this lane; the loop relays the answer as
+      // allow_parallel_run, exactly as the image lane does.
+      const d = await postWithConfirmations((b) => postJson(url, b), body, 'Launch anyway (force)')
+      if (d === null) return false                 // declined: nothing rented
       toast.success(okMessage)
       refreshCloud()
+      return true
     } catch (e) {
       toast.error(e?.message || 'The cloud run could not be started.')
+      return false
     } finally {
       setBusyCloud(false)
     }
   }
+
+  /** ☁ Open the launch window — AFTER the preflight, BEFORE the money.
+   *
+   * Order matters and each step is a different question: the licence (does
+   * the user accept this model's terms — once per profile), the cloud-lane
+   * preflight (a blocker stops here and is shown; warnings become ONE confirm,
+   * the image lane's rule), then the window with the offers. A preflight that
+   * cannot be reached never blocks: the server re-decides on launch. */
+  const openCloudDialog = async () => {
+    if (!ensureLicenceAck(ds, {
+      storage: window.localStorage, confirmFn: window.confirm,
+    })) return
+    setOpening(true)
+    try {
+      const report = await apiFetch(videoPreflightUrl(ds.id, 'cloud'), { background: true })
+        .catch(() => null)
+      const gate = preflightGate(report, { lane: 'cloud' })
+      if (!gate.ok) {
+        toast.error(`Not ready for the cloud — ${gate.blockers.join(' · ')}`)
+        return
+      }
+      if (gate.confirmText && !window.confirm(gate.confirmText)) return
+      // Account-wide, for the footer's "this month: $x of $y". Best effort.
+      apiFetch(CLOUD_STATUS_URL, { background: true })
+        .then((d) => setCloudStatus(d)).catch(() => setCloudStatus(null))
+      setCloudDialog(true)
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  /** The dialog's own launch: the chosen GPU class rides as gpu_name, and the
+   * dialog closes only on a real success (a declined question or a refusal
+   * keeps it open, next to the offers that were being compared). */
+  const launchCloud = (gpuName) => postCloud(videoDatasetCloudUrl(ds.id),
+    { steps, ...(doI2v ? { do_i2v: true } : {}), ...(gpuName ? { gpu_name: gpuName } : {}) },
+    'Renting a pod — the panel follows it from here.')
 
   const deleteRun = async (g) => {
     const n = g.steps.reduce((sum, s) => sum + (s.files?.length || 0), 0)
@@ -263,40 +302,18 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
               {busyLocal ? 'Starting…' : '▶ Train on this PC'}
             </button>
             <HelpBadge topic="video-train-local" />
-            <button type="button" disabled={busyCloud || Boolean(blocked)}
-              onClick={() => postCloud(videoDatasetCloudUrl(ds.id),
-                {
-                  steps,
-                  ...(doI2v ? { do_i2v: true } : {}),
-                  ...(gpuName ? { gpu_name: gpuName } : {}),
-                },
-                'Renting a pod — the panel follows it from here.')}
+            <button type="button" disabled={busyCloud || opening || Boolean(blocked)}
+              onClick={openCloudDialog}
+              title={blocked || (opening
+                ? 'Checking the set and the account before the offers open…'
+                : 'Compare GPU offers with their price, duration and total before renting one')}
               className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] font-semibold text-content hover:bg-surface disabled:opacity-40">
+              {/* Bare text on purpose: the exact label is an inventoried surface
+                  (bankSurfaceInventory reads literal button text). It opens a
+                  window now, and it stays "☁ Train in the cloud". */}
               ☁ Train in the cloud
             </button>
             <HelpBadge topic="video-cloud-training" />
-            {tiers === null ? (
-              <button type="button" disabled={tiersBusy}
-                onClick={fetchTiers}
-                className="rounded border border-border bg-surface-raised px-2 py-1 text-[0.6875rem] text-content-muted hover:bg-surface disabled:opacity-40">
-                {tiersBusy ? 'Fetching offers…' : '🔍 Choose a GPU'}
-              </button>
-            ) : (
-              <label className="flex items-center gap-1 text-[0.6875rem] text-content-muted">
-                GPU
-                <select value={gpuName} onChange={(e) => setGpuName(e.target.value)}
-                  className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[0.6875rem] text-content">
-                  <option value="">Cheapest suitable</option>
-                  {tiers.map((t) => (
-                    <option key={t.gpu_name} value={t.gpu_name}>
-                      {t.gpu_name} — ${t.dph_total}/h
-                      {t.est_minutes != null ? ` · ~${t.est_minutes} min · ~$${t.est_cost}` : ''}
-                      {t.exceeds_cap ? ' ⚠ over runtime cap' : ''}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             {canRetry(run) && (
               <button type="button" disabled={busyCloud}
                 onClick={() => postCloud(videoDatasetCloudRetryUrl(ds.id), { run_id: run.run_id },
@@ -415,6 +432,10 @@ export default function VideoTrainingBlock({ ds, onCheckpointGroups }) {
         </div>
       ))}
       </div>
+      )}
+      {cloudDialog && (
+        <VideoCloudLaunchDialog ds={ds} steps={steps} cloudStatus={cloudStatus}
+          onClose={() => setCloudDialog(false)} onLaunch={launchCloud} />
       )}
     </section>
   )

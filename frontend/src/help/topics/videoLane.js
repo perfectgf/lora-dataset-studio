@@ -370,6 +370,13 @@ export const VIDEO_LANE_TOPICS = [
   action('video-cloud-training', 'Train a video dataset in the cloud',
     ['cloud video training', 'train video in the cloud', 'video lora cloud',
      'train in the cloud', 'rent a gpu for video', 'video pod', 'wan lora cloud',
+     // The launch WINDOW, searched for by what it shows: the offers, the price,
+     // the estimate, the cap, the month's spend — and by what stops it opening.
+     'choose a gpu', 'gpu offers', 'gpu speed', 'price per hour', 'how much will it cost',
+     'how long will it take', 'estimate', 'rough estimate', 'runtime cap', 'cut short',
+     'no gpu available', 'price cap', 'this month', 'monthly budget', 'budget',
+     'not ready for the cloud', 'preflight', 'readiness', 'ready to train', 'not ready',
+     'launch anyway', 'second pod', 'parallel run', 'run limit',
      'minimax h3 training', 'h3 lora', 'video checkpoint', 'download video lora',
      'high noise', 'low noise', 'both experts', 'two files', 'moe pair',
      'retry video run', 'continue video run', 'train further', 'resume video',
