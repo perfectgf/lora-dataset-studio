@@ -15,7 +15,7 @@
  *   format      - (value) => displayed value (default: identity)
  *   accent      - tailwind accent class for the range (default 'accent-primary')
  */
-import { useState } from 'react';
+import SliderLock, { useSliderLock } from './SliderLock';
 
 export default function LockableSlider({
   label,
@@ -28,20 +28,10 @@ export default function LockableSlider({
   format = (v) => v,
   accent = 'accent-primary',
 }) {
-  const [locked, setLocked] = useState(() => {
-    try {
-      const v = localStorage.getItem(storageKey);
-      return v === null ? true : v === 'true';
-    } catch {
-      return true;
-    }
-  });
-
-  const toggleLock = () => setLocked((prev) => {
-    const next = !prev;
-    try { localStorage.setItem(storageKey, String(next)); } catch { /* storage may be unavailable; the toggle still works for this page */ }
-    return next;
-  });
+  // The lock itself lives in SliderLock: one implementation of "locked by
+  // default, one padlock, remembered per slider", worn here with this
+  // component's own label row and worn elsewhere with somebody else's.
+  const { locked, toggle, rangeProps } = useSliderLock(storageKey);
 
   // Garde-fou : une valeur non numérique (ex. la string "None" issue d'un param
   // stocké/restauré) sur un <input type="range"> déclenche le warning console
@@ -60,19 +50,7 @@ export default function LockableSlider({
           <span className="text-content-muted text-[0.8125rem] font-semibold">
             {format(safeValue)}
           </span>
-          <button
-            type="button"
-            onClick={toggleLock}
-            aria-label={locked ? `Unlock ${label}` : `Lock ${label}`}
-            title={locked ? 'Unlock slider' : 'Lock slider'}
-            className={`w-[22px] h-[22px] rounded-[5px] text-xs cursor-pointer flex items-center justify-center shrink-0 transition-all duration-150 ${
-              locked
-                ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300'
-                : 'bg-white/5 border border-white/10 text-content-muted'
-            }`}
-          >
-            {locked ? '🔒' : '🔓'}
-          </button>
+          <SliderLock locked={locked} onToggle={toggle} label={label} />
         </div>
       </div>
       <input
@@ -81,9 +59,9 @@ export default function LockableSlider({
         max={max}
         step={step}
         value={safeValue}
-        disabled={locked}
         onChange={(e) => { if (!locked) onChange(e); }}
-        className={`w-full ${accent} ${locked ? 'opacity-45 cursor-not-allowed' : ''}`}
+        {...rangeProps}
+        className={`w-full ${accent} ${rangeProps.className}`}
       />
       <div className="flex justify-between text-content-muted text-[0.6875rem] mt-0.5">
         <span>{min}</span>

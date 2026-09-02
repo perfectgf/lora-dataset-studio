@@ -118,6 +118,32 @@ def send_to_trash(path, context='') -> str:
     raise last_err if last_err is not None else OSError(f'could not trash {src}')
 
 
+def restore(trashed_path, original_path) -> bool:
+    """Bring a file back from the app trash after the DB commit that paired with
+    its move has failed. Best effort, and never raises: the bytes are still in
+    the trash if this cannot move them, and the DB exception being unwound is
+    the one that must reach the caller, not this one.
+
+    Lives here, next to send_to_trash, because it is the other half of the same
+    promise — a delete is "move the file, then commit", and the compensation
+    for a failed commit belongs to whoever did the move. Returns True when the
+    file is back where it was."""
+    if not trashed_path or not original_path or not os.path.exists(trashed_path):
+        return False
+    try:
+        if os.path.exists(original_path):
+            logger.error('cannot restore trashed path because destination exists: %s',
+                         original_path)
+            return False
+        os.makedirs(os.path.dirname(original_path), exist_ok=True)
+        shutil.move(trashed_path, original_path)
+        return True
+    except OSError:
+        logger.exception('failed to restore %s from Trash after DB rollback',
+                         original_path)
+        return False
+
+
 def disposal_mode() -> str:
     """Where a deleted file WOULD go, without deleting anything, so a
     confirmation can NAME the outcome before the click. Mirrors :func:`dispose`'s

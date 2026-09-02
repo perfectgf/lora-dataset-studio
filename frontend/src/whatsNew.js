@@ -110,6 +110,56 @@ export const WHATS_NEW = [
     to: '/settings/engines',
   },
   {
+    id: '2026-09-01-video-dataset-workspace',
+    date: '2026-09-01',
+    title: 'Your video training sets finally have a screen of their own',
+    blurb:
+      'A video set used to be a card at the bottom of the library: a list of file '
+      + 'names, one caption box each, and nothing else. Opening one now opens a full '
+      + 'workspace — a grid of every clip with the rush and timecode it came from, a '
+      + 'player you can step through with the arrow keys, a search, and caption tools '
+      + 'that rewrite the .txt files in bulk. Same shape as an image dataset, because '
+      + 'it is the same job.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-01-remove-a-clip-from-a-video-set',
+    date: '2026-09-01',
+    title: 'Drop a bad clip without re-cutting the whole set',
+    blurb:
+      'The three-frame clip of somebody’s hand is only visible after the encode, and '
+      + 'until now the only way out was deleting the dataset and promoting it again. '
+      + 'Remove it from the set instead: its .mp4 and .txt go, and the bank keeps the '
+      + 'shot, its bounds and every decision — so you can re-cut and promote it again '
+      + 'with no triage to redo.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-02-sliders-locked-against-mistaps',
+    date: '2026-09-02',
+    title: 'Dials no longer move when you scroll past them on a phone',
+    blurb:
+      'A slider claims the touch that merely crosses it, so scrolling the '
+      + 'render rail with a thumb dragged whichever dial was under it — '
+      + 'silently, and the next clip rendered on a length nobody chose. Every '
+      + 'slider in the app now hands vertical swipes back to the page, and the '
+      + 'Video Test Studio’s dials (steps, length, resolution, LoRA '
+      + 'strength) carry the padlock the image side already had: locked by '
+      + 'default, one tap to open, and each remembers whether you left it open.',
+    to: '/studio',
+  },
+  {
+    id: '2026-09-02-start-frame-clip-tab-fixed',
+    date: '2026-09-02',
+    title: 'Picking a start frame from a training clip no longer takes the page down',
+    blurb:
+      'In the Video Test Studio, opening the “Dataset clip” tab and choosing a '
+      + 'training set blanked the screen: the clip list was read from the wrong '
+      + 'field and a count arrived where the clips were meant to be. It lists '
+      + 'them properly now, and says so plainly when a set holds none.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-01-motion-auto-instructed',
     date: '2026-09-01',
     title: '✨ Auto obeys what you type, and you choose the model behind it',

@@ -3106,6 +3106,10 @@ def _dataset_row(ds: VideoDataset) -> dict:
         'trigger_word': ds.trigger_word,
         'references': len(reference_dirs(ds)),
         'requires_references': bool(profile.get('requires_references')),
+        # Where a removed clip goes, for the confirmation that speaks BEFORE the
+        # request — see remove_dataset_clips. Constant here on purpose: the
+        # sentence must come from utils/deletionWording.js, never be typed again.
+        'delete_mode': DATASET_CLIP_DELETE_MODE,
         'created_at': ds.created_at.isoformat() if ds.created_at else None,
     }
 
@@ -3308,6 +3312,174 @@ def set_dataset_clip_caption(user_id, dataset_id, clip_id, caption) -> dict | No
         written = False
         logger.warning('video dataset %s: could not write sidecar: %s', ds.id, e)
     return {'ok': True, 'caption': row.caption, 'sidecar_written': written}
+
+
+# One destination, on purpose, and it is the DATASET lane's: delete_image (the
+# per-image delete of an image dataset, this verb's true twin) moves through
+# send_to_trash — the app's own trash under data/trash — and not through
+# dispose(), which prefers the OS recycle bin. send_to_trash answers with the
+# path it moved to, and that path is what makes a failed commit REVERSIBLE
+# (see the except below); the OS recycle bin gives nothing back to move. The
+# constant is exposed on the payload and in the answer so the confirmation and
+# the toast NAME the destination through the app-wide wording helper instead
+# of inventing a sentence of their own — the mistake this replaced.
+DATASET_CLIP_DELETE_MODE = 'app_trash'
+
+
+def remove_dataset_clips(user_id, dataset_id, clip_ids) -> dict | None:
+    """Drop clips OUT of a built dataset — the encode, never the triage.
+
+    The one verb the dataset workspace could not have without this: a promotion
+    is a bulk decision (a target, a length, everything you kept), and the clip
+    that turns out to be three frames of a hand is only visible afterwards, in
+    the set. Until now the only exit was deleting the whole dataset and cutting
+    it again.
+
+    Exactly the same promise as delete_video_dataset, applied to a subset: the
+    .mp4 and its homonym .txt go, and the SOURCE shot in the bank is merely
+    un-promoted — every bound, every decision and every caption it carries
+    survive, so the clip can be promoted again without re-triaging anything.
+
+    Missing files are not an error. A user who cleaned the output folder by hand
+    still needs the row gone, and refusing on a file that is already absent would
+    leave a dataset permanently claiming a clip nobody can play.
+
+    A LOCKED file is a different answer, and it is the one this used to get
+    wrong. The folder IS the dataset — every trainer reads the directory, not our
+    database — so a row deleted while its .mp4 stays on disk removes the clip
+    from the app and leaves it in the training set. Worse in the old order, which
+    deleted the .mp4 and the .txt independently: the .mp4 could survive while its
+    caption left, which is precisely the orphan write_sidecar exists to prevent
+    (a crash in musubi-tuner, a silent drop in diffusion-pipe). So the clip is
+    ONE unit: the .mp4 goes first, the .txt is only touched once the .mp4 really
+    left, and a clip whose file will not move keeps its row and is reported in
+    ``files_kept`` rather than counted as removed.
+
+    The files go to the app TRASH, and they COME BACK if the commit fails. Both
+    halves matter. `trash.py`: "NOTHING the app deletes is destroyed directly",
+    and this verb's twin on the image side (face_dataset_service.delete_image)
+    restores the file when the row's commit is refused — because the state
+    "files gone, rows still there, app says nothing happened" is exactly the
+    database/disk divergence this whole lane is built to refuse. What is thrown
+    away here is not only an encode: the caption edited in the dataset's own
+    Captions section lives on that row and in that .txt, and promoting the shot
+    again brings back the BANK's caption, not the one just written.
+    """
+    from . import trash
+    ds = get_video_dataset(user_id, dataset_id)
+    if ds is None:
+        return None
+    ids = {int(i) for i in (clip_ids or []) if str(i).lstrip('-').isdigit()}
+    if not ids:
+        return {'removed': 0, 'clips': VideoDatasetClip.query.filter_by(
+            dataset_id=ds.id).count(), 'files_missing': 0, 'files_kept': 0,
+            'delete_mode': DATASET_CLIP_DELETE_MODE}
+    rows = (VideoDatasetClip.query
+            .filter(VideoDatasetClip.dataset_id == ds.id,
+                    VideoDatasetClip.id.in_(ids)).all())
+    missing = 0
+    kept = 0
+    removed = 0
+    moved = []                       # (trashed_path, original_path) — the undo list
+    source_clip_ids = set()
+    for row in rows:
+        clip_path = os.path.join(ds.output_dir, row.filename)
+        context = f'video-dataset-{ds.id}-clip-{row.id}'
+        try:
+            state, trashed = _trash_dataset_file(clip_path, context)
+        except OSError as e:
+            # Held open by an antivirus scan, a player, or a training run
+            # reading this very folder. Leave the clip whole and say so.
+            kept += 1
+            logger.warning('video dataset %s: %s stays on disk: %s',
+                           ds.id, row.filename, e)
+            continue
+        if state == 'missing':
+            missing += 1
+        else:
+            moved.append((trashed, clip_path))
+        sidecar = video_clip_export.sidecar_path(clip_path)
+        try:
+            state, trashed = _trash_dataset_file(sidecar, context)
+        except OSError as e:
+            # The .mp4 is already gone, so a stranded .txt is inert — trainers
+            # pair by basename and never look at a caption with no media. Worth
+            # a line in the log, not worth keeping the row.
+            logger.warning('video dataset %s: sidecar of %s stays on disk: %s',
+                           ds.id, row.filename, e)
+        else:
+            if state == 'missing':
+                missing += 1
+            else:
+                moved.append((trashed, sidecar))
+        if row.source_clip_id:
+            source_clip_ids.add(row.source_clip_id)
+        db.session.delete(row)
+        removed += 1
+    try:
+        # The rows have to be GONE from the session before the survivors are
+        # counted, or a deleted slice still answers the query below and nothing
+        # is ever un-promoted.
+        db.session.flush()
+        # Un-promote the shots these clips were cut from — and only the shots
+        # that have NO slice left in this dataset. `slice_long` gives one bank
+        # shot several rows sharing a source_clip_id, so un-promoting on the
+        # first removal was not merely a wrong badge: promoted_dataset_id IS
+        # NULL is the filter that lets a later re-cut DELETE the shot
+        # (_drop_clips_of), and the dataset would go on holding slices of a
+        # shot that no longer exists.
+        if source_clip_ids:
+            survivors = {r.source_clip_id for r in VideoDatasetClip.query
+                         .filter(VideoDatasetClip.dataset_id == ds.id,
+                                 VideoDatasetClip.source_clip_id.in_(source_clip_ids))
+                         .all()}
+            orphaned = source_clip_ids - survivors
+            if orphaned:
+                # The second clause is not redundant with the first:
+                # source_clip_id is deliberately NOT a foreign key (the bank is
+                # a scratch container the user may delete, and SQLite reuses
+                # rowids), so a shot promoted into ANOTHER dataset that happens
+                # to share a rowid keeps its mark.
+                (VideoClip.query
+                 .filter(VideoClip.id.in_(orphaned),
+                         VideoClip.promoted_dataset_id == ds.id)
+                 .update({'promoted_dataset_id': None}, synchronize_session=False))
+        db.session.commit()
+    except Exception:
+        # The files left the folder on the strength of a commit that did not
+        # happen. Put them back — every one of them, in reverse — before the
+        # error reaches the route, so the answer "could not remove" is TRUE of
+        # the disk and not only of the database.
+        db.session.rollback()
+        for trashed, original in reversed(moved):
+            trash.restore(trashed, original)
+        raise
+    return {
+        'removed': removed,
+        'clips': VideoDatasetClip.query.filter_by(dataset_id=ds.id).count(),
+        # Counted per FILE, not per clip: a clip whose .mp4 and .txt were both
+        # already gone counts 2. The caller only ever asks "was anything already
+        # missing", so the unit has never mattered — it is said here so nobody
+        # reads it as a clip count.
+        'files_missing': missing,
+        'files_kept': kept,
+        'delete_mode': DATASET_CLIP_DELETE_MODE,
+    }
+
+
+def _trash_dataset_file(path, context) -> tuple:
+    """Move one dataset file into the app trash. ('gone', trashed_path) or
+    ('missing', None).
+
+    Raises OSError (TrashLockError included) when the file is THERE and will
+    not move — the caller has to tell those two apart, because one is
+    bookkeeping and the other leaves a clip in a training set the app claims
+    it removed. send_to_trash and not dispose(): the returned path is what makes
+    a failed commit reversible, and the OS recycle bin gives none back."""
+    from . import trash
+    if not os.path.exists(path):
+        return 'missing', None
+    return 'gone', trash.send_to_trash(path, context=context)
 
 
 def delete_video_dataset(user_id, dataset_id) -> bool:

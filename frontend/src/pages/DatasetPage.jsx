@@ -29,10 +29,12 @@ export default function DatasetPage() {
               restoreJob: ds.restoreJob, dismissRestore: ds.dismissRestore,
             }} />
           {/* Video training sets live in the SAME library, below the image ones —
-              they are datasets, and a second page for them would be a second
-              place to remember. The panel renders nothing at all until one
-              exists, so someone who never touched the video lane never pays a
-              permanently empty section. */}
+              they are datasets, and a second LIBRARY for them would be a second
+              place to remember. That rule was always about the list, and it
+              still holds: opening one now goes to its own workspace at
+              /video-dataset/<id>, exactly as opening an image dataset swaps this
+              page for DatasetWorkspace. One library, two kinds of set, a
+              workspace each. */}
           <VideoDatasetsPanel />
         </div>
       )}

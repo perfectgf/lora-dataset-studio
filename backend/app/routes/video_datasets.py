@@ -149,6 +149,44 @@ def video_dataset_caption(dataset_id, clip_id):
     return jsonify(out)
 
 
+@bp.post('/video-dataset/<int:dataset_id>/clips/remove')
+def video_dataset_remove_clips(dataset_id):
+    """Body {ids: [...]}. Drop clips out of a built set — the encode, not the triage.
+
+    A POST rather than a DELETE, and not for taste: this deletes a LIST, and a
+    request body on DELETE is unspecified enough that Werkzeug, the dev proxy and
+    the browser's own fetch have each been observed dropping it. The verb that
+    carries a body reliably is the one used here.
+
+    The bank keeps every shot and every decision — the source clips are merely
+    un-promoted, so what was removed can be promoted again without triaging
+    anything. That promise is the reason this is a safe button, so it is stated
+    both here and in the confirmation the user reads.
+
+    Answers {removed, clips, files_missing, files_kept, delete_mode}.
+    ``files_kept`` is the one nobody expects and the one that matters: a clip
+    whose .mp4 is held open (an antivirus scan, a player, a training run reading
+    this very folder) keeps its row and stays in the set, because the folder IS
+    the dataset and a row deleted without its file removes the clip from the app
+    while leaving it in the training run. The caller must not report a plain
+    success when it is non-zero. ``delete_mode`` names where the files went, in
+    the vocabulary of services.trash, so the toast can say it through the
+    app-wide wording rather than a sentence of its own.
+
+    A 500 here means the commit failed — and the files are back in the folder
+    (the service restores them from the trash before re-raising), so "could not
+    remove" is true of the disk as well as of the database.
+    """
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids')
+    if not isinstance(ids, list):
+        return jsonify({'error': 'ids must be a list of clip ids'}), 400
+    out = svc.remove_dataset_clips(LOCAL_USER, dataset_id, ids)
+    if out is None:
+        return _missing(dataset_id)
+    return jsonify({'ok': True, **out})
+
+
 @bp.post('/video-dataset/<int:dataset_id>/references')
 def video_dataset_references(dataset_id):
     """Attach 1-4 identity reference images (multipart field `files`). Replaces

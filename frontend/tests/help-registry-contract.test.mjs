@@ -10,6 +10,7 @@ import {
 import { markdownHeadingId } from '../src/utils/headingId.js'
 import { SETTINGS_SECTIONS } from '../src/components/settings/registry.js'
 import { WORKSPACE_SECTIONS } from '../src/components/dataset/workspaceSections.js'
+import { VIDEO_DATASET_SECTIONS } from '../src/components/videobank/videoDatasetSections.js'
 import { SETUP_DEEP_LINK_STEPS } from '../src/hooks/useSetupSteps.js'
 import { getWorkspacePanel } from '../src/components/dataset/workspaceNavigation.js'
 import { buildGuideTextIndex, matchGuideAnchors } from '../src/help/guideTextIndex.js'
@@ -150,6 +151,13 @@ test('(5) each Settings section and Workspace section has its topic', () => {
   }
   for (const s of WORKSPACE_SECTIONS) {
     assert.ok(getHelpTopic(`workspace-${s.id}`), `missing topic workspace-${s.id}`)
+  }
+  // The video dataset workspace names its topics on the section itself, so the
+  // ? badge cannot be built by interpolation — test (7) only sees literal
+  // topic="…" strings, and an interpolated one would ship pointing at nothing.
+  for (const s of VIDEO_DATASET_SECTIONS) {
+    assert.ok(s.helpTopic, `video dataset section ${s.id} declares no helpTopic`)
+    assert.ok(getHelpTopic(s.helpTopic), `missing topic ${s.helpTopic}`)
   }
 })
 

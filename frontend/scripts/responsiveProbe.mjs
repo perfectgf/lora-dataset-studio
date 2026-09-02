@@ -312,6 +312,28 @@ const PAGES = {
         '[data-testid="lightbox-improve-klein"]'] },
     ],
   },
+  /* 🎬 One video training set's workspace. Needs an id, like the Studio above —
+     `npm run probe:responsive -- --url http://127.0.0.1:5173/#/video-dataset/1`
+     — and matches by longest prefix, so any id lands here.
+
+     The two states are the two densest things this page can put on a phone: the
+     Captions section stacks a textarea per clip under the caption tools (four
+     inputs and three buttons on one row), and the lightbox is a full-screen
+     layer with a player, a provenance line, four controls and an editor. */
+  '#/video-dataset': {
+    label: 'Video dataset',
+    states: [
+      { name: 'resting', open: [] },
+      { name: 'captions', open: ['nav[aria-label="Video dataset sections"]:visible >> button:has-text("Captions")'] },
+      { name: 'lightbox', open: ['[aria-label^="Play "]:visible, [aria-label^="View "]:visible'] },
+      // The clip toolbar folds away on a ≤500 px fold and comes back from this
+      // button. Measuring only the folded state would report a page that had
+      // hidden its furniture rather than fitted it — this is where the search,
+      // the sort and the three filter chips are really charged for.
+      { name: 'clip-tools', open: ['button:has-text("Filter & sort")'] },
+    ],
+  },
+
   '#/dataset/studio': {
     label: 'Test Studio',
     states: [
@@ -319,6 +341,13 @@ const PAGES = {
       // The bottom bar's first shortcut: it reveals and scrolls to a section —
       // the page in the state a shortcut leaves it in.
       { name: 'shortcut', open: ['[data-probe-chrome="action-bar"] button'] },
+      /* The VIDEO lane. It is a tab, so every run measured the Images lane and
+         the video panels were never seen at 360 px at all — a whole surface
+         that could only be checked by hand. The gallery state opens the tab
+         whose grid and "Show older" row live one level deeper still. */
+      { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
+      { name: 'video-gallery',
+        open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
     ],
   },
 };
@@ -743,7 +772,24 @@ async function main() {
           // Wait for the chrome rather than for a fixed sleep: a fixed sleep is
           // either too short on a cold load or wasted on a warm one, and this
           // now runs thirty times instead of six.
-          await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          try {
+            await page.waitForSelector('[data-probe-chrome]', { timeout: 15000 });
+          } catch (first) {
+            /* ONE retry, and only for a page whose spec says chrome exists.
+               The very first load of a run pays for everything at once — a cold
+               browser, a bundle nobody has parsed, a server that has just been
+               restarted — and when it overran, the fallback below measured the
+               page with ZERO chrome surfaces and reported "the probe measured
+               nothing" as a violation. Twice in one session, both times on the
+               narrowest viewport (the first one measured) and never on the same
+               page a second time: a red that says "slow", not "broken", is a
+               red the next person learns to ignore. A page that genuinely has
+               no chrome after two loads still reports. */
+            if (!pageSpec.states || pageSpec === UNKNOWN_PAGE) throw first;
+            await page.goto('about:blank');
+            await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForSelector('[data-probe-chrome]', { timeout: 20000 });
+          }
           // A page whose chrome paints BEFORE its data (the Gallery's filter
           // rail) names the element that proves the data arrived; without it
           // the 900 ms settle below is a race against the fetch.

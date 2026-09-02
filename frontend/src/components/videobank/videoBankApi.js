@@ -144,6 +144,30 @@ export function videoDatasetUrl(datasetId) {
   return `/api/video-dataset/${datasetId}`
 }
 
+/** ▶ ONE clip's bytes. A stills set serves IMAGES through this same route — the
+ * extension decides which tag draws it, and getting that wrong renders a dead
+ * player (see isStillFile in videoDatasetClips.js). */
+export function videoDatasetClipMediaUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/media`
+}
+
+/** ✍ The caption of one clip. POST — the server writes the row AND rewrites the
+ * .txt sidecar in the same breath, and answers whether the disk write landed. */
+export function videoDatasetClipCaptionUrl(datasetId, clipId) {
+  return `/api/video-dataset/${datasetId}/clip/${clipId}/caption`
+}
+
+/** 📎 The identity references of a ref2va set. POST replaces the whole set. */
+export function videoDatasetReferencesUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/references`
+}
+
+/** 🗑 Drop clips OUT of a built set. A POST and not a DELETE because it carries a
+ * LIST — see the route's own docstring. The bank keeps every shot. */
+export function videoDatasetRemoveClipsUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/clips/remove`
+}
+
 /** ☁ The cloud lane of ONE video dataset.
  *
  * Its own URL family, and not the face lane's `/api/dataset/<id>/train/cloud`,

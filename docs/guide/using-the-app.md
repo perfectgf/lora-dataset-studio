@@ -3484,6 +3484,87 @@ Deleting a video dataset deletes the encoded clips and nothing else: the bank
 keeps every shot and every decision, so you can re-cut at another length or for
 another target without triaging again.
 
+## Work on a video training set
+
+Opening a set from **🎬 Video training sets** takes you to its own workspace —
+the same relationship an image dataset has with the library, and the same rail
+down the side. Everything below happens on the clips that were actually encoded,
+not on the bank's shots.
+
+**Clips.** A grid of every clip, with the source rush and the timecode it was cut
+from behind each tile. The grid holds thumbnails and no video players at all: a
+browser stops loading new players after about sixty of them, silently, so a
+128-clip set would fail halfway down the page with nothing in the console.
+Clicking a tile opens the one player the page ever mounts — `←` and `→` step
+through the set, `Esc` closes it.
+
+Filter by *All / Captioned / No caption*, type in the box to narrow by file name,
+caption or source rush (terms are ANDed; `-word` excludes), and sort by file
+order, length, or "uncaptioned first" — which is the working list when you are
+finishing a set. **File order is the default and it is the order the trainer
+reads the folder in.**
+
+**Removing a clip** moves its `.mp4` and its `.txt` into the app's own Trash
+(Settings ▸ Storage, recoverable until you empty it) — the same place a deleted
+image of an image dataset goes — and touches nothing else: the bank keeps the
+shot, its bounds and every decision, so you can re-cut and promote it again with
+no triage to redo. The confirmation names that destination before you click,
+from the same wording every other delete in the app uses. It is the exit the
+promote dialog never had: you find the three-frame clip *after* the encode, in
+the set, not while triaging. (A stills set built from an image dataset has no
+bank behind it, and the confirmation says so rather than promising one.)
+
+If the database refuses the change after the files have moved, they are put
+back where they were before the error is reported — "could not remove" is true
+of the folder as well as of the app.
+
+If a clip's file is **held open** — an antivirus scan, a player, or a training
+run reading this very folder — it is not removed at all, and the app says so
+instead of claiming success. That matters more than it sounds: the folder *is*
+the dataset, so a clip taken out of the app while its file stayed on disk would
+still be trained on.
+
+**Captions.** Every clip's caption is a `.txt` file sitting next to its `.mp4`,
+and that file is what the trainer opens — never the app's database. So every save
+here rewrites the file, and if the write fails the app says so out loud instead
+of showing you text the training will not use. A clip with no caption is not
+skipped: its sidecar is written with the trigger word alone, or empty if the set
+has no trigger. The coverage line under the grid says which of the two you are
+getting.
+
+The caption tools apply to your selection, or to the whole set when nothing is
+selected: find & replace (whole-word by default; an empty replacement removes the
+term and tidies the commas), add a prefix — which reaches the silent clips too —
+or add a suffix, which never invents a caption out of an empty one. Nothing is
+written until you have seen how many captions actually change; a prefix already
+present is not added twice. The most repeated words are listed underneath, because
+a term in every caption is a term the LoRA binds to your trigger whether you meant
+it or not. They are there from the start, on a set that has no caption at all —
+that is exactly when a prefix is worth running.
+
+Pressing `Esc` in the player **saves** what you typed before closing; it is a way
+of clicking away, not a way of throwing the text out. And if a caption reaches
+the database but its `.txt` cannot be written, the report says so in those words
+rather than calling it a failure — the app would be showing you text the training
+will not read.
+
+**References** appears only for a target that trains on control images (MiniMax
+H3 ref2va). Without them the trainer runs unconditioned and says nothing, so the
+server refuses the launch — attaching 1 to 4 images here is what satisfies it,
+and replacing is whole-set: they are one identity, not an album.
+
+**Training** holds one set of dials and two destinations, this PC or a rented
+pod, and **Checkpoints** appears in the rail once a run has really brought files
+back.
+
+What is *not* here yet, and deliberately: the quality passes (duplicates,
+watermarks, safe zone, defects) run on the bank's shots and on the source files,
+before any encode exists; trimming a clip means re-encoding it, so the honest
+gesture is to re-cut in the bank — which is why the player names the source rush
+and the timecode. And there is no export button because there is nothing to
+export to: the dataset **is** its folder, flat, `.mp4` plus homonym `.txt`, which
+is exactly what every trainer reads.
+
 ## Test a video LoRA before you trust it
 
 Training a video LoRA gives you a `.safetensors` and a loss curve. Neither of
