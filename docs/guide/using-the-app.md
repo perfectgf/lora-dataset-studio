@@ -3706,11 +3706,16 @@ the first choice on the list on purpose: the only way to know what yours changed
 is to have seen the same seed without it.
 
 **A start frame, or none.** Image-to-video animates a picture — uploaded, taken
-from a bank, or lifted from the first frame of a clip in a training set (that
-last one is the honest baseline, since it is material the LoRA actually saw).
-Text-only skips the picture entirely and composes the shot from the prompt.
-Either way, describe the *movement*: the start frame already says what the scene
-looks like.
+from a bank, picked from the Gallery (every picture the app has rendered,
+Canvas previews included), or lifted from the first frame of a clip in a
+training set (that last one is the honest baseline, since it is material the
+LoRA actually saw). The bank, Gallery and Dataset clip tabs show their pictures
+as a grid of tiles — a clip's tile is the poster its training set shows for it
+— and the 🔍 **Preview size** slider above the grid enlarges them, more than
+three times over, when a face is too small to judge at the default; the size is
+remembered by the browser. Text-only skips the picture entirely and composes
+the shot from the prompt. Either way, describe the *movement*: the start frame
+already says what the scene looks like.
 
 **Or let a local model write the movement.** ✨ **Auto** looks at the start frame
 and proposes a motion for it; anything already in the field is read as the

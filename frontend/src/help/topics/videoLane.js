@@ -60,6 +60,19 @@ export const VIDEO_LANE_TOPICS = [
       'slow generation', 'takes forever', 'missing node', 'node pack'],
     guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
     app: { route: '/studio?lane=video' } },
+  // The start frame picker: its four sources and the 🔍 that sizes their tiles.
+  // Searched for by what someone holds (a bank image, a generated picture, a
+  // clip of the set), by the gesture ("bigger thumbnails") and by the tab that
+  // "does not work" — the Dataset clip tab came up empty-looking once.
+  action('video-studio-start-frame', 'Pick the start frame (upload, bank, Gallery, Dataset clip)',
+    ['start frame', 'first frame', 'source image', 'input image', 'from an image',
+     'upload a start frame', 'bank image as start frame', 'gallery image as start frame',
+     'generated image as start frame', 'animate a generated image', 'dataset clip',
+     'clip from the training set', 'first frame of a clip', 'clip tab empty',
+     'dataset clip does not work', 'preview size', 'bigger thumbnails',
+     'enlarge previews', 'enlarge the thumbnails', 'tile size', 'zoom thumbnails',
+     'thumbnails too small', 'ready staged', 'staged picture', 'text only', 'no start frame'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   // The ✨ writers of the Motion field. Searched for by the gesture ("auto",
   // "enrich"), by the format the answer comes back in (people paste H3's field
   // names and "<Picture 1>" from a prompt they did not write), by the ⚙ choice

@@ -18,11 +18,13 @@
  * from the user's disk: what comes back is the staged NAME the graph will use.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Image as ImageIcon, Upload, Film, Type, Sparkles } from 'lucide-react';
+import { Image as ImageIcon, Upload, Film, Type, Sparkles, ZoomIn } from 'lucide-react';
 import { apiFetch, postJson, postForm } from '../../../../api/fetchClient';
 import { useToast } from '../../../common/Toast';
+import { HelpBadge } from '../../../../help/HelpMode';
 import { datasetClipPoster } from '../../../videobank/videoDatasetClips';
 import { appendImages, datasetClips, galleryPage } from './videoPickerFeeds';
+import { clampTile, gridBoxHeight, readTile, writeTile, TILE_MAX, TILE_MIN, TILE_STEP } from './videoPickerTile';
 import { sourceUrl } from './videoStudioApi';
 
 const TABS = [
@@ -63,6 +65,27 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
   const [more, setMore] = useState(null);   // {before, more} — the feed's cursor
   const [paging, setPaging] = useState(false);
   const [busy, setBusy] = useState(false);
+  // One preview size for the three grids, kept per browser. Read lazily: the
+  // store is touched once, on mount, not on every render — and never named
+  // here: the helper owns it, so a browser that blocks site data cannot throw
+  // inside this render. The state follows the value, the store follows the
+  // state: a write the store refuses still moves the dial for the session.
+  const [tile, setTile] = useState(() => readTile());
+  const changeTile = (value) => {
+    const next = clampTile(value);
+    setTile(next);
+    writeTile(next);
+  };
+  // The one column count for every grid, from the dial: as many tiles of at
+  // least `tile` px as the row holds, stretched to fill it — so the phone and
+  // the desktop differ by how many columns they get, not by a class each.
+  const gridStyle = {
+    gridTemplateColumns: `repeat(auto-fill, minmax(${tile}px, 1fr))`,
+    maxHeight: `min(${gridBoxHeight(tile)}px, 70vh)`,
+  };
+  const gridShown = (tab === 'bank' && bankId && images.length > 0)
+    || (tab === 'gallery' && gallery.length > 0)
+    || (tab === 'clip' && datasetId && clips.length > 0);
   const [clipsLoading, setClipsLoading] = useState(false);
 
   /* Lists are fetched when their tab is opened, never on mount: a bank walk is
@@ -155,7 +178,10 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
     <section data-probe-panel="video-studio-source"
       className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface p-2">
       <header className="flex flex-wrap items-center gap-1.5">
-        <h2 className="text-sm font-semibold text-content">Start frame</h2>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-content">
+          Start frame
+          <HelpBadge topic="video-studio-start-frame" />
+        </h2>
         <div className="ml-auto flex rounded-lg border border-border p-0.5">
           {[['i2v', 'From an image'], ['t2v', 'Text only']].map(([id, label]) => (
             <button key={id} type="button" onClick={() => onMode(id)}
@@ -187,15 +213,36 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
           {/* flex-1, not a left-parked group: three chips against a 976 px row
               read as a panel that forgot its content (the responsive probe
               measures exactly that, and flagged this row at 25 %). */}
-          <div className="flex w-full gap-1">
+          <div className="flex w-full flex-wrap gap-1">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button key={id} type="button" onClick={() => setTab(id)}
                 data-testid={`video-source-${id}`}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
+                className={`flex flex-1 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-xs min-h-10 sm:whitespace-nowrap lg:min-h-0 ${
                   tab === id ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted'}`}>
                 <Icon aria-hidden="true" className="h-3.5 w-3.5" />{label}
               </button>
             ))}
+            {/* The dial that sizes the tiles, shown only over a grid that has
+                some: at the default a face is a smudge, and the frame is chosen
+                by eye. It ends the tab strip's row rather than taking one of
+                its own (alone, it filled 35 % of a landscape phone's row — a
+                row that forgot its content, to the probe) and wraps under the
+                tabs on a phone. Above a phone the tab labels stay on one line
+                (sm:whitespace-nowrap): a flex row breaks by the longest WORD,
+                so without it the dial stayed on the row and "Dataset clip"
+                folded in two. Not padlocked like the render dials — a drift
+                here shows itself at once and changes nothing about the clip. */}
+            {gridShown && (
+              <label className="ml-auto flex items-center gap-1.5 text-[0.6875rem] text-content-muted"
+                title="Preview size — enlarge the tiles to judge a frame before you pick it">
+                <ZoomIn aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                <span className="shrink-0">Preview size</span>
+                <input type="range" min={TILE_MIN} max={TILE_MAX} step={TILE_STEP} value={tile}
+                  onChange={(e) => changeTile(e.target.value)}
+                  aria-label="Preview size" aria-valuetext={`${tile} px`}
+                  className="w-32 cursor-pointer accent-primary min-h-10 lg:min-h-0" />
+              </label>
+            )}
           </div>
 
           {/* The ink spans the whole dropzone rather than huddling in the
@@ -223,7 +270,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                 {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
               {bankId && (
-                <div className="grid max-h-56 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
+                <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
                   {images.map((im) => (
                     <button key={im.id} type="button" title={im.filename}
                       onClick={() => stage(async () => ({
@@ -248,7 +295,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                   checkpoint show up here, newest first.
                 </p>
               ) : (
-                <div className="grid max-h-72 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
+                <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
                   {gallery.map((g) => (
                     <button key={g.id} type="button"
                       title={g.prompt || 'Generated image'}
@@ -303,7 +350,7 @@ export default function VideoSourcePicker({ mode, onMode, image, preview, onPick
                   keep their size; the box scrolls. And a picture per tile, the
                   training set's own poster, so the clip is chosen by eye. */}
               {datasetId && clips.length > 0 && (
-                <div className="grid max-h-72 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6">
+                <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
                   {clips.map((c) => {
                     const poster = datasetClipPoster(datasetId, c);
                     return (

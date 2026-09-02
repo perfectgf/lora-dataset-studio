@@ -48,6 +48,20 @@ test('every slider in the video studio wears the shared lock', () => {
   assert.ok(total >= 4, `expected the studio's dials, found ${total}`)
 })
 
+test('the picker’s Preview size is the one dial that goes without a lock — on purpose', () => {
+  // The lock exists because a dial dragged by a scrolling thumb changes what
+  // RENDERS without anyone noticing. The picker's preview size changes only
+  // how big the tiles are — a drift is seen at once and undone with the same
+  // thumb, and no clip reads it. So it stays bare, and this pins that the
+  // exemption is exactly one range wide: a second dial in the picker, or a
+  // render setting moved there, fails here.
+  const src = read('./VideoSourcePicker.jsx')
+  const found = ranges(src)
+  assert.equal(found.length, 1, `the picker holds one range input, found ${found.length}`)
+  assert.match(found[0], /aria-label="Preview size"/, `not the preview size:\n${found[0]}`)
+  assert.doesNotMatch(found[0], /Lock\.rangeProps/, 'a lock here would guard a cosmetic dial')
+})
+
 test('the lock is the app’s one implementation, not a second one', () => {
   // The video lane wearing its own padlock is how the two lanes drift apart.
   for (const [name, src] of Object.entries(PANELS)) {

@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-studio-preview-size',
+    date: '2026-09-02',
+    title: 'A Preview size slider in the Video Test Studio’s start frame picker',
+    blurb:
+      'The Bank and Gallery tabs showed their pictures at one small size, '
+      + 'and a face in a tile that small is a smudge. A 🔍 slider '
+      + 'above the grid now enlarges the tiles more than three times over — one size for '
+      + 'the three tabs, remembered by your browser — so the frame is chosen '
+      + 'by eye, not by file name.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-02-video-studio-active-state-painted',
     date: '2026-09-02',
     title: 'The Video Test Studio shows which tab, mode, LoRA and lane are active',

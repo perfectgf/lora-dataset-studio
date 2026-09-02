@@ -32,6 +32,44 @@ test('the clip list is a scrolling grid, not a flex column that shrinks its rows
   assert.ok(!classes.includes('flex-col'), `a flex column shrinks its rows under a max height: ${scrollBox[1]}`)
 })
 
+test('one Preview size dial drives all three grids, and remembers itself', () => {
+  // Asked for from the picker (2026-09-02): "a slider to enlarge the start
+  // frame previews". One dial, not one per tab — a size chosen on the Bank
+  // grid holds on the Gallery and the Dataset clip grids.
+  const ranges = PICKER.match(/<input type="range"[^]*?\/>/g) || []
+  assert.equal(ranges.length, 1, 'the picker has exactly one range input, the preview size')
+  assert.match(ranges[0], /aria-label="Preview size"/)
+  assert.match(ranges[0], /min=\{TILE_MIN\} max=\{TILE_MAX\} step=\{TILE_STEP\}/,
+    'the dial\u2019s range comes from videoPickerTile, not from literals that can drift from it')
+  const grids = PICKER.match(/className="grid gap-1 overflow-y-auto" style=\{gridStyle\}/g) || []
+  assert.equal(grids.length, 3, 'the Bank, Gallery and Dataset clip grids all take the one gridStyle')
+  assert.doesNotMatch(PICKER, /grid-cols-\d|sm:grid-cols-\d/,
+    'a fixed column count would ignore the dial')
+  assert.match(PICKER, /repeat\(auto-fill, minmax\(\$\{tile\}px, 1fr\)\)/)
+  // The other half of gridStyle: with the fixed max-h classes gone, this cap
+  // is all that keeps a 640 px box off a landscape phone's fold (70vh = 273).
+  assert.match(PICKER, /maxHeight: `min\(\$\{gridBoxHeight\(tile\)\}px, 70vh\)`/,
+    'the box must stay capped to the viewport, or a big tile eats a phone\u2019s fold')
+  // Where and when the dial sits — three decisions the responsive probe
+  // measured, and the probe is not part of the nightly gate, so pin them:
+  // only over a grid that has tiles, at the end of the tab strip's row
+  // (alone on a row it filled 35 % of a landscape phone's), a row that wraps
+  // on a phone while the tab labels stay whole above one.
+  assert.match(PICKER, /const gridShown = \(tab === 'bank' && bankId && images\.length > 0\)/)
+  assert.match(PICKER, /\{gridShown && \(\n\s*<label className="ml-auto flex/)
+  assert.match(PICKER, /<div className="flex w-full flex-wrap gap-1">/)
+  assert.match(PICKER, /data-testid=\{`video-source-\$\{id\}`\}\n\s*className=\{`[^`]*\bsm:whitespace-nowrap\b/)
+  // The size survives a reload, through the helper that clamps it — the JSX
+  // never touches the store by hand.
+  // The store is the helper's, never named here: a browser that blocks site
+  // data throws on ACCESS to localStorage, and this read happens in a render.
+  // And the state follows the VALUE — set from the store after a write, a
+  // refused write (quota, private mode) left the dial inert.
+  assert.match(PICKER, /useState\(\(\) => readTile\(\)\)/)
+  assert.match(PICKER, /const next = clampTile\(value\);\n\s*setTile\(next\);\n\s*writeTile\(next\);/)
+  assert.doesNotMatch(PICKER, /localStorage/)
+})
+
 test('a clip tile shows the poster the training set shows, and stages it as the preview', () => {
   const tab = clipTab(PICKER)
   assert.match(tab, /datasetClipPoster\(datasetId, c\)/, 'the tile does not resolve its poster')
