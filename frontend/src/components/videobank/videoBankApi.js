@@ -210,3 +210,35 @@ export function videoDatasetCloudContinueUrl(datasetId) {
 export function videoDatasetCloudRunUrl(datasetId, runId) {
   return `/api/video-dataset/${datasetId}/train/cloud/run/${runId}`
 }
+
+/* ── Checkpoints & LoRAs — the workspace section, both lanes, per STEP ─────
+ * `run_id` null on a body means the LOCAL run; a number means one of this
+ * dataset's cloud runs. The server resolves every file by NAME against the
+ * lane's own listing, so no path ever travels in a request. */
+
+/** Both lanes' saves grouped by step, each file with its deployed state —
+ * the section's one read. */
+export function videoDatasetCheckpointsUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoints`
+}
+
+/** 📦 Every file of one step into ComfyUI's loras folder. */
+export function videoDatasetCheckpointDeployUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoint/deploy`
+}
+
+/** ⏏ One deployed copy out of ComfyUI (to the trash); the save stays. */
+export function videoDatasetCheckpointUndeployUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoint/undeploy`
+}
+
+/** 🗑 Every file of one step to the trash. */
+export function videoDatasetCheckpointDeleteUrl(datasetId) {
+  return `/api/video-dataset/${datasetId}/train/checkpoint/delete`
+}
+
+/** ⬇ ONE save of the LOCAL run — the cloud link's twin, same encoding rule. */
+export function videoDatasetLocalCheckpointUrl(datasetId, filename) {
+  const p = new URLSearchParams({ filename: String(filename ?? '') })
+  return `/api/video-dataset/${datasetId}/train/checkpoint?${p.toString()}`
+}

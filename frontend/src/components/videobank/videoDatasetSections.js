@@ -21,7 +21,9 @@
  * .mp4 + homonym .txt — so "export" has no destination yet that the folder does
  * not already provide).
  */
-import { Clapperboard, GraduationCap, Paperclip, PenLine } from 'lucide-react';
+import {
+  Clapperboard, GraduationCap, Package, Paperclip, PenLine, SlidersHorizontal,
+} from 'lucide-react';
 
 export const VIDEO_DATASET_SECTIONS = [
   { id: 'clips', title: 'Clips', icon: Clapperboard, eyebrow: 'overview',
@@ -58,13 +60,24 @@ export const VIDEO_DATASET_SECTIONS = [
     description: 'Turn the clips into a video LoRA — on this machine or on a rented pod. One set of dials, two destinations.',
     panels: [
       { id: 'launch', title: 'Launch & progress', targetId: 'vds-training-launch', when: 'always' },
-      // A jump destination inside Training rather than a section of its own: the
-      // checkpoint list is rendered by VideoTrainingBlock from state that only
-      // it holds (the cloud poll), and splitting it would mean two components
-      // polling the same endpoint. `hasCheckpoints` is answered by that same
-      // component through onCheckpointGroups — a rail entry that scrolls to
-      // nothing is worse than no entry.
-      { id: 'checkpoints', title: 'Checkpoints', targetId: 'vds-training-checkpoints', when: 'hasCheckpoints' },
+    ] },
+  // The image rail's "Checkpoints & LoRAs", for video. It used to be a jump
+  // destination inside Training — a download link per file at the tail of the
+  // training block, and nothing else — which is where every other verb an image
+  // dataset's saves have (deploy, undeploy, continue from a step, details,
+  // delete) was missing. Always in the rail, like its image twin: an empty
+  // section says "no checkpoints yet" where a vanished entry says nothing.
+  { id: 'checkpoints', title: 'Checkpoints & LoRAs', icon: Package, eyebrow: 'results',
+    helpTopic: 'video-dataset-checkpoints',
+    description: 'Every save either lane brought back, step by step — download it, deploy it into ComfyUI, train further from it, or clear it. A Wan 2.2 save is two files at one step, and they travel together here.',
+    panels: [
+      { id: 'manager', title: 'Saves & LoRAs', targetId: 'vds-checkpoints-manager', when: 'always' },
+    ] },
+  { id: 'studio', title: 'Studio', icon: SlidersHorizontal, eyebrow: 'test',
+    helpTopic: 'video-dataset-studio',
+    description: 'Judge a deployed video LoRA on the clip it renders, not on its loss curve — the Video tab of the Test Studio, next door.',
+    panels: [
+      { id: 'launcher', title: 'Open Studio', targetId: 'vds-studio-launcher', when: 'always' },
     ] },
 ];
 

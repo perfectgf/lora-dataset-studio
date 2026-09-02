@@ -18,10 +18,6 @@ const AVAILABILITY = {
   hasSelection: (c) => boolStatus(c.selected > 0),
   hasClips: (c) => boolStatus(c.clips > 0),
   requiresReferences: (c) => boolStatus(c.requiresReferences),
-  // Answered by VideoTrainingBlock's own cloud poll (onCheckpointGroups), not
-  // guessed from the dataset row: a dataset that has never trained has no runs,
-  // and nothing else on the payload can tell you that.
-  hasCheckpoints: (c) => boolStatus(c.checkpointGroups > 0),
 };
 
 /** The sections this dataset shows at all. A section with no `when` is always

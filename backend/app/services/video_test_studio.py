@@ -714,6 +714,16 @@ def deploy_checkpoint(run_id, filename) -> str:
     src = ct.run_checkpoint_path(run, filename)
     if not src or not os.path.isfile(src):
         raise ValueError('checkpoint file not found')
+    return deploy_file(src)
+
+
+def deploy_file(src) -> str:
+    """The copy itself — one resolved checkpoint file into the app's folder
+    under ComfyUI's loras root. Split from `deploy_checkpoint` so the dataset
+    workspace can deploy a LOCAL run's save (which no CloudTrainingRun row can
+    resolve) through the exact same folder and naming the Studio lists."""
+    if not src or not os.path.isfile(src):
+        raise ValueError('checkpoint file not found')
     dest_dir = _loras_write_dir()
     if not dest_dir:
         raise ValueError('ComfyUI loras folder is not configured')
@@ -724,6 +734,30 @@ def deploy_checkpoint(run_id, filename) -> str:
         logger.info('video studio: deployed %s into %s',
                     os.path.basename(src), LORA_SUBDIR)
     return os.path.join(LORA_SUBDIR, os.path.basename(src))
+
+
+def undeploy_lora(deployed_as) -> str:
+    """⏏ Move one deployed copy OUT of ComfyUI's loras folder, into the trash.
+
+    Takes the LoraLoader-form name `deploy_file` answered (`h3/lds/<file>`)
+    and nothing else: a name outside the app's own subfolder is refused, so a
+    LoRA the user dropped by hand under `h3/` — which the picker lists as
+    deployed on purpose — can never be trashed by a click in a dataset list.
+    Basename-only inside that folder, for the same reason every resolver here
+    is. Returns the trashed path."""
+    from . import comfy_model_paths, trash
+    rel = os.path.normpath(str(deployed_as or ''))
+    sub, name = os.path.split(rel)
+    own = os.path.normcase(os.path.normpath(LORA_SUBDIR))
+    if (not name or os.path.normcase(sub) != own
+            or not name.lower().endswith('.safetensors')):
+        raise ValueError('only a LoRA the app deployed itself can be undeployed '
+                         'from here')
+    for root in comfy_model_paths.search_roots('loras'):
+        path = os.path.join(str(root), LORA_SUBDIR, name)
+        if os.path.isfile(path):
+            return trash.send_to_trash(path, context='video_lora_undeploy')
+    raise ValueError('that LoRA is not in ComfyUI\'s loras folder any more')
 
 
 # A LoRA is one safetensors file. The extension is not decoration here: it is

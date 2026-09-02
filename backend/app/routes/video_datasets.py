@@ -499,10 +499,14 @@ def video_dataset_cloud_run_delete(dataset_id, run_id):
 def video_dataset_cloud_retry(dataset_id):
     """↻ Relaunch a failed run of this dataset on a fresh pod."""
     from ..services import cloud_video_training as cvt
-    run = _video_run(dataset_id, (request.get_json(silent=True) or {}).get('run_id'))
+    body = request.get_json(silent=True) or {}
+    run = _video_run(dataset_id, body.get('run_id'))
     if not run:
         return _missing(dataset_id)
-    return _relaunch(lambda: cvt.retry_cloud_video_run(LOCAL_USER, run.id))
+    # The PARALLEL_RUN question's answer rides along, as on the launch route —
+    # a retry rents a pod too, and the same guardrails ask the same question.
+    return _relaunch(lambda: cvt.retry_cloud_video_run(
+        LOCAL_USER, run.id, allow_parallel_run=bool(body.get('allow_parallel_run'))))
 
 
 @bp.post('/video-dataset/<int:dataset_id>/train/cloud/continue')
@@ -516,7 +520,8 @@ def video_dataset_cloud_continue(dataset_id):
         return _missing(dataset_id)
     return _relaunch(lambda: cvt.continue_cloud_video_run(
         LOCAL_USER, run.id, extra_steps=body.get('extra_steps', 1000),
-        from_step=body.get('from_step')))
+        from_step=body.get('from_step'),
+        allow_parallel_run=bool(body.get('allow_parallel_run'))))
 
 
 def _relaunch(call):
@@ -534,3 +539,95 @@ def _relaunch(call):
         return jsonify({'error': str(e)}), 400
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 409
+
+
+# ── Checkpoints & LoRAs — the workspace section, both lanes, per STEP ──────
+# The verbs the image workspace's Checkpoints section has, for a video set.
+# `run_id` null on a body means the LOCAL run; a number means one of this
+# dataset's cloud runs, resolved by the (id, table) pair like every run route.
+
+def _checkpoint_verb(call):
+    """deploy / undeploy / delete answer alike: a dataset, run or step that is
+    not there is a 404 (LookupError), a refusal the user can act on — no loras
+    folder, a hand-placed LoRA — a 400 (ValueError), and a lane still writing
+    the files a 409 (RuntimeError)."""
+    try:
+        return jsonify({'ok': True, **call()})
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 409
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/checkpoints')
+def video_dataset_checkpoints(dataset_id):
+    """Both lanes' saves of this dataset grouped by STEP, each file with its
+    deployed state — everything the Checkpoints & LoRAs section renders."""
+    from ..services import video_checkpoints as vck
+    try:
+        return jsonify(vck.list_checkpoints(LOCAL_USER, dataset_id))
+    except LookupError:
+        return _missing(dataset_id)
+
+
+@bp.post('/video-dataset/<int:dataset_id>/train/checkpoint/deploy')
+def video_dataset_checkpoint_deploy(dataset_id):
+    """📦 Every file of one step into ComfyUI's loras folder, through the Video
+    Test Studio's own copy — one folder, one naming, for both surfaces."""
+    from ..services import video_checkpoints as vck
+    body = request.get_json(silent=True) or {}
+    return _checkpoint_verb(lambda: vck.deploy_step(
+        LOCAL_USER, dataset_id, body.get('run_id'), body.get('step'),
+        bool(body.get('final'))))
+
+
+@bp.post('/video-dataset/<int:dataset_id>/train/checkpoint/undeploy')
+def video_dataset_checkpoint_undeploy(dataset_id):
+    """⏏ Move one deployed copy out of ComfyUI (to the trash). The training
+    save stays; only a copy the app deployed itself is accepted."""
+    from ..services import video_checkpoints as vck
+    body = request.get_json(silent=True) or {}
+    return _checkpoint_verb(lambda: vck.undeploy(
+        LOCAL_USER, dataset_id, body.get('deployed_as', '')))
+
+
+@bp.post('/video-dataset/<int:dataset_id>/train/checkpoint/delete')
+def video_dataset_checkpoint_delete(dataset_id):
+    """🗑 Every file of one step to the trash — all of a Wan pair, never half.
+    409 while the lane is still writing them (local training running, cloud
+    run on its pod)."""
+    from ..services import video_checkpoints as vck
+    body = request.get_json(silent=True) or {}
+    return _checkpoint_verb(lambda: vck.delete_step(
+        LOCAL_USER, dataset_id, body.get('run_id'), body.get('step'),
+        bool(body.get('final'))))
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/checkpoint')
+def video_dataset_local_checkpoint(dataset_id):
+    """Download ONE save of this dataset's LOCAL run — the cloud route's twin
+    (`/train/cloud/checkpoint`), resolved through the folder's own listing so
+    the request names a file and never a path."""
+    from flask import abort
+    from ..services import video_checkpoints as vck
+    try:
+        path = vck.local_checkpoint_path(LOCAL_USER, dataset_id,
+                                         request.args.get('filename'))
+    except LookupError:
+        path = None
+    if not path:
+        abort(404)
+    return send_file(path, as_attachment=True)
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/cloud/run/<int:run_id>')
+def video_dataset_cloud_run_details(dataset_id, run_id):
+    """ⓘ One cloud run of this dataset: status, timing, GPU and price,
+    genealogy, and the allow-listed parameters it was launched with."""
+    from ..services import video_checkpoints as vck
+    try:
+        return jsonify(vck.run_details(LOCAL_USER, dataset_id, run_id))
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404

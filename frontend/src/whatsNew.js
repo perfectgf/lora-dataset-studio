@@ -83,6 +83,21 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-02-video-checkpoints-and-loras',
+    date: '2026-09-02',
+    title: 'A video set gets its Checkpoints & LoRAs section — deploy, continue, clear, step by step',
+    blurb:
+      'Every save a video training brought back — from this PC or from a rented '
+      + 'pod — now has its own section in the video workspace, listed by step so '
+      + 'both experts of a Wan 2.2 pair travel together. Each step offers what an '
+      + 'image dataset’s does: ⬇ download, 📦 deploy into ComfyUI’s loras folder '
+      + '(the Video Test Studio lists it as deployed right away), ⏏ undeploy, '
+      + '▶ continue training from that exact step on a fresh pod, ⓘ the run’s '
+      + 'details, and 🗑 delete — to the app’s Trash, recoverable. A Studio section '
+      + 'opens the Video tab of the Test Studio next door.',
+    to: '/datasets',
+  },
+  {
     id: '2026-09-02-publish-to-civitai',
     date: '2026-09-02',
     title: 'Publish a checkpoint and its images to Civitai without leaving the app',

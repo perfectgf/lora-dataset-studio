@@ -314,10 +314,12 @@ def _relaunch_args(p) -> dict:
     }
 
 
-def retry_cloud_video_run(user_id, run_id) -> dict:
+def retry_cloud_video_run(user_id, run_id, allow_parallel_run=False) -> dict:
     """↻ Relaunch a FAILED video run with the exact parameters of the original.
     A real launch on a fresh pod — same guardrails as any other — not a
-    resurrection of the dead one."""
+    resurrection of the dead one. `allow_parallel_run` is the user's answer
+    to the guardrails' PARALLEL_RUN question, relayed like the launch relays
+    it: dropped here, the question could be asked but never answered."""
     run = db.session.get(CloudTrainingRun, int(run_id))
     if not run:
         raise ValueError('unknown cloud run')
@@ -325,7 +327,8 @@ def retry_cloud_video_run(user_id, run_id) -> dict:
         raise ValueError('only a failed run can be retried')
     p = _params_of(run)
     return launch_cloud_video_training(
-        user_id, run.dataset_id, steps=p.get('steps') or 1000, **_relaunch_args(p))
+        user_id, run.dataset_id, steps=p.get('steps') or 1000,
+        allow_parallel_run=bool(allow_parallel_run), **_relaunch_args(p))
 
 
 def harvested_steps(run) -> list:
@@ -342,7 +345,16 @@ def harvested_steps(run) -> list:
     saves = ct.run_checkpoint_files(run)
     if not saves:
         return []
-    target = int(ct._run_param(run, 'steps') or 0)
+    return group_saves_by_step(saves, target=int(ct._run_param(run, 'steps') or 0))
+
+
+def group_saves_by_step(saves, target=None) -> list:
+    """The grouping behind `harvested_steps`, over any ``{filename: path}`` —
+    the local run folder uses it too (`video_checkpoints.local_group`), so
+    both lanes cut a Wan pair at the same seam.
+
+    `target` numbers the FINAL save (a cloud run stamps its step count; the
+    local lane passes None and the final is reported with `step: None`)."""
     by_step = {}
     for name, path in saves.items():
         step, _stage = video_training.split_checkpoint_name(name)
@@ -350,16 +362,17 @@ def harvested_steps(run) -> list:
         key = (target if final else step, final)
         by_step.setdefault(key, []).append((name, path))
     out = []
-    for (step, final), items in sorted(by_step.items()):
+    for (step, final), items in sorted(by_step.items(),
+                                       key=lambda kv: (kv[0][1], kv[0][0] or 0)):
         items.sort()
-        out.append({'step': int(step), 'final': final,
+        out.append({'step': None if step is None else int(step), 'final': final,
                     'files': [n for n, _ in items],
                     'paths': [p for _, p in items]})
     return out
 
 
 def continue_cloud_video_run(user_id, run_id, extra_steps=1000,
-                             from_step=None) -> dict:
+                             from_step=None, allow_parallel_run=False) -> dict:
     """▶ Resume a TERMINAL video run from one of its harvested steps and train
     `extra_steps` further. A fresh pod: the monitor drops every file of the
     chosen step into the new job's save_root before starting it, and ai-toolkit
@@ -398,7 +411,8 @@ def continue_cloud_video_run(user_id, run_id, extra_steps=1000,
     return launch_cloud_video_training(
         user_id, run.dataset_id, steps=chosen['step'] + extra,
         resume_ckpt_paths=list(chosen['paths']), resume_step=chosen['step'],
-        parent_run_id=run.id, **_relaunch_args(p))
+        parent_run_id=run.id, allow_parallel_run=bool(allow_parallel_run),
+        **_relaunch_args(p))
 
 
 def delete_cloud_video_run(user_id, run_id) -> dict:
