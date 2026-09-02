@@ -655,7 +655,9 @@ def video_dataset_neural_render_state(dataset_id):
         return _missing(dataset_id)
     return jsonify({'ok': True, 'status': nr.status(),
                     'job': nr.dataset_job(dataset_id),
-                    'rendered_ids': nr.rendered_clip_ids(LOCAL_USER, dataset_id)})
+                    'rendered_ids': nr.rendered_clip_ids(LOCAL_USER, dataset_id),
+                    # {clip id: the dials that made its render}, for the lightbox.
+                    'rendered_params': nr.rendered_clip_params(LOCAL_USER, dataset_id)})
 
 
 @bp.post('/video-dataset/<int:dataset_id>/neural-render')

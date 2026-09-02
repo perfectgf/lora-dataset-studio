@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { videoDatasetClipMediaUrl } from './videoBankApi'
 import SideBySideVideo from './SideBySideVideo'
+import { neuralRenderTags } from './neuralRenderParams'
 import { clipDurationS, isStillFile, lightboxKeyAction } from './videoDatasetClips'
 import { clipLabel } from './videoClipFragment'
 
@@ -29,6 +30,9 @@ export default function VideoDatasetLightbox({
   // lightbox offers the side-by-side comparison, without it the button does
   // not exist — there is nothing to compare a clip that plays its original to.
   compareSrc = null,
+  // ✨ The dials that made this clip's render, or null (the workspace reads
+  // them from the dataset's neural-render state).
+  nrParams = null,
 }) {
   const [failed, setFailed] = useState(false)
   // ⇔ Whether the side-by-side comparison is open. Reset with the clip: the
@@ -110,6 +114,11 @@ export default function VideoDatasetLightbox({
           )}
         </div>
 
+        {nrParams && (
+          <p className="text-[0.6875rem] text-white/70">
+            ✨ Neural render: {neuralRenderTags(nrParams).join(' · ')}
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {/* Provenance, on the screen where it is asked for: "which rush is
               this, and where in it?" is the question a badly cut clip raises,

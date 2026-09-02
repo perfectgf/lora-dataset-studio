@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 bp = Blueprint('video_studio', __name__, url_prefix='/api/video-studio')
 
 
+def _json_or_none(text):
+    if not text:
+        return None
+    try:
+        import json
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return None
+
+
 def _clip_dict(clip):
     """One clip row as the panel reads it.
 
@@ -51,6 +61,8 @@ def _clip_dict(clip):
         'vfi_of': getattr(clip, 'vfi_of', None),
         # ✨ The clip this one was neural-rendered from, same reading.
         'nr_of': getattr(clip, 'nr_of', None),
+        # ✨ The dials that made a neural render, or null — the pills read them.
+        'nr_params': _json_or_none(getattr(clip, 'nr_params', None)),
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,

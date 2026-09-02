@@ -1783,6 +1783,11 @@ class VideoTestClip(db.Model):
     # ✨ The clip this one was neural-rendered FROM (DLSS 5), or NULL — the same
     # rule: a new artefact next to the original, never an edit of it.
     nr_of = db.Column(Integer, nullable=True, index=True)
+    # ✨ The dials that made a neural render (JSON: tone, structure, strength,
+    # passes, scale, temporal asked and used, ms per frame). A card that says
+    # seed and steps but not these is a card that cannot answer "what was
+    # different about that one" for the one pass whose dials matter most.
+    nr_params = db.Column(Text, nullable=True)
 
     rating = db.Column(Integer, nullable=False, default=0)  # 1 | -1 | 0, same scale as the image studio
     created_at = db.Column(DateTime, default=db.func.current_timestamp())

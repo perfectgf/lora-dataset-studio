@@ -162,3 +162,30 @@ def test_the_history_page_carries_the_source_of_its_renders_and_pages_back(app, 
     # The last page says so.
     r3 = client.get(f'/api/video-studio/clips?limit=100&before={ids[3]}')
     assert r3.get_json()['has_more'] is False
+
+
+def test_a_render_remembers_its_dials_and_the_mode_it_used(app, client, tmp_path, monkeypatch):
+    """The card can say seed and steps; for a render the dials are what
+    differed, so they travel with the row — as asked, then as used."""
+    import json
+    from app.models import VideoTestClip
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    (tmp_path / 'clip.mp4').write_bytes(b'ORIGINAL')
+    _ready(monkeypatch)
+    monkeypatch.setattr(nr, 'render_video', lambda src, dst, params, **kw: (
+        open(dst, 'wb').write(b'R') and {'frames': 56, 'temporal': True, 'mean_ms': 31.7, 'mode_note': 'temporal mode'}))
+    src_id = _clip(app)
+    with app.app_context():
+        new_id = nr.start_studio_render(app, 'local', src_id, {'strength': 2, 'passes': 1, 'scale': 2, 'tone': 0})['clip_id']
+        asked = json.loads(VideoTestClip.query.get(new_id).nr_params)
+        assert asked['strength'] == 2.0 and asked['scale'] == 2 and asked['tone'] == 0.0
+        assert 'temporal_used' not in asked
+    _join_thread(src_id)
+    with app.app_context():
+        used = json.loads(VideoTestClip.query.get(new_id).nr_params)
+        assert used['temporal_used'] is True and used['ms_per_frame'] == 31.7 and used['frames'] == 56
+    r = client.get('/api/video-studio/clips')
+    row = next(c for c in r.get_json()['clips'] if c['id'] == new_id)
+    assert row['nr_params']['strength'] == 2.0 and row['nr_params']['temporal_used'] is True
+    src_row = next(c for c in r.get_json()['clips'] if c['id'] == src_id)
+    assert src_row['nr_params'] is None

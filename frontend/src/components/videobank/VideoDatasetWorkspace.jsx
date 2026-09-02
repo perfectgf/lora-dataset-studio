@@ -722,6 +722,7 @@ export default function VideoDatasetWorkspace({ ds, items, refresh, onBack }) {
           onRemove={(clip) => removeClips([clip.id])}
           compareSrc={renderedIds.includes(player.clip.id)
             ? videoDatasetClipOriginalUrl(ds.id, player.clip.id) : null}
+          nrParams={nr?.rendered_params?.[player.clip.id] || null}
           hasPrev={player.prevId != null}
           hasNext={player.nextId != null} />
       )}

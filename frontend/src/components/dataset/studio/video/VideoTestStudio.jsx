@@ -597,6 +597,7 @@ export default function VideoTestStudio() {
           in words on a machine without the model. */}
       {nrClip && (
         <NeuralRenderDialog status={options?.neural_render} busy={nrBusy === nrClip.id}
+          initial={nrClip.nr_params || null}
           subject={`Clip #${nrClip.id}${nrClip.seconds ? ` (${nrClip.seconds}s)` : ''}.`}
           consequence="The render is a NEW clip in this list; the original stays as it is."
           onRender={(params) => neuralRender(nrClip, params)}

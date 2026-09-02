@@ -574,6 +574,46 @@ def start_dataset_render(app, user_id, dataset_id, clip_ids, params) -> dict:
     return {'queued': len(targets), 'params': params}
 
 
+def render_record(params, result=None) -> dict:
+    """What a render is remembered by: the dials asked for, plus — once the
+    child answered — the frame mode actually used and the cost per frame.
+    `temporal` stays the request ('auto'); `temporal_used` is the fact."""
+    rec = {k: params[k] for k in ('tone', 'structure', 'automask', 'temporal',
+                                   'strength', 'passes', 'scale') if k in params}
+    if result:
+        rec['temporal_used'] = bool(result.get('temporal'))
+        if result.get('mean_ms') is not None:
+            rec['ms_per_frame'] = round(float(result['mean_ms']), 1)
+        if result.get('frames') is not None:
+            rec['frames'] = int(result['frames'])
+    return rec
+
+
+def sidecar_path(dataset_id, filename) -> Path:
+    """Where a dataset clip's render record lives: next to its kept original,
+    outside the dataset folder (a trainer must never find a .json there)."""
+    return backup_dir(dataset_id) / (os.path.basename(str(filename)) + '.nr.json')
+
+
+def rendered_clip_params(user_id, dataset_id) -> dict:
+    """{clip id: render record} for every clip of the dataset that plays a
+    render and whose record survived. Read from disk like rendered_clip_ids —
+    the backup folder IS the state."""
+    ds, rows = _dataset_and_rows(user_id, dataset_id)
+    if ds is None:
+        return {}
+    out = {}
+    for r in rows:
+        path = sidecar_path(ds.id, r.filename)
+        if not (backup_dir(ds.id) / r.filename).is_file() or not path.is_file():
+            continue
+        try:
+            out[r.id] = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def _render_one_in_place(dataset_id, out_dir, filename, params, cancel=None) -> dict:
     """Render ONE dataset clip over itself.
 
@@ -598,6 +638,11 @@ def _render_one_in_place(dataset_id, out_dir, filename, params, cancel=None) -> 
     try:
         result = render_video(str(backup), tmp_out, params, cancel=cancel)
         os.replace(tmp_out, clip_path)
+        try:
+            sidecar_path(dataset_id, filename).write_text(
+                json.dumps(render_record(params, result)), encoding='utf-8')
+        except OSError:
+            logger.warning('neural render: could not record the dials of %s', filename)
     finally:
         if os.path.exists(tmp_out):
             try:
@@ -626,6 +671,12 @@ def forget_backups(dataset_id, filenames=None) -> int:
             try:
                 path.unlink()
                 dropped += 1
+            except OSError:
+                pass
+        record = root / (os.path.basename(str(name)) + '.nr.json')
+        if record.is_file():
+            try:
+                record.unlink()
             except OSError:
                 pass
     try:
@@ -666,6 +717,9 @@ def restore_dataset_clips(user_id, dataset_id, clip_ids=None) -> dict:
         try:
             os.replace(backup, clip_path)
             restored += 1
+            sidecar = sidecar_path(ds.id, row.filename)
+            if sidecar.is_file():
+                sidecar.unlink()
         except OSError as exc:
             logger.warning('neural render: restore of %s refused: %s', row.filename, exc)
     return {'restored': restored}
@@ -706,7 +760,7 @@ def start_studio_render(app, user_id, clip_id, params) -> dict:
         frames=src.frames, megapixels=src.megapixels, fps=src.fps,
         base_model=src.base_model, lora=src.lora, lora_strength=src.lora_strength,
         turbo=bool(src.turbo), sparse=src.sparse, latent_upscale=bool(src.latent_upscale),
-        vfi_of=src.vfi_of, nr_of=src.id)
+        vfi_of=src.vfi_of, nr_of=src.id, nr_params=json.dumps(params))
     db.session.add(clip)
     db.session.commit()
     new_id = clip.id
@@ -721,6 +775,7 @@ def start_studio_render(app, user_id, clip_id, params) -> dict:
                     row.filename = out_name
                     row.status = 'done'
                     row.error = None
+                    row.nr_params = json.dumps(render_record(params, result))
                     logger.info('neural render: studio clip %s -> %s (%s, %s frames, %.1f ms/frame)',
                                 src.id, new_id, result.get('mode_note'), result.get('frames'),
                                 result.get('mean_ms') or 0)
