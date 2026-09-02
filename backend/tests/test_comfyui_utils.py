@@ -76,12 +76,17 @@ def test_history_probe_requires_the_exact_prompt_key(app):
 
 def test_comfyui_gpu_decisions_refuse_redirects(app):
     """A proxy redirect is not proof of a prompt, history, queue, or VRAM state."""
-    import importlib
-    import app.utils.comfyui as comfyui
+    import importlib.util
 
-    # The suite safety fixture replaces /free. Reload just this module so this
-    # contract exercises the real request call without touching a live server.
-    comfyui = importlib.reload(comfyui)
+    # The suite safety fixture replaces /free. This contract needs the real
+    # request call without touching a live server, so it executes the module
+    # a second time into a PRIVATE module object — never `importlib.reload`,
+    # which rebuilds every class in the shared module for every test that
+    # runs after this one in the same worker (an enum member imported before
+    # was no longer `in` a tuple of the rebuilt class, and a release failed).
+    spec = importlib.util.find_spec('app.utils.comfyui')
+    comfyui = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(comfyui)
 
     with app.app_context(), patch(
             'app.utils.comfyui.requests.post',

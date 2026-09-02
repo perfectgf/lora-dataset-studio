@@ -182,15 +182,18 @@ def gpu_exclusive_vision_window(flag_ttl=300):
             _active_vision_window_tokens.add(token)
             active_registered = True
             try:
-                from .utils.comfyui import ComfyVramFreeVerdict, free_comfyui_vram
+                from .utils.comfyui import free_comfyui_vram
                 verdict = free_comfyui_vram()
             except Exception:
                 logger.exception('vision GPU window: ComfyUI /free raised unexpectedly')
                 verdict = None
 
-            if verdict not in (
-                    ComfyVramFreeVerdict.FREED,
-                    ComfyVramFreeVerdict.COMFYUI_OFFLINE):
+            # Asked of the member, not compared to a class imported here: the
+            # enum's own property answers for whichever incarnation of the
+            # class the member belongs to. The suite once reloaded
+            # utils.comfyui, and a member of the old class was never `in` a
+            # tuple of the new one.
+            if not getattr(verdict, 'permits_ollama', False):
                 if queue_manager._get_system_state('vision_in_progress') == token:
                     queue_manager._set_system_state('vision_in_progress', None)
                 _active_vision_window_tokens.discard(token)

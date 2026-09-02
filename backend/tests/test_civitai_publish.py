@@ -22,8 +22,10 @@ from app.services import civitai_publish as cp
 # back-off costs the suite nothing — `cp.time` IS the time module, so that
 # reaches every sleep in the process, this file's own included. A poll that
 # has to wait for a background thread keeps the genuine one, taken before any
-# fixture runs.
+# fixture runs — and the genuine clock with it: one test below freezes
+# `time.monotonic`, and a deadline read off a frozen clock never arrives.
 _real_sleep = time.sleep
+_real_monotonic = time.monotonic
 
 KEY = 'test-key-not-real'
 SERVER_DATE = 'Wed, 02 Sep 2026 12:00:00 GMT'
@@ -908,10 +910,10 @@ def test_the_publish_image_route_runs_the_job_to_its_result(client, app, civitai
     # A wall-clock deadline, not an iteration count: with `time.sleep` stubbed
     # by the fixture the old 200 × 0.02 s was a spin of 200 GETs, and the
     # release runner's job thread had not finished inside it.
-    deadline = time.monotonic() + 30
+    deadline = _real_monotonic() + 30
     while True:
         j = client.get(f'/api/civitai/jobs/{job_id}').get_json()
-        if j['state'] in ('done', 'error') or time.monotonic() > deadline:
+        if j['state'] in ('done', 'error') or _real_monotonic() > deadline:
             break
         _real_sleep(0.02)
     assert j['state'] == 'done', j
