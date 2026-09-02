@@ -83,6 +83,18 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-video-studio-render-time',
+    date: '2026-09-03',
+    title: 'Every clip in the Video Test Studio says how long it took to render',
+    blurb:
+      'The card of a finished clip now reads "rendered in 24 s" — or "5 min '
+      + '48 s" — the time from the moment the queue took the job to the moment '
+      + 'the clip landed, model loading included. It is the number that tells '
+      + 'a good run from a machine that is swapping: the same clip, same card, '
+      + 'same evening, took five minutes with one launch flag and twenty-five '
+      + 'seconds with another.',
+  },
+  {
     id: '2026-09-02-video-studio-start-frame-batch',
     date: '2026-09-02',
     title: 'Test a video LoRA on several start frames in one click',

@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, SPARSE_CHOICES,
-  studioFrameChoices,
+  buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, renderTimeLabel,
+  SPARSE_CHOICES, studioFrameChoices,
 }  from './videoStudioApi.js';
 
 test('an option left off is absent from the payload, never false', () => {
@@ -146,4 +146,19 @@ test('the launch advice phrases exactly what the server sent, flag names include
   // Nothing sent, nothing said.
   assert.equal(launchAdviceLines(null), null)
   assert.equal(launchAdviceLines({}), null)
+})
+
+test('the render time reads the way a person says it, and is null for anything else', () => {
+  assert.equal(renderTimeLabel(24.4), '24 s')
+  assert.equal(renderTimeLabel(59.6), '1 min')          // rounds to 60, and 60 is a minute
+  assert.equal(renderTimeLabel(348.03), '5 min 48 s')
+  assert.equal(renderTimeLabel(120), '2 min')
+  assert.equal(renderTimeLabel(0.4), '1 s')             // a measured fraction is rounded up, never hidden
+  assert.equal(renderTimeLabel(3600), '1 h')
+  assert.equal(renderTimeLabel(5400), '1 h 30 min')
+  assert.equal(renderTimeLabel(28800), '8 h')
+  assert.equal(renderTimeLabel(3661), '1 h 1 min')       // seconds drop past the hour
+  for (const junk of [null, undefined, 0, -3, 'abc', NaN, Infinity]) {
+    assert.equal(renderTimeLabel(junk), null, String(junk))
+  }
 })

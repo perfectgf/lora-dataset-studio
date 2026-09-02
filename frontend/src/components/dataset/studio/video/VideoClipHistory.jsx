@@ -12,7 +12,7 @@
  * there for whoever wants to hear it.
  */
 import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, Loader2, Waves, Sparkles } from 'lucide-react';
-import { clipVideoUrl, isRunning } from './videoStudioApi';
+import { clipVideoUrl, isRunning, renderTimeLabel } from './videoStudioApi';
 import { clipTags } from './videoClipTags';
 
 const ACTION = 'flex items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[0.6875rem] min-h-10 lg:min-h-0';
@@ -78,6 +78,13 @@ export default function VideoClipHistory({
                 {clip.mode === 't2v' ? 'text-to-video' : 'image-to-video'}
                 {clip.seconds ? ` · ${clip.seconds}s` : ''}
                 {clip.megapixels ? ` · ${clip.megapixels} MP` : ''}
+                {/* ⏱ What the user waited for, model loading included — the
+                    number that tells a good run from a swapping machine. A clip
+                    that died keeps its time too, under a verb that does not
+                    claim a render it never produced. */}
+                {renderTimeLabel(clip.render_seconds)
+                  ? ` · ${clip.status === 'failed' ? 'failed after' : 'rendered in'} ${renderTimeLabel(clip.render_seconds)}`
+                  : ''}
               </p>
               <div className="mt-auto flex flex-wrap items-center gap-1">
                 <button type="button" onClick={() => onRate(clip, clip.rating === 1 ? 0 : 1)}

@@ -74,6 +74,8 @@ def _clip_dict(clip):
         'created_at': clip.created_at.isoformat() if clip.created_at else None,
         'seconds': (round((clip.frames - 1) / clip.fps, 2)
                     if clip.frames and clip.fps else None),
+        # ⏱ How long the queue spent on it, or null when the queue could not say.
+        'render_seconds': clip.render_seconds,
     }
 
 

@@ -186,3 +186,20 @@ export function launchAdviceLines(advice) {
     action: `${change} on the command that starts ComfyUI, then start it again.`,
   };
 }
+
+// ⏱ Render time as a person reads it: "24 s", "5 min 48 s", "2 min", "1 h 12 min".
+// The number is the queue's own measurement (claim → settled, model loading
+// included); null for anything that is not a positive number, so a card never
+// prints "rendered in null" for a clip the queue could not time. A measured
+// fraction of a second reads "1 s" — a real measurement is rounded, never hidden.
+export function renderTimeLabel(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s) || s <= 0) return null;
+  const t = Math.max(1, Math.round(s));
+  if (t < 60) return `${t} s`;
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const r = t % 60;
+  if (h) return m ? `${h} h ${m} min` : `${h} h`;
+  return r ? `${m} min ${r} s` : `${m} min`;
+}

@@ -189,3 +189,39 @@ def test_a_render_remembers_its_dials_and_the_mode_it_used(app, client, tmp_path
     assert row['nr_params']['strength'] == 2.0 and row['nr_params']['temporal_used'] is True
     src_row = next(c for c in r.get_json()['clips'] if c['id'] == src_id)
     assert src_row['nr_params'] is None
+
+
+def test_a_neural_render_measures_its_own_time_done_or_failed(app, tmp_path, monkeypatch):
+    """This lane never goes through the queue, so nothing stamps it: the thread
+    times itself, on both outcomes, and the card can say how long the pass took."""
+    from app.models import VideoTestClip
+    monkeypatch.setattr(vts, 'clips_dir', lambda create=True: str(tmp_path))
+    (tmp_path / 'clip.mp4').write_bytes(b'ORIGINAL')
+    _ready(monkeypatch)
+
+    def slow_ok(src, dst, params, **kw):
+        import time
+        time.sleep(0.05)
+        with open(dst, 'wb') as fh:
+            fh.write(b'RENDERED')
+        return {'frames': 56, 'mode_note': 'still mode', 'mean_ms': 12.0}
+    monkeypatch.setattr(nr, 'render_video', slow_ok)
+    src_id = _clip(app)
+    with app.app_context():
+        new_id = nr.start_studio_render(app, 'local', src_id, {})['clip_id']
+    _join_thread(src_id)
+    with app.app_context():
+        new = VideoTestClip.query.get(new_id)
+        assert new.status == 'done'
+        assert isinstance(new.render_seconds, float) and new.render_seconds >= 0.0
+
+    def boom(src, dst, params, **kw):
+        raise nr.NeuralRenderError('the bridge refused the clip')
+    monkeypatch.setattr(nr, 'render_video', boom)
+    src2 = _clip(app)
+    with app.app_context():
+        failed_id = nr.start_studio_render(app, 'local', src2, {})['clip_id']
+    _join_thread(src2)
+    with app.app_context():
+        row = VideoTestClip.query.get(failed_id)
+        assert row.status == 'failed' and isinstance(row.render_seconds, float)

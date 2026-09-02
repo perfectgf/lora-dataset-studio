@@ -769,6 +769,11 @@ def start_studio_render(app, user_id, clip_id, params) -> dict:
     def _run():
         with app.app_context():
             row = VideoTestClip.query.filter_by(id=new_id).first()
+            # ⏱ This lane never goes through the queue, so nothing stamps it:
+            # measured here, so a rendered clip carries a time its source can
+            # be compared against — the very use of ⇔ Compare. Monotonic: a
+            # local duration, not two database stamps.
+            t0 = time.monotonic()
             try:
                 result = render_video(src_path, dst_path, params)
                 if row is not None:
@@ -788,6 +793,8 @@ def start_studio_render(app, user_id, clip_id, params) -> dict:
                 if row is not None:
                     row.status = 'failed'
                     row.error = f'unexpected failure: {exc}'
+            if row is not None:
+                row.render_seconds = round(time.monotonic() - t0, 1)
             db.session.commit()
 
     thread = threading.Thread(target=_run, name=f'neural-render-{new_id}', daemon=True)
