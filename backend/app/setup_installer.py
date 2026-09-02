@@ -425,7 +425,11 @@ INSTALL_ACTIONS = ('ml_extras', 'scrape_extras', 'ollama_model',
                    'face_scoring', 'masks', 'watermark_inpaint',
                    'bank_scoring', 'bank_siglip2',
                    'watermark_detect',
-                   'video', 'shot_detect', 'video_text') + tuple(_MODEL_DOWNLOADS) + _ALL_NODE_PACKS
+                   'video', 'shot_detect', 'video_text',
+                   # ✨ DLSS 5 neural rendering bridge (two MIT DLLs, pinned release —
+                   # see services/neural_render.BRIDGE_RELEASE). The MODEL is the
+                   # user's own file and has no action on purpose.
+                   'dlss5nr_bridge') + tuple(_MODEL_DOWNLOADS) + _ALL_NODE_PACKS
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
@@ -926,6 +930,10 @@ def manual_command(action) -> str:
     if action == 'ollama_model':
         # The Studio container need not have an Ollama CLI; this action is HTTP-only.
         return ''
+    if action == 'dlss5nr_bridge':
+        from .services import neural_render
+        return (f'curl -L -o bridge.zip "{neural_render.BRIDGE_RELEASE["url"]}"  '
+                f'&&  unzip bridge.zip -d "{neural_render.runtime_dir()}"')
     if action in _MODEL_DOWNLOADS:
         spec = _MODEL_DOWNLOADS[action]
         try:
@@ -1175,6 +1183,10 @@ def _broken_or_missing(missing, invalid) -> set:
 def _action_needed(action, caps) -> bool:
     """Is `action` both MISSING and satisfiable right now, from live capabilities?
     Pure (caps in, bool out) — the single rule install_all_plan is built from."""
+    if action == 'dlss5nr_bridge':
+        # Never part of "Install everything": a Windows-and-NVIDIA-only lane
+        # whose model the user must bring is an opt-in card, not a default.
+        return False
     if action == 'scrape_extras':
         # Pure-python wheels into THIS interpreter, so no ML-range gate: runnable on
         # any Python the app itself starts on. scrape_deps is False as soon as ONE of
@@ -3346,7 +3358,16 @@ def _verify_shot_detect_import(action, python) -> bool:
     return False
 
 
+def _run_dlss5nr_bridge(action) -> int:
+    """✨ The neural rendering bridge: a pinned zip, verified by size and SHA-256,
+    two DLLs unpacked under the app's data folder. Everything it says goes to
+    the run log, including the one thing it cannot do — the model file."""
+    from .services import neural_render
+    return neural_render.install_bridge(log=lambda line: _append(action, line))
+
+
 _WORKERS = {**{a: _run_ml_extras for a in _PIP_REQUIREMENTS},   # ml_extras + scrape_extras
+            'dlss5nr_bridge': _run_dlss5nr_bridge,
             'ollama_model': _run_ollama_model,
             **{a: _run_ml_capability for a in _CAPABILITY_ML_ACTIONS},  # face_scoring + masks + video
             'watermark_inpaint': _run_watermark_inpaint,

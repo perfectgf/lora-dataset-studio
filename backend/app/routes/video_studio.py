@@ -22,6 +22,7 @@ from flask import Blueprint, jsonify, request, send_file
 from ..config import LOCAL_USER
 from ..gpu_window import gpu_exclusive_vision_window
 from ..services import lora_test_studio as lts
+from ..services import neural_render as _nr
 from ..services import video_test_studio as vts
 from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
                       _studio_missing_response)
@@ -48,6 +49,8 @@ def _clip_dict(clip):
         'source_image': clip.source_image,
         # ↗ The clip this one was smoothed from, so the card can say so.
         'vfi_of': getattr(clip, 'vfi_of', None),
+        # ✨ The clip this one was neural-rendered from, same reading.
+        'nr_of': getattr(clip, 'nr_of', None),
         'seed': clip.seed, 'steps': clip.steps, 'frames': clip.frames,
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
@@ -105,6 +108,9 @@ def video_studio_options():
         'turbo_steps': vts.TURBO_STEPS, 'default_steps': vts.DEFAULT_STEPS,
         'base_official': vts.BASE_OFFICIAL, 'base_eros': vts.BASE_EROS,
         'eros_available': vts.eros_on_disk(),
+        # ✨ DLSS 5 neural rendering — ready + the sentences naming what is
+        # missing, so the clip history's button can refuse in words.
+        'neural_render': _nr.status(),
     })
 
 
@@ -638,3 +644,21 @@ def video_studio_delete(clip_id):
     db.session.delete(clip)
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@bp.post('/clip/<int:clip_id>/neural-render')
+def video_studio_clip_neural_render(clip_id):
+    """✨ Re-render a finished clip through DLSS 5 Neural Rendering — as a new
+    clip, never an edit (the studio exists to compare). Body: the dials
+    (tone, structure, automask, temporal). The row appears at once in
+    ``pending`` and the list's own poll shows it land; a refusal (the model
+    is not set up, the clip is gone, a render of it is already running) is a
+    400 with the sentence to show."""
+    from flask import current_app
+    from ..services import neural_render as nr
+    data = request.get_json(silent=True) or {}
+    try:
+        out = nr.start_studio_render(current_app._get_current_object(), LOCAL_USER, clip_id, data)
+    except nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return jsonify({'ok': True, **out})

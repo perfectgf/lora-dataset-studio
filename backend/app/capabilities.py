@@ -1056,6 +1056,18 @@ def probe_video() -> dict:
     }
 
 
+def probe_dlss5nr() -> dict:
+    """✨ DLSS 5 neural rendering — a FILE probe, on purpose. The bridge's real
+    init loads a 165 MB model onto a D3D12 device; doing that on every poll of
+    the Setup screen is not a probe, it is a workload. What CAN be read cheaply
+    is what Setup can act on: the OS, the driver's NGX files, the two bridge
+    DLLs this app installs and the model file the user supplies. The model's
+    own refusal (an unsupported GPU, a stock build on an older card) surfaces
+    at the first render, in the model's words, on the clip that asked."""
+    from .services import neural_render
+    return neural_render.status()
+
+
 def probe_bank_scoring() -> dict:
     """Bank scoring extra (CLIP aesthetic + NSFW + style). Dedicated interpreter
     key (bank_scoring.python), else the app's own. Same subprocess-import probe as
@@ -2237,6 +2249,7 @@ def probe(force=False) -> dict:
     watermark_inpaint = probe_watermark_inpaint()
     watermark_detect = probe_watermark_detect()
     video = probe_video()
+    dlss5nr = probe_dlss5nr()
     video_text = probe_video_text()
     scrape_deps = probe_scrape_deps()
     joycaption = probe_joycaption(aitoolkit)
@@ -2442,6 +2455,9 @@ def probe(force=False) -> dict:
         # say WHICH one to fix — never "video unavailable", which is how a user
         # reinstalls the wrong thing.
         'video': video['ok'],
+        # ✨ DLSS 5 neural rendering: the whole status dict (ready + the sentences
+        # naming what is missing), read by the Setup card and both video verbs.
+        'dlss5nr': dlss5nr,
         'video_detail': video['detail'],
         'video_decode': video['decode'],
         'video_detect': video['detect'],
