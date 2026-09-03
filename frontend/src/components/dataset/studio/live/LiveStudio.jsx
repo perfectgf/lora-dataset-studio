@@ -190,7 +190,7 @@ export default function LiveStudio() {
         className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <Radio aria-hidden="true" className="h-5 w-5 text-primary" /> Live channel
-          <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-amber-200">experimental</span>
+          <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-amber-200">beta</span>
           <HelpBadge topic="page-video-live" />
         </h2>
         <span className="hidden text-xs text-content-subtle sm:inline">

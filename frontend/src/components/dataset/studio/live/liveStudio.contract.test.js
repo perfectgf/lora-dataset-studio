@@ -16,7 +16,7 @@ const page = read('../../../../pages/StudioPage.jsx');
 const lane = read('./LiveStudio.jsx');
 
 test('the Studio page offers the Live lane as a third tab and remembers it', () => {
-  assert.match(page, /\{ id: 'live', label: 'Live', icon: Radio \}/);
+  assert.match(page, /\{ id: 'live', label: 'Live', icon: Radio, badge: 'beta' \}/, 'the tab says beta next to Live');
   assert.match(page, /const LANES = \['image', 'video', 'live'\]/);
   assert.match(page, /lane === 'live' \? \(\s*<LiveStudio \/>/);
 });

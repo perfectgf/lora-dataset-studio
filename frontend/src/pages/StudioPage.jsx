@@ -93,13 +93,18 @@ export default function StudioPage() {
           { id: 'image', label: 'Images', icon: FlaskConical },
           { id: 'video', label: 'Video', icon: Clapperboard },
           // 🔴 Experimental: the video engine as a channel that never stops.
-          { id: 'live', label: 'Live', icon: Radio },
-        ].map(({ id, label, icon: Icon }) => (
+          { id: 'live', label: 'Live', icon: Radio, badge: 'beta' },
+        ].map(({ id, label, icon: Icon, badge }) => (
           <button key={id} type="button" onClick={() => pickLane(id)}
             aria-pressed={lane === id} data-testid={`studio-lane-${id}`}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold min-h-10 lg:min-h-0 ${
               lane === id ? 'bg-primary text-white' : 'text-content-muted hover:text-content'}`}>
             <Icon aria-hidden="true" className="h-4 w-4" />{label}
+            {badge && (
+              <span className="ml-0.5 rounded-full border border-current px-1.5 text-[0.625rem] font-semibold uppercase leading-4 tracking-wide opacity-80">
+                {badge}
+              </span>
+            )}
           </button>
         ))}
       </div>

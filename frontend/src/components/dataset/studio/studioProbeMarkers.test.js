@@ -63,7 +63,7 @@ test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () =
   // The lane's header is the chrome the probe budgets there, as the Video lane's is:
   // without one the probe measures nothing and says so, which is not a pass.
   assert.match(liveLane, /<header data-probe-chrome="live-studio-header"/);
-  assert.match(lanes, /\{ id: 'live', label: 'Live', icon: Radio \}/);
+  assert.match(lanes, /\{ id: 'live', label: 'Live', icon: Radio, badge: 'beta' \}/);
   assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
   assert.match(probe, /'\[data-testid="video-source-clip"\]'/);
 });
