@@ -182,3 +182,23 @@ def test_busy_and_too_large_are_their_own_answers(client, monkeypatch):
     monkeypatch.setattr(nr, 'build_comparison', big)
     res = client.get('/api/video-dataset/1/clip/1/comparison')
     assert res.status_code == 413
+
+
+def test_a_temp_dir_that_cannot_be_made_does_not_keep_the_slot(tmp_path, monkeypatch):
+    """The slot leaked here for one commit: `mkdtemp` sat between the acquire and
+    the try, so a full disk walked out holding it and every later export answered
+    429 until a restart. On this machine C: goes under 10 GB regularly, so this
+    is a Tuesday, not a thought experiment."""
+    clip = tmp_path / 'a.mp4'
+    clip.write_bytes(b'x')
+
+    def no_space(*a, **k):
+        raise OSError(28, 'No space left on device')
+    monkeypatch.setattr(nr.tempfile, 'mkdtemp', no_space)
+    with pytest.raises(OSError):
+        nr.build_comparison(str(clip), str(clip), left_label='a', right_label='b')
+    monkeypatch.undo()
+    # The next caller must not be told the machine is busy.
+    assert nr._COMPARISON_GATE.acquire(blocking=False), \
+        'the slot was never released — every later export would answer 429'
+    nr._COMPARISON_GATE.release()

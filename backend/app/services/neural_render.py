@@ -491,9 +491,16 @@ def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
     if not _COMPARISON_GATE.acquire(blocking=False):
         raise ComparisonBusyError('another comparison is being built — try again '
                                   'in a moment')
-    out = Path(tempfile.mkdtemp(prefix='lds-compare-'))
-    dst = out / 'comparison.mp4'
+    # EVERYTHING after the acquire is inside the try, mkdtemp included. It was
+    # outside for one commit, and a temp dir that cannot be made — a full disk,
+    # a %TEMP% that is gone or read-only — walked out with the slot still held:
+    # every later export answered 429 until the server was restarted. The
+    # release belongs to a `finally` that starts at the acquire, not at the
+    # first line that happens to look risky.
+    out = None
     try:
+        out = Path(tempfile.mkdtemp(prefix='lds-compare-'))
+        dst = out / 'comparison.mp4'
         argv = comparison_argv(left, right, dst, left_label=left_label,
                                right_label=right_label, font=comparison_font(),
                                ffmpeg=ffmpeg)
@@ -522,7 +529,8 @@ def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
                 'in memory — compare a shorter clip')
         return dst.read_bytes()
     finally:
-        shutil.rmtree(out, ignore_errors=True)
+        if out is not None:
+            shutil.rmtree(out, ignore_errors=True)
         _COMPARISON_GATE.release()
 
 
