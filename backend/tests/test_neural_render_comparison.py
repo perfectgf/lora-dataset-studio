@@ -32,8 +32,23 @@ def test_the_two_clips_are_stacked_and_the_left_one_brings_the_sound():
     assert 'hstack=inputs=2' in graph
     # `?` so a clip with no audio track is not a failure.
     assert '0:a?' in a
-    # The pair may differ in length; the file ends with the shorter.
+
+
+def test_the_pair_ends_with_the_SHORTER_clip_and_that_lives_on_the_filter():
+    """`-shortest` alone does not do this, which is what the first version of
+    this file asserted and the commit message claimed. Measured on a 5.17 s
+    against a 2 s clip: the output ran the full 5.17 s with the short pane
+    frozen on its last frame, because hstack pads the short input before the
+    muxer — where `-shortest` lives — ever sees it."""
+    a = argv()
+    graph = a[a.index('-filter_complex') + 1]
+    assert 'hstack=inputs=2:shortest=1' in graph, \
+        'without shortest=1 on the filter the short side freezes to the end'
+    # Kept for the audio stream, which the muxer option does reach.
     assert '-shortest' in a
+    # Both shapes carry it — labelled and unlabelled.
+    plain = argv(font=None)[argv(font=None).index('-filter_complex') + 1]
+    assert plain == '[0:v][1:v]hstack=inputs=2:shortest=1[v]'
 
 
 def test_a_windows_font_path_survives_all_three_parsers():
@@ -49,7 +64,7 @@ def test_without_a_font_the_panes_are_unlabelled_rather_than_unbuilt():
     """No font ships with this app, so the labels are a bonus: a machine with
     none of the candidates gets the comparison, just without captions."""
     plain = argv(font=None)[argv(font=None).index('-filter_complex') + 1]
-    assert plain == '[0:v][1:v]hstack=inputs=2[v]'
+    assert plain == '[0:v][1:v]hstack=inputs=2:shortest=1[v]'
     assert 'drawtext' not in plain
     labelled = argv(font='/fonts/x.ttf')[argv(font='/fonts/x.ttf').index('-filter_complex') + 1]
     assert labelled.count('drawtext') == 2

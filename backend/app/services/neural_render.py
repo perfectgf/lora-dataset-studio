@@ -361,6 +361,8 @@ def clip_dimensions(path) -> tuple[int, int] | None:
 # clip. So this encodes the picture the player shows — the two clips in one
 # frame, in step by construction, one timeline instead of two players.
 
+# `shortest=1` belongs to the FILTER, not to the muxer — see comparison_argv.
+HSTACK = 'hstack=inputs=2:shortest=1'
 COMPARISON_CRF = 18            # near-transparent: the point of this file is detail
 COMPARISON_MAX_BYTES = 512 * 1024 * 1024
 COMPARISON_TIMEOUT_S = 900
@@ -393,7 +395,16 @@ FONT_CANDIDATES = (
 
 
 def comparison_font() -> str | None:
-    """The first usable font file, or None when the labels have to be dropped."""
+    """The first usable font file, or None when the labels have to be dropped.
+
+    This ``isfile`` is what holds the promise, and it cannot be replaced by
+    trusting ffmpeg: measured, a ``fontfile=`` pointing at a path that does not
+    exist does NOT fail — both resolvable builds here are ``--enable-fontconfig``
+    and drawtext quietly falls back to a substitute face, exit 0, pixels drawn.
+    So a stale entry in the list below would silently change the typeface rather
+    than drop the label, and an exit code can never be read as "my font was
+    used".
+    """
     return next((f for f in FONT_CANDIDATES if os.path.isfile(f)), None)
 
 
@@ -432,15 +443,23 @@ def comparison_argv(left, right, out, *, left_label, right_label,
     metadata at all. (Measured: the tag was there, in full, before this flag was.)
 
     ``-map 0:a?`` keeps the left clip's sound when it has one and asks for
-    nothing when it does not; ``-shortest`` ends on the shorter of the two.
+    nothing when it does not.
+
+    The pair ends with the SHORTER clip, and that takes ``shortest=1`` on the
+    filter — ``-shortest`` alone does not do it. Measured on a deliberate
+    mismatch (5.17 s against 2 s): the output ran the full 5.17 s with the short
+    side FROZEN on its last frame, because ``-shortest`` is a muxer option and
+    ``hstack`` had already padded the short input long before the muxer saw it
+    (frame-to-frame delta on the right pane: 1.49 while it plays, 0.009 after).
+    ``-shortest`` is kept beside it for the audio stream.
     """
     ff = str(ffmpeg or ffmpeg_tools.ffmpeg_path() or 'ffmpeg')
     if font:
         graph = (f'[0:v]{label_filter(left_label, font)}[l];'
                  f'[1:v]{label_filter(right_label, font)}[r];'
-                 '[l][r]hstack=inputs=2[v]')
+                 f'[l][r]{HSTACK}[v]')
     else:
-        graph = '[0:v][1:v]hstack=inputs=2[v]'
+        graph = f'[0:v][1:v]{HSTACK}[v]'
     return [ff, '-y', '-hide_banner', '-i', str(left), '-i', str(right),
             '-filter_complex', graph, '-map', '[v]', '-map', '0:a?',
             '-map_metadata', '-1',
