@@ -25,6 +25,10 @@ _ST = (b'\x08\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{}}'
 def _comfy(monkeypatch, reachable=True):
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': reachable}})
+    # The launch gate asks the ComfyUI probe alone — the runner has no ComfyUI.
+    monkeypatch.setattr('app.capabilities.probe_comfyui',
+                        lambda: {'ok': reachable, 'status': 'ok' if reachable else 'unreachable',
+                                 'detail': '', 'hint': ''})
 
 
 def _zimage_tree(tmp_path, monkeypatch, loras):

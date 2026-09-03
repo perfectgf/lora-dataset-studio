@@ -333,8 +333,8 @@ def test_global_resolve_button_clears_an_unknown_submit_from_another_dataset(app
         seen.update(dataset_id=dataset_id, restart_confirmed=restart_confirmed)
         return 1
 
-    with patch('app.routes._common.capabilities.probe',
-               return_value={'comfyui': {'reachable': True}}), \
+    with patch('app.routes._common.capabilities.probe_comfyui',
+               return_value={'ok': True, 'status': 'ok', 'detail': '', 'hint': ''}), \
          patch('app.services.face_dataset_service.confirm_unknown_generation_restart',
                side_effect=_confirm):
         res = client.post('/api/system/comfyui-recovery/resolve',
@@ -499,8 +499,8 @@ def test_global_resolve_refuses_a_prompt_comfyui_still_reports(app, client):
     from app.job_queue import queue_manager
     with app.app_context():
         _stalled_prompt_barrier(app)
-    with patch('app.routes._common.capabilities.probe',
-               return_value={'comfyui': {'reachable': True}}), \
+    with patch('app.routes._common.capabilities.probe_comfyui',
+               return_value={'ok': True, 'status': 'ok', 'detail': '', 'hint': ''}), \
          patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
         res = client.post('/api/system/comfyui-recovery/resolve',
                           json={'confirmed_comfyui_restart': True})

@@ -140,6 +140,7 @@ def test_a_second_comparison_is_refused_while_one_is_encoding(tmp_path, monkeypa
     the timeline GIF next door already gives."""
     clip = tmp_path / 'a.mp4'
     clip.write_bytes(b'x')
+    monkeypatch.setattr(nr.ffmpeg_tools, 'ffmpeg_path', lambda: 'ffmpeg')   # the runner has none
     assert nr._COMPARISON_GATE.acquire(blocking=False)
     try:
         with pytest.raises(nr.ComparisonBusyError, match='try again'):
@@ -194,6 +195,7 @@ def test_a_temp_dir_that_cannot_be_made_does_not_keep_the_slot(tmp_path, monkeyp
 
     def no_space(*a, **k):
         raise OSError(28, 'No space left on device')
+    monkeypatch.setattr(nr.ffmpeg_tools, 'ffmpeg_path', lambda: 'ffmpeg')   # the runner has none
     monkeypatch.setattr(nr.tempfile, 'mkdtemp', no_space)
     with pytest.raises(OSError):
         nr.build_comparison(str(clip), str(clip), left_label='a', right_label='b')

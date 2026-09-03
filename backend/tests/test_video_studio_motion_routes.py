@@ -67,6 +67,8 @@ def test_enrich_at_launch_writes_from_what_the_launch_carries(client, monkeypatc
     from app.services import video_test_studio as vts
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     launched = {}
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: launched.update(kw) or
@@ -178,6 +180,8 @@ def test_a_launch_whose_enrichment_failed_still_launches_and_says_so(
     from app.services.vision_ollama import LocalOllamaFenceError
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     launched = {}
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: launched.update(kw) or
@@ -237,6 +241,8 @@ def test_the_shot_count_reaches_the_writer_on_all_three_gestures(client, monkeyp
     from app.services import video_test_studio as vts
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
     seen = []
@@ -266,6 +272,8 @@ def test_the_three_writers_run_inside_the_gpu_exclusive_vision_window(client, mo
     from app.services import video_test_studio as vts
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: {'clip_id': 1, 'seed': 1, 'frames': kw.get('frames')})
     entered, state = [], {'inside': False}
@@ -314,6 +322,8 @@ def test_a_queued_clip_refuses_the_buttons_with_its_reason_and_lets_the_launch_t
     from app.job_queue import queue_manager
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     launched = {}
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: launched.update(kw) or
@@ -360,6 +370,8 @@ def test_an_unusable_enrichment_is_a_sentence_on_the_button_and_a_reason_at_laun
 
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     launched = {}
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: launched.update(kw) or
@@ -382,6 +394,8 @@ def test_a_launch_heads_an_image_to_video_prompt_once_and_unnames_the_picture_in
     from app.services import video_test_studio as vts
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     launched = {}
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: launched.update(kw) or
@@ -424,6 +438,8 @@ def test_a_typed_prompt_in_the_headers_english_launches_whole_and_nothing_launch
     from app.services import video_test_studio as vts
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui',   # the runner has no ComfyUI
+                        lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     launched = {}
     monkeypatch.setattr(vts, 'enqueue_clip',
                         lambda user, **kw: launched.update(kw) or
