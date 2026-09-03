@@ -44,11 +44,21 @@ export default function NeuralRenderDialog({
     </label>
   )
 
+  /* z-[9990], not z-50: this dialog opens over surfaces that carry their own
+     fixed chrome — the Studio's action bar is z-[9960] — and a dialog under the
+     bar it was opened from puts its own ✨ Render button out of reach. Measured
+     at 360 px before the fix: the button was IN the viewport (so a "is it
+     visible" check passed) while elementFromPoint at its centre returned a pill
+     of the action bar. Same tier as ContinueDialog. */
   return (
     <div role="dialog" aria-modal="true" aria-label="Neural render settings" data-probe-layer
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-2 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[9990] flex items-end justify-center bg-black/70 p-2 sm:items-center sm:p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}>
-      <div className="flex w-full max-w-md flex-col gap-3 rounded-xl border border-border bg-surface-overlay p-4 shadow-xl">
+      {/* max-h + scroll like every other dialog in the app (PassDialog,
+          PromoteDialog, ScoringPythonDialog…): this one had neither, so on a
+          phone its content ran past both edges of the viewport with nothing to
+          scroll — the title was cut off at the top and the footer at the bottom. */}
+      <div className="flex max-h-[90vh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-surface-overlay p-4 shadow-xl">
         <div className="flex items-start justify-between gap-2">
           <h2 className="text-sm font-semibold text-content">
             ✨ Neural render <span className="font-normal text-content-muted">(DLSS 5)</span>
@@ -128,7 +138,11 @@ export default function NeuralRenderDialog({
           </p>
         </fieldset>
 
-        <div className="flex items-center justify-end gap-2 pt-1">
+        {/* Pinned to the bottom of the scroll area: the dials above are long
+            enough on a phone that a footer scrolling with them is a footer the
+            user has to go looking for. The negative margins let the bar span
+            the panel's full width under its own padding. */}
+        <div className="sticky bottom-0 -mx-4 -mb-4 mt-1 flex items-center justify-end gap-2 border-t border-border bg-surface-overlay px-4 py-3">
           <button type="button" onClick={onClose}
             className="min-h-10 rounded-md border border-border px-3 py-1 text-sm text-content-muted hover:text-content lg:min-h-0">
             Cancel

@@ -359,6 +359,18 @@ const PAGES = {
          that could only be checked by hand. The gallery state opens the tab
          whose grid and "Show older" row live one level deeper still. */
       { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
+      /* ✨ The DLSS 5 neural render dialog. It has carried `data-probe-layer`
+         since it shipped, but no state ever OPENED it — and a layer nobody
+         opens is a layer nobody measures. It went out at z-50 under the
+         z-[9960] action bar: at 360 px its ✨ Render button sat INSIDE the
+         viewport (so "is it visible" said yes) while elementFromPoint at its
+         centre returned a pill of the bar. Reported from a phone, 2026-09-03.
+         The fold-opener is optional — the clip list is already on screen on a
+         desktop — but the click that opens the dialog is REQUIRED: without it
+         the state would measure the page behind it and read clean. */
+      { name: 'video-neural-render',
+        open: ['[data-testid="studio-lane-video"]', '?button:has-text("Clips")',
+               'button[title*="DLSS 5 Neural"]'] },
       /* 🔴 The Live lane: a take sheet, a rail of six dials and the player —
          another tab the Images run would never open. */
       { name: 'live', open: ['[data-testid="studio-lane-live"]'] },
