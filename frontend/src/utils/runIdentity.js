@@ -63,6 +63,10 @@ export function localRunIdentity(checkpoints) {
 // The run's own number as text: `#107`. Unknown id → `#?`, never `#undefined`.
 export function runNumber(node) {
   const id = node?.record_id;
+  // A NEGATIVE id is the video lane's local run: it has no row anywhere (the
+  // folder is the run), so its node borrows the dataset id negated to be
+  // keyable. That is an address, not a number to print.
+  if (typeof id === 'number' && id < 0) return 'local';
   return `#${id == null ? '?' : id}`;
 }
 

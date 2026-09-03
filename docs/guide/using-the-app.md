@@ -3661,6 +3661,18 @@ older, larger verb: it removes the run's files *and* its history line, for
 good. A LoRA you dropped into `h3/` by hand shows as deployed but is never
 undeployed from here.
 
+**The run graph** at the top of that section is the image workspace's, drawing
+the same thing: one card per run (this PC or a pod), a pill per save, and a
+curve from the exact step a continuation resumed from — three continuations
+read as one lineage rather than three unrelated runs. A pill's thumbnail is the
+*training sample* ai-toolkit rendered at that step (one per prompt, every save);
+click it to play the clip, `←`/`→` step through the step's prompts. Clicking a
+pill offers the same verbs as its row in the list; clicking a run card opens
+its details. There is no *Generate previews* bar here: the image graph renders
+those with the image Test Studio's engine, and a fresh render of a video LoRA
+is the Video Studio's job. A run with no samples simply shows plain pills — add
+sample prompts to a launch to get them.
+
 **Studio** opens the Video tab of the Test Studio, where a deployed LoRA is
 judged on the clip it renders rather than on its loss curve.
 

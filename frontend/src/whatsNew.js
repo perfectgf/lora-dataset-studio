@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-video-run-graph-and-previews',
+    date: '2026-09-03',
+    title: 'A video set draws its runs as a graph, with the training samples on each save',
+    blurb:
+      'The Checkpoints & LoRAs section of a video set now opens on the same run graph '
+      + 'an image dataset has: one card per run, this PC or a rented pod, a pill per '
+      + 'save, and a curve from the exact step a continuation resumed from. A save that '
+      + 'training rendered a sample for shows its still — click it to play the clip, '
+      + 'one prompt after another — and every verb (download, deploy, continue, delete) '
+      + 'is one click away on the pill, the same as in the list below.',
+    to: '/datasets',
     id: '2026-09-03-video-smooth-rate',
     date: '2026-09-03',
     title: 'Smooth asks which rate you want',
