@@ -64,9 +64,15 @@ export default function VideoSampleLightbox({ datasetId, target, onClose }) {
           <video key={current.url} src={current.url} poster={current.poster_url} controls autoPlay loop
             className="max-h-[70vh] w-full rounded-lg bg-black" />
         ) : (
+          // An ANIMATION (Wan 2.2 writes animated WebP) plays inside an <img> —
+          // the browser loops it; there are no controls to give. An image
+          // sample (a stills set) is just shown.
           <img key={current.url} src={current.url} alt={`Sample at ${label}`}
             className="max-h-[70vh] w-full rounded-lg object-contain" />
         ))}
+        {current?.kind === 'animation' && (
+          <p className="m-0 text-[0.625rem] text-content-subtle">Animated WebP — loops on its own, no scrub bar.</p>
+        )}
         {samples?.length > 1 && (
           <div className="flex flex-wrap gap-1.5">
             {samples.map((s, i) => (

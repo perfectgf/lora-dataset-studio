@@ -88,12 +88,14 @@ export function graphSummary(tree) {
   return `${plural(nodes.length, 'run')} · ${plural(saves, 'save')} · ${plural(previews, 'preview')}`
 }
 
-/* Why the graph has no "Generate previews" bar, unlike the image one: those
-   previews are rendered by the image Test Studio's engine from a deployed
-   checkpoint; the video lane's previews are the samples training itself wrote,
-   and a fresh render is the Video Test Studio's job. Said on screen so the
-   missing bar reads as a decision, not as an omission. */
+/* Why the graph has no "Generate previews" bar YET, unlike the image one. Not
+   a difference of nature — the refuter checked: the Video Studio's
+   `enqueue_clip` can already render one clip for one deployed save, and the
+   image bar queues its previews the same way — but the fan-out over selected
+   saves is not written. Said on screen as work not done, so nobody reads the
+   missing bar as a rule. */
 export const PREVIEWS_NOTE = 'Previews are the samples ai-toolkit rendered while training '
-  + '(one per prompt, every save). To render more with a deployed save, use the Studio.'
+  + '(one per prompt, every save). Rendering new ones from a deployed save is not wired '
+  + 'here yet — pick the save in the Studio\'s Video tab.'
 
 export const EMPTY_GRAPH_NOTE = 'No run to draw yet — the graph appears once a training has saved something.'

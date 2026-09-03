@@ -26,14 +26,19 @@ files at one step, so a pill carries `files` and one download per file, and
 only as a handle — never as "the" file.
 
 SAMPLES. ai-toolkit writes a sample every `sample_every` steps into the run's
-`samples/` folder (`<ts>__<step>_<promptidx>.<ext>`; `_SAMPLE_RE` accepts the
-video containers as well as the image formats, because the extension a video
-model writes is a fact of ai-toolkit's sampler, not of this app). Locally that
-folder sits under the save root; a pod's samples are mirrored into staging by
-the monitor (`cloud_training._pull_log_and_samples`). A poster (first frame)
-is cut on demand with the video bank's own thumbnail writer and cached under
-the app's data dir, so a pill can show a still without the page holding a
-`<video>` per step.
+`samples/` folder, named `<ts>__<step>_<promptidx>.<ext>`. The EXTENSION is
+the model's: Wan 2.2 writes an ANIMATED WEBP (ai-toolkit's SampleConfig forces
+`webp` for any multi-frame sample and the Wan 2.2 model does not override it),
+MiniMax H3 and LTX write `.mp4`, a stills set writes `.jpg` — verified at the
+source by the refuter, 2026-09-03. So `_SAMPLE_RE` accepts them all, and the
+POSTER of a sample is always a STILL: ai-toolkit's own `.thumbs/<name>.jpg`
+when it wrote one (it does, since mid-2025, next to every sample), else the
+first frame — cut by PIL for an animated WebP/GIF, by the video bank's frame
+writer (PyAV) for an mp4 — cached under the app's data dir. Serving the
+sample itself as its poster was the first version of this file, and on a Wan
+graph it made every pill thumbnail download and animate the whole clip.
+Locally the samples folder sits under the save root; a pod's samples are
+mirrored into staging by the monitor (`cloud_training._pull_log_and_samples`).
 """
 import json
 import logging
@@ -55,8 +60,13 @@ logger = logging.getLogger(__name__)
 # `<timestamp>__<step>_<promptidx>.<ext>` — the image lane's `_SAMPLE_RE` with
 # the video containers added. Anything else in the folder is not a sample.
 _SAMPLE_RE = re.compile(r'__(\d+)_(\d+)\.(mp4|webm|mov|gif|webp|png|jpe?g)$', re.IGNORECASE)
-_VIDEO_EXTS = ('.mp4', '.webm', '.mov', '.gif')
+# Containers a <video> plays (PyAV cuts their first frame)…
+_VIDEO_EXTS = ('.mp4', '.webm', '.mov')
+# …and animations a browser plays inside an <img> (PIL reads their first frame).
+_ANIMATION_EXTS = ('.webp', '.gif')
 _POSTER_CACHE = 'video_samples'
+# Where ai-toolkit writes its own 300 px poster of every sample it saves.
+_AITK_THUMBS = '.thumbs'
 
 
 def _target_label(profile) -> str | None:
@@ -104,10 +114,21 @@ def samples_dir(ds, run=None) -> str | None:
     return os.path.join(run.staging_dir, 'samples') if run.staging_dir else None
 
 
+def sample_kind(filename) -> str:
+    """'video' (a container a <video> plays), 'animation' (a WebP/GIF a browser
+    plays inside an <img>, which is what Wan 2.2's samples are) or 'image'."""
+    name = str(filename or '').lower()
+    if name.endswith(_VIDEO_EXTS):
+        return 'video'
+    if name.endswith(_ANIMATION_EXTS):
+        return 'animation'
+    return 'image'
+
+
 def list_samples(ds, run=None) -> list:
     """``[{filename, step, prompt_idx, kind}]`` newest step first, then prompt
-    order. `kind` is 'video' or 'image' by extension — the poster route serves
-    an image sample as its own poster."""
+    order. `kind` tells the client what plays it (see `sample_kind`); the
+    poster route serves a STILL for every kind."""
     d = samples_dir(ds, run)
     if not d or not os.path.isdir(d):
         return []
@@ -117,8 +138,7 @@ def list_samples(ds, run=None) -> list:
         if not m:
             continue
         out.append({'filename': name, 'step': int(m.group(1)),
-                    'prompt_idx': int(m.group(2)),
-                    'kind': 'video' if name.lower().endswith(_VIDEO_EXTS) else 'image'})
+                    'prompt_idx': int(m.group(2)), 'kind': sample_kind(name)})
     out.sort(key=lambda s: (-s['step'], s['prompt_idx']))
     return out
 
@@ -134,17 +154,40 @@ def sample_path(ds, run, filename) -> str | None:
     return path if os.path.isfile(path) else None
 
 
+def _first_frame_still(src, dst) -> bool:
+    """The first frame of an animated WebP/GIF as a JPEG, through PIL — no
+    PyAV needed for the format Wan 2.2 writes. False on anything unreadable."""
+    try:
+        from PIL import Image
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with Image.open(src) as im:
+            im.seek(0)
+            frame = im.convert('RGB')
+            frame.thumbnail((480, 480))
+            frame.save(dst, 'JPEG', quality=82)
+        return True
+    except Exception:                       # noqa: BLE001 — any decode error
+        return False
+
+
 def poster_path(ds, run, filename) -> str | None:
-    """A still of one sample: the image itself for an image sample, else the
-    first frame cut once and cached under the data dir. None when the sample
-    is not there or the frame cannot be cut (no PyAV, unreadable file) — the
-    pill then simply shows no thumbnail."""
+    """A STILL of one sample, whatever the sample is: the image itself for an
+    image sample; for a clip or an animation, ai-toolkit's own `.thumbs/` jpg
+    when it wrote one, else the first frame cut once and cached under the data
+    dir (PIL for WebP/GIF, the video bank's PyAV writer for mp4). None when the
+    sample is not there or no frame can be cut — the pill then simply shows no
+    thumbnail. Never the sample itself for a moving one: a Wan sample is a
+    4-17 MB animated WebP, and a thumbnail that IS the clip animates it."""
     from .video_bank_service import _write_thumbnail
     src = sample_path(ds, run, filename)
     if not src:
         return None
-    if not filename.lower().endswith(_VIDEO_EXTS):
+    kind = sample_kind(filename)
+    if kind == 'image':
         return src
+    own = os.path.join(os.path.dirname(src), _AITK_THUMBS, filename + '.jpg')
+    if os.path.isfile(own):
+        return own
     lane = f'run_{int(run.id)}' if run is not None else f'local_{int(ds.id)}'
     cache = cfg.data_dir() / 'cache' / _POSTER_CACHE / lane
     dst = str(cache / (filename + '.jpg'))
@@ -153,6 +196,8 @@ def poster_path(ds, run, filename) -> str | None:
             return dst
     except OSError:
         pass
+    if kind == 'animation':
+        return dst if _first_frame_still(src, dst) else None
     return dst if _write_thumbnail(src, 0.0, dst) else None
 
 

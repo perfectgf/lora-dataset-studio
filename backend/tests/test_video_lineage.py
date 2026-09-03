@@ -223,3 +223,62 @@ def test_a_poster_is_cut_once_and_cached(app, client, tmp_path, monkeypatch):
         _samples(d / 'samples', ['1725000000__000000200_0.mp4'])
     assert client.get(url + '1725000000__000000200_0.mp4').status_code == 404
     assert client.get(url + 'nope.mp4').status_code == 404
+
+
+# ── 3. The formats ai-toolkit really writes (refuter, 2026-09-03) ──────────
+
+
+def _animated_webp(path, frames=6):
+    from PIL import Image
+    imgs = [Image.new('RGB', (64, 36), (i * 40 % 256, 30, 200 - i * 30 % 200)) for i in range(frames)]
+    imgs[0].save(path, format='WEBP', save_all=True, append_images=imgs[1:], duration=60, loop=0)
+
+
+def test_a_wan_sample_is_an_animated_webp_and_its_poster_is_a_still(
+        app, client, tmp_path, monkeypatch):
+    """Wan 2.2 14B writes ANIMATED WEBP samples (ai-toolkit forces `webp` for
+    every multi-frame sample; the Wan model overrides nothing). The first
+    version of the poster route served the sample ITSELF as its poster — on a
+    Wan graph, a 4-17 MB clip per pill thumbnail. A poster is a still."""
+    _loras_root(tmp_path, monkeypatch)
+    with app.app_context():
+        ds = _video_dataset(tmp_path)
+        run = _run(ds.id, crd.VIDEO, steps=100)
+        d = _saves(run, tmp_path, PAIR_100)
+        (d / 'samples').mkdir()
+        _animated_webp(d / 'samples' / '1725000000__000000100_0.webp')
+        ds_id, run_id = ds.id, run.id
+    lst = client.get(f'/api/video-dataset/{ds_id}/train/samples?run_id={run_id}').get_json()
+    (s,) = lst['samples']
+    assert s['kind'] == 'animation'
+    r = client.get(s['poster_url'])
+    assert r.status_code == 200 and r.mimetype == 'image/jpeg'
+    assert r.data[:2] == b'\xff\xd8', 'a JPEG still, not the animation'
+    assert len(r.data) < (d / 'samples' / '1725000000__000000100_0.webp').stat().st_size + 4096
+    # The animation itself still streams as what it is.
+    r = client.get(s['url'])
+    assert r.status_code == 200 and r.mimetype == 'image/webp'
+    # And the pill previews the STILL.
+    t = client.get(f'/api/video-dataset/{ds_id}/train/lineage').get_json()
+    assert t['nodes'][0]['checkpoints'][0]['preview_url'] == s['poster_url']
+
+
+def test_ai_toolkits_own_thumbnail_is_served_before_any_frame_is_cut(
+        app, client, tmp_path, monkeypatch):
+    """ai-toolkit writes `<samples>/.thumbs/<file>.jpg` next to every sample it
+    saves (since mid-2025). When it is there, nothing is decoded here."""
+    _loras_root(tmp_path, monkeypatch)
+    from app.services import video_bank_service as vbs
+    monkeypatch.setattr(vbs, '_write_thumbnail', lambda *a: (_ for _ in ()).throw(AssertionError('cut called')))
+    monkeypatch.setattr(video_lineage, '_first_frame_still', lambda *a: (_ for _ in ()).throw(AssertionError('cut called')))
+    with app.app_context():
+        ds = _video_dataset(tmp_path)
+        run = _run(ds.id, crd.VIDEO, steps=100)
+        d = _saves(run, tmp_path, PAIR_100)
+        _samples(d / 'samples', ['1725000000__000000100_0.mp4'])
+        (d / 'samples' / '.thumbs').mkdir()
+        (d / 'samples' / '.thumbs' / '1725000000__000000100_0.mp4.jpg').write_bytes(b'\xff\xd8OWN')
+        ds_id, run_id = ds.id, run.id
+    r = client.get(f'/api/video-dataset/{ds_id}/train/sample/poster?run_id={run_id}'
+                   '&filename=1725000000__000000100_0.mp4')
+    assert r.status_code == 200 and r.data == b'\xff\xd8OWN'
