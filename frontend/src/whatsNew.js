@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-video-quick-prompts',
+    date: '2026-09-03',
+    title: 'Pick a video prompt instead of writing one',
+    blurb:
+      'A ⚡ row of preset chips now sits under the Video Test Studio’s Motion '
+      + 'field: Scenarios, Multi-Shot, Timeline, Camera, Audio, Voice and Visual '
+      + 'Style, written in H3’s own prompt format. They stack rather than '
+      + 'replace — take a scenario, add a camera move, add an audio bed, and each '
+      + 'one lands on its own line under what you already wrote. In a text-only '
+      + 'clip the presets drop their reference to a start frame, because there '
+      + 'is not one.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-live-channel',
     date: '2026-09-03',
     title: 'Live: your video LoRA as a channel that never stops (experimental)',

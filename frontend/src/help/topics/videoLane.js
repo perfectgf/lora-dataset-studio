@@ -111,6 +111,22 @@ export const VIDEO_LANE_TOPICS = [
      'model in use', 'gpu in use outside lds', 'unload the model', 'auto is greyed out',
      'auto disabled', 'pick a start frame first'],
     '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
+  // ⚡ The preset chips under the Motion field. Searched for by the gesture
+  // ("preset", "template", "example prompt"), by what people want out of them
+  // (a camera move, an audio bed, a voice line, a multi-shot cut) and by the
+  // two questions the format raises: whether a chip wipes what is written, and
+  // what happens to "<Picture 1>" when there is no picture.
+  action('video-studio-quick-prompts', 'Pick a prompt instead of writing one (⚡ Quick prompts)',
+    ['quick prompt', 'quick prompts', 'preset', 'presets', 'prompt preset',
+     'prompt presets', 'prompt template', 'example prompt', 'prompt examples',
+     'ready-made prompt', 'chips', 'prompt chips', 'scenarios', 'multi-shot',
+     'multishot', 'shot 1 shot 2', 'timeline prompt', 'camera move preset',
+     'camera moves', 'push-in', 'orbit', 'crane', 'audio preset', 'soundscape',
+     'ambience', 'voice line', 'make it speak', 'accent', 'visual style preset',
+     'film noir', 'anime cel', 'vaporwave', 'stack prompts', 'add a line',
+     'does it replace my prompt', 'will it erase what i wrote',
+     'picture 1 without an image', 'text to video preset', 'same presets as the other app'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   // Searched for by what people TRIED and could not do: they pasted a RedGifs or
   // TikTok link into the image scraper and got "no images found", or they
   // downloaded clips by hand into a folder because nothing else was on offer.

@@ -3795,6 +3795,17 @@ skips the picture entirely and composes the shot from the prompt. Either way,
 describe the *movement*: the start frame already says what the scene looks
 like.
 
+**Quick prompts, if you would rather pick than write.** Under the field, a ⚡ row
+of chips carries the MiniMax H3 preset set — Scenarios, Multi-Shot, Timeline,
+Camera, Audio, Voice and Visual Style. They **stack**: a chip appends on its own
+line instead of replacing what is there, so a shot is built by taking a scenario
+or a style first and layering a camera move and an audio bed on top, exactly the
+way H3's own template is ordered. The wording follows that template, which is why
+the scenarios name the start frame as `<Picture 1>` — in a text-only clip that
+reference is dropped from the preset before it lands in the field, since there is
+no picture for it to point at. The chips are only text: what they write is yours
+to edit, and ✨ Enrich will happily rewrite it afterwards.
+
 **Or let a local model write the movement.** ✨ **Auto** looks at the start frame
 and proposes a motion for it; anything already in the field is read as the
 movement you are after and steers the proposal rather than being ignored — the

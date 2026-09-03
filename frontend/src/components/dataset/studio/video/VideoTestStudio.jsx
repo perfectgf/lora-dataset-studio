@@ -38,6 +38,8 @@ import StudioActionBar from '../StudioActionBar';
 import VideoClipHistory from './VideoClipHistory';
 import VideoLoraPicker from './VideoLoraPicker';
 import VideoOptionsPanel from './VideoOptionsPanel';
+import VideoQuickPrompts from './VideoQuickPrompts';
+import { appendQuickPrompt } from './videoPromptPresets';
 import MotionModelDialog from './MotionModelDialog';
 import VideoSourcePicker from './VideoSourcePicker';
 import NeuralRenderDialog from '../../../videobank/NeuralRenderDialog';
@@ -545,6 +547,11 @@ export default function VideoTestStudio() {
               what the scene looks like. ✨ Auto and ✨ Enrich answer in H3’s own
               three-field prompt, paced to the clip length you set.
             </span>
+            {/* The presets, under the field they write into. They APPEND, like
+                ✨ Enrich leaves your text alone — so the picker can be used on a
+                half-written prompt without eating it. */}
+            <VideoQuickPrompts mode={mode}
+              onAppend={(text) => setPrompt((p) => appendQuickPrompt(p, text))} />
             <OllamaFenceNotice fence={fence} onUnload={unloadAndRetry} onStop={stopWaiting} />
             {/* The toggle enriches AT LAUNCH — what runs is what the clip
                 records, so a card always names the prompt that really made it.
