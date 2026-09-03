@@ -3759,7 +3759,7 @@ uses everywhere else, driven from one panel.
 are about **39.5 GB** — Setup ▸ **🎬 Video Test Studio** downloads them into
 ComfyUI's own folders. A plain clip needs *nothing else*: no custom node, no
 add-on, deliberately, so that a fresh install can render something the moment
-the weights land. The optional 4-step **turbo LoRA** is downloaded there too
+the weights land. The optional 6-step **turbo LoRA** is downloaded there too
 (0.7 GB, and it is the difference between a clip in minutes and one in tens of
 minutes).
 
@@ -3849,7 +3849,7 @@ as you typed it — and if the writer cannot run at that moment, the clip still
 launches with your words and the panel says so.
 
 **The four options are not free, and the panel says what each one costs.**
-⚡ Turbo swaps in a 4-step distillation LoRA and its double-clock sampler —
+⚡ Turbo swaps in a 6-step distillation LoRA and its double-clock sampler —
 minutes instead of tens of minutes, and a different model rather than merely a
 faster one; it is on by default because an undistilled first clip is long enough
 to look like a hang. 🔬 Latent upscale enlarges before anything is decoded, so

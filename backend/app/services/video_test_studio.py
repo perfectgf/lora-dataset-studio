@@ -95,7 +95,8 @@ BASE_OFFICIAL = 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'
 BASE_EROS = ('10Eros_Max_h3_fl2va_beta2_pruned_int8_convrot_skip_edges'
              '.safetensors')
 
-# ⚡ The 4-step distillation LoRA (larryvrh), applied through its OWN node, not
+# ⚡ The 6-step distillation LoRA (larryvrh v4, step 600 EMA — the top row of the
+# multimodalart H3 acceleration arena at 6 steps), applied through its OWN node, not
 # a standard loader. Both halves of that sentence were paid for:
 #
 #   * the file uses H3's bare key naming (`blocks.0.attn…`) plus 102 adaln keys.

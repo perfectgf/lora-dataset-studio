@@ -40,7 +40,7 @@ export default function LiveStudio() {
   const [scenes, setScenes] = useState('');
   const [subject, setSubject] = useState('');
   const [dials, setDials] = useState({ megapixels: 0.3, aspect: 'landscape', frames: DEFAULT_FRAMES,
-    fps: 'auto', steps: 4, turbo: true });
+    fps: 'auto', steps: 6, turbo: true });   // 6: the turbo LoRA's own step count (TURBO_STEPS), as the Video lane
   const [status, setStatus] = useState(null);
   const [pollFailed, setPollFailed] = useState(false);   // the status poll cannot reach the app
   const [playerError, setPlayerError] = useState(null);  // what the browser player could not do
@@ -295,7 +295,7 @@ export default function LiveStudio() {
               <label className="flex items-center gap-2 self-end min-h-10 lg:min-h-0">
                 <input type="checkbox" checked={dials.turbo} disabled={running}
                   onChange={(e) => set({ turbo: e.target.checked })} />
-                <span className="text-content-muted">⚡ turbo (4-step LoRA)</span>
+                <span className="text-content-muted">⚡ turbo ({options?.turbo_steps || 6}-step LoRA)</span>
               </label>
             </div>
             <p className="mt-2 text-[0.6875rem] text-content-subtle">
