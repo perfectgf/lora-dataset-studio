@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  mergeClipPages,
   smoothTargets,
   buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, renderTimeLabel,
   SPARSE_CHOICES, studioFrameChoices,
@@ -172,4 +173,19 @@ test('smooth offers whole factors of the source rate, with frames and relative c
   assert.deepEqual(smoothTargets({}).map((x) => x.fps), [48, 72, 96]);
   assert.equal(smoothTargets({ fps: 30 })[0].frames, null, 'no frame count → no count promised');
   assert.equal(smoothTargets({ fps: 30 })[1].fps, 90);
+});
+
+test('a poll keeps the loaded older clips: the boundary is the page proper, not a source that rode along', () => {
+  const clip = (id, extra = {}) => ({ id, ...extra });
+  // Older pages the user asked for, down to clip 40 — 41 is the clip just smoothed.
+  const prev = [79, 78, 77, 75, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40].map((id) => clip(id));
+  // The first page proper is 79..50; 41 rides along because 79 was smoothed from it.
+  const fresh = [79, 78, 77, 75, 50, 41].map((id) => clip(id, id === 79 ? { vfi_of: 41 } : {}));
+  const kept = mergeClipPages(prev, fresh, 50).map((c) => c.id);
+  assert.deepEqual(kept, [79, 78, 77, 75, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40]);
+  // What the old boundary (the oldest id ON the page: 41) did — every loaded clip between the two vanished.
+  assert.deepEqual(mergeClipPages(prev, fresh, 41).map((c) => c.id), [79, 78, 77, 75, 50, 41, 40]);
+  // A row deleted inside the page proper (78, between 79 and the boundary 50) leaves with the
+  // page; a clip older than the boundary (30) is kept, the fresh page never carried it.
+  assert.deepEqual(mergeClipPages([clip(79), clip(78), clip(30)], [clip(79), clip(50)], 50).map((c) => c.id), [79, 50, 30]);
 });

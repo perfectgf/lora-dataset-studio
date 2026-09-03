@@ -56,6 +56,20 @@ export const generateUrl = () => `${VIDEO_STUDIO_BASE}/generate`;
 /** The history, newest first: one page of `limit`, `before` (a clip id) for the
  * page after it. The server appends the SOURCE of every listed render, so the
  * pair a comparison needs is always on screen together. */
+/** The newest page REPLACES what it covers and KEEPS what it does not.
+ *  `keepOlderThan` is the boundary of the page PROPER (the server's
+ *  `oldest_id`), never the oldest id on the page: a source that rode along
+ *  with its render is older by construction, and taking it as the boundary
+ *  dropped every loaded clip between the two at every poll. Deleted rows
+ *  leave through the page they belonged to, which the fresh page no longer
+ *  carries. */
+export function mergeClipPages(prev, fresh, keepOlderThan) {
+  const byId = new Map();
+  (fresh || []).forEach((c) => byId.set(c.id, c));
+  (prev || []).forEach((c) => { if (c.id < keepOlderThan && !byId.has(c.id)) byId.set(c.id, c); });
+  return [...byId.values()].sort((a, b) => b.id - a.id);
+}
+
 export const clipsUrl = (limit = 24, before = null) =>
   `${VIDEO_STUDIO_BASE}/clips?limit=${limit}${before ? `&before=${before}` : ''}`;
 export const clipUrl = (id) => `${VIDEO_STUDIO_BASE}/clip/${id}`;

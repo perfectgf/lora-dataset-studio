@@ -621,8 +621,14 @@ def video_studio_clips():
     sources = (VideoTestClip.query.filter(VideoTestClip.id.in_(wanted)).all()
                if wanted else [])
     rows = sorted(page + sources, key=lambda c: c.id, reverse=True)
+    # `oldest_id` is the boundary of the page PROPER. The panel keeps what it
+    # loaded below that boundary and pages further back from it; a source
+    # that rode along is older than the page by construction and must not
+    # move the boundary — it did, and every clip loaded between the two
+    # vanished at the next poll (read as "Smooth deleted my clips").
     return jsonify({'clips': [_clip_dict(c) for c in rows],
-                    'has_more': len(page) == limit, 'page_size': limit})
+                    'has_more': len(page) == limit, 'page_size': limit,
+                    'oldest_id': page[-1].id if page else 0})
 
 
 @bp.get('/clip/<int:clip_id>')

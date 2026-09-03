@@ -50,7 +50,7 @@ import {
   addFrames, failureNotice, generateLabel, queueClips, queuedNotice, releasePreview, removeFrame,
 } from './videoStartFrames';
 import {
-  clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
+  clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl, mergeClipPages,
   isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, clipVideoUrl,
   clipComparisonUrl,
   motionEnhanceUrl, motionSuggestUrl,
@@ -125,23 +125,22 @@ export default function VideoTestStudio() {
   // Whether a page older than what is loaded exists (the server says so).
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  /* The newest page REPLACES what it covers and KEEPS what it does not: the
-     poll re-reads the first page every three seconds while a clip renders,
-     and a poll that replaced the whole list would throw away every older
-     page the user had asked for with Load more. Deleted rows leave through
-     the page they belonged to, which the fresh page no longer carries. */
-  const mergeClips = (fresh, keepOlderThan) => setClips((prev) => {
-    const byId = new Map();
-    fresh.forEach((c) => byId.set(c.id, c));
-    prev.forEach((c) => { if (c.id < keepOlderThan && !byId.has(c.id)) byId.set(c.id, c); });
-    return [...byId.values()].sort((a, b) => b.id - a.id);
-  });
+  /* The newest page REPLACES what it covers and KEEPS what it does not (see
+     mergeClipPages): the poll re-reads the first page every three seconds
+     while a clip renders, and a poll that replaced the whole list would
+     throw away every older page the user had asked for with Load more. The
+     boundary is the server's `oldest_id` — the page PROPER, never a source
+     that rode along with its render. `oldestLoadedRef` is how far back the
+     list reaches, the same boundary lowered by every older page loaded. */
+  const oldestLoadedRef = useRef(0);
+  const mergeClips = (fresh, keepOlderThan) => setClips((prev) => mergeClipPages(prev, fresh, keepOlderThan));
   const refreshClips = useCallback(async () => {
     try {
       const d = await apiFetch(clipsUrl(24));
       const fresh = d.clips || [];
-      const oldestOfPage = fresh.length ? Math.min(...fresh.map((c) => c.id)) : 0;
-      mergeClips(fresh, oldestOfPage);
+      const boundary = Number(d.oldest_id) || (fresh.length ? Math.min(...fresh.map((c) => c.id)) : 0);
+      mergeClips(fresh, boundary);
+      if (!oldestLoadedRef.current || boundary < oldestLoadedRef.current) oldestLoadedRef.current = boundary;
       setHasMore(!!d.has_more);
       return fresh;
     } catch {
@@ -151,9 +150,10 @@ export default function VideoTestStudio() {
   const loadMore = useCallback(async () => {
     setLoadingMore(true);
     try {
-      const oldest = clips.length ? Math.min(...clips.map((c) => c.id)) : 0;
+      const oldest = oldestLoadedRef.current || (clips.length ? Math.min(...clips.map((c) => c.id)) : 0);
       const d = await apiFetch(clipsUrl(24, oldest));
       mergeClips(d.clips || [], 0);
+      if (Number(d.oldest_id)) oldestLoadedRef.current = Number(d.oldest_id);
       setHasMore(!!d.has_more);
     } catch {
       toast.error('Could not load older clips.');
