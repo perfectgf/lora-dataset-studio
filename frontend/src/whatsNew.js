@@ -83,6 +83,85 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-video-accelerations',
+    date: '2026-09-03',
+    title: 'Pick your video acceleration among the arena’s top three',
+    blurb:
+      'The Video Test Studio’s Turbo box is now a choice: larryvrh’s Turbo v4 '
+      + '(as before), Plaguekind’s Parasyte Turbo or silveroxides’ DARE-TIES '
+      + 'merge — the first three rows of the MiniMax-H3 acceleration arena, '
+      + 'statistical ties at six steps. Each runs with the settings the arena '
+      + 'verified; Setup downloads the two new LoRAs, and a clip remembers '
+      + 'which one made it.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-03-video-run-graph-and-previews',
+    date: '2026-09-03',
+    title: 'A video set draws its runs as a graph, with the training samples on each save',
+    blurb:
+      'The Checkpoints & LoRAs section of a video set now opens on the same run graph '
+      + 'an image dataset has: one card per run, this PC or a rented pod, a pill per '
+      + 'save, and a curve from the exact step a continuation resumed from. A save that '
+      + 'training rendered a sample for shows its still — click it to play the clip, '
+      + 'one prompt after another — and every verb (download, deploy, continue, delete) '
+      + 'is one click away on the pill, the same as in the list below.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-03-video-smooth-rate',
+    date: '2026-09-03',
+    title: 'Smooth asks which rate you want',
+    blurb:
+      'The ↗ Smooth button of the Video Test Studio opens a small window before '
+      + 'it runs: 48, 72 or 96 fps for a 24 fps clip — ×2, ×3 or ×4, because the '
+      + 'interpolator works by whole factors — with the frame count and the '
+      + 'relative cost of each. It used to go straight to 48.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-03-video-quick-prompts',
+    date: '2026-09-03',
+    title: 'Pick a video prompt instead of writing one',
+    blurb:
+      'A ⚡ row of preset chips now sits under the Video Test Studio’s Motion '
+      + 'field: Scenarios, Multi-Shot, Timeline, Camera, Audio, Voice and Visual '
+      + 'Style, written in H3’s own prompt format. They stack rather than '
+      + 'replace — take a scenario, add a camera move, add an audio bed, and each '
+      + 'one lands on its own line under what you already wrote. In a text-only '
+      + 'clip the presets drop their reference to a start frame, because there '
+      + 'is not one.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-03-video-live-channel',
+    date: '2026-09-03',
+    title: 'Live: your video LoRA as a channel that never stops (experimental)',
+    blurb:
+      'A third tab in the Test Studio. Write a few scenes, pick the LoRA, '
+      + 'press Start: clips render back to back and land in a stream you watch '
+      + 'in the tab or in VLC on any machine of your network. Playback is '
+      + 'retimed to what your card actually sustains — the rail says how many '
+      + 'seconds a clip renders in, how many it plays for, and whether the '
+      + 'channel is keeping up. Shape borrowed from FastH3 Live, an open-source '
+      + 'endless AI channel on the same engine; the pipeline is your own.',
+    to: '/studio?lane=live',
+  },
+  {
+    id: '2026-09-03-compare-export',
+    date: '2026-09-03',
+    title: 'Save a before/after comparison as one video',
+    blurb:
+      'The ⇔ comparison has an ⬇ Export button: the original and its neural '
+      + 'render are encoded into ONE mp4, side by side and labelled, so a '
+      + 'before/after can be shown to somebody who does not have the app — on a '
+      + 'rendered clip of a training set and on a render in the Test Studio '
+      + 'alike. The exported file starts with no metadata at all, because a '
+      + 'clip out of the studio carries the whole generation workflow — prompts '
+      + 'and folder paths included — in a tag nothing displays.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-studio-render-time',
     date: '2026-09-03',
     title: 'Every clip in the Video Test Studio says how long it took to render',

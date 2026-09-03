@@ -9,8 +9,11 @@ import pytest
 
 
 def _comfy(monkeypatch, reachable=True):
-    monkeypatch.setattr('app.capabilities.probe',
-                        lambda *a, **k: {'comfyui': {'reachable': reachable}})
+    # The gate asks ComfyUI alone (probe_comfyui), never the whole-app probe:
+    # that one is 24 s cold and was paid by every Generate.
+    monkeypatch.setattr('app.capabilities.probe_comfyui',
+                        lambda: {'ok': reachable, 'detail': '', 'hint': 'Check the URL',
+                                 'status': 'ok' if reachable else 'unreachable'})
 
 
 @pytest.fixture()

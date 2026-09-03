@@ -222,6 +222,7 @@ def test_external_lora_reaches_the_real_krea_graph(app, tmp_path, monkeypatch):
 def _comfy(monkeypatch):
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui', lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
 
 
 def test_canvas_route_forwards_external_loras(client, monkeypatch):

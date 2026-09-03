@@ -15,7 +15,7 @@
  */
 import { Sparkles, Flame, Zap, Maximize2 } from 'lucide-react';
 import SliderLock, { useSliderLock } from '../../../shared/SliderLock';
-import { clipSeconds, SPARSE_CHOICES, studioFrameChoices } from './videoStudioApi';
+import { ACCELERATIONS, clipSeconds, SPARSE_CHOICES, studioFrameChoices } from './videoStudioApi';
 
 function Toggle({ checked, onChange, icon: Icon, label, cost, hint, disabled, disabledHint }) {
   return (
@@ -78,8 +78,21 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
      six-step schedule, dense sampling runs twenty. An explicit count wins over
      both — including over turbo's — which is why the panel must show WHICH
      number is in force rather than implying the checkbox decides. */
-  const autoSteps = value.turbo
+  const autoSteps = value.accel
     ? (options?.turbo_steps || 6) : (options?.default_steps || 20);
+  /* ⚡ The acceleration choices, resolved by the server against THIS machine
+     (weight on disk, node pack for larryvrh's). Before the options arrive the
+     static list shows the shape; nothing is disabled until the server says. */
+  const accels = Array.isArray(options?.accelerations) && options.accelerations.length
+    ? options.accelerations : ACCELERATIONS;
+  const picked = accels.find((a) => a.id === value.accel) || null;
+  const accelHint = !value.accel
+    ? `The official base, dense: ${options?.default_steps || 20} steps, tens of minutes.`
+    : picked?.available === false
+      ? (picked.weight_present === false
+        ? `Not on this machine — Setup downloads it (Video Test Studio › ${picked.label}).`
+        : need('turbo'))
+      : (picked?.hint || 'A distillation LoRA: six steps instead of twenty.');
   const steps = value.steps ? Number(value.steps) : autoSteps;
   const seconds = clipSeconds(value.frames, fps);
   const sparseHint = off('sparse')
@@ -92,10 +105,32 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
       <div className="flex flex-col gap-1.5">
         <h2 className="text-sm font-semibold text-content">Render</h2>
         <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
-          <Toggle checked={value.turbo && !off('turbo')} onChange={(v) => set({ turbo: v })}
-            icon={Zap} label={`Turbo, ${options?.turbo_steps || 6} steps`} cost="minutes, not tens"
-            disabled={off('turbo')} disabledHint={need('turbo')}
-            hint="A distillation LoRA with its own sampler — a different model, not a faster one." />
+          {/* ⚡ One of the arena's top three, or the dense base. A select and
+              not three checkboxes: exactly one can run, and the third choice
+              would not fit a phone as a segmented row with its rank. */}
+          <label data-testid="video-accel" className={`flex flex-col gap-1 rounded-lg border px-2.5 py-2 ${
+            value.accel ? 'border-primary/60 bg-primary/5' : 'border-border'}`}>
+            <span className="flex items-center gap-1.5 text-sm text-content">
+              <Zap aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />
+              <span className="min-w-0 flex-1">Acceleration, {options?.turbo_steps || 6} steps</span>
+              {value.accel && (
+                <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[0.625rem] text-content-subtle">
+                  minutes, not tens
+                </span>
+              )}
+            </span>
+            <select value={value.accel || ''} onChange={(e) => set({ accel: e.target.value })}
+              aria-label="Acceleration"
+              className="w-full rounded-md border border-border bg-app px-2 py-1 text-xs text-content min-h-10 lg:min-h-0">
+              <option value="">Off — dense base, {options?.default_steps || 20} steps</option>
+              {accels.map((a) => (
+                <option key={a.id} value={a.id} disabled={a.available === false}>
+                  {a.label} · arena {a.arena}{a.available === false ? ' — not installed' : ''}
+                </option>
+              ))}
+            </select>
+            <span className="text-[0.6875rem] leading-snug text-content-subtle">{accelHint}</span>
+          </label>
           <Toggle checked={value.eros} onChange={(v) => set({ eros: v })}
             icon={Flame} label="10Eros base" cost="its own faces"
             disabled={options && !options.eros_available}
@@ -164,10 +199,10 @@ export default function VideoOptionsPanel({ options, value, onChange }) {
           {...stepsLock.rangeProps}
           className={`mt-1 accent-primary ${stepsLock.rangeProps.className}`} />
         <span className="text-[0.6875rem] leading-snug text-content-subtle">
-          {value.turbo
-            ? 'Turbo\u2019s distillation is trained for 6 — going far above it '
+          {value.accel
+            ? 'The acceleration is trained for 6 — going far above it '
               + 'costs minutes without buying detail, and below 4 it ghosts on '
-              + 'fast motion. An explicit count wins over turbo\u2019s own.'
+              + 'fast motion. An explicit count wins over its own.'
             : 'Dense sampling: more steps, more time, diminishing returns past '
               + 'about 30. This is the dial to move when a clip looks mushy '
               + 'rather than wrong.'}

@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ACCELERATIONS, accelLabel, clipAccel, pickAvailableAccel,
+  mergeClipPages,
+  smoothTargets,
   buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, renderTimeLabel,
   SPARSE_CHOICES, studioFrameChoices,
 }  from './videoStudioApi.js';
@@ -162,3 +165,53 @@ test('the render time reads the way a person says it, and is null for anything e
     assert.equal(renderTimeLabel(junk), null, String(junk))
   }
 })
+
+test('smooth offers whole factors of the source rate, with frames and relative cost', () => {
+  const t = smoothTargets({ fps: 24, frames: 124 });
+  assert.deepEqual(t.map((x) => [x.multiplier, x.fps, x.frames, x.cost]),
+    [[2, 48, 248, 1], [3, 72, 372, 2], [4, 96, 496, 3]]);
+  // A clip that never stored its rate is an H3 clip: 24 fps authored.
+  assert.deepEqual(smoothTargets({}).map((x) => x.fps), [48, 72, 96]);
+  assert.equal(smoothTargets({ fps: 30 })[0].frames, null, 'no frame count → no count promised');
+  assert.equal(smoothTargets({ fps: 30 })[1].fps, 90);
+});
+
+test('a poll keeps the loaded older clips: the boundary is the page proper, not a source that rode along', () => {
+  const clip = (id, extra = {}) => ({ id, ...extra });
+  // Older pages the user asked for, down to clip 40 — 41 is the clip just smoothed.
+  const prev = [79, 78, 77, 75, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40].map((id) => clip(id));
+  // The first page proper is 79..50; 41 rides along because 79 was smoothed from it.
+  const fresh = [79, 78, 77, 75, 50, 41].map((id) => clip(id, id === 79 ? { vfi_of: 41 } : {}));
+  const kept = mergeClipPages(prev, fresh, 50).map((c) => c.id);
+  assert.deepEqual(kept, [79, 78, 77, 75, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40]);
+  // What the old boundary (the oldest id ON the page: 41) did — every loaded clip between the two vanished.
+  assert.deepEqual(mergeClipPages(prev, fresh, 41).map((c) => c.id), [79, 78, 77, 75, 50, 41, 40]);
+  // A row deleted inside the page proper (78, between 79 and the boundary 50) leaves with the
+  // page; a clip older than the boundary (30) is kept, the fresh page never carried it.
+  assert.deepEqual(mergeClipPages([clip(79), clip(78), clip(30)], [clip(79), clip(50)], 50).map((c) => c.id), [79, 50, 30]);
+});
+
+test('the acceleration travels by name, and larryvrh keeps the older boolean beside it', () => {
+  assert.deepEqual(ACCELERATIONS.map((a) => a.id), ['turbo', 'parasyte', 'dareties']);
+  const base = { prompt: 'p', mode: 't2v' };
+  assert.equal(buildGeneratePayload({ ...base, accel: 'parasyte' }).accel, 'parasyte');
+  assert.equal(buildGeneratePayload({ ...base, accel: 'parasyte' }).turbo, undefined);
+  assert.equal(buildGeneratePayload({ ...base, accel: 'turbo' }).turbo, true);
+  assert.equal(buildGeneratePayload({ ...base, turbo: true }).turbo, true, 'a caller without the name still speaks the flag');
+  assert.equal(buildGeneratePayload({ ...base }).accel, undefined);
+  assert.equal(clipAccel({ accel: 'dareties', turbo: false }), 'dareties');
+  assert.equal(clipAccel({ turbo: true }), 'turbo', 'a row older than the choice');
+  assert.equal(clipAccel({}), '');
+  assert.equal(accelLabel('parasyte'), 'Parasyte Turbo');
+  assert.match(clipSummary({ accel: 'dareties', steps: 6 }), /⚡ DARE-TIES merge/);
+  assert.match(clipSummary({ turbo: true, steps: 6 }), /⚡ turbo/);
+});
+
+test('the pick follows what the machine holds: unavailable falls to the first available, unknown stays', () => {
+  const rows = [{ id: 'turbo', available: false }, { id: 'parasyte', available: true }, { id: 'dareties', available: false }];
+  assert.equal(pickAvailableAccel('turbo', rows), 'parasyte');
+  assert.equal(pickAvailableAccel('parasyte', rows), 'parasyte');
+  assert.equal(pickAvailableAccel('turbo', [{ id: 'turbo', available: null }]), 'turbo', 'a probe that could not run is not a no');
+  assert.equal(pickAvailableAccel('turbo', [{ id: 'turbo', available: false }]), '', 'nothing available: the dense base');
+  assert.equal(pickAvailableAccel('', rows), '');
+});

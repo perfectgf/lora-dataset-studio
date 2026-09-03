@@ -156,6 +156,7 @@ def test_the_history_page_carries_the_source_of_its_renders_and_pages_back(app, 
     assert len(listed) == 6 and body['has_more'] is True
     # Paging back from the oldest id of the page proper (not the carried source).
     page_proper = [i for i in listed if i != source]
+    assert body['oldest_id'] == min(page_proper), 'the boundary is the page proper, never the carried source'
     r2 = client.get(f'/api/video-studio/clips?limit=5&before={min(page_proper)}')
     older = [c['id'] for c in r2.get_json()['clips']]
     assert older and max(older) < min(page_proper)

@@ -143,9 +143,8 @@ def test_dataset_stop_names_unknown_submit_and_confirm_route_recovers(
         f'/api/dataset/{dataset_id}/confirm-comfyui-restart', json={})
     assert missing.status_code == 400
 
-    monkeypatch.setattr(
-        'app.capabilities.probe',
-        lambda *, force=False: {'comfyui': {'reachable': bool(force)}})
+    # The gate probes ComfyUI afresh on every call (no cache to force past).
+    monkeypatch.setattr('app.capabilities.probe_comfyui', lambda: {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''})
     recovered = client.post(
         f'/api/dataset/{dataset_id}/confirm-comfyui-restart', json=_CONFIRM)
     assert recovered.status_code == 200
@@ -218,11 +217,11 @@ def test_run_recovery_route_requires_confirmed_fresh_comfyui_and_clears_only_aft
     dataset_id, cell_id, job_id = _stalled_studio_cell(client.application, run_id='route-run')
     calls = []
 
-    def probe(*, force=False):
-        calls.append(force)
-        return {'comfyui': {'reachable': True}}
+    def probe_comfyui():
+        calls.append(True)                      # one fresh look at ComfyUI
+        return {'ok': True, 'status': 'ok', 'detail': '', 'hint': ''}
 
-    monkeypatch.setattr('app.capabilities.probe', probe)
+    monkeypatch.setattr('app.capabilities.probe_comfyui', probe_comfyui)
 
     missing = client.post('/api/studio/run/route-run/confirm-comfyui-restart', json={})
     assert missing.status_code == 400
@@ -247,11 +246,8 @@ def test_run_recovery_route_requires_confirmed_fresh_comfyui_and_clears_only_aft
 def test_dataset_recovery_route_refuses_to_clear_while_comfyui_is_not_ready(client, monkeypatch):
     dataset_id, cell_id, job_id = _stalled_studio_cell(client.application)
 
-    def probe(*, force=False):
-        assert force is True
-        return {'comfyui': {'reachable': False, 'hint': 'restart it'}}
-
-    monkeypatch.setattr('app.capabilities.probe', probe)
+    monkeypatch.setattr('app.capabilities.probe_comfyui',
+                        lambda: {'ok': False, 'status': 'unreachable', 'detail': 'down', 'hint': 'restart it'})
     response = client.post(
         f'/api/dataset/{dataset_id}/lora-test/confirm-comfyui-restart',
         json=_CONFIRM,

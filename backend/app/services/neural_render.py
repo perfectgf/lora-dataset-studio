@@ -355,6 +355,185 @@ def clip_dimensions(path) -> tuple[int, int] | None:
         return None
 
 
+# ── ⇔ The comparison, as ONE file ───────────────────────────────────────────
+# The side-by-side player answers "did this do anything?" on screen and nowhere
+# else. A file answers it everywhere: a post, a message, a note kept beside the
+# clip. So this encodes the picture the player shows — the two clips in one
+# frame, in step by construction, one timeline instead of two players.
+
+# `shortest=1` belongs to the FILTER, not to the muxer — see comparison_argv.
+HSTACK = 'hstack=inputs=2:shortest=1'
+COMPARISON_CRF = 18            # near-transparent: the point of this file is detail
+COMPARISON_MAX_BYTES = 512 * 1024 * 1024
+COMPARISON_TIMEOUT_S = 900
+
+# ONE encode at a time, and the second caller is told to come back rather than
+# queued. Measured on this app's own clips: a 2816×800 pair of 485 frames takes
+# 2.1 s alone and 17.4 s when six of them run at once — six ffmpeg processes do
+# not share a machine, they divide it, and the RAM each finished file sits in
+# multiplies by the same number. Same shape as the timeline GIF next door
+# (checkpoint_timeline._GIF_RENDER_GATE), for the same reason.
+_COMPARISON_GATE = threading.BoundedSemaphore(1)
+
+
+class ComparisonBusyError(NeuralRenderError):
+    """Another comparison is encoding — a 429, not a failure."""
+
+
+class ComparisonTooLargeError(NeuralRenderError):
+    """The built file is past what a response will hold in memory — a 413."""
+# drawtext needs a font FILE, and no font ships with this app. None of these is
+# guaranteed, so labels are a bonus and never a failure: a machine with none of
+# them gets the two panes unlabelled instead of an error.
+FONT_CANDIDATES = (
+    r'C:\Windows\Fonts\arial.ttf',
+    r'C:\Windows\Fonts\segoeui.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+)
+
+
+def comparison_font() -> str | None:
+    """The first usable font file, or None when the labels have to be dropped.
+
+    This ``isfile`` is what holds the promise, and it cannot be replaced by
+    trusting ffmpeg: measured, a ``fontfile=`` pointing at a path that does not
+    exist does NOT fail — both resolvable builds here are ``--enable-fontconfig``
+    and drawtext quietly falls back to a substitute face, exit 0, pixels drawn.
+    So a stale entry in the list below would silently change the typeface rather
+    than drop the label, and an exit code can never be read as "my font was
+    used".
+    """
+    return next((f for f in FONT_CANDIDATES if os.path.isfile(f)), None)
+
+
+def graph_value(path) -> str:
+    """A path as a filtergraph VALUE.
+
+    Three parsers read this string — the graph, the filter description, then the
+    option — and each eats one level of escaping, so a Windows drive colon needs
+    TWO backslashes to reach drawtext. Measured on the bundled ffmpeg 7.1:
+    ``C\\\\:/Windows/…`` parses, while ``C\\:/Windows/…`` and ``C\\:\\\\Windows\\\\…``
+    both die with "No option name near". Backslashes become forward slashes for
+    the same reason; a path with no colon comes back unchanged.
+    """
+    return str(path).replace('\\', '/').replace(':', r'\\:')
+
+
+def label_filter(text, font) -> str:
+    """One caption, centred at the bottom of its pane, on a box so it stays
+    readable over a white frame. The text is stripped of the three characters
+    that would end the option rather than escaped: these labels are ours, not
+    the user's, and a caption is not worth an escaping bug."""
+    safe = str(text).replace('\\', '').replace("'", '').replace(':', ' ')
+    return (f"drawtext=fontfile={graph_value(font)}:text='{safe}':fontcolor=white:"
+            'fontsize=h/22:box=1:boxcolor=black@0.55:boxborderw=10:'
+            'x=(w-text_w)/2:y=h-text_h-24')
+
+
+def comparison_argv(left, right, out, *, left_label, right_label,
+                    font=None, ffmpeg=None) -> list:
+    """The one command that builds the side-by-side file.
+
+    ``-map_metadata -1`` is not tidiness. A studio clip carries ComfyUI's ENTIRE
+    workflow in its ``comment`` tag — every prompt and every absolute path,
+    ``C:\\Users\\<name>\\…`` included — and ffmpeg copies that to the output by
+    default. This file exists to be handed to other people, so it starts with no
+    metadata at all. (Measured: the tag was there, in full, before this flag was.)
+
+    ``-map 0:a?`` keeps the left clip's sound when it has one and asks for
+    nothing when it does not.
+
+    The pair ends with the SHORTER clip, and that takes ``shortest=1`` on the
+    filter — ``-shortest`` alone does not do it. Measured on a deliberate
+    mismatch (5.17 s against 2 s): the output ran the full 5.17 s with the short
+    side FROZEN on its last frame, because ``-shortest`` is a muxer option and
+    ``hstack`` had already padded the short input long before the muxer saw it
+    (frame-to-frame delta on the right pane: 1.49 while it plays, 0.009 after).
+    ``-shortest`` is kept beside it for the audio stream.
+    """
+    ff = str(ffmpeg or ffmpeg_tools.ffmpeg_path() or 'ffmpeg')
+    if font:
+        graph = (f'[0:v]{label_filter(left_label, font)}[l];'
+                 f'[1:v]{label_filter(right_label, font)}[r];'
+                 f'[l][r]{HSTACK}[v]')
+    else:
+        graph = f'[0:v][1:v]{HSTACK}[v]'
+    return [ff, '-y', '-hide_banner', '-i', str(left), '-i', str(right),
+            '-filter_complex', graph, '-map', '[v]', '-map', '0:a?',
+            '-map_metadata', '-1',
+            '-c:v', 'libx264', '-crf', str(COMPARISON_CRF), '-preset', 'veryfast',
+            '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-shortest', str(out)]
+
+
+def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
+                     timeout_s=None) -> bytes:
+    """The side-by-side clip's BYTES.
+
+    Built into a temp file — an mp4 with ``+faststart`` has to be seekable, so a
+    pipe is not an option — then read back and deleted here. The bytes are what
+    the route sends, and the temp file is gone before this returns: measured on a
+    threaded Flask, ``send_file(path)`` plus ``call_on_close`` to delete it never
+    fires on a SUCCESSFUL download (eight requests, eight orphans, 77 MB), which
+    is the trap ``routes/training.py`` already documents — "some servers close
+    that wrapper without invoking Response.call_on_close". Deleting the file
+    inside the view is not the alternative either: Windows refuses to unlink a
+    file the response still holds open (PermissionError 13). Reading it and
+    dropping it here is the shape that leaves nothing behind, on either OS.
+    """
+    for path, side in ((left, 'left'), (right, 'right')):
+        if not path or not os.path.isfile(str(path)):
+            raise NeuralRenderError(f'the {side} clip is not on disk any more')
+    if not ffmpeg_tools.ffmpeg_path() and not ffmpeg:
+        raise NeuralRenderError('ffmpeg is needed to build the comparison — '
+                                'install the video extra from Setup')
+    if not _COMPARISON_GATE.acquire(blocking=False):
+        raise ComparisonBusyError('another comparison is being built — try again '
+                                  'in a moment')
+    # EVERYTHING after the acquire is inside the try, mkdtemp included. It was
+    # outside for one commit, and a temp dir that cannot be made — a full disk,
+    # a %TEMP% that is gone or read-only — walked out with the slot still held:
+    # every later export answered 429 until the server was restarted. The
+    # release belongs to a `finally` that starts at the acquire, not at the
+    # first line that happens to look risky.
+    out = None
+    try:
+        out = Path(tempfile.mkdtemp(prefix='lds-compare-'))
+        dst = out / 'comparison.mp4'
+        argv = comparison_argv(left, right, dst, left_label=left_label,
+                               right_label=right_label, font=comparison_font(),
+                               ffmpeg=ffmpeg)
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, encoding='utf-8',
+                                  errors='replace',
+                                  timeout=timeout_s or COMPARISON_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            raise NeuralRenderError('building the comparison took too long and was stopped')
+        except OSError as exc:
+            # The path resolved and the binary is not there: the video extra was
+            # removed, or an ffmpeg on PATH moved. `ffmpeg_path()` answers with a
+            # directory entry, never with a working encoder — so this is a
+            # sentence, not a 500 out of subprocess.
+            raise NeuralRenderError(
+                'ffmpeg could not be run — reinstall the video extra from Setup '
+                f'({exc.__class__.__name__})')
+        if proc.returncode != 0 or not dst.is_file():
+            tail = (proc.stderr or '').strip().splitlines()[-1:] or ['ffmpeg failed']
+            raise NeuralRenderError(f'the comparison could not be built: {tail[0]}')
+        size = dst.stat().st_size
+        if size > COMPARISON_MAX_BYTES:
+            raise ComparisonTooLargeError(
+                f'the comparison came out at {size // (1024 * 1024)} MB, past the '
+                f'{COMPARISON_MAX_BYTES // (1024 * 1024)} MB this route will hold '
+                'in memory — compare a shorter clip')
+        return dst.read_bytes()
+    finally:
+        if out is not None:
+            shutil.rmtree(out, ignore_errors=True)
+        _COMPARISON_GATE.release()
+
+
 # ── The render itself: one child per clip ───────────────────────────────────
 
 def worker_argv(src, dst, params, temporal_on, ffmpeg=None) -> list:

@@ -13,8 +13,10 @@ it is known to exist) and `licence_note` (MiniMax H3's licence grants no rights 
 all in the EU, the UK, South Korea or the USA, and the restriction reaches the
 OUTPUTS — a user must not discover that in a forum thread after building a set).
 """
+import io
 import logging
 import mimetypes
+import os
 from ..extensions import db
 
 from flask import Blueprint, jsonify, request, send_file
@@ -705,6 +707,35 @@ def video_dataset_clip_original(dataset_id, clip_id):
     return send_file(path, mimetype='video/mp4', conditional=True, max_age=0)
 
 
+@bp.get('/video-dataset/<int:dataset_id>/clip/<int:clip_id>/comparison')
+def video_dataset_clip_comparison(dataset_id, clip_id):
+    """⬇ The two clips as ONE mp4, side by side — the picture the ⇔ player
+    shows, in a file that can leave the app.
+
+    Same 404 as the original route and for the same reason: without a render
+    there are not two things to put next to each other."""
+    original = nr.original_clip_path(LOCAL_USER, dataset_id, clip_id)
+    render = svc.dataset_clip_media_path(LOCAL_USER, dataset_id, clip_id)
+    if original is None or render is None:
+        return jsonify({'error': 'this clip plays no render — nothing to compare'}), 404
+    try:
+        data = nr.build_comparison(original, render, left_label='Original',
+                                   right_label='Neural render (DLSS 5)')
+    except nr.ComparisonBusyError as exc:
+        # One encode at a time, and the second caller is told to come back —
+        # the same answer the timeline GIF gives, for the same reason.
+        res = jsonify({'error': str(exc)})
+        res.headers['Retry-After'] = '5'
+        return res, 429
+    except nr.ComparisonTooLargeError as exc:
+        return jsonify({'error': str(exc)}), 413
+    except nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    stem = os.path.splitext(os.path.basename(render))[0]
+    return send_file(io.BytesIO(data), mimetype='video/mp4', as_attachment=True,
+                     download_name=f'{stem}-vs-neural.mp4', max_age=0)
+
+
 @bp.post('/video-dataset/<int:dataset_id>/neural-render/restore')
 def video_dataset_neural_render_restore(dataset_id):
     """🩹 Body {ids: [...] (empty = every rendered clip)}. Moves each original
@@ -719,3 +750,76 @@ def video_dataset_neural_render_restore(dataset_id):
     except nr.NeuralRenderError as exc:
         return jsonify({'error': str(exc)}), 400
     return jsonify({'ok': True, **out})
+
+
+# ── ◉ Graph + previews — the lineage of a video dataset's runs ───────────────
+
+@bp.get('/video-dataset/<int:dataset_id>/train/lineage')
+def video_dataset_lineage(dataset_id):
+    """🌳 Every run of this video dataset as ONE genealogy forest, in the shape
+    the image workspace's graph draws (`cloud_training.dataset_lineage`):
+    cloud runs linked by the step they continued from, plus the local run."""
+    from ..services import video_lineage
+    try:
+        return jsonify(video_lineage.tree(LOCAL_USER, dataset_id))
+    except LookupError:
+        return _missing(dataset_id)
+
+
+def _sample_lane(dataset_id):
+    """(dataset, run|None) for the sample routes — `run_id` absent means the
+    local run. LookupError when the dataset or the run is not this user's."""
+    from ..services import video_checkpoints as vck
+    from ..services import video_lineage
+    ds = vck._dataset(LOCAL_USER, dataset_id)
+    return ds, video_lineage.resolve_run(ds, request.args.get('run_id'))
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/samples')
+def video_dataset_samples(dataset_id):
+    """The training samples ai-toolkit rendered for one lane of this dataset,
+    newest step first, with a URL per sample and per poster."""
+    from ..services import video_lineage
+    try:
+        ds, run = _sample_lane(dataset_id)
+    except LookupError as e:
+        return jsonify({'error': str(e)}), 404
+    out = []
+    for s in video_lineage.list_samples(ds, run):
+        out.append({**s, **video_lineage._sample_urls(ds, run, s)})
+    return jsonify({'run_id': run.id if run else None, 'samples': out})
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/sample')
+def video_dataset_sample(dataset_id):
+    """ONE sample clip (or image), resolved by name through the lane's own
+    listing. Conditional so a player can seek."""
+    from flask import abort
+    from ..services import video_lineage
+    try:
+        ds, run = _sample_lane(dataset_id)
+    except LookupError:
+        abort(404)
+    path = video_lineage.sample_path(ds, run, request.args.get('filename'))
+    if not path:
+        abort(404)
+    return send_file(path, mimetype=mimetypes.guess_type(path)[0] or 'application/octet-stream',
+                     conditional=True)
+
+
+@bp.get('/video-dataset/<int:dataset_id>/train/sample/poster')
+def video_dataset_sample_poster(dataset_id):
+    """A still of one sample — the image itself, or the clip's first frame cut
+    once and cached. 404 when the frame cannot be cut: a pill without a
+    thumbnail, never a broken image."""
+    from flask import abort
+    from ..services import video_lineage
+    try:
+        ds, run = _sample_lane(dataset_id)
+    except LookupError:
+        abort(404)
+    path = video_lineage.poster_path(ds, run, request.args.get('filename'))
+    if not path:
+        abort(404)
+    return send_file(path, mimetype=mimetypes.guess_type(path)[0] or 'image/jpeg',
+                     conditional=True)

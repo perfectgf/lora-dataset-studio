@@ -27,6 +27,7 @@ ROUTES_DIR = pathlib.Path(__file__).resolve().parents[1] / 'app' / 'routes'
 def _comfy(monkeypatch, reachable=True):
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': reachable}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui', lambda: {'ok': reachable, 'status': 'ok' if reachable else 'unreachable', 'detail': '', 'hint': 'Check the URL'})
 
 
 # --- 1. La garde EXERCÉE : la route réparée transmet vraiment -----------------

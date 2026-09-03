@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { videoDatasetClipMediaUrl } from './videoBankApi'
+import { videoDatasetClipComparisonUrl, videoDatasetClipMediaUrl } from './videoBankApi'
 import SideBySideVideo from './SideBySideVideo'
 import { neuralRenderTags } from './neuralRenderParams'
 import { clipDurationS, isStillFile, lightboxKeyAction } from './videoDatasetClips'
@@ -169,6 +169,7 @@ export default function VideoDatasetLightbox({
       </div>
       {comparing && compareSrc && (
         <SideBySideVideo originalSrc={compareSrc} renderSrc={src} title={clip.filename}
+          exportHref={videoDatasetClipComparisonUrl(datasetId, clip.id)}
           onClose={() => setComparing(false)} />
       )}
     </div>

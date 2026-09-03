@@ -72,6 +72,8 @@ N_SAGE = '600'          # PathchSageAttentionKJ
 # string that looks like every other key.
 N_TURBO_LORA = '601'
 N_TURBO_SAMPLER = '603'
+N_ACCEL_LORA = '602'    # a stock-loader acceleration LoRA (Parasyte, DARE-TIES)
+N_SHIFT = '604'         # MiniMaxH3SigmaShift — the shift those LoRAs were tuned at
 N_TEST_LORA = '610'     # the LoRA under test — 606-609 are the style LoRAs upstream
 N_UPSCALE = '800'
 N_UPSCALE_PARAMS = '801'
@@ -95,7 +97,8 @@ BASE_OFFICIAL = 'minimax_h3_fl2va_pruned_int8_convrot.safetensors'
 BASE_EROS = ('10Eros_Max_h3_fl2va_beta2_pruned_int8_convrot_skip_edges'
              '.safetensors')
 
-# ⚡ The 4-step distillation LoRA (larryvrh), applied through its OWN node, not
+# ⚡ The 6-step distillation LoRA (larryvrh v4, step 600 EMA — the top row of the
+# multimodalart H3 acceleration arena at 6 steps), applied through its OWN node, not
 # a standard loader. Both halves of that sentence were paid for:
 #
 #   * the file uses H3's bare key naming (`blocks.0.attn…`) plus 102 adaln keys.
@@ -113,6 +116,54 @@ TURBO_LORA = 'minimax_h3_turbo_v4_step600_ema.safetensors'
 # MINIMUM; 4-8 is the useful range. 6-8 steps look noticeably better than 4" —
 # and at 4 steps with fast motion this checkpoint trails ghosting.
 TURBO_STEPS = 6
+
+# ⚡ The accelerations the Render panel offers: the top three rows of the
+# multimodalart MiniMax-H3 acceleration arena (human preference Elo, ~7 400
+# votes per task, 95 % intervals about ±26 — so the three are statistical
+# ties), every one of them at 6 steps and about 4× the 28-step reference.
+# `turbo` is larryvrh's LoRA through its OWN nodes (a LoRA node and the
+# double-clock sampler, see _graft_turbo). The other two are ordinary LoRAs
+# for the stock loader, run on the stock euler sampler at the sigma shift
+# their cards and the arena ran them at (video 8, audio 3; the base's own
+# grid is 12/3). Strengths are the arena's verified settings, not 1.0: the
+# Parasyte file's alpha convention wants 4-5, the merge's card says 0.6-0.8.
+PARASYTE_LORA = 'H3-PK-Parasyte-Turbo.safetensors'
+DARETIES_LORA = 'minimax_h3_fl2v_lightx2v_v0.1_dareties_v4_step600_comfy_fro.safetensors'
+ACCELERATIONS = (
+    {'id': 'turbo', 'label': 'larryvrh Turbo v4', 'file': TURBO_LORA, 'steps': TURBO_STEPS,
+     'arena': '#1 · I2V 1103 / T2V 1110', 'author': 'larryvrh', 'license': 'apache-2.0',
+     'action': 'h3_turbo_lora', 'pack': 'turbo', 'strength': 1.0, 'shift': None,
+     'hint': 'A distillation LoRA with its own sampler — a different model, not a faster one.'},
+    {'id': 'parasyte', 'label': 'Parasyte Turbo', 'file': PARASYTE_LORA, 'steps': TURBO_STEPS,
+     'arena': '#2 · I2V 1106 / T2V 1094', 'author': 'Plaguekind', 'license': 'MIT',
+     'action': 'h3_parasyte_lora', 'pack': None, 'strength': 4.0, 'shift': (8.0, 3.0),
+     'hint': "Plaguekind's LoRA on the stock sampler: strength 4, shift 8/3, euler. MIT."},
+    {'id': 'dareties', 'label': 'DARE-TIES merge', 'file': DARETIES_LORA, 'steps': TURBO_STEPS,
+     'arena': '#3 · I2V 1107 / T2V 1085', 'author': 'silveroxides', 'license': 'not stated',
+     'action': 'h3_dareties_lora', 'pack': None, 'strength': 0.8, 'shift': (8.0, 3.0),
+     'hint': 'LightX2V v0.1 and larryvrh v4 merged (DARE-TIES): strength 0.8, shift 8/3, euler. '
+             'Its author states no license.'},
+)
+ACCEL_IDS = tuple(a['id'] for a in ACCELERATIONS)
+
+
+def accel_spec(accel) -> dict:
+    for a in ACCELERATIONS:
+        if a['id'] == accel:
+            return a
+    raise ValueError(f'unknown acceleration: {accel!r}')
+
+
+def normalise_accel(accel, turbo=False) -> str:
+    """The acceleration in force: the one named, `turbo` for a caller that still
+    speaks the boolean, '' for the dense base. Anything else is refused — a
+    string that reaches a loader must be one this module wrote."""
+    key = str(accel or '').strip().lower()
+    if key in ACCEL_IDS:
+        return key
+    if key in ('', 'none', 'off', 'false', '0'):
+        return 'turbo' if turbo else ''
+    raise ValueError(f'unknown acceleration: {accel!r}')
 
 # Without turbo the base is not distilled and needs a real schedule.
 DEFAULT_STEPS = 20
@@ -259,10 +310,13 @@ def normalise_sparse(mode) -> str:
 def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
                    frames=None, megapixels=MP_DEFAULT, aspect='auto',
                    fps=None, lora=None, lora_strength=1.0, turbo=False,
-                   eros=False, eros_on_disk=False, sparse='',
+                   accel=None, eros=False, eros_on_disk=False, sparse='',
                    latent_upscale=False, source_ratio=None, sage=True,
                    filename_prefix='lds_video_test') -> dict:
     """One MiniMax H3 clip, as a ComfyUI graph.
+
+    `accel` names one of ACCELERATIONS ('' or None for the dense base); `turbo`
+    is the older boolean and means `accel='turbo'` when `accel` is not given.
 
     `eros_on_disk` is passed IN rather than probed here so the whole option
     matrix stays testable without a 21 GB file — and so the fail-open path (ask
@@ -330,14 +384,25 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
             # answer than a clip on the official base plus a line saying so.
             notes.append('base: 10Eros requested but absent — official base used')
 
-    if turbo:
+    accel = normalise_accel(accel, turbo)
+    if accel == 'turbo':
         _graft_turbo(wf)
-        notes.append(f'turbo: 4-step distillation, steps={wf[N_SCHEDULER]["inputs"]["steps"]}')
+    elif accel:
+        _graft_stock_accel(wf, accel_spec(accel))
     if steps is not None:
         # An explicit step count always wins, including over the turbo default:
         # the panel showing 6 while the graph runs 4 is the exact failure this
         # pipeline already paid for once.
         wf[N_SCHEDULER]['inputs']['steps'] = max(4, min(40, int(steps)))
+    # The note reads the count AFTER the override: a log that said "steps=6"
+    # while the graph ran the user's 4 was seen on the first real launch.
+    if accel == 'turbo':
+        notes.append(f'turbo: larryvrh distillation, steps={wf[N_SCHEDULER]["inputs"]["steps"]}')
+    elif accel:
+        spec = accel_spec(accel)
+        notes.append(f"accel: {spec['label']} @ {spec['strength']:g}, shift "
+                     f"{spec['shift'][0]:g}/{spec['shift'][1]:g}, euler, "
+                     f"steps={wf[N_SCHEDULER]['inputs']['steps']}")
 
     if lora:
         # The applied force comes BACK from the graft rather than being
@@ -358,7 +423,8 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
     return {'workflow': wf, 'seed': int(seed), 'frames': frames,
             'megapixels': megapixels, 'notes': notes,
             'base': wf[N_UNET]['inputs']['unet_name'],
-            'steps': wf[N_SCHEDULER]['inputs']['steps']}
+            'steps': wf[N_SCHEDULER]['inputs']['steps'],
+            'accel': accel}
 
 
 def _model_readers(wf, ref, *, skip=()):
@@ -450,6 +516,31 @@ def _graft_turbo(wf):
     wf[N_SCHEDULER]['inputs']['steps'] = TURBO_STEPS
 
 
+def _graft_stock_accel(wf, spec):
+    """⚡ An acceleration LoRA through the STOCK loader, and the sigma shift it
+    was tuned at, on the stock euler sampler.
+
+    Both nodes go INTO the chain (the loader, then the shift) so the guider
+    path and the scheduler read the same patched model — the rule every graft
+    here follows, for the reason _insert_into_chain states. The shift is a
+    core ComfyUI node (comfy_extras.nodes_minimax_h3): no pack to install.
+    """
+    _insert_into_chain(wf, N_ACCEL_LORA, {
+        'class_type': 'LoraLoaderModelOnly',
+        'inputs': {'model': [N_UNET, 0], 'lora_name': spec['file'],
+                   'strength_model': float(spec['strength'])},
+    }, [N_UNET, 0])
+    video, audio = spec['shift']
+    _insert_into_chain(wf, N_SHIFT, {
+        'class_type': 'MiniMaxH3SigmaShift',
+        'inputs': {'model': [N_ACCEL_LORA, 0], 'shift_video': float(video),
+                   'shift_audio': float(audio)},
+    }, [N_ACCEL_LORA, 0])
+    wf[N_SAMPLER_SELECT]['inputs']['sampler_name'] = 'euler'
+    wf[N_SCHEDULER]['inputs']['scheduler'] = 'simple'
+    wf[N_SCHEDULER]['inputs']['steps'] = int(spec['steps'])
+
+
 def _graft_test_lora(wf, lora_name, strength):
     """The LoRA under test, chained onto the head of the model chain.
 
@@ -466,7 +557,12 @@ def _graft_test_lora(wf, lora_name, strength):
 
     Returns the strength that was actually applied, after coercion and clamping.
     """
-    head = [N_TURBO_LORA, 0] if N_TURBO_LORA in wf else [N_UNET, 0]
+    if N_TURBO_LORA in wf:
+        head = [N_TURBO_LORA, 0]
+    elif N_ACCEL_LORA in wf:
+        head = [N_ACCEL_LORA, 0]
+    else:
+        head = [N_UNET, 0]
     try:
         force = float(strength)
     except (TypeError, ValueError):
@@ -890,7 +986,7 @@ def clips_dir(create=True):
 def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
                  lora_strength=1.0, run_id=None, dataset_id=None, seed=None,
                  steps=None, frames=None, megapixels=MP_DEFAULT, aspect='auto',
-                 turbo=False, eros=False, sparse='', latent_upscale=False,
+                 turbo=False, accel=None, eros=False, sparse='', latent_upscale=False,
                  source_ratio=None, skip_preflight=False) -> dict:
     """Build the graph, record the clip, queue the job — in that order.
 
@@ -912,7 +1008,7 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     built = build_workflow(
         prompt=prompt, mode=mode, image=image, seed=seed, steps=steps,
         frames=frames, megapixels=megapixels, aspect=aspect, lora=lora,
-        lora_strength=lora_strength, turbo=turbo, eros=eros,
+        lora_strength=lora_strength, turbo=turbo, accel=accel, eros=eros,
         eros_on_disk=eros_on_disk() if eros else False, sparse=sparse,
         latent_upscale=latent_upscale, source_ratio=source_ratio,
         sage=sage_available(classes), filename_prefix=new_prefix(user_id))
@@ -927,8 +1023,8 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
         frames=built['frames'], megapixels=built['megapixels'],
         fps=float(_profile().get('fps') or 24.0), base_model=built['base'],
         lora=lora, lora_strength=float(lora_strength) if lora else None,
-        turbo=bool(turbo), sparse=normalise_sparse(sparse),
-        latent_upscale=bool(latent_upscale))
+        turbo=(built['accel'] == 'turbo'), accel=(built['accel'] or None),
+        sparse=normalise_sparse(sparse), latent_upscale=bool(latent_upscale))
     db.session.add(clip)
     db.session.flush()          # mint the id inside the same transaction
     queue_manager.add_job(job_type='image', user_id=str(user_id),
@@ -1199,6 +1295,9 @@ REQUIRED_WEIGHTS = (
 # that checkbox rather than the lane.
 OPTIONAL_WEIGHTS = (
     ('h3_turbo_lora', ('loras',), TURBO_LORA, 'turbo'),
+    # ⚡ The other two accelerations of the Render panel (arena rows 2 and 3).
+    ('h3_parasyte_lora', ('loras',), PARASYTE_LORA, 'parasyte'),
+    ('h3_dareties_lora', ('loras',), DARETIES_LORA, 'dareties'),
     # ⚠️ No setup action for this one, on purpose — see UNFETCHABLE below.
     (None, ('latent_upscale_models',), UPSCALE_MODEL, 'latent_upscale'),
     # Nor for the third-party base: it is somebody else's finetune, it is
@@ -1355,6 +1454,28 @@ def option_availability(classes=None) -> dict:
             continue
         gone = [c for c in spec['classes'] if c not in classes]
         out[option] = {**row, 'available': not gone, 'nodes': gone}
+    return out
+
+
+def accelerations_status(classes=None) -> list:
+    """The Render panel's acceleration choices, resolved against THIS machine:
+    the weight on disk and, for larryvrh's, its node pack too. `available` is
+    what the panel can offer; `action` is the Setup button that fetches the
+    weight; `pack` travels for the one choice that needs code installed."""
+    packs = option_availability(classes)
+    out = []
+    for a in ACCELERATIONS:
+        weight = _weight_present(('loras',), a['file'])
+        pack = packs.get(a['pack']) if a['pack'] else None
+        pack_ok = None if pack is None else pack['available']
+        out.append({
+            'id': a['id'], 'label': a['label'], 'arena': a['arena'], 'steps': a['steps'],
+            'author': a['author'], 'license': a['license'], 'file': a['file'],
+            'action': a['action'], 'hint': a['hint'], 'weight_present': bool(weight),
+            'pack': pack,
+            # A probe that could not run is not a no — same rule as the packs.
+            'available': bool(weight) and pack_ok is not False,
+        })
     return out
 
 

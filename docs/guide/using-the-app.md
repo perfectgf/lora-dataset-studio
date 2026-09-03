@@ -3661,6 +3661,18 @@ older, larger verb: it removes the run's files *and* its history line, for
 good. A LoRA you dropped into `h3/` by hand shows as deployed but is never
 undeployed from here.
 
+**The run graph** at the top of that section is the image workspace's, drawing
+the same thing: one card per run (this PC or a pod), a pill per save, and a
+curve from the exact step a continuation resumed from — three continuations
+read as one lineage rather than three unrelated runs. A pill's thumbnail is the
+*training sample* ai-toolkit rendered at that step (one per prompt, every save);
+click it to play the clip, `←`/`→` step through the step's prompts. Clicking a
+pill offers the same verbs as its row in the list; clicking a run card opens
+its details. There is no *Generate previews* bar here: the image graph renders
+those with the image Test Studio's engine, and a fresh render of a video LoRA
+is the Video Studio's job. A run with no samples simply shows plain pills — add
+sample prompts to a launch to get them.
+
 **Studio** opens the Video tab of the Test Studio, where a deployed LoRA is
 judged on the clip it renders rather than on its loss curve.
 
@@ -3693,6 +3705,17 @@ finished clip in two places:
 carry **⇔ Compare**: the original and the render play side by side, in step —
 the left player leads (play, pause, seek there), the right one follows, muted;
 **Swap sides** puts the render first. On a phone the two stack.
+
+**⬇ Export** turns that comparison into a file: one mp4 holding both clips side
+by side, each captioned, in step by construction — a single timeline instead of
+two players, so it plays correctly anywhere. The app encodes it when you press
+the button (a ten-second pair takes a couple of seconds), then your browser saves
+it. Two things about that file are deliberate: it carries **no metadata**, because
+a clip that came out of the Test Studio holds the entire generation workflow —
+every prompt and every folder path on your machine — in a comment tag nothing on
+screen displays, and this file is the one built to be sent to other people; and
+the captions need a font, so on a machine with none of the usual ones the two
+panes come out unlabelled rather than the export failing.
 
 **The dials.** *Tone* is how much the model relights (0 keeps the clip's own
 tones — the setting for flat art and anime, where the default greys pure whites).
@@ -3736,7 +3759,7 @@ uses everywhere else, driven from one panel.
 are about **39.5 GB** — Setup ▸ **🎬 Video Test Studio** downloads them into
 ComfyUI's own folders. A plain clip needs *nothing else*: no custom node, no
 add-on, deliberately, so that a fresh install can render something the moment
-the weights land. The optional 4-step **turbo LoRA** is downloaded there too
+the weights land. The optional 6-step **turbo LoRA** is downloaded there too
 (0.7 GB, and it is the difference between a clip in minutes and one in tens of
 minutes).
 
@@ -3784,6 +3807,17 @@ skips the picture entirely and composes the shot from the prompt. Either way,
 describe the *movement*: the start frame already says what the scene looks
 like.
 
+**Quick prompts, if you would rather pick than write.** Under the field, a ⚡ row
+of chips carries the MiniMax H3 preset set — Scenarios, Multi-Shot, Timeline,
+Camera, Audio, Voice and Visual Style. They **stack**: a chip appends on its own
+line instead of replacing what is there, so a shot is built by taking a scenario
+or a style first and layering a camera move and an audio bed on top, exactly the
+way H3's own template is ordered. The wording follows that template, which is why
+the scenarios name the start frame as `<Picture 1>` — in a text-only clip that
+reference is dropped from the preset before it lands in the field, since there is
+no picture for it to point at. The chips are only text: what they write is yours
+to edit, and ✨ Enrich will happily rewrite it afterwards.
+
 **Or let a local model write the movement.** ✨ **Auto** looks at the start frame
 and proposes a motion for it; anything already in the field is read as the
 movement you are after and steers the proposal rather than being ignored — the
@@ -3815,10 +3849,16 @@ as you typed it — and if the writer cannot run at that moment, the clip still
 launches with your words and the panel says so.
 
 **The four options are not free, and the panel says what each one costs.**
-⚡ Turbo swaps in a 4-step distillation LoRA and its double-clock sampler —
-minutes instead of tens of minutes, and a different model rather than merely a
-faster one; it is on by default because an undistilled first clip is long enough
-to look like a hang. 🔬 Latent upscale enlarges before anything is decoded, so
+⚡ **Acceleration** swaps in a 6-step distillation LoRA — minutes instead of
+tens of minutes, and a different model rather than merely a faster one; one is
+on by default because an undistilled first clip is long enough to look like a
+hang. The choice is the top three of the multimodalart MiniMax-H3 acceleration
+arena (human preference, ~7 400 votes per task, and the three are statistical
+ties): larryvrh's Turbo v4 through its own sampler, Plaguekind's Parasyte
+Turbo, and silveroxides' DARE-TIES merge — the last two on the stock sampler
+at the sigma shift they were tuned for, with the strengths the arena verified.
+Setup downloads whichever is missing; a choice this machine cannot run is
+greyed and says why. 🔬 Latent upscale enlarges before anything is decoded, so
 the audio track survives untouched — and it is where most of the time goes.
 Sparse attention buys speed by attending to less, which costs prompt adherence;
 with the upscale on, the first pass deliberately stays dense so the prompt keeps
@@ -3835,6 +3875,64 @@ says anything about that dial.
 If the panel refuses to launch, it is telling you the graph cannot run on this
 install: the message names the missing weights and the ComfyUI node packs to
 install, rather than letting the job fail silently a minute later.
+
+## Smooth: pick the rate before it runs
+
+**↗ Smooth** on a finished clip opens a small window before anything is
+queued: the rate the new clip will play at — **48, 72 or 96 fps** for a clip
+authored at 24. The interpolator (RIFE) works by whole factors, ×2, ×3 or
+×4, which is why the choices are multiples of the source and not any
+number: a 30 or 60 fps target would mean throwing frames away unevenly
+after the pass, and that reads as judder. The clip keeps its length —
+frames are added between the existing ones, nothing is slowed down — and
+the work grows with the frames written: ×3 costs about twice the ×2 pass,
+×4 about three times. The result is a NEW clip in the list, tagged with its
+rate; the original stays as it is.
+
+## A live channel from your video LoRA
+
+The **Live** tab of the Test Studio (experimental) is the video engine as a
+channel that never stops: it draws a scene from a list, renders a clip with the
+LoRA you picked, keeps the next scene already in the queue, and appends every
+finished clip to a stream you watch in the tab — or in **VLC** on any machine
+of your network (*Media ▸ Open Network Stream*, paste the address the panel
+shows; if the app requires an access token from other machines, add
+`?token=…` to it and the segments inherit it). The stream follows its most
+advanced player: a second one joining later starts at the live edge rather
+than replaying what the first has watched. The shape comes from FastH3
+Live, an open-source endless AI channel
+built on the same MiniMax H3 engine; this lane keeps its two good ideas and
+uses your own installed pipeline for the rest — nothing new to download.
+
+**Why the picture plays slower than life.** H3 authors motion at 24 fps, and no
+consumer card renders 24 frames of video per second of clock. A channel that
+keeps up therefore plays the frames at a **lower rate** — 18 fps is motion at
+75 % speed, 12 fps is half — with the sound stretched by the same factor and its
+pitch preserved. Fast subjects read as deliberate slow motion; a person walking
+is where you notice. **Playback rate ▸ auto** measures your card on the first
+two clips and picks a tenth under what it sustains; pick a number yourself when
+you would rather have the speed and accept that the player waits between clips.
+
+**The rail tells you the truth per clip**: how many seconds a clip plays for at
+the chosen rate, how many seconds it took to render (model loading included —
+the first clip after a start is always slow), what rate the card sustains, and
+whether the stream is *keeping up* or *behind* and by how much. A channel that
+is behind is not broken; it is a card asked for more than it has. Lower the
+rate, **lengthen** the clips or drop the resolution — a clip pays a fixed cost
+(the model call, the decode, the encode) whatever its length, so more frames
+per clip buy more seconds of playback per second of render; shorter clips
+never help. When nobody is reading the stream the channel stops rendering
+after a few clips and the rail says so: nothing is spent on clips nobody
+watches.
+
+**Scenes** are written in H3's own grammar — what is shown, then the soundscape
+— one per block separated by a line holding `---`; `{NAME}` in a scene becomes
+the **Subject** (the trigger word of your LoRA, typically). They play in a
+shuffled order and do not repeat until all have played; edit the list and
+restart the channel to change it. The clips of a channel are not kept: a
+channel that ran for an hour must not leave two hundred cards in the history.
+The one thing it needs beyond the Video lane's weights is `ffmpeg`, which the
+app already ships for its other video work.
 
 ## Stopping Score, and what a relaunch costs
 

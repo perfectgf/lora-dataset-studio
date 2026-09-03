@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { syncActions, sidesFor } from './videoSync'
+import { isAbort, saveUrlAsFile } from '../../utils/fileSave'
 
 /** ⇔ The original and its neural render, side by side and in step.
  *
@@ -17,7 +18,7 @@ import { syncActions, sidesFor } from './videoSync'
  * portrait clips side by side at any useful size); `swap` puts the render first
  * for whoever reads left to right and wants the render as the reference.
  */
-export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose }) {
+export default function SideBySideVideo({ originalSrc, renderSrc, title, exportHref, onClose }) {
   const leader = useRef(null)
   const follower = useRef(null)
   const [swapped, setSwapped] = useState(false)
@@ -36,8 +37,39 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
     syncingScroll.current = false
   }
   const [failed, setFailed] = useState({ original: false, render: false })
+  // ⬇ The same picture as ONE file. The server encodes it, so the wait is real
+  // and the button says so; the error goes on screen rather than into a console
+  // nobody has open.
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
   const sides = sidesFor(swapped)
   const srcFor = (key) => (key === 'original' ? originalSrc : renderSrc)
+
+  // Closing the layer hangs up on an export in flight. The server finishes the
+  // encode either way (measured), so this is about the browser: no megabytes
+  // held for a window that is gone, and no state set on a dead component.
+  const exportAbort = useRef(null)
+  useEffect(() => () => exportAbort.current?.abort(), [])
+
+  const exportFile = async () => {
+    if (exporting) return
+    setExporting(true)
+    setExportError('')
+    const controller = new AbortController()
+    exportAbort.current = controller
+    try {
+      await saveUrlAsFile(exportHref, {
+        fallbackName: 'comparison.mp4',
+        failure: 'The comparison could not be built.',
+        signal: controller.signal,
+      })
+    } catch (err) {
+      if (!isAbort(err)) setExportError(err.message || 'The comparison could not be built.')
+    } finally {
+      exportAbort.current = null
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     const onKey = (e) => {
@@ -104,10 +136,17 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}>
       <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-border bg-surface-overlay p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="min-w-0 truncate text-sm font-semibold text-content">⇔ {title || 'Original vs neural render'}</h2>
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-content">⇔ {title || 'Original vs neural render'}</h2>
+          {exportHref && (
+            <button type="button" onClick={exportFile} disabled={exporting}
+              title="Save the two clips as one video, side by side — labelled, in step, ready to send"
+              className="min-h-10 rounded-md border border-border px-2 py-1 text-xs text-content-muted hover:text-content disabled:opacity-60 lg:min-h-0">
+              {exporting ? 'Building…' : '⬇ Export'}
+            </button>
+          )}
           <button type="button" onClick={() => setOneToOne((z) => !z)} aria-pressed={oneToOne}
             title="Show the pixels at their real size — the detail the render adds is invisible once the frame is shrunk to fit"
-            className={`ml-auto min-h-10 rounded-md border px-2 py-1 text-xs lg:min-h-0 ${oneToOne ? 'border-border-strong bg-surface-raised text-content' : 'border-border text-content-muted hover:text-content'}`}>
+            className={`min-h-10 rounded-md border px-2 py-1 text-xs lg:min-h-0 ${oneToOne ? 'border-border-strong bg-surface-raised text-content' : 'border-border text-content-muted hover:text-content'}`}>
             1:1
           </button>
           <button type="button" onClick={() => setSwapped((s) => !s)}
@@ -122,7 +161,11 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, onClose
         <p className="text-[0.6875rem] text-content-subtle">
           The left player leads: play, pause and seek there and the right one follows in step (the right one is muted).
           {oneToOne ? ' At 1:1, scrolling one pane scrolls the other.' : ' Press 1:1 to see the pixels at their real size.'}
+          {exportHref ? ' ⬇ Export saves both as one labelled video.' : ''}
         </p>
+        {exportError && (
+          <p role="alert" className="text-[0.6875rem] text-red-300">{exportError}</p>
+        )}
         <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
           {player(sides[0], true)}
           {player(sides[1], false)}

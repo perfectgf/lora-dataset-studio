@@ -111,9 +111,21 @@ def _map_error(e: Exception):
 def _require_comfyui(*, force=False):
     """None if ComfyUI is reachable, else the (body, status) 409 to return.
     Shared by studio.py and datasets.py's lora-test routes that actually enqueue
-    a ComfyUI job (run/resume) — read-only/history/DB-only routes stay ungated."""
-    comfy = capabilities.probe(force=force)['comfyui']
-    if not comfy['reachable']:
+    a ComfyUI job (run/resume) — read-only/history/DB-only routes stay ungated.
+
+    It asks ComfyUI and ComfyUI only. This gate used to read the answer out of
+    `capabilities.probe()`, the whole-app probe the Setup screen runs — bank
+    scoring, JoyCaption, the watermark and mask imports, the video lane… — which
+    is cached 30 s and costs 24 s cold (measured: 9 s of it the scoring import,
+    7 s JoyCaption). Nobody launches twice in 30 s, so every click on Generate,
+    in the image studio and in the video one, paid seconds before the row was
+    even written, and the routes that passed `force=True` paid the full probe
+    every time. The ComfyUI probe alone answers in about 30 ms, with the same
+    status/hint wording the engine cards show. `force` is kept for the callers'
+    signatures: the answer is always fresh now, so it means nothing more."""
+    del force
+    comfy = capabilities.probe_comfyui()
+    if not comfy.get('ok'):
         # Two causes, two sentences: "not reachable / check the URL" was returned
         # for a ComfyUI that was up and merely slow to enumerate itself, which sent
         # the user to re-check a URL that was correct. capabilities publishes WHICH

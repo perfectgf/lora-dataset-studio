@@ -7,6 +7,7 @@
 
 export const FAMILY_LABEL = {
   zimage: 'Z-Image', krea: 'Krea 2', sdxl: 'SDXL',
+  video: 'Video',
   flux: 'FLUX.1', flux2klein: 'FLUX.2 Klein', anima: 'Anima',
 };
 

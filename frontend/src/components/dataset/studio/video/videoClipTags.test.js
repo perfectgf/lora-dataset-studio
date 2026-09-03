@@ -19,4 +19,8 @@ test('a smoothed clip is never mistaken for the one it came from', () => {
   assert.ok(tags.some((t) => /48 fps/.test(t)))
   // The source keeps its own tags and gains nothing.
   assert.ok(!clipTags({ turbo: true, fps: 24 }).some((t) => /smoothed/.test(t)))
+  // ⚡ The other two accelerations carry their own name; larryvrh's keeps 'turbo'.
+  assert.ok(clipTags({ accel: 'parasyte', steps: 6 }).includes('Parasyte Turbo'))
+  assert.ok(clipTags({ accel: 'dareties', steps: 6 }).includes('DARE-TIES merge'))
+  assert.ok(clipTags({ accel: 'turbo', turbo: true, steps: 6 }).includes('turbo'))
 })

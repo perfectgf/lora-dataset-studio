@@ -269,8 +269,8 @@ def test_the_409_on_a_blocked_run_names_the_right_cause(app, client, monkeypatch
     """`_require_comfyui` is what a user actually reads when a run is refused."""
     from app.routes import _common
     with app.app_context():
-        monkeypatch.setattr(_common.capabilities, 'probe', lambda *a, **k: {
-            'comfyui': {'reachable': False, 'status': 'slow', 'hint': 'HINT-SLOW'}})
+        monkeypatch.setattr(_common.capabilities, 'probe_comfyui', lambda: {
+            'ok': False, 'status': 'slow', 'detail': 'slow', 'hint': 'HINT-SLOW'})
         body, status = _common._require_comfyui()
         assert status == 409
         payload = body.get_json()
@@ -278,7 +278,7 @@ def test_the_409_on_a_blocked_run_names_the_right_cause(app, client, monkeypatch
         assert 'not reachable' not in payload['error'].lower()
         assert payload['hint'] == 'HINT-SLOW'
 
-        monkeypatch.setattr(_common.capabilities, 'probe', lambda *a, **k: {
-            'comfyui': {'reachable': False, 'status': 'unreachable', 'hint': 'HINT-DOWN'}})
+        monkeypatch.setattr(_common.capabilities, 'probe_comfyui', lambda: {
+            'ok': False, 'status': 'unreachable', 'detail': 'down', 'hint': 'HINT-DOWN'})
         body, status = _common._require_comfyui()
         assert body.get_json()['error'] == 'ComfyUI is not reachable'

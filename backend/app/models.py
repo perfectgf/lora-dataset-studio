@@ -1774,6 +1774,7 @@ class VideoTestClip(db.Model):
     lora = db.Column(String(255), nullable=True)         # LoraLoader form, or null for base-only
     lora_strength = db.Column(Float, nullable=True)
     turbo = db.Column(db.Boolean, nullable=False, default=False)
+    accel = db.Column(String(16), nullable=True)     # ⚡ turbo | parasyte | dareties; null = dense base
     sparse = db.Column(String(16), nullable=True)        # '' / default / conservative / max
     latent_upscale = db.Column(db.Boolean, nullable=False, default=False)
     # ↗ The clip this one was interpolated FROM, or NULL. A smoothed clip is a

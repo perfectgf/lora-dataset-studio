@@ -11,10 +11,13 @@
  */
 import { useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { Clapperboard, FlaskConical } from 'lucide-react';
+import { Clapperboard, FlaskConical, Radio } from 'lucide-react';
 import { useCapabilities } from '../context/CapabilitiesContext';
 import StudioShell from '../components/dataset/studio/StudioShell';
 import VideoTestStudio from '../components/dataset/studio/video/VideoTestStudio';
+import LiveStudio from '../components/dataset/studio/live/LiveStudio';
+
+const LANES = ['image', 'video', 'live'];
 
 /* The two things a LoRA can be, tested in the same place.
  *
@@ -32,10 +35,10 @@ import VideoTestStudio from '../components/dataset/studio/video/VideoTestStudio'
 const LANE_KEY = 'lds.studio.lane';
 
 function readLane(param) {
-  if (param === 'video' || param === 'image') return param;
+  if (LANES.includes(param)) return param;
   try {
     const saved = window.localStorage.getItem(LANE_KEY);
-    if (saved === 'video' || saved === 'image') return saved;
+    if (LANES.includes(saved)) return saved;
   } catch {
     /* private mode, or storage disabled — the default is a fine answer */
   }
@@ -80,21 +83,34 @@ export default function StudioPage() {
   // leaves room so it never covers the last row of results.
   return (
     <div className="pb-24">
-      <div data-probe-panel="studio-lanes"
-        className="mb-2 flex rounded-xl border border-border bg-surface p-0.5">
+      {/* Not a probe panel: the fill check reads a panel's children as stacked
+          ROWS, and these are three equal tabs side by side — each one a third
+          of the bar, which the check reports as a row two-thirds empty. The bar
+          is still measured for overflow like the rest of the page, and its
+          buttons carry the finger-sized idiom (min-h-10 lg:min-h-0). */}
+      <div className="mb-2 flex rounded-xl border border-border bg-surface p-0.5">
         {[
           { id: 'image', label: 'Images', icon: FlaskConical },
           { id: 'video', label: 'Video', icon: Clapperboard },
-        ].map(({ id, label, icon: Icon }) => (
+          // 🔴 Experimental: the video engine as a channel that never stops.
+          { id: 'live', label: 'Live', icon: Radio, badge: 'beta' },
+        ].map(({ id, label, icon: Icon, badge }) => (
           <button key={id} type="button" onClick={() => pickLane(id)}
             aria-pressed={lane === id} data-testid={`studio-lane-${id}`}
             className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold min-h-10 lg:min-h-0 ${
               lane === id ? 'bg-primary text-white' : 'text-content-muted hover:text-content'}`}>
             <Icon aria-hidden="true" className="h-4 w-4" />{label}
+            {badge && (
+              <span className="ml-0.5 rounded-full border border-current px-1.5 text-[0.625rem] font-semibold uppercase leading-4 tracking-wide opacity-80">
+                {badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
-      {lane === 'video' ? (
+      {lane === 'live' ? (
+        <LiveStudio />
+      ) : lane === 'video' ? (
         <VideoTestStudio />
       ) : (
         <StudioShell preselectDataset={preselectDataset} preselectFamily={preselectFamily}

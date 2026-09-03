@@ -17,6 +17,7 @@ const shell = read('./StudioShell.jsx');
 const actionBar = read('./StudioActionBar.jsx');
 const setup = read('./RunSetupPanel.jsx');
 const picker = read('./LoraPicker.jsx');
+const liveLane = read('./live/LiveStudio.jsx');
 const probe = read('../../../../scripts/responsiveProbe.mjs');
 
 test('the Studio chrome and panels are marked for the responsive probe', () => {
@@ -56,6 +57,15 @@ test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () =
   assert.match(lanes, /data-testid=\{`studio-lane-\$\{id\}`\}/);
   assert.match(picker, /data-testid=\{`video-source-\$\{id\}`\}/);
   assert.match(probe, /\{ name: 'video', open: \['\[data-testid="studio-lane-video"\]'\] \}/);
+  // 🔴 The third lane is a tab too: without its own state the channel's rail
+  // and player are never measured at 360 px.
+  assert.match(probe, /\{ name: 'live', open: \['\[data-testid="studio-lane-live"\]'\] \}/);
+  assert.match(probe, /\{ name: 'video-smooth', open: \['\[data-testid="studio-lane-video"\]', 'button:has-text\("Smooth"\)'\] \}/);
+  assert.match(read('./video/SmoothDialog.jsx'), /data-probe-chrome="smooth-dialog" data-probe-layer/);
+  // The lane's header is the chrome the probe budgets there, as the Video lane's is:
+  // without one the probe measures nothing and says so, which is not a pass.
+  assert.match(liveLane, /<header data-probe-chrome="live-studio-header"/);
+  assert.match(lanes, /\{ id: 'live', label: 'Live', icon: Radio, badge: 'beta' \}/);
   assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
   assert.match(probe, /'\[data-testid="video-source-clip"\]'/);
 });
@@ -76,4 +86,32 @@ test('the probe opens the 🌐 Civitai browser, whose action row grew a third bu
   // Le texte du bouton EST le sélecteur de la sonde.
   assert.match(button, /🌐 Civitai/);
   assert.match(probe, /\{ name: 'civitai', open: \['button:has-text\("🌐 Civitai"\)'\] \}/);
+});
+
+test('the probe opens the ✨ neural render dialog, and the dialog outranks the bar it opens over', () => {
+  /* This dialog carried `data-probe-layer` from the day it shipped and was
+     never measured once: no state OPENED it, and the probe skips — silently,
+     as a coverage line — what it cannot open. It went out at z-50 over an
+     action bar at z-[9960]. Measured at 360 px on 2026-09-03, reported from a
+     phone: ✨ Render sat INSIDE the viewport, so any "is it visible" check
+     passed, while elementFromPoint at its centre returned a pill of the bar.
+
+     The four assertions are one chain: the button the probe clicks really
+     carries that title, the probe really clicks it, the dialog really wins the
+     stacking contest against the bar, and it really caps its own height. Break
+     any link and this fails instead of the phone. */
+  const history = read('./video/VideoClipHistory.jsx');
+  const dialog = read('../../videobank/NeuralRenderDialog.jsx');
+  assert.match(history, /title="Re-render this clip with DLSS 5 Neural Rendering/);
+  assert.match(probe, /'button\[title\*="DLSS 5 Neural"\]'/);
+
+  const barZ = Number(actionBar.match(/fixed bottom-0[^"]*\bz-\[(\d+)\]/)[1]);
+  const dialogZ = Number(dialog.match(/fixed inset-0 z-\[(\d+)\]/)[1]);
+  assert.ok(dialogZ > barZ,
+    `the dialog (z-${dialogZ}) must sit above the Studio action bar (z-${barZ})`);
+
+  // Every other dialog in the app caps its height and scrolls; this one did not.
+  assert.match(dialog, /max-h-\[90vh\][\s\S]{0,80}overflow-y-auto/);
+  // …and its footer stays put, because the dials above it are long on a phone.
+  assert.match(dialog, /sticky bottom-0/);
 });

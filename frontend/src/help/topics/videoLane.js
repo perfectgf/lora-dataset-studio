@@ -60,6 +60,38 @@ export const VIDEO_LANE_TOPICS = [
       'slow generation', 'takes forever', 'missing node', 'node pack'],
     guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
     app: { route: '/studio?lane=video' } },
+  // ⚡ The acceleration choice of the Render panel: searched by the names
+  // people read in the arena and by what they are looking for ("faster",
+  // "which turbo").
+  { id: 'video-acceleration', kind: 'setting', title: 'Acceleration (the arena\u2019s top three)',
+    keywords: ['acceleration', 'turbo', 'turbo lora', 'which turbo', 'faster clips', 'distillation',
+      'larryvrh', 'parasyte', 'plaguekind', 'dare-ties', 'dareties', 'silveroxides', 'merge',
+      'arena', 'elo', 'human preference', '6 steps', 'six steps', 'shift 8/3', 'sigma shift',
+      'not installed', 'download the lora', 'lightx2v'],
+    guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
+    app: { route: '/studio?lane=video' } },
+  // ↗ Smooth asks for the rate before it runs. Searched for by the gesture
+  // ("smooth", "interpolate"), by the numbers ("48 fps", "60 fps", "why not
+  // 60") and by what it costs.
+  { id: 'video-smooth-rate', kind: 'action', title: 'Smooth: pick the rate',
+    keywords: ['smooth', 'smoothing', 'interpolate', 'interpolation', 'frame interpolation', 'rife',
+      'fps', '48 fps', '72 fps', '96 fps', '60 fps', 'why not 60 fps', 'playback rate', 'frame rate',
+      'double the frames', 'x2', 'x3', 'x4', 'multiplier', 'judder', 'slow motion', 'new clip'],
+    guide: { chapter: 'using-the-app', anchor: 'smooth-pick-the-rate-before-it-runs' },
+    app: { route: '/studio?lane=video' } },
+  // 🔴 The Live lane: the same engine as a channel that never stops. Searched
+  // for by the idea ("stream", "tv channel", "endless"), by the player ("vlc",
+  // "hls"), by the dials ("playback rate", "fps") and by what goes wrong
+  // ("behind", "slow motion", "buffering").
+  { id: 'page-video-live', kind: 'page', title: 'Live channel (experimental)',
+    keywords: ['live', 'live channel', 'channel', 'stream', 'streaming', 'tv channel', 'endless',
+      'continuous', 'never stops', 'real time', 'real-time', 'realtime', 'vlc', 'hls', 'm3u8',
+      'playlist', 'watch on another machine', 'open in vlc', 'stream address', 'scenes',
+      'scene list', '{name}', 'subject', 'playback rate', 'fps', 'slow motion',
+      'motion at 75 % speed', 'sustains', 'keeping up', 'behind', 'buffering', 'prefill',
+      'pace', 'clips per minute', 'stop the channel', 'start the channel', 'experimental'],
+    guide: { chapter: 'using-the-app', anchor: 'a-live-channel-from-your-video-lora' },
+    app: { route: '/studio?lane=live' } },
   // The start frame picker: its four sources and the 🔍 that sizes their tiles.
   // Searched for by what someone holds (a bank image, a generated picture, a
   // clip of the set), by the gesture ("bigger thumbnails") and by the tab that
@@ -97,6 +129,22 @@ export const VIDEO_LANE_TOPICS = [
      'enrichment skipped', 'gpu busy while writing', 'refused while a clip renders',
      'model in use', 'gpu in use outside lds', 'unload the model', 'auto is greyed out',
      'auto disabled', 'pick a start frame first'],
+    '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
+  // ⚡ The preset chips under the Motion field. Searched for by the gesture
+  // ("preset", "template", "example prompt"), by what people want out of them
+  // (a camera move, an audio bed, a voice line, a multi-shot cut) and by the
+  // two questions the format raises: whether a chip wipes what is written, and
+  // what happens to "<Picture 1>" when there is no picture.
+  action('video-studio-quick-prompts', 'Pick a prompt instead of writing one (⚡ Quick prompts)',
+    ['quick prompt', 'quick prompts', 'preset', 'presets', 'prompt preset',
+     'prompt presets', 'prompt template', 'example prompt', 'prompt examples',
+     'ready-made prompt', 'chips', 'prompt chips', 'scenarios', 'multi-shot',
+     'multishot', 'shot 1 shot 2', 'timeline prompt', 'camera move preset',
+     'camera moves', 'push-in', 'orbit', 'crane', 'audio preset', 'soundscape',
+     'ambience', 'voice line', 'make it speak', 'accent', 'visual style preset',
+     'film noir', 'anime cel', 'vaporwave', 'stack prompts', 'add a line',
+     'does it replace my prompt', 'will it erase what i wrote',
+     'picture 1 without an image', 'text to video preset', 'same presets as the other app'],
     '/studio?lane=video', 'using-the-app', 'test-a-video-lora-before-you-trust-it'),
   // Searched for by what people TRIED and could not do: they pasted a RedGifs or
   // TikTok link into the image scraper and got "no images found", or they
@@ -391,7 +439,9 @@ export const VIDEO_LANE_TOPICS = [
      'deploy a video lora', 'deploy to comfyui', 'undeploy', 'h3/lds',
      'continue from a step', 'continue from here', 'train further from a step',
      'delete a checkpoint', 'delete a save', 'trash a checkpoint', 'run details',
-     'delete a run', 'local saves', 'cloud saves', 'no checkpoints yet'],
+     'delete a run', 'local saves', 'cloud saves', 'no checkpoints yet',
+     'run graph', 'lineage', 'genealogy', 'continued from', 'previews', 'samples',
+     'training samples', 'play a sample', 'sample video', 'big previews'],
     '/datasets', 'using-the-app', 'work-on-a-video-training-set'),
   action('video-dataset-studio', 'Studio section of a video dataset',
     ['studio section', 'open studio', 'test my video lora', 'test a deployed lora',

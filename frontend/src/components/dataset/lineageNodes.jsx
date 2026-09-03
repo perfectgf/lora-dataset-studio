@@ -128,7 +128,15 @@ export function GraphCard({ node, lit, annotated, compareRole, onSelect }) {
  *  popover in SCREEN space (the canvas, whose board is zoomed and panned) needs
  *  the point that was clicked to place it. The host that draws it in its own
  *  <svg> ignores the second argument. */
-export function CheckpointPill({ pill, offX, offY, active, selected, preview, big, onOpen, onToggleSelect, onZoomPreview, onOpenGallery, selectable = null, boardScale = null }) {
+export function CheckpointPill({ pill, offX, offY, active, selected, preview, big, onOpen, onToggleSelect, onZoomPreview, onOpenGallery,
+  /* What one result IS on this surface: an image the Studio generated (the
+     image lane) or a sample clip training rendered (the video lane). The badge
+     and its labels say the word; the mechanics are identical. */
+  resultNoun = 'image', resultIcon = '🖼',
+  /* The deploy sentence of the title. The image lane's helper points at its
+     🎨 Generate bar ("tick it and Generate will deploy it first"); a surface
+     without that bar passes a sentence that is true of its own verbs. */
+  deployHint = deployTitleSuffix, selectable = null, boardScale = null }) {
   /* ✓ How big to draw the pick box. `boardScale` is the LoRA Canvas' zoom; the
      in-card graph is not zoomable and passes nothing, which resolves to 1 and
      leaves that graph — and any board at 100 % or more — exactly as it was. See
@@ -160,7 +168,7 @@ export function CheckpointPill({ pill, offX, offY, active, selected, preview, bi
     if (typeof onOpenGallery === 'function') onOpenGallery(pill);
     else if (preview?.url) onZoomPreview?.(preview.url, pill.step);
   };
-  const resultsTitle = `${count} image${count > 1 ? 's' : ''} generated from this checkpoint — click to open ${count > 1 ? 'them' : 'it'}`;
+  const resultsTitle = `${count} ${resultNoun}${count > 1 ? 's' : ''} generated from this checkpoint — click to open ${count > 1 ? 'them' : 'it'}`;
   const canOpenResults = typeof onOpenGallery === 'function'
     || (!!preview?.url && typeof onZoomPreview === 'function');
   const shellCls = 'lds-ckpill rounded-md border transition-colors '
@@ -171,7 +179,7 @@ export function CheckpointPill({ pill, offX, offY, active, selected, preview, bi
         : 'border-border bg-app/70 text-content-muted hover:border-indigo-400/50 hover:text-content ')
     + (pill.isResumeSource ? 'ring-1 ring-indigo-400/60 border-indigo-400/60 ' : '')
     + (selected ? 'ring-2 ring-indigo-400/80 border-indigo-400/70 ' : active ? 'ring-2 ring-indigo-400/80 ' : '');
-  const openTitle = `Checkpoint at step ${pill.step}${pill.final ? ' — final' : ''}${pill.isResumeSource ? ' — a run continued from here' : ''}${count ? ` — ${count} image${count > 1 ? 's' : ''}` : ''}${st === 'pending' ? ' — an image is rendering' : ''}${deployTitleSuffix(pill)}`;
+  const openTitle = `Checkpoint at step ${pill.step}${pill.final ? ' — final' : ''}${pill.isResumeSource ? ' — a run continued from here' : ''}${count ? ` — ${count} ${resultNoun}${count > 1 ? 's' : ''}` : ''}${st === 'pending' ? ` — a${resultNoun === 'image' ? 'n' : ''} ${resultNoun} is rendering` : ''}${deployHint(pill)}`;
   const resultsKey = (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openResults(e); }
   };
@@ -186,17 +194,17 @@ export function CheckpointPill({ pill, offX, offY, active, selected, preview, bi
   const resultsChip = (inline) => (
     canOpenResults ? (
       <span role="button" tabIndex={0} onClick={openResults} onKeyDown={resultsKey}
-        aria-label={`Open the ${count} image${count > 1 ? 's' : ''} of step ${pill.step}`}
+        aria-label={`Open the ${count} ${resultNoun}${count > 1 ? 's' : ''} of step ${pill.step}`}
         title={resultsTitle}
         className={'lds-ckcount flex shrink-0 cursor-pointer items-center gap-px rounded-full border border-indigo-400/70 bg-indigo-500/25 font-semibold leading-none tabular-nums text-indigo-100 hover:bg-indigo-500 hover:text-gray-950 '
           + (inline ? 'ml-0.5 h-3.5 px-1 text-[0.5rem] ' : 'h-4 px-1 text-[0.5625rem] shadow-sm ')}>
-        <span aria-hidden>🖼</span>{count}
+        <span aria-hidden>{resultIcon}</span>{count}
       </span>
     ) : (
       <span title={resultsTitle}
         className={'lds-ckcount flex shrink-0 items-center gap-px rounded-full border border-border bg-surface-overlay font-semibold leading-none tabular-nums text-content-muted '
           + (inline ? 'ml-0.5 h-3.5 px-1 text-[0.5rem] ' : 'h-4 px-1 text-[0.5625rem] ')}>
-        <span aria-hidden>🖼</span>{count}
+        <span aria-hidden>{resultIcon}</span>{count}
       </span>
     )
   );

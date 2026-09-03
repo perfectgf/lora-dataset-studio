@@ -7,22 +7,21 @@ import { ensureLicenceAck } from './licenceAck'
 import {
   videoDatasetCheckpointsUrl, videoDatasetCheckpointDeployUrl,
   videoDatasetCheckpointUndeployUrl, videoDatasetCheckpointDeleteUrl,
-  videoDatasetCloudContinueUrl, videoDatasetCloudRunUrl,
+  videoDatasetCloudContinueUrl, videoDatasetCloudRunUrl, videoDatasetLineageUrl,
 } from './videoBankApi'
+import VideoLineageGraph from './VideoLineageGraph'
+import VideoSampleLightbox from './VideoSampleLightbox'
+import { EMPTY_GRAPH_NOTE, MUTED_CLS, PREVIEWS_NOTE, ROW_CLS, graphSummary, nodeGroup } from './videoLineage'
 import {
   EMPTY_NOTE, checkpointGroups, continueBody, deleteReport, deployReport,
   describeStepDelete, describeUndeploy, detailsRows, fmtSize, groupSub, groupTitle,
   runDeleteConfirmation, stepActionModel, stepKey, undeployReport,
 } from './videoCheckpoints'
 
-/* The same two row styles the image lane's checkpoint popover draws with
-   (CheckpointActionsPopover.jsx) — a verb learned on one surface has to LOOK
-   like itself on the other. Copied as strings rather than imported: that file
-   is a popover, this is a list, and a shared style module for two constants
-   would be a third place to look. */
-const ROW = 'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[0.6875rem] font-medium '
-  + 'disabled:cursor-not-allowed disabled:opacity-60'
-const MUTED = 'rounded-md border border-border bg-app/40 px-2 py-1 text-content-subtle text-[0.625rem]'
+// The row styles are the lane's shared ones (videoLineage.js): the list and
+// the graph popover draw a verb the same way.
+const ROW = ROW_CLS
+const MUTED = MUTED_CLS
 
 /** 📦 The Checkpoints & LoRAs section of a VIDEO dataset — presentational.
  *
@@ -194,6 +193,8 @@ export function VideoCheckpointList({
 export default function VideoCheckpointManager({ ds, refreshKey = 0, onSavesChange }) {
   const toast = useToast()
   const [payload, setPayload] = useState(null)
+  const [tree, setTree] = useState(null)
+  const [sampleTarget, setSampleTarget] = useState(null)
   const [err, setErr] = useState(null)
   const [busy, setBusy] = useState(null)
   const [details, setDetails] = useState(null)
@@ -207,6 +208,12 @@ export default function VideoCheckpointManager({ ds, refreshKey = 0, onSavesChan
     } catch (e) {
       setErr(e?.message || 'Could not list the checkpoints.')
     }
+    // The ◉ Graph reads its own tree — same runs, laid out as a genealogy. A
+    // tree that fails to load leaves the list standing: the graph is the
+    // second view of the same saves, never the only one.
+    try {
+      setTree(await apiFetch(videoDatasetLineageUrl(ds.id), { background: true }))
+    } catch { setTree(null) }
   }, [ds.id])
   useEffect(() => { load() }, [load, refreshKey])
 
@@ -298,11 +305,42 @@ export default function VideoCheckpointManager({ ds, refreshKey = 0, onSavesChan
     )
   }
   if (!payload) return <p className="m-0 text-xs text-content-subtle">Reading the saves…</p>
+  // ▶ from a graph pill opens the SAME inline form as the list row, and brings
+  // that row into view: one place to type the extra steps, one POST.
+  const continueFrom = (g, s) => {
+    const key = stepKey(g, s)
+    setContinueTarget(key)
+    requestAnimationFrame(() => {
+      document.querySelector(`li[data-step-key="${key}"]`)?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+  const hasGraph = (tree?.nodes?.length || 0) > 0
   return (
-    <VideoCheckpointList datasetId={ds.id} payload={payload} busy={busy} details={details}
-      continueTarget={continueTarget} extraSteps={extraSteps} onExtraSteps={setExtraSteps}
-      onConfirmContinue={confirmContinue} onCancelContinue={() => setContinueTarget(null)}
-      onDeploy={deploy} onUndeploy={undeploy} onDelete={remove} onDeleteRun={removeRun}
-      onContinue={(g, s) => setContinueTarget(stepKey(g, s))} onDetails={showDetails} />
+    <div className="flex flex-col gap-3">
+      <details open className="rounded-lg border border-border bg-surface-raised p-2"
+        data-probe-reading>
+        <summary className="cursor-pointer text-xs font-semibold text-content">
+          ◉ Run graph{hasGraph ? ` — ${graphSummary(tree)}` : ''}
+        </summary>
+        <p className="m-0 mt-1 mb-1.5 text-[0.6875rem] text-content-muted">{hasGraph ? PREVIEWS_NOTE : EMPTY_GRAPH_NOTE}</p>
+        {hasGraph && (
+          <VideoLineageGraph datasetId={ds.id} tree={tree} busy={busy}
+            ctx={{ canDeploy: payload?.can_deploy !== false,
+              deployFolder: payload?.deploy_folder || 'h3/lds', deleteMode: payload?.delete_mode }}
+            onDeploy={deploy} onUndeploy={undeploy} onDelete={remove}
+            onContinue={continueFrom} onDetails={(node) => showDetails(nodeGroup(node))}
+            onPlaySample={(node, pill) => setSampleTarget({ node, pill })} />
+        )}
+      </details>
+      <VideoCheckpointList datasetId={ds.id} payload={payload} busy={busy} details={details}
+        continueTarget={continueTarget} extraSteps={extraSteps} onExtraSteps={setExtraSteps}
+        onConfirmContinue={confirmContinue} onCancelContinue={() => setContinueTarget(null)}
+        onDeploy={deploy} onUndeploy={undeploy} onDelete={remove} onDeleteRun={removeRun}
+        onContinue={continueFrom} onDetails={showDetails} />
+      {sampleTarget && (
+        <VideoSampleLightbox datasetId={ds.id} target={sampleTarget}
+          onClose={() => setSampleTarget(null)} />
+      )}
+    </div>
   )
 }

@@ -587,6 +587,14 @@ def _dispatch_completion(job, filename, failed):
             reason = job.error_message if job.error_message != 'generation failed' else None
             face_dataset_service.link_completed_reference_edit(
                 job.job_id, filename, failed=failed, reason=reason)
+        elif md.get('is_live'):
+            # 🔴 A live channel clip. Ephemeral by design — no row anywhere —
+            # so it cannot ride the Studio's branch below, which looks one up.
+            # Its result goes into the channel's stream (live_studio).
+            from .services import live_studio
+            reason = job.error_message if job.error_message != 'generation failed' else None
+            live_studio.link_completed_live_clip(job.job_id, filename, failed=failed, reason=reason,
+                                                 session_id=md.get('live_session'))
         elif md.get('is_video_test'):
             # A Video Test Studio clip. Its own branch rather than a model_name
             # match: the mp4 arrives under the history's `images` key like any
@@ -637,6 +645,9 @@ class JobQueueManager:
         self._app = None
         self._thread = None
         self._running = False
+        # Set by add_job: the worker sleeps on it instead of a flat second, so a
+        # freshly queued job is claimed at once rather than up to a second later.
+        self._kick = threading.Event()
 
     def init_app(self, app):
         self._app = app
@@ -1053,7 +1064,11 @@ class JobQueueManager:
             except Exception:
                 logger.exception('job_queue: worker loop error')
                 worked = False
-            time.sleep(0 if worked else IDLE_SLEEP_SECONDS)
+            if worked:
+                continue
+            # Idle: wait for the next poll, or for a job landing — add_job kicks.
+            self._kick.wait(IDLE_SLEEP_SECONDS)
+            self._kick.clear()
 
     def _recover_stuck_jobs(self):
         """Recover only with a durable ownership record; never guess a crash
@@ -1439,6 +1454,9 @@ class JobQueueManager:
             db.session.add(job)
             if commit:
                 db.session.commit()
+        # Wake the worker now (a caller that commits later just costs the loop
+        # one empty look): the click reaches ComfyUI without waiting the poll out.
+        self._kick.set()
         return job_id
 
     def cancel_job_outcome(self, job_id, user_id=None, job_type='image', *,

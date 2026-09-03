@@ -355,8 +355,9 @@ def test_global_resolve_refuses_while_comfyui_is_unreachable(app, client):
     from app.job_queue import queue_manager
     with app.app_context():
         _stalled_unknown_submit_barrier(app)
-    with patch('app.routes._common.capabilities.probe',
-               return_value={'comfyui': {'reachable': False, 'hint': 'Check the URL'}}):
+    with patch('app.routes._common.capabilities.probe_comfyui',
+               return_value={'ok': False, 'status': 'unreachable', 'detail': 'down',
+                             'hint': 'Check the URL'}):
         res = client.post('/api/system/comfyui-recovery/resolve',
                           json={'confirmed_comfyui_restart': True})
     assert res.status_code == 409

@@ -38,7 +38,10 @@ import StudioActionBar from '../StudioActionBar';
 import VideoClipHistory from './VideoClipHistory';
 import VideoLoraPicker from './VideoLoraPicker';
 import VideoOptionsPanel from './VideoOptionsPanel';
+import VideoQuickPrompts from './VideoQuickPrompts';
+import { appendQuickPrompt } from './videoPromptPresets';
 import MotionModelDialog from './MotionModelDialog';
+import SmoothDialog from './SmoothDialog';
 import VideoSourcePicker from './VideoSourcePicker';
 import NeuralRenderDialog from '../../../videobank/NeuralRenderDialog';
 import SideBySideVideo from '../../../videobank/SideBySideVideo';
@@ -47,19 +50,22 @@ import {
   addFrames, failureNotice, generateLabel, queueClips, queuedNotice, releasePreview, removeFrame,
 } from './videoStartFrames';
 import {
-  clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl,
+  accelLabel, clipAccel, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl, mergeClipPages,
+  pickAvailableAccel,
   isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, clipVideoUrl,
+  clipComparisonUrl,
   motionEnhanceUrl, motionSuggestUrl,
 } from './videoStudioApi';
 
 /* No start frame yet — what the ✨ helpers and the readback see before a pick. */
 const EMPTY_SOURCE = { image: null, ratio: null, preview: null };
 
-/* Turbo ON by default. Without it the base is undistilled and a first clip is
-   tens of minutes — long enough that a new user concludes the studio is broken
-   rather than slow. It is a checkbox, and the panel says what it changes. */
+/* An acceleration ON by default — larryvrh's, the arena's first row. Without
+   one the base is undistilled and a first clip is tens of minutes — long
+   enough that a new user concludes the studio is broken rather than slow. The
+   panel says what each choice changes. */
 const DEFAULT_OPTIONS = {
-  turbo: true, eros: false, sparse: '', latentUpscale: false,
+  accel: 'turbo', eros: false, sparse: '', latentUpscale: false,
   // '' = auto: the server's own count for the mode in force (turbo 6, dense
   // 20). Kept empty rather than pre-filled so a run reads "auto" until someone
   // decides otherwise — a number in the box would claim a choice nobody made.
@@ -105,12 +111,13 @@ export default function VideoTestStudio() {
     apiFetch(optionsUrl()).then((d) => {
       setOptions(d);
       if (d?.frame_default) setOpts((o) => ({ ...o, frames: d.frame_default }));
-      // Turbo defaults ON, but only where it CAN run: on a ComfyUI without the
-      // pack it would send a launch that is refused before anything happens,
-      // which is a poor first click. `available === null` (probe unreachable)
-      // keeps the default — an unknown is not a no.
-      if (d?.options_available?.turbo?.available === false) {
-        setOpts((o) => ({ ...o, turbo: false }));
+      // The acceleration defaults to larryvrh's, but only where it CAN run:
+      // a launch refused before anything happens is a poor first click. The
+      // server says what this machine holds; the pick moves to the first
+      // available choice, or to the dense base. `available === null` (probe
+      // unreachable) keeps the pick — an unknown is not a no.
+      if (Array.isArray(d?.accelerations)) {
+        setOpts((o) => ({ ...o, accel: pickAvailableAccel(o.accel, d.accelerations) }));
       }
       if (d?.megapixels?.default) {
         setOpts((o) => ({ ...o, megapixels: d.megapixels.default }));
@@ -121,23 +128,22 @@ export default function VideoTestStudio() {
   // Whether a page older than what is loaded exists (the server says so).
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  /* The newest page REPLACES what it covers and KEEPS what it does not: the
-     poll re-reads the first page every three seconds while a clip renders,
-     and a poll that replaced the whole list would throw away every older
-     page the user had asked for with Load more. Deleted rows leave through
-     the page they belonged to, which the fresh page no longer carries. */
-  const mergeClips = (fresh, keepOlderThan) => setClips((prev) => {
-    const byId = new Map();
-    fresh.forEach((c) => byId.set(c.id, c));
-    prev.forEach((c) => { if (c.id < keepOlderThan && !byId.has(c.id)) byId.set(c.id, c); });
-    return [...byId.values()].sort((a, b) => b.id - a.id);
-  });
+  /* The newest page REPLACES what it covers and KEEPS what it does not (see
+     mergeClipPages): the poll re-reads the first page every three seconds
+     while a clip renders, and a poll that replaced the whole list would
+     throw away every older page the user had asked for with Load more. The
+     boundary is the server's `oldest_id` — the page PROPER, never a source
+     that rode along with its render. `oldestLoadedRef` is how far back the
+     list reaches, the same boundary lowered by every older page loaded. */
+  const oldestLoadedRef = useRef(0);
+  const mergeClips = (fresh, keepOlderThan) => setClips((prev) => mergeClipPages(prev, fresh, keepOlderThan));
   const refreshClips = useCallback(async () => {
     try {
       const d = await apiFetch(clipsUrl(24));
       const fresh = d.clips || [];
-      const oldestOfPage = fresh.length ? Math.min(...fresh.map((c) => c.id)) : 0;
-      mergeClips(fresh, oldestOfPage);
+      const boundary = Number(d.oldest_id) || (fresh.length ? Math.min(...fresh.map((c) => c.id)) : 0);
+      mergeClips(fresh, boundary);
+      if (!oldestLoadedRef.current || boundary < oldestLoadedRef.current) oldestLoadedRef.current = boundary;
       setHasMore(!!d.has_more);
       return fresh;
     } catch {
@@ -147,9 +153,10 @@ export default function VideoTestStudio() {
   const loadMore = useCallback(async () => {
     setLoadingMore(true);
     try {
-      const oldest = clips.length ? Math.min(...clips.map((c) => c.id)) : 0;
+      const oldest = oldestLoadedRef.current || (clips.length ? Math.min(...clips.map((c) => c.id)) : 0);
       const d = await apiFetch(clipsUrl(24, oldest));
       mergeClips(d.clips || [], 0);
+      if (Number(d.oldest_id)) oldestLoadedRef.current = Number(d.oldest_id);
       setHasMore(!!d.has_more);
     } catch {
       toast.error('Could not load older clips.');
@@ -234,6 +241,9 @@ export default function VideoTestStudio() {
   // the new card simply appears and renders. `vfiBusy` only guards the double
   // click between the POST and that first poll.
   const [vfiBusy, setVfiBusy] = useState(null);
+  // ↗ The finished clip the Smooth window was opened for, or null. The rate
+  // is asked there (×2, ×3, ×4 of the source), never assumed.
+  const [vfiClip, setVfiClip] = useState(null);
   // ✨ Neural render. `nrClip` is the finished clip the dialog was opened
   // for; the render itself is a queued row like any other, so the list's
   // poll shows it land and `nrBusy` only guards the double click.
@@ -263,11 +273,12 @@ export default function VideoTestStudio() {
       setNrBusy(null);
     }
   };
-  const smooth = async (clip) => {
+  const smooth = async (clip, multiplier) => {
     setVfiBusy(clip.id);
     try {
-      await postJson(clipVfiUrl(clip.id), {});
-      toast.info?.('Smoothing queued — the new clip appears below when it is done.');
+      const r = await postJson(clipVfiUrl(clip.id), { multiplier });
+      setVfiClip(null);
+      toast.info?.(`Smoothing to ${Math.round(r?.fps || 0) || '…'} fps queued — the new clip appears below when it is done.`);
       await refreshClips();
     } catch (e) {
       toast.error(e?.message || 'That clip could not be smoothed.');
@@ -364,7 +375,7 @@ export default function VideoTestStudio() {
     setPrompt(clip.prompt || '');
     setMode(clip.mode === 't2v' ? 't2v' : 'i2v');
     setOpts({
-      turbo: !!clip.turbo, eros: !!clip.eros, sparse: clip.sparse || '',
+      accel: clipAccel(clip), eros: !!clip.eros, sparse: clip.sparse || '',
       latentUpscale: !!clip.latent_upscale, frames: clip.frames || opts.frames,
       megapixels: clip.megapixels || opts.megapixels,
       // Reuse replays the count the clip ACTUALLY ran, never "auto" — the
@@ -406,7 +417,7 @@ export default function VideoTestStudio() {
     mode === 't2v' ? 'text only' : (sources.length > 1 ? `from ${sources.length} images` : 'from an image'),
     seconds ? `${seconds}s` : `${opts.frames} frames`,
     `${Number(opts.megapixels).toFixed(2)} MP`,
-    opts.turbo ? 'turbo' : null,
+    opts.accel ? (opts.accel === 'turbo' ? 'turbo' : accelLabel(opts.accel)) : null,
     opts.eros ? '10Eros' : null,
     opts.sparse ? `sparse ${opts.sparse}` : null,
     opts.latentUpscale ? 'upscale ×2' : null,
@@ -544,6 +555,11 @@ export default function VideoTestStudio() {
               what the scene looks like. ✨ Auto and ✨ Enrich answer in H3’s own
               three-field prompt, paced to the clip length you set.
             </span>
+            {/* The presets, under the field they write into. They APPEND, like
+                ✨ Enrich leaves your text alone — so the picker can be used on a
+                half-written prompt without eating it. */}
+            <VideoQuickPrompts mode={mode}
+              onAppend={(text) => setPrompt((p) => appendQuickPrompt(p, text))} />
             <OllamaFenceNotice fence={fence} onUnload={unloadAndRetry} onStop={stopWaiting} />
             {/* The toggle enriches AT LAUNCH — what runs is what the clip
                 records, so a card always names the prompt that really made it.
@@ -583,7 +599,7 @@ export default function VideoTestStudio() {
         <h2 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">
           Clips — newest first
         </h2>
-        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={smooth} vfiBusy={vfiBusy}
+        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={setVfiClip} vfiBusy={vfiBusy}
           onNeuralRender={(clip) => setNrClip(clip)} nrBusy={nrBusy}
           onCompare={(clip) => setCompareClip(clip)}
           onJumpTo={jumpTo} hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore} />
@@ -592,6 +608,13 @@ export default function VideoTestStudio() {
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
         onRun={generate} runLabel={`▶ ${label}`} runningLabel={`▶ ${label}`} note={reason} />
 
+      {/* ↗ The rate Smooth makes, asked before it runs: 48, 72 or 96 fps for
+          a 24 fps clip — the interpolator works by whole factors. */}
+      {vfiClip && (
+        <SmoothDialog clip={vfiClip} busy={vfiBusy === vfiClip.id}
+          onSmooth={(multiplier) => smooth(vfiClip, multiplier)}
+          onClose={() => setVfiClip(null)} />
+      )}
       {/* ✨ The neural render dials, asked once per clip. The capability's own
           sentences come with the options payload, so the dialog can refuse
           in words on a machine without the model. */}
@@ -609,6 +632,7 @@ export default function VideoTestStudio() {
         <SideBySideVideo originalSrc={clipVideoUrl(compareClip.nr_of)}
           renderSrc={clipVideoUrl(compareClip.id)}
           title={`clip #${compareClip.nr_of} → neural render #${compareClip.id}`}
+          exportHref={clipComparisonUrl(compareClip.id)}
           onClose={() => setCompareClip(null)} />
       )}
       {/* ⚙ The model that writes the motion, on demand. */}

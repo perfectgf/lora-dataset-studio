@@ -13,6 +13,7 @@ to tell there are two services behind the app.
 
 No login — single local user (`cfg.LOCAL_USER`), like every other blueprint here.
 """
+import io
 import logging
 import os
 import uuid
@@ -67,6 +68,8 @@ def _clip_dict(clip):
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
         'lora_strength': clip.lora_strength, 'turbo': bool(clip.turbo),
+        # ⚡ Which acceleration ran; rows older than the choice say `turbo` from the flag.
+        'accel': (getattr(clip, 'accel', None) or ('turbo' if clip.turbo else '')),
         'sparse': clip.sparse or '', 'latent_upscale': bool(clip.latent_upscale),
         'eros': (clip.base_model == vts.BASE_EROS),
         'rating': clip.rating, 'run_id': clip.run_id,
@@ -120,6 +123,8 @@ def video_studio_options():
                        'default': vts.MP_DEFAULT},
         'sparse_modes': list(vts.SPARSE_MODES),
         'turbo_steps': vts.TURBO_STEPS, 'default_steps': vts.DEFAULT_STEPS,
+        # ⚡ The three arena accelerations, each with whether THIS machine has it.
+        'accelerations': vts.accelerations_status(),
         'base_official': vts.BASE_OFFICIAL, 'base_eros': vts.BASE_EROS,
         'eros_available': vts.eros_on_disk(),
         # ✨ DLSS 5 neural rendering — ready + the sentences naming what is
@@ -569,6 +574,7 @@ def video_studio_generate():
             frames=data.get('frames'), megapixels=data.get('megapixels',
                                                            vts.MP_DEFAULT),
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
+            accel=data.get('accel'),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
             # The ratio only sizes the latent upscale, and a client that has
@@ -620,8 +626,14 @@ def video_studio_clips():
     sources = (VideoTestClip.query.filter(VideoTestClip.id.in_(wanted)).all()
                if wanted else [])
     rows = sorted(page + sources, key=lambda c: c.id, reverse=True)
+    # `oldest_id` is the boundary of the page PROPER. The panel keeps what it
+    # loaded below that boundary and pages further back from it; a source
+    # that rode along is older than the page by construction and must not
+    # move the boundary — it did, and every clip loaded between the two
+    # vanished at the next poll (read as "Smooth deleted my clips").
     return jsonify({'clips': [_clip_dict(c) for c in rows],
-                    'has_more': len(page) == limit, 'page_size': limit})
+                    'has_more': len(page) == limit, 'page_size': limit,
+                    'oldest_id': page[-1].id if page else 0})
 
 
 @bp.get('/clip/<int:clip_id>')
@@ -650,6 +662,38 @@ def video_studio_clip_media(clip_id):
     if not os.path.isfile(path):
         return jsonify({'error': 'clip file not found'}), 404
     return send_file(path, mimetype='video/mp4', conditional=True, max_age=0)
+
+
+@bp.get('/clip/<int:clip_id>/comparison')
+def video_studio_clip_comparison(clip_id):
+    """⬇ A finished render and the clip it came from, as ONE mp4 side by side.
+
+    The dataset surface offers the same verb on its own rendered clips; the two
+    routes differ only in where the pair comes from (a backup beside the dataset
+    there, another row of the history here)."""
+    from ..models import VideoTestClip
+    clip = VideoTestClip.query.filter_by(id=clip_id).first()
+    if clip is None or not clip.filename or not clip.nr_of:
+        return jsonify({'error': 'this clip is not a neural render — nothing to compare'}), 404
+    source = VideoTestClip.query.filter_by(id=clip.nr_of).first()
+    if source is None or not source.filename:
+        return jsonify({'error': 'the clip this render came from is gone'}), 404
+    clips = str(vts.clips_dir())
+    render_path = os.path.join(clips, os.path.basename(clip.filename))
+    source_path = os.path.join(clips, os.path.basename(source.filename))
+    try:
+        data = _nr.build_comparison(source_path, render_path, left_label='Original',
+                                    right_label='Neural render (DLSS 5)')
+    except _nr.ComparisonBusyError as exc:
+        res = jsonify({'error': str(exc)})
+        res.headers['Retry-After'] = '5'
+        return res, 429
+    except _nr.ComparisonTooLargeError as exc:
+        return jsonify({'error': str(exc)}), 413
+    except _nr.NeuralRenderError as exc:
+        return jsonify({'error': str(exc)}), 400
+    return send_file(io.BytesIO(data), mimetype='video/mp4', as_attachment=True,
+                     download_name=f'clip-{source.id}-vs-neural-{clip.id}.mp4', max_age=0)
 
 
 @bp.post('/clip/<int:clip_id>/rate')

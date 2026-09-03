@@ -75,6 +75,26 @@ test('the rail\'s Checkpoints and Studio sections land on anchors the workspace 
   assert.match(workspace, /<Link to="\/studio\?lane=video"/, 'the Studio launcher opens the Video tab')
 })
 
+test('the ◉ Graph is a second view of the SAME saves: same handlers, same model, no image route', async () => {
+  const graph = codeOnly(readSource('src/components/videobank/VideoLineageGraph.jsx'))
+  // The manager hands the graph the very functions the list rows call.
+  assert.match(manager, /<VideoLineageGraph datasetId=\{ds\.id\} tree=\{tree\} busy=\{busy\}/)
+  assert.match(manager, /onDeploy=\{deploy\} onUndeploy=\{undeploy\} onDelete=\{remove\}\s+onContinue=\{continueFrom\}/)
+  // The popover's decisions come from the list's model through the bridge.
+  assert.match(graph, /a=\{pillActionModel\(datasetId, openCk\.node, openCk\.pill, ctx\)\}/)
+  assert.ok(!/\/api\//.test(graph), 'the graph builds no URL of its own — the model does')
+  // Nothing under the video lane ever addresses an IMAGE dataset BY ID: the
+  // two tables share one id space, and `/api/dataset/<id>/…` with a video id is
+  // somebody else's dataset. (The id-less cloud status route is shared on purpose.)
+  const { readdirSync } = await import('node:fs')
+  const dir = new URL('../src/components/videobank/', import.meta.url)
+  for (const f of readdirSync(dir)) {
+    if (!/\.jsx?$/.test(f) || /\.test\./.test(f)) continue
+    const src = codeOnly(readSource(`src/components/videobank/${f}`))
+    assert.ok(!/\/api\/dataset\/(\$\{|\d)/.test(src), `${f} addresses an image dataset BY ID`)
+  }
+})
+
 test('the deploy folder on screen is the server\'s, with the app\'s own subfolder as the only default', () => {
   assert.match(manager, /deployFolder: payload\?\.deploy_folder \|\| 'h3\/lds'/)
   assert.ok(!/Deploy → h3/.test(manager), 'the folder is never typed into the label')
