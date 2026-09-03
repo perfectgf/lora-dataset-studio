@@ -40,7 +40,10 @@ function motionCalls(src) {
 
 test('both ✨ gestures send the clip length the dials are set to', () => {
   const calls = motionCalls(PANEL)
-  assert.deepEqual(calls.map((c) => c.url).sort(), ['motionEnhanceUrl', 'motionSuggestUrl'],
+  // Two per helper: the ✨ buttons, and the per-picture batch writer
+  // (`askPromptFor`), which asks the same two routes once per frame.
+  assert.deepEqual(calls.map((c) => c.url).sort(),
+    ['motionEnhanceUrl', 'motionEnhanceUrl', 'motionSuggestUrl', 'motionSuggestUrl'],
     'a ✨ call was added, doubled or renamed — extend this contract to cover it')
   for (const { url, body } of calls) {
     assert.match(body, /\bseconds\b/, `${url}: the body does not carry the clip length:\n${body}`)
@@ -85,8 +88,17 @@ test('the enrichment names the frame only when one will be animated', () => {
   // A text-to-video enrichment that still sent a stale staged name would come
   // back referencing <Picture 1> — a picture the encoder is never given. The
   // gate is on the MODE, not on whether a frame happens to be staged.
-  const call = motionCalls(PANEL).find((c) => c.url === 'motionEnhanceUrl')
-  assert.ok(call, 'the enrichment call is not in the panel')
-  assert.match(call.body,
+  const calls = motionCalls(PANEL).filter((c) => c.url === 'motionEnhanceUrl')
+  assert.equal(calls.length, 2, 'the enrichment calls are not in the panel')
+  // The ✨ button's call gates on the mode…
+  const button = calls.find((c) => /source\.image/.test(c.body))
+  assert.ok(button, 'the ✨ button’s enrichment call is gone')
+  assert.match(button.body,
     /image:\s*mode\s*===\s*'t2v'\s*\?\s*null\s*:\s*\(\s*source\.image\s*\|\|\s*null\s*\)/)
+  // …and the per-picture writer names the frame it writes for: it only runs
+  // on a strip of pictures (`perPicture` requires the i2v mode).
+  const writer = calls.find((c) => /frame\.image/.test(c.body))
+  assert.ok(writer, 'the per-picture writer’s enrichment call is gone')
+  assert.match(writer.body, /image:\s*frame\.image/)
+  assert.match(PANEL, /const perPicture = mode === 'i2v' && promptMode === 'per-image' && launches\.length > 1;/)
 })

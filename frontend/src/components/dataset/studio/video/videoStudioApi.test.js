@@ -215,3 +215,9 @@ test('the pick follows what the machine holds: unavailable falls to the first av
   assert.equal(pickAvailableAccel('turbo', [{ id: 'turbo', available: false }]), '', 'nothing available: the dense base');
   assert.equal(pickAvailableAccel('', rows), '');
 });
+
+test('a continuation travels in the launch and reads on the summary', () => {
+  assert.equal(buildGeneratePayload({ mode: 'i2v', prompt: 'p', image: 'a.png', continues: 41 }).continues, 41)
+  assert.equal(buildGeneratePayload({ mode: 'i2v', prompt: 'p', image: 'a.png' }).continues, undefined)
+  assert.match(clipSummary({ continues_of: 41, steps: 6 }), /⏭ continues #41/)
+})

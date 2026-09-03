@@ -83,6 +83,34 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    // Same-day ids sort the feed (date, then id): an id below the day's
+    // others never reaches the top, and the badge counts nothing new.
+    id: '2026-09-03-video-test-studio-prompts-per-picture',
+    date: '2026-09-03',
+    title: 'A batch of pictures, one prompt each',
+    blurb:
+      'With several start frames in the strip, the Video Test Studio now asks '
+      + 'which prompt the batch runs: the same motion for every picture (as '
+      + 'before, the comparison that says something about the LoRA), or one '
+      + 'written by ✨ per picture — your motion enriched with each frame, or '
+      + 'a proposal from the frame alone — written before anything is queued.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-03-video-test-studio-continue-from-last-frame',
+    date: '2026-09-03',
+    title: 'Continue a clip from its last frame — and get one video',
+    blurb:
+      'A ⏭ Continue button on every finished clip of the Video Test Studio: '
+      + 'its last frame becomes the next start frame, you write the next '
+      + 'motion, and the render lands joined behind the clip it continues — '
+      + 'one video, that clip then the new one, the cut frame dropped and the '
+      + 'sound kept in step (a smoothed clip has none: its side is padded with '
+      + 'silence, the new part keeps its own). Continue the result again and '
+      + 'the chain grows.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-accelerations',
     date: '2026-09-03',
     title: 'Pick your video acceleration among the arena’s top three',

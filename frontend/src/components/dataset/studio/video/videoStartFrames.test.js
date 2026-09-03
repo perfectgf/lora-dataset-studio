@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  ENRICH_UNKNOWN, addFrames, failureNotice, generateLabel, queueClips, queuedNotice, releasePreview,
+  ENRICH_UNKNOWN, addFrames, failureNotice, generateLabel, perImagePrompts, queueClips, queuedNotice, releasePreview,
   removeFrame, uploadKey,
 } from './videoStartFrames.js'
 
@@ -194,4 +194,47 @@ test('the button counts the clips a click queues, and where the walk is while it
   assert.equal(generateLabel({ mode: 'i2v', count: 3, busy: true, done: 2, total: 3 }), 'Queueing 3 of 3…')
   // Never "4 of 3" between the last reply and the state reset.
   assert.equal(generateLabel({ mode: 'i2v', count: 3, busy: true, done: 3, total: 3 }), 'Queueing 3 of 3…')
+})
+
+test('a frame with its own prompt launches as written, never enriched again; a continuation names its clip', async () => {
+  const bodies = []
+  const post = async (body) => { bodies.push(body); return { seed: 7, prompt: 'rewritten' } }
+  const frames = [
+    { ...frame('a'), prompt: 'she waves' },
+    frame('b'),
+    { ...frame('c'), continues: 41 },
+  ]
+  await queueClips(frames, { mode: 'i2v', prompt: 'typed', enhance: true }, post)
+  assert.equal(bodies[0].prompt, 'she waves')
+  assert.equal(bodies[0].enhance, undefined, 'its own prompt: nothing to enrich')
+  assert.equal(bodies[1].prompt, 'typed')
+  assert.equal(bodies[1].enhance, true, 'the first launch WITHOUT its own prompt is the one enriched')
+  assert.equal(bodies[2].prompt, 'rewritten', 'and the rest run the rewrite')
+  assert.equal(bodies[2].continues, 41)
+  assert.equal(bodies[0].continues, undefined)
+})
+
+test('the per-picture mode writes one prompt per frame first, falls back to the typed one, and names who fell', async () => {
+  const asked = []
+  const ask = async (f, typed) => {
+    asked.push([f.key, typed])
+    if (f.key === 'b') throw new Error('fence')
+    if (f.key === 'c') return '   '
+    return `motion for ${f.key}`
+  }
+  const steps = []
+  const { frames, fallen, error } = await perImagePrompts([frame('a'), frame('b'), frame('c')], 'typed',
+    ask, (d, t) => steps.push([d, t]))
+  assert.deepEqual(frames.map((f) => f.prompt), ['motion for a', 'typed', 'typed'])
+  assert.deepEqual(fallen.map((f) => [f.key, f.index]), [['b', 1], ['c', 2]], 'which pictures, by place in the strip')
+  assert.equal(error?.message, 'fence', 'the first refusal travels, so the notice can say why')
+  assert.equal(fallen[0].error?.message, 'fence')
+  assert.deepEqual(steps, [[1, 3], [2, 3], [3, 3]])
+  assert.deepEqual(asked.map((a) => a[1]), ['typed', 'typed', 'typed'])
+  assert.deepEqual((await perImagePrompts([], 'x', ask)).frames, [])
+})
+
+test('the button says it is writing prompts while it writes them', () => {
+  assert.equal(generateLabel({ mode: 'i2v', count: 3, busy: true, done: 1, total: 3, phase: 'writing' }), 'Writing prompt 2 of 3…')
+  assert.equal(generateLabel({ mode: 'i2v', count: 3, busy: true, done: 1, total: 3 }), 'Queueing 2 of 3…')
 })

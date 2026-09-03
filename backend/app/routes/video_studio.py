@@ -33,6 +33,19 @@ logger = logging.getLogger(__name__)
 bp = Blueprint('video_studio', __name__, url_prefix='/api/video-studio')
 
 
+def _joined_state(clip):
+    """⏭ True (the file is the joint), False (left as the part — every failure
+    path writes why in `error`), None (no verdict: still rendering, or the
+    join is running right now)."""
+    if clip.status != 'done':
+        return None
+    if clip.filename and str(clip.filename).endswith('_joined.mp4'):
+        return True
+    if clip.error and 'continuation not joined' in str(clip.error):
+        return False
+    return None
+
+
 def _json_or_none(text):
     if not text:
         return None
@@ -60,6 +73,14 @@ def _clip_dict(clip):
         'source_image': clip.source_image,
         # ↗ The clip this one was smoothed from, so the card can say so.
         'vfi_of': getattr(clip, 'vfi_of', None),
+        # ⏭ The clip this one continues (joined behind it), and whether the join happened.
+        'continues_of': getattr(clip, 'continues_of', None),
+        # Three states, not two: joined; left as the part, which every failure
+        # path says in `error`; or no verdict yet — the part still rendering,
+        # or landed seconds ago with the join under way (the completion is
+        # committed before the join runs). The card's "(not joined)" is for
+        # the middle one only.
+        'joined': _joined_state(clip),
         # ✨ The clip this one was neural-rendered from, same reading.
         'nr_of': getattr(clip, 'nr_of', None),
         # ✨ The dials that made a neural render, or null — the pills read them.
@@ -180,6 +201,44 @@ def video_studio_clip_vfi(clip_id):
     except (ValueError, TypeError) as exc:
         return _map_error(exc)
     return jsonify({'ok': True, **out})
+
+
+@bp.get('/clip/<int:clip_id>/last-frame.png')
+def video_studio_clip_last_frame_png(clip_id):
+    """⏭ The clip's last frame, as the strip's preview."""
+    try:
+        path = vts.last_frame_png(clip_id)
+    except LookupError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 404
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    resp = send_file(path, mimetype='image/png', conditional=True, max_age=0)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@bp.post('/clip/<int:clip_id>/last-frame')
+def video_studio_clip_last_frame(clip_id):
+    """⏭ Stage the clip's last frame as the next start frame — the same staging
+    as the Bank, Gallery and upload routes, so the graph loads it the same way.
+    The reply names the clip so the launch can say it continues it."""
+    try:
+        png = vts.last_frame_png(clip_id)
+        from ..utils import comfy_fs
+        from .. import config as cfg
+        input_dir = comfy_fs.ensure_input_usable(cfg.comfyui_dir('input'))
+        dest = f'lds_vstudio_{uuid.uuid4().hex[:10]}.png'
+        staged = comfy_fs.stage_input_image(png, dest, input_dir)
+        ratio = _image_ratio(staged)
+    except LookupError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 404
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    except Exception as exc:                      # noqa: BLE001
+        logger.exception('video studio: staging the last frame of clip %s failed', clip_id)
+        return jsonify({'ok': False, 'error': str(exc)}), 409
+    return jsonify({'ok': True, 'image': dest, 'ratio': ratio, 'continues': int(clip_id),
+                    'preview': f'/api/video-studio/clip/{int(clip_id)}/last-frame.png'})
 
 
 def _clip_seconds(data: dict):
@@ -574,7 +633,7 @@ def video_studio_generate():
             frames=data.get('frames'), megapixels=data.get('megapixels',
                                                            vts.MP_DEFAULT),
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
-            accel=data.get('accel'),
+            accel=data.get('accel'), continues=data.get('continues'),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
             # The ratio only sizes the latent upscale, and a client that has
@@ -621,7 +680,8 @@ def video_studio_clips():
         query = query.filter(VideoTestClip.id < before)
     page = query.limit(limit).all()
     listed = {c.id for c in page}
-    wanted = {getattr(c, 'nr_of', None) for c in page} | {getattr(c, 'vfi_of', None) for c in page}
+    wanted = ({getattr(c, 'nr_of', None) for c in page} | {getattr(c, 'vfi_of', None) for c in page}
+              | {getattr(c, 'continues_of', None) for c in page})
     wanted = {i for i in wanted if i and i not in listed}
     sources = (VideoTestClip.query.filter(VideoTestClip.id.in_(wanted)).all()
                if wanted else [])
@@ -732,6 +792,13 @@ def video_studio_delete(clip_id):
                                    os.path.basename(clip.filename)))
         except OSError:
             pass
+    # ⏭ The last-frame cache the clip may have grown: derived from the mp4,
+    # written by the app, and SQLite reuses a deleted id — a stale sidecar
+    # under the next clip's id is one mtime check away from being served.
+    try:
+        os.unlink(os.path.join(str(vts.clips_dir()), f'clip_{int(clip_id)}_last.png'))
+    except OSError:
+        pass
     db.session.delete(clip)
     db.session.commit()
     return jsonify({'ok': True})

@@ -29,6 +29,10 @@ export function clipTags(clip) {
   // ↗ A smoothed clip has the same settings as its source and is NOT the same
   // artefact — without this the pair is two identical-looking cards.
   if (clip.vfi_of) tags.push(`smoothed → ${Math.round(clip.fps || 0)} fps`);
+  // ⏭ A continuation: joined behind its parent, or left as the part when the
+  // join failed — `joined` is null while the part still renders, and that is
+  // no verdict, so the pill says nothing about it yet.
+  if (clip.continues_of) tags.push(clip.joined === false ? `continues #${clip.continues_of} (not joined)` : `continues #${clip.continues_of}`);
   if (clip.steps) tags.push(`${clip.steps} steps`);
   if (clip.seed !== null && clip.seed !== undefined) tags.push(`seed ${clip.seed}`);
   return tags;

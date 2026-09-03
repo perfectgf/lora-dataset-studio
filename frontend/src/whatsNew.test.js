@@ -111,6 +111,16 @@ test('sortedEntries is newest-first and stable by (date desc, id desc)', () => {
   );
 });
 
+test('the entry at the top of the file is the one the feed shows first', () => {
+  // The feed sorts by date, then id: two entries of one day written with ids
+  // sorting BELOW that day's others landed in fifth and sixth place, and the
+  // badge — which counts entries above the last seen id — lit for nobody
+  // (found in verification, 2026-09-03). The newest entry is the first in
+  // this file by convention; its id has to agree.
+  assert.equal(sortedEntries(WHATS_NEW)[0].id, WHATS_NEW[0].id,
+    'the newest entry needs an id that sorts above every other id of its day')
+})
+
 test('latestEntryId returns the newest id, null on empty', () => {
   assert.equal(latestEntryId(WHATS_NEW), sortedEntries(WHATS_NEW)[0].id);
   assert.equal(latestEntryId([]), null);

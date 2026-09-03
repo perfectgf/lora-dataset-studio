@@ -160,7 +160,9 @@ test('several start frames: a pick appends to a strip, each frame has its ✕, a
   assert.match(strip, /\{frames\.length > 1 && \(\n\s*<button type="button" onClick=\{\(\) => \{ frames\.forEach\(releasePreview\); onClear\(\); \}\}/)
   // One frame reads as it always did; several say what the click will do.
   assert.match(strip, /Ready — staged into ComfyUI as/)
-  assert.match(strip, /\{frames\.length\} start frames — one clip each, on one seed; ✨ reads the first\./)
+  // What ✨ reads is the prompt-mode control's sentence now (the first, or
+  // each picture): the strip no longer states one of the two as a fact.
+  assert.match(strip, /\{frames\.length\} start frames — one clip each, on one seed\./)
 })
 
 test('the clip list empties when the set changes, and a late reply is dropped', () => {

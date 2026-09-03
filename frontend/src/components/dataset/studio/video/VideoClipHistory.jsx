@@ -11,14 +11,14 @@
  * talking the moment it loads is a list nobody leaves open. The controls are
  * there for whoever wants to hear it.
  */
-import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, Loader2, Waves, Sparkles } from 'lucide-react';
+import { Trash2, ThumbsDown, ThumbsUp, RotateCcw, SkipForward, Loader2, Waves, Sparkles } from 'lucide-react';
 import { clipVideoUrl, isRunning, renderTimeLabel } from './videoStudioApi';
 import { clipTags } from './videoClipTags';
 
 const ACTION = 'flex items-center justify-center gap-1 rounded-lg border px-2 py-1 text-[0.6875rem] min-h-10 lg:min-h-0';
 
 export default function VideoClipHistory({
-  clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy, onCompare,
+  clips, onRate, onDelete, onReuse, onVfi, vfiBusy, onNeuralRender, nrBusy, onCompare, onContinue, continueBusy,
   onJumpTo, hasMore = false, loadingMore = false, onLoadMore,
 }) {
   if (!clips.length) {
@@ -55,14 +55,21 @@ export default function VideoClipHistory({
               {/* Where a render came from, as a link that scrolls to it: the
                   source is older than its render by construction, and a pair
                   that cannot be seen together reads as a deleted original. */}
-              {(clip.nr_of || clip.vfi_of) && onJumpTo && (
+              {(clip.nr_of || clip.vfi_of || clip.continues_of) && onJumpTo && (
                 <p className="text-[0.6875rem] text-content-subtle">
-                  {clip.nr_of ? 'neural render of' : 'smoothed from'}{' '}
-                  <button type="button" onClick={() => onJumpTo(clip.nr_of || clip.vfi_of)}
+                  {clip.nr_of ? 'neural render of' : clip.vfi_of ? 'smoothed from' : 'continues'}{' '}
+                  <button type="button" onClick={() => onJumpTo(clip.nr_of || clip.vfi_of || clip.continues_of)}
                     className="underline decoration-dotted underline-offset-2 hover:text-content">
-                    clip #{clip.nr_of || clip.vfi_of}
+                    clip #{clip.nr_of || clip.vfi_of || clip.continues_of}
                   </button>
+                  {clip.continues_of && clip.joined ? ' — played as one: that clip, then this motion' : ''}
                 </p>
+              )}
+              {/* ⏭ A join that did not happen says why, on the card that plays
+                  the part alone — the reason was written to `error` on a done
+                  clip and never shown (found in verification). */}
+              {clip.status === 'done' && clip.error && (
+                <p className="text-[0.6875rem] text-amber-300/80">{clip.error}</p>
               )}
               {/* The facts that made this clip, one pill each — comparing two
                   cards is reading which pill differs. */}
@@ -102,6 +109,16 @@ export default function VideoClipHistory({
                   className={`${ACTION} border-border text-content-muted hover:text-content`}>
                   <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />Reuse
                 </button>
+                {/* ⏭ Continue — the last frame becomes the next start frame, the
+                    motion is yours to write again, and the render lands joined
+                    behind this clip: one video, this one then the new motion. */}
+                {clip.status === 'done' && onContinue && (
+                  <button type="button" onClick={() => onContinue(clip)} disabled={continueBusy === clip.id}
+                    title="Use the last frame as the next start frame — the result is this clip followed by the new one"
+                    className={`${ACTION} border-border text-content-muted hover:text-content`}>
+                    <SkipForward aria-hidden="true" className="h-3.5 w-3.5" />Continue
+                  </button>
+                )}
                 {/* ↗ VFI — the same RIFE pass the image generator runs, on a
                     clip that has finished. Offered only there: interpolating a
                     file that does not exist yet is the one thing this button
