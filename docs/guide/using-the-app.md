@@ -3849,10 +3849,16 @@ as you typed it — and if the writer cannot run at that moment, the clip still
 launches with your words and the panel says so.
 
 **The four options are not free, and the panel says what each one costs.**
-⚡ Turbo swaps in a 6-step distillation LoRA and its double-clock sampler —
-minutes instead of tens of minutes, and a different model rather than merely a
-faster one; it is on by default because an undistilled first clip is long enough
-to look like a hang. 🔬 Latent upscale enlarges before anything is decoded, so
+⚡ **Acceleration** swaps in a 6-step distillation LoRA — minutes instead of
+tens of minutes, and a different model rather than merely a faster one; one is
+on by default because an undistilled first clip is long enough to look like a
+hang. The choice is the top three of the multimodalart MiniMax-H3 acceleration
+arena (human preference, ~7 400 votes per task, and the three are statistical
+ties): larryvrh's Turbo v4 through its own sampler, Plaguekind's Parasyte
+Turbo, and silveroxides' DARE-TIES merge — the last two on the stock sampler
+at the sigma shift they were tuned for, with the strengths the arena verified.
+Setup downloads whichever is missing; a choice this machine cannot run is
+greyed and says why. 🔬 Latent upscale enlarges before anything is decoded, so
 the audio track survives untouched — and it is where most of the time goes.
 Sparse attention buys speed by attending to less, which costs prompt adherence;
 with the upscale on, the first pass deliberately stays dense so the prompt keeps

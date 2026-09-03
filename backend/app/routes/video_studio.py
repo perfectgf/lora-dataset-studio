@@ -68,6 +68,8 @@ def _clip_dict(clip):
         'megapixels': clip.megapixels, 'fps': clip.fps,
         'base_model': clip.base_model, 'lora': clip.lora,
         'lora_strength': clip.lora_strength, 'turbo': bool(clip.turbo),
+        # ⚡ Which acceleration ran; rows older than the choice say `turbo` from the flag.
+        'accel': (getattr(clip, 'accel', None) or ('turbo' if clip.turbo else '')),
         'sparse': clip.sparse or '', 'latent_upscale': bool(clip.latent_upscale),
         'eros': (clip.base_model == vts.BASE_EROS),
         'rating': clip.rating, 'run_id': clip.run_id,
@@ -121,6 +123,8 @@ def video_studio_options():
                        'default': vts.MP_DEFAULT},
         'sparse_modes': list(vts.SPARSE_MODES),
         'turbo_steps': vts.TURBO_STEPS, 'default_steps': vts.DEFAULT_STEPS,
+        # ⚡ The three arena accelerations, each with whether THIS machine has it.
+        'accelerations': vts.accelerations_status(),
         'base_official': vts.BASE_OFFICIAL, 'base_eros': vts.BASE_EROS,
         'eros_available': vts.eros_on_disk(),
         # ✨ DLSS 5 neural rendering — ready + the sentences naming what is
@@ -570,6 +574,7 @@ def video_studio_generate():
             frames=data.get('frames'), megapixels=data.get('megapixels',
                                                            vts.MP_DEFAULT),
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
+            accel=data.get('accel'),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
             # The ratio only sizes the latent upscale, and a client that has

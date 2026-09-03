@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ACCELERATIONS, accelLabel, clipAccel, pickAvailableAccel,
   mergeClipPages,
   smoothTargets,
   buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, renderTimeLabel,
@@ -188,4 +189,29 @@ test('a poll keeps the loaded older clips: the boundary is the page proper, not 
   // A row deleted inside the page proper (78, between 79 and the boundary 50) leaves with the
   // page; a clip older than the boundary (30) is kept, the fresh page never carried it.
   assert.deepEqual(mergeClipPages([clip(79), clip(78), clip(30)], [clip(79), clip(50)], 50).map((c) => c.id), [79, 50, 30]);
+});
+
+test('the acceleration travels by name, and larryvrh keeps the older boolean beside it', () => {
+  assert.deepEqual(ACCELERATIONS.map((a) => a.id), ['turbo', 'parasyte', 'dareties']);
+  const base = { prompt: 'p', mode: 't2v' };
+  assert.equal(buildGeneratePayload({ ...base, accel: 'parasyte' }).accel, 'parasyte');
+  assert.equal(buildGeneratePayload({ ...base, accel: 'parasyte' }).turbo, undefined);
+  assert.equal(buildGeneratePayload({ ...base, accel: 'turbo' }).turbo, true);
+  assert.equal(buildGeneratePayload({ ...base, turbo: true }).turbo, true, 'a caller without the name still speaks the flag');
+  assert.equal(buildGeneratePayload({ ...base }).accel, undefined);
+  assert.equal(clipAccel({ accel: 'dareties', turbo: false }), 'dareties');
+  assert.equal(clipAccel({ turbo: true }), 'turbo', 'a row older than the choice');
+  assert.equal(clipAccel({}), '');
+  assert.equal(accelLabel('parasyte'), 'Parasyte Turbo');
+  assert.match(clipSummary({ accel: 'dareties', steps: 6 }), /⚡ DARE-TIES merge/);
+  assert.match(clipSummary({ turbo: true, steps: 6 }), /⚡ turbo/);
+});
+
+test('the pick follows what the machine holds: unavailable falls to the first available, unknown stays', () => {
+  const rows = [{ id: 'turbo', available: false }, { id: 'parasyte', available: true }, { id: 'dareties', available: false }];
+  assert.equal(pickAvailableAccel('turbo', rows), 'parasyte');
+  assert.equal(pickAvailableAccel('parasyte', rows), 'parasyte');
+  assert.equal(pickAvailableAccel('turbo', [{ id: 'turbo', available: null }]), 'turbo', 'a probe that could not run is not a no');
+  assert.equal(pickAvailableAccel('turbo', [{ id: 'turbo', available: false }]), '', 'nothing available: the dense base');
+  assert.equal(pickAvailableAccel('', rows), '');
 });

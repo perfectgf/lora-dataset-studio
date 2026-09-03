@@ -225,6 +225,8 @@ _SCHEMA_ADDITIONS = (
     ('video_test_clip', 'nr_params', 'TEXT'),
     # ⏱ How long the queue spent on the clip, seconds (see the model).
     ('video_test_clip', 'render_seconds', 'FLOAT'),
+    # ⚡ Which acceleration LoRA the clip ran with (see ACCELERATIONS).
+    ('video_test_clip', 'accel', 'VARCHAR(16)'),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),

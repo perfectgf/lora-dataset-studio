@@ -60,6 +60,16 @@ export const VIDEO_LANE_TOPICS = [
       'slow generation', 'takes forever', 'missing node', 'node pack'],
     guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
     app: { route: '/studio?lane=video' } },
+  // ⚡ The acceleration choice of the Render panel: searched by the names
+  // people read in the arena and by what they are looking for ("faster",
+  // "which turbo").
+  { id: 'video-acceleration', kind: 'setting', title: 'Acceleration (the arena\u2019s top three)',
+    keywords: ['acceleration', 'turbo', 'turbo lora', 'which turbo', 'faster clips', 'distillation',
+      'larryvrh', 'parasyte', 'plaguekind', 'dare-ties', 'dareties', 'silveroxides', 'merge',
+      'arena', 'elo', 'human preference', '6 steps', 'six steps', 'shift 8/3', 'sigma shift',
+      'not installed', 'download the lora', 'lightx2v'],
+    guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
+    app: { route: '/studio?lane=video' } },
   // ↗ Smooth asks for the rate before it runs. Searched for by the gesture
   // ("smooth", "interpolate"), by the numbers ("48 fps", "60 fps", "why not
   // 60") and by what it costs.

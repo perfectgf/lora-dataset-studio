@@ -439,7 +439,7 @@ test('installCatalog lists every app-installable component, present + available'
       // optional node packs are linked from its card, never installed by the
       // app: it downloads model files and does not add code to a ComfyUI.
       'h3_base', 'h3_text_encoder', 'h3_video_vae', 'h3_audio_vae',
-      'h3_turbo_lora',
+      'h3_turbo_lora', 'h3_parasyte_lora', 'h3_dareties_lora',
       'lanpaint_nodes'],
   );
   // Everything installed in fullCaps -> every tile present, and available to REINSTALL.
@@ -452,7 +452,7 @@ test('installCatalog lists every app-installable component, present + available'
 test('installCatalog stays fully available for reinstall when all is green', () => {
   // The menu must never collapse once installed — each item can always be repaired.
   const cat = installCatalog(fullCaps());
-  assert.ok(cat.length === 27 && cat.every((c) => c.available));
+  assert.ok(cat.length === 29 && cat.every((c) => c.available))   // 27 + the two arena accelerations;
 });
 
 test('installCatalog marks missing ML extras not-present but still available', () => {

@@ -806,7 +806,9 @@ export const INSTALL_ALL_ACTION_LABELS = {
   h3_text_encoder: 'Video prompt encoder (Qwen3-VL)',
   h3_video_vae: 'Video decoder (VAE)',
   h3_audio_vae: 'Video sound decoder (VAE)',
-  h3_turbo_lora: 'Video turbo LoRA (4-step — clips in minutes)',
+  h3_turbo_lora: 'Video acceleration: larryvrh Turbo v4 (arena #1, 6 steps)',
+  h3_parasyte_lora: 'Video acceleration: Parasyte Turbo (arena #2, 6 steps)',
+  h3_dareties_lora: 'Video acceleration: DARE-TIES merge (arena #3, 6 steps)',
 }
 
 // The Krea 2 Edit engine, installable in ONE click but deliberately NOT part of
@@ -898,6 +900,7 @@ export const CAMERA_INSTALL_ORDER = [
 // 2026-08-31). They are named and linked instead — see the card.
 export const VIDEO_STUDIO_INSTALL_ORDER = [
   'h3_base', 'h3_text_encoder', 'h3_video_vae', 'h3_audio_vae', 'h3_turbo_lora',
+  'h3_parasyte_lora', 'h3_dareties_lora',
 ]
 
 export function videoStudioInstallPlan(caps) {
@@ -1125,7 +1128,7 @@ export function installCatalog(caps) {
     // from the card instead, so this menu never offers a button that would add
     // code to somebody's ComfyUI.
     ...['h3_base', 'h3_text_encoder', 'h3_video_vae', 'h3_audio_vae',
-      'h3_turbo_lora'].map(
+      'h3_turbo_lora', 'h3_parasyte_lora', 'h3_dareties_lora'].map(
       (a) => item(a, dirValid && !videoStudioMissing.includes(a), dirValid, kleinHint)),
     // LanPaint — the sampler the masked ✦ Repair lane runs on (a ~1 MB clone,
     // zero pip dependencies). Same present/restart logic as the Krea pack: a

@@ -50,7 +50,8 @@ import {
   addFrames, failureNotice, generateLabel, queueClips, queuedNotice, releasePreview, removeFrame,
 } from './videoStartFrames';
 import {
-  clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl, mergeClipPages,
+  accelLabel, clipAccel, clipRateUrl, clipSeconds, clipUrl, clipsUrl, generateUrl, mergeClipPages,
+  pickAvailableAccel,
   isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, clipVideoUrl,
   clipComparisonUrl,
   motionEnhanceUrl, motionSuggestUrl,
@@ -59,11 +60,12 @@ import {
 /* No start frame yet — what the ✨ helpers and the readback see before a pick. */
 const EMPTY_SOURCE = { image: null, ratio: null, preview: null };
 
-/* Turbo ON by default. Without it the base is undistilled and a first clip is
-   tens of minutes — long enough that a new user concludes the studio is broken
-   rather than slow. It is a checkbox, and the panel says what it changes. */
+/* An acceleration ON by default — larryvrh's, the arena's first row. Without
+   one the base is undistilled and a first clip is tens of minutes — long
+   enough that a new user concludes the studio is broken rather than slow. The
+   panel says what each choice changes. */
 const DEFAULT_OPTIONS = {
-  turbo: true, eros: false, sparse: '', latentUpscale: false,
+  accel: 'turbo', eros: false, sparse: '', latentUpscale: false,
   // '' = auto: the server's own count for the mode in force (turbo 6, dense
   // 20). Kept empty rather than pre-filled so a run reads "auto" until someone
   // decides otherwise — a number in the box would claim a choice nobody made.
@@ -109,12 +111,13 @@ export default function VideoTestStudio() {
     apiFetch(optionsUrl()).then((d) => {
       setOptions(d);
       if (d?.frame_default) setOpts((o) => ({ ...o, frames: d.frame_default }));
-      // Turbo defaults ON, but only where it CAN run: on a ComfyUI without the
-      // pack it would send a launch that is refused before anything happens,
-      // which is a poor first click. `available === null` (probe unreachable)
-      // keeps the default — an unknown is not a no.
-      if (d?.options_available?.turbo?.available === false) {
-        setOpts((o) => ({ ...o, turbo: false }));
+      // The acceleration defaults to larryvrh's, but only where it CAN run:
+      // a launch refused before anything happens is a poor first click. The
+      // server says what this machine holds; the pick moves to the first
+      // available choice, or to the dense base. `available === null` (probe
+      // unreachable) keeps the pick — an unknown is not a no.
+      if (Array.isArray(d?.accelerations)) {
+        setOpts((o) => ({ ...o, accel: pickAvailableAccel(o.accel, d.accelerations) }));
       }
       if (d?.megapixels?.default) {
         setOpts((o) => ({ ...o, megapixels: d.megapixels.default }));
@@ -372,7 +375,7 @@ export default function VideoTestStudio() {
     setPrompt(clip.prompt || '');
     setMode(clip.mode === 't2v' ? 't2v' : 'i2v');
     setOpts({
-      turbo: !!clip.turbo, eros: !!clip.eros, sparse: clip.sparse || '',
+      accel: clipAccel(clip), eros: !!clip.eros, sparse: clip.sparse || '',
       latentUpscale: !!clip.latent_upscale, frames: clip.frames || opts.frames,
       megapixels: clip.megapixels || opts.megapixels,
       // Reuse replays the count the clip ACTUALLY ran, never "auto" — the
@@ -414,7 +417,7 @@ export default function VideoTestStudio() {
     mode === 't2v' ? 'text only' : (sources.length > 1 ? `from ${sources.length} images` : 'from an image'),
     seconds ? `${seconds}s` : `${opts.frames} frames`,
     `${Number(opts.megapixels).toFixed(2)} MP`,
-    opts.turbo ? 'turbo' : null,
+    opts.accel ? (opts.accel === 'turbo' ? 'turbo' : accelLabel(opts.accel)) : null,
     opts.eros ? '10Eros' : null,
     opts.sparse ? `sparse ${opts.sparse}` : null,
     opts.latentUpscale ? 'upscale ×2' : null,

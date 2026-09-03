@@ -134,11 +134,44 @@ export function buildGeneratePayload(state) {
   // ✨ Enrich at launch: the SERVER rewrites the motion and records what ran,
   // so a clip never claims a prompt that is not the one it was made from.
   if (s.enhance) body.enhance = true;
-  if (s.turbo) body.turbo = true;
+  // ⚡ The acceleration by name; `turbo` rides along for the older servers'
+  // boolean when the name is larryvrh's.
+  if (s.accel) {
+    body.accel = s.accel;
+    if (s.accel === 'turbo') body.turbo = true;
+  } else if (s.turbo) {
+    body.turbo = true;
+  }
   if (s.eros) body.eros = true;
   if (s.sparse) body.sparse = s.sparse;
   if (s.latentUpscale) body.latent_upscale = true;
   return body;
+}
+
+/** ⚡ The Render panel's acceleration choices, as the server names them —
+ *  this list is only the shape shown before the options arrive (and in tests);
+ *  the server's `accelerations` carries availability, arena rank and hint. */
+export const ACCELERATIONS = [
+  { id: 'turbo', label: 'larryvrh Turbo v4', arena: '#1 · I2V 1103 / T2V 1110', steps: 6 },
+  { id: 'parasyte', label: 'Parasyte Turbo', arena: '#2 · I2V 1106 / T2V 1094', steps: 6 },
+  { id: 'dareties', label: 'DARE-TIES merge', arena: '#3 · I2V 1107 / T2V 1085', steps: 6 },
+];
+export const accelLabel = (id) => (ACCELERATIONS.find((a) => a.id === id) || {}).label
+  || (id ? String(id) : '');
+/** The acceleration a clip ran with: the stored name, or `turbo` from the
+ *  flag on rows older than the choice. */
+export const clipAccel = (clip) => (clip?.accel || (clip?.turbo ? 'turbo' : ''));
+/** What the panel should hold once the server said what is on this machine:
+ *  the current pick if it is available (or unknown), else the first available
+ *  one, else the dense base. `null` availability (probe unreachable) keeps
+ *  the pick — an unknown is not a no. */
+export function pickAvailableAccel(current, accelerations) {
+  const rows = Array.isArray(accelerations) ? accelerations : [];
+  if (!current) return '';
+  const row = rows.find((a) => a.id === current);
+  if (!row || row.available !== false) return current;
+  const other = rows.find((a) => a.available === true);
+  return other ? other.id : '';
 }
 
 /** How long the clip will be, in seconds, at the target's own fps.
@@ -167,7 +200,8 @@ export function clipSummary(clip) {
   } else {
     bits.push('no LoRA');
   }
-  if (clip.turbo) bits.push('⚡ turbo');
+  const accel = clipAccel(clip);
+  if (accel) bits.push(accel === 'turbo' ? '⚡ turbo' : `⚡ ${accelLabel(accel)}`);
   if (clip.sparse) bits.push(`sparse ${clip.sparse}`);
   if (clip.latent_upscale) bits.push('🔬 upscale');
   bits.push(`${clip.steps} steps`);

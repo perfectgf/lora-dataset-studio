@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-video-accelerations',
+    date: '2026-09-03',
+    title: 'Pick your video acceleration among the arena’s top three',
+    blurb:
+      'The Video Test Studio’s Turbo box is now a choice: larryvrh’s Turbo v4 '
+      + '(as before), Plaguekind’s Parasyte Turbo or silveroxides’ DARE-TIES '
+      + 'merge — the first three rows of the MiniMax-H3 acceleration arena, '
+      + 'statistical ties at six steps. Each runs with the settings the arena '
+      + 'verified; Setup downloads the two new LoRAs, and a clip remembers '
+      + 'which one made it.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-run-graph-and-previews',
     date: '2026-09-03',
     title: 'A video set draws its runs as a graph, with the training samples on each save',
