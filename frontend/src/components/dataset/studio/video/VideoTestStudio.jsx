@@ -41,6 +41,7 @@ import VideoOptionsPanel from './VideoOptionsPanel';
 import VideoQuickPrompts from './VideoQuickPrompts';
 import { appendQuickPrompt } from './videoPromptPresets';
 import MotionModelDialog from './MotionModelDialog';
+import SmoothDialog from './SmoothDialog';
 import VideoSourcePicker from './VideoSourcePicker';
 import NeuralRenderDialog from '../../../videobank/NeuralRenderDialog';
 import SideBySideVideo from '../../../videobank/SideBySideVideo';
@@ -237,6 +238,9 @@ export default function VideoTestStudio() {
   // the new card simply appears and renders. `vfiBusy` only guards the double
   // click between the POST and that first poll.
   const [vfiBusy, setVfiBusy] = useState(null);
+  // ↗ The finished clip the Smooth window was opened for, or null. The rate
+  // is asked there (×2, ×3, ×4 of the source), never assumed.
+  const [vfiClip, setVfiClip] = useState(null);
   // ✨ Neural render. `nrClip` is the finished clip the dialog was opened
   // for; the render itself is a queued row like any other, so the list's
   // poll shows it land and `nrBusy` only guards the double click.
@@ -266,11 +270,12 @@ export default function VideoTestStudio() {
       setNrBusy(null);
     }
   };
-  const smooth = async (clip) => {
+  const smooth = async (clip, multiplier) => {
     setVfiBusy(clip.id);
     try {
-      await postJson(clipVfiUrl(clip.id), {});
-      toast.info?.('Smoothing queued — the new clip appears below when it is done.');
+      const r = await postJson(clipVfiUrl(clip.id), { multiplier });
+      setVfiClip(null);
+      toast.info?.(`Smoothing to ${Math.round(r?.fps || 0) || '…'} fps queued — the new clip appears below when it is done.`);
       await refreshClips();
     } catch (e) {
       toast.error(e?.message || 'That clip could not be smoothed.');
@@ -591,7 +596,7 @@ export default function VideoTestStudio() {
         <h2 className="font-mono text-[0.625rem] uppercase tracking-[0.18em] text-content-subtle">
           Clips — newest first
         </h2>
-        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={smooth} vfiBusy={vfiBusy}
+        <VideoClipHistory clips={clips} onRate={rate} onDelete={remove} onReuse={reuse} onVfi={setVfiClip} vfiBusy={vfiBusy}
           onNeuralRender={(clip) => setNrClip(clip)} nrBusy={nrBusy}
           onCompare={(clip) => setCompareClip(clip)}
           onJumpTo={jumpTo} hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore} />
@@ -600,6 +605,13 @@ export default function VideoTestStudio() {
       <StudioActionBar shortcuts={SHORTCUTS} canRun={!blocked} running={busy}
         onRun={generate} runLabel={`▶ ${label}`} runningLabel={`▶ ${label}`} note={reason} />
 
+      {/* ↗ The rate Smooth makes, asked before it runs: 48, 72 or 96 fps for
+          a 24 fps clip — the interpolator works by whole factors. */}
+      {vfiClip && (
+        <SmoothDialog clip={vfiClip} busy={vfiBusy === vfiClip.id}
+          onSmooth={(multiplier) => smooth(vfiClip, multiplier)}
+          onClose={() => setVfiClip(null)} />
+      )}
       {/* ✨ The neural render dials, asked once per clip. The capability's own
           sentences come with the options payload, so the dialog can refuse
           in words on a machine without the model. */}

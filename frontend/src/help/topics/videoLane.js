@@ -60,6 +60,15 @@ export const VIDEO_LANE_TOPICS = [
       'slow generation', 'takes forever', 'missing node', 'node pack'],
     guide: { chapter: 'using-the-app', anchor: 'test-a-video-lora-before-you-trust-it' },
     app: { route: '/studio?lane=video' } },
+  // ↗ Smooth asks for the rate before it runs. Searched for by the gesture
+  // ("smooth", "interpolate"), by the numbers ("48 fps", "60 fps", "why not
+  // 60") and by what it costs.
+  { id: 'video-smooth-rate', kind: 'action', title: 'Smooth: pick the rate',
+    keywords: ['smooth', 'smoothing', 'interpolate', 'interpolation', 'frame interpolation', 'rife',
+      'fps', '48 fps', '72 fps', '96 fps', '60 fps', 'why not 60 fps', 'playback rate', 'frame rate',
+      'double the frames', 'x2', 'x3', 'x4', 'multiplier', 'judder', 'slow motion', 'new clip'],
+    guide: { chapter: 'using-the-app', anchor: 'smooth-pick-the-rate-before-it-runs' },
+    app: { route: '/studio?lane=video' } },
   // 🔴 The Live lane: the same engine as a channel that never stops. Searched
   // for by the idea ("stream", "tv channel", "endless"), by the player ("vlc",
   // "hls"), by the dials ("playback rate", "fps") and by what goes wrong

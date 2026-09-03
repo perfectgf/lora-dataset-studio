@@ -110,7 +110,7 @@ export default function VideoClipHistory({
                 {clip.status === 'done' && !clip.vfi_of && onVfi && (
                   <button type="button" onClick={() => onVfi(clip)}
                     disabled={vfiBusy === clip.id}
-                    title={`Smooth this clip — interpolate to ${Math.round((clip.fps || 24) * 2)} fps, as a new clip`}
+                    title="Smooth this clip — pick the rate (×2, ×3 or ×4 of its own), as a new clip"
                     className={`${ACTION} border-border text-content-muted hover:text-content disabled:opacity-40`}>
                     <Waves aria-hidden="true" className="h-3.5 w-3.5" />
                     {vfiBusy === clip.id ? '…' : 'Smooth'}
@@ -152,7 +152,7 @@ export default function VideoClipHistory({
           after a load — the page merges below what is already there. */}
       {hasMore && onLoadMore && (
         <button type="button" onClick={onLoadMore} disabled={loadingMore}
-          className="min-h-10 self-center rounded-lg border border-border bg-surface px-3 py-1 text-xs text-content-muted hover:text-content disabled:opacity-50 lg:min-h-0">
+          className="min-h-10 w-full rounded-lg border border-border bg-surface px-3 py-1 text-xs text-content-muted hover:text-content disabled:opacity-50 lg:min-h-0">
           {loadingMore ? 'Loading…' : 'Load older clips'}
         </button>
       )}

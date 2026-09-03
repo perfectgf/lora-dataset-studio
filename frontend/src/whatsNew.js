@@ -83,6 +83,17 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-03-video-smooth-rate',
+    date: '2026-09-03',
+    title: 'Smooth asks which rate you want',
+    blurb:
+      'The ↗ Smooth button of the Video Test Studio opens a small window before '
+      + 'it runs: 48, 72 or 96 fps for a 24 fps clip — ×2, ×3 or ×4, because the '
+      + 'interpolator works by whole factors — with the frame count and the '
+      + 'relative cost of each. It used to go straight to 48.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-quick-prompts',
     date: '2026-09-03',
     title: 'Pick a video prompt instead of writing one',

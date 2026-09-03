@@ -3858,6 +3858,19 @@ If the panel refuses to launch, it is telling you the graph cannot run on this
 install: the message names the missing weights and the ComfyUI node packs to
 install, rather than letting the job fail silently a minute later.
 
+## Smooth: pick the rate before it runs
+
+**↗ Smooth** on a finished clip opens a small window before anything is
+queued: the rate the new clip will play at — **48, 72 or 96 fps** for a clip
+authored at 24. The interpolator (RIFE) works by whole factors, ×2, ×3 or
+×4, which is why the choices are multiples of the source and not any
+number: a 30 or 60 fps target would mean throwing frames away unevenly
+after the pass, and that reads as judder. The clip keeps its length —
+frames are added between the existing ones, nothing is slowed down — and
+the work grows with the frames written: ×3 costs about twice the ×2 pass,
+×4 about three times. The result is a NEW clip in the list, tagged with its
+rate; the original stays as it is.
+
 ## A live channel from your video LoRA
 
 The **Live** tab of the Test Studio (experimental) is the video engine as a

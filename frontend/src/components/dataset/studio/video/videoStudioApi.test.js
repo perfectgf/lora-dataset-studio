@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  smoothTargets,
   buildGeneratePayload, clipSeconds, clipSummary, isRunning, launchAdviceLines, renderTimeLabel,
   SPARSE_CHOICES, studioFrameChoices,
 }  from './videoStudioApi.js';
@@ -162,3 +163,13 @@ test('the render time reads the way a person says it, and is null for anything e
     assert.equal(renderTimeLabel(junk), null, String(junk))
   }
 })
+
+test('smooth offers whole factors of the source rate, with frames and relative cost', () => {
+  const t = smoothTargets({ fps: 24, frames: 124 });
+  assert.deepEqual(t.map((x) => [x.multiplier, x.fps, x.frames, x.cost]),
+    [[2, 48, 248, 1], [3, 72, 372, 2], [4, 96, 496, 3]]);
+  // A clip that never stored its rate is an H3 clip: 24 fps authored.
+  assert.deepEqual(smoothTargets({}).map((x) => x.fps), [48, 72, 96]);
+  assert.equal(smoothTargets({ fps: 30 })[0].frames, null, 'no frame count → no count promised');
+  assert.equal(smoothTargets({ fps: 30 })[1].fps, 90);
+});

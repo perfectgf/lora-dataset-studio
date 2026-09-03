@@ -22,6 +22,22 @@ export const loraImportUrl = () => '/api/video-studio/lora/import';
 
 /** ↗ Smooth a finished clip — RIFE interpolation, as a new clip. */
 export const clipVfiUrl = (id) => `/api/video-studio/clip/${id}/vfi`;
+/** ↗ The rates Smooth can make of a clip. RIFE interpolates by a WHOLE factor,
+ *  so the choices are the source rate times 2, 3 and 4 — 48, 72, 96 fps for a
+ *  clip authored at 24 — never an arbitrary number (that would mean dropping
+ *  frames unevenly afterwards). `cost` is relative to the ×2 pass: the work
+ *  grows with the frames written between each pair (1, 2, 3). */
+export const SMOOTH_MULTIPLIERS = [2, 3, 4];
+export function smoothTargets(clip) {
+  const fps = Number(clip?.fps) > 0 ? Number(clip.fps) : 24;
+  const frames = Number(clip?.frames) > 0 ? Number(clip.frames) : null;
+  return SMOOTH_MULTIPLIERS.map((m) => ({
+    multiplier: m,
+    fps: Math.round(fps * m),
+    frames: frames ? frames * m : null,
+    cost: m - 1,
+  }));
+}
 
 /** ✨ Neural render a finished clip — DLSS 5 Neural Rendering, as a new clip. */
 export const clipNeuralRenderUrl = (id) => `/api/video-studio/clip/${id}/neural-render`;

@@ -374,6 +374,9 @@ const PAGES = {
       /* 🔴 The Live lane: a take sheet, a rail of six dials and the player —
          another tab the Images run would never open. */
       { name: 'live', open: ['[data-testid="studio-lane-live"]'] },
+      /* ↗ The Smooth window: three rate segments and two buttons, on the
+         first finished clip of the history (absent → NOT covered, said so). */
+      { name: 'video-smooth', open: ['[data-testid="studio-lane-video"]', 'button:has-text("Smooth")'] },
       { name: 'video-gallery',
         open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
       /* The Dataset clip tab: its select and footnote. The clip grid behind
