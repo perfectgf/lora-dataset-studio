@@ -673,6 +673,12 @@ def video_studio_clip_comparison(clip_id):
     try:
         data = _nr.build_comparison(source_path, render_path, left_label='Original',
                                     right_label='Neural render (DLSS 5)')
+    except _nr.ComparisonBusyError as exc:
+        res = jsonify({'error': str(exc)})
+        res.headers['Retry-After'] = '5'
+        return res, 429
+    except _nr.ComparisonTooLargeError as exc:
+        return jsonify({'error': str(exc)}), 413
     except _nr.NeuralRenderError as exc:
         return jsonify({'error': str(exc)}), 400
     return send_file(io.BytesIO(data), mimetype='video/mp4', as_attachment=True,

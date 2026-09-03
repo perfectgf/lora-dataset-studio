@@ -42,14 +42,21 @@ export function saveBlobAs(blob, name) {
  * Fetch `url` and save it. Resolves to the name the file landed under; throws
  * with the server's own sentence when the route refused, so the caller can put
  * it on screen instead of into a console nobody has open.
+ *
+ * `signal` aborts the wait. It does NOT stop work the server has already
+ * started — measured on this app: a client that hangs up mid-encode leaves
+ * ffmpeg running to the end — so this frees the button and the memory, and
+ * nothing more. `isAbort` lets a caller tell that apart from a refusal worth
+ * showing: a layer the user closed owes them no error message.
  */
 export async function saveUrlAsFile(url, {
   fallbackName = 'download',
   failure = 'That file could not be downloaded.',
   fetchImpl = null,
   saveBlob = null,
+  signal = null,
 } = {}) {
-  const doFetch = fetchImpl || ((u) => fetch(u, { credentials: 'same-origin' }));
+  const doFetch = fetchImpl || ((u) => fetch(u, { credentials: 'same-origin', signal }));
   const doSave = saveBlob || saveBlobAs;
   const res = await doFetch(url);
   if (!res.ok) {
@@ -60,4 +67,10 @@ export async function saveUrlAsFile(url, {
   const name = nameFromDisposition(res.headers.get('Content-Disposition'), fallbackName);
   await doSave(await res.blob(), name);
   return name;
+}
+
+/** True for the rejection an `AbortController` causes — the one failure a
+ *  caller should swallow rather than display. */
+export function isAbort(err) {
+  return err?.name === 'AbortError';
 }

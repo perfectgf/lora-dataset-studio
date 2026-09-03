@@ -364,6 +364,22 @@ def clip_dimensions(path) -> tuple[int, int] | None:
 COMPARISON_CRF = 18            # near-transparent: the point of this file is detail
 COMPARISON_MAX_BYTES = 512 * 1024 * 1024
 COMPARISON_TIMEOUT_S = 900
+
+# ONE encode at a time, and the second caller is told to come back rather than
+# queued. Measured on this app's own clips: a 2816×800 pair of 485 frames takes
+# 2.1 s alone and 17.4 s when six of them run at once — six ffmpeg processes do
+# not share a machine, they divide it, and the RAM each finished file sits in
+# multiplies by the same number. Same shape as the timeline GIF next door
+# (checkpoint_timeline._GIF_RENDER_GATE), for the same reason.
+_COMPARISON_GATE = threading.BoundedSemaphore(1)
+
+
+class ComparisonBusyError(NeuralRenderError):
+    """Another comparison is encoding — a 429, not a failure."""
+
+
+class ComparisonTooLargeError(NeuralRenderError):
+    """The built file is past what a response will hold in memory — a 413."""
 # drawtext needs a font FILE, and no font ships with this app. None of these is
 # guaranteed, so labels are a bonus and never a failure: a machine with none of
 # them gets the two panes unlabelled instead of an error.
@@ -438,8 +454,14 @@ def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
 
     Built into a temp file — an mp4 with ``+faststart`` has to be seekable, so a
     pipe is not an option — then read back and deleted here. The bytes are what
-    the route sends: a file still on disk while a response streams it is a handle
-    Windows will not let go of, and this one has no reason to outlive the click.
+    the route sends, and the temp file is gone before this returns: measured on a
+    threaded Flask, ``send_file(path)`` plus ``call_on_close`` to delete it never
+    fires on a SUCCESSFUL download (eight requests, eight orphans, 77 MB), which
+    is the trap ``routes/training.py`` already documents — "some servers close
+    that wrapper without invoking Response.call_on_close". Deleting the file
+    inside the view is not the alternative either: Windows refuses to unlink a
+    file the response still holds open (PermissionError 13). Reading it and
+    dropping it here is the shape that leaves nothing behind, on either OS.
     """
     for path, side in ((left, 'left'), (right, 'right')):
         if not path or not os.path.isfile(str(path)):
@@ -447,6 +469,9 @@ def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
     if not ffmpeg_tools.ffmpeg_path() and not ffmpeg:
         raise NeuralRenderError('ffmpeg is needed to build the comparison — '
                                 'install the video extra from Setup')
+    if not _COMPARISON_GATE.acquire(blocking=False):
+        raise ComparisonBusyError('another comparison is being built — try again '
+                                  'in a moment')
     out = Path(tempfile.mkdtemp(prefix='lds-compare-'))
     dst = out / 'comparison.mp4'
     try:
@@ -459,18 +484,27 @@ def build_comparison(left, right, *, left_label, right_label, ffmpeg=None,
                                   timeout=timeout_s or COMPARISON_TIMEOUT_S)
         except subprocess.TimeoutExpired:
             raise NeuralRenderError('building the comparison took too long and was stopped')
+        except OSError as exc:
+            # The path resolved and the binary is not there: the video extra was
+            # removed, or an ffmpeg on PATH moved. `ffmpeg_path()` answers with a
+            # directory entry, never with a working encoder — so this is a
+            # sentence, not a 500 out of subprocess.
+            raise NeuralRenderError(
+                'ffmpeg could not be run — reinstall the video extra from Setup '
+                f'({exc.__class__.__name__})')
         if proc.returncode != 0 or not dst.is_file():
             tail = (proc.stderr or '').strip().splitlines()[-1:] or ['ffmpeg failed']
             raise NeuralRenderError(f'the comparison could not be built: {tail[0]}')
         size = dst.stat().st_size
         if size > COMPARISON_MAX_BYTES:
-            raise NeuralRenderError(
+            raise ComparisonTooLargeError(
                 f'the comparison came out at {size // (1024 * 1024)} MB, past the '
                 f'{COMPARISON_MAX_BYTES // (1024 * 1024)} MB this route will hold '
                 'in memory — compare a shorter clip')
         return dst.read_bytes()
     finally:
         shutil.rmtree(out, ignore_errors=True)
+        _COMPARISON_GATE.release()
 
 
 # ── The render itself: one child per clip ───────────────────────────────────

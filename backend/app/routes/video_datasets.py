@@ -721,6 +721,14 @@ def video_dataset_clip_comparison(dataset_id, clip_id):
     try:
         data = nr.build_comparison(original, render, left_label='Original',
                                    right_label='Neural render (DLSS 5)')
+    except nr.ComparisonBusyError as exc:
+        # One encode at a time, and the second caller is told to come back —
+        # the same answer the timeline GIF gives, for the same reason.
+        res = jsonify({'error': str(exc)})
+        res.headers['Retry-After'] = '5'
+        return res, 429
+    except nr.ComparisonTooLargeError as exc:
+        return jsonify({'error': str(exc)}), 413
     except nr.NeuralRenderError as exc:
         return jsonify({'error': str(exc)}), 400
     stem = os.path.splitext(os.path.basename(render))[0]

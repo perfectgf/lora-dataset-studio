@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { saveUrlAsFile } from './fileSave.js'
+import { isAbort, saveUrlAsFile } from './fileSave.js'
 
 const res = (ok, { name = null, body = 'x', json = null } = {}) => ({
   ok,
@@ -50,4 +50,37 @@ test('a refusal that is not JSON still says something the user can read', async 
       saveBlob: () => {},
     }),
     /The comparison could not be built/)
+})
+
+test('an abort is recognisable, so a closed layer shows no error', () => {
+  const abort = Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' })
+  assert.equal(isAbort(abort), true)
+  assert.equal(isAbort(new Error('this clip plays no render')), false)
+  assert.equal(isAbort(null), false)
+})
+
+test('the DEFAULT transport carries the signal and the credentials', async () => {
+  // The signal only does anything if the real fetch gets it, so this exercises
+  // the default transport rather than an injected one — an injected fetchImpl
+  // would prove the test's own stub, not the code.
+  const controller = new AbortController()
+  const original = globalThis.fetch
+  let seenUrl = null
+  let seenOpts = null
+  globalThis.fetch = async (u, opts) => {
+    seenUrl = u
+    seenOpts = opts
+    return res(true, { name: 'a.mp4' })
+  }
+  try {
+    await saveUrlAsFile('/api/video-studio/clip/45/comparison', {
+      signal: controller.signal,
+      saveBlob: () => {},
+    })
+  } finally {
+    globalThis.fetch = original
+  }
+  assert.equal(seenUrl, '/api/video-studio/clip/45/comparison')
+  assert.equal(seenOpts.signal, controller.signal, 'the abort signal never reached fetch')
+  assert.equal(seenOpts.credentials, 'same-origin')
 })

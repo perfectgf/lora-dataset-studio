@@ -114,3 +114,56 @@ def test_the_dataset_route_refuses_a_clip_that_plays_its_original(client, monkey
     monkeypatch.setattr(nr, 'original_clip_path', lambda *a, **k: None)
     res = client.get('/api/video-dataset/1/clip/1/comparison')
     assert res.status_code == 404 and 'nothing to compare' in res.get_json()['error']
+
+
+# ── one encode at a time ────────────────────────────────────────────────────
+
+def test_a_second_comparison_is_refused_while_one_is_encoding(tmp_path, monkeypatch):
+    """Six of these at once took 17.4 s each instead of 2.1 s (measured): six
+    ffmpeg processes divide a machine rather than share it, and each finished
+    file waits in memory. So the second caller is told to come back — the answer
+    the timeline GIF next door already gives."""
+    clip = tmp_path / 'a.mp4'
+    clip.write_bytes(b'x')
+    assert nr._COMPARISON_GATE.acquire(blocking=False)
+    try:
+        with pytest.raises(nr.ComparisonBusyError, match='try again'):
+            nr.build_comparison(str(clip), str(clip), left_label='a', right_label='b')
+    finally:
+        nr._COMPARISON_GATE.release()
+    # …and the gate is free again: a refusal must not consume the slot.
+    assert nr._COMPARISON_GATE.acquire(blocking=False)
+    nr._COMPARISON_GATE.release()
+
+
+def test_the_gate_is_released_even_when_ffmpeg_fails(tmp_path, monkeypatch):
+    """The slot is held in a `finally`, so a broken encode cannot wedge the
+    route shut until a restart."""
+    clip = tmp_path / 'a.mp4'
+    clip.write_bytes(b'not a video')
+    monkeypatch.setattr(nr.ffmpeg_tools, 'ffmpeg_path', lambda: 'ffmpeg')
+    with pytest.raises(nr.NeuralRenderError):
+        nr.build_comparison(str(clip), str(clip), left_label='a', right_label='b',
+                            ffmpeg='definitely-not-an-encoder')
+    assert nr._COMPARISON_GATE.acquire(blocking=False), 'the slot leaked on failure'
+    nr._COMPARISON_GATE.release()
+
+
+def test_busy_and_too_large_are_their_own_answers(client, monkeypatch):
+    """429 with a Retry-After, and 413 — not a flat 400 that reads as "your
+    request was wrong" for two conditions that are neither."""
+    monkeypatch.setattr(nr, 'original_clip_path', lambda *a, **k: 'orig.mp4')
+    from app.services import video_bank_service as svc
+    monkeypatch.setattr(svc, 'dataset_clip_media_path', lambda *a, **k: 'render.mp4')
+
+    def busy(*a, **k):
+        raise nr.ComparisonBusyError('another comparison is being built')
+    monkeypatch.setattr(nr, 'build_comparison', busy)
+    res = client.get('/api/video-dataset/1/clip/1/comparison')
+    assert res.status_code == 429 and res.headers.get('Retry-After') == '5'
+
+    def big(*a, **k):
+        raise nr.ComparisonTooLargeError('the comparison came out at 900 MB')
+    monkeypatch.setattr(nr, 'build_comparison', big)
+    res = client.get('/api/video-dataset/1/clip/1/comparison')
+    assert res.status_code == 413

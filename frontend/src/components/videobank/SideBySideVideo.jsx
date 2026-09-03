@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { syncActions, sidesFor } from './videoSync'
-import { saveUrlAsFile } from '../../utils/fileSave'
+import { isAbort, saveUrlAsFile } from '../../utils/fileSave'
 
 /** ⇔ The original and its neural render, side by side and in step.
  *
@@ -45,18 +45,28 @@ export default function SideBySideVideo({ originalSrc, renderSrc, title, exportH
   const sides = sidesFor(swapped)
   const srcFor = (key) => (key === 'original' ? originalSrc : renderSrc)
 
+  // Closing the layer hangs up on an export in flight. The server finishes the
+  // encode either way (measured), so this is about the browser: no megabytes
+  // held for a window that is gone, and no state set on a dead component.
+  const exportAbort = useRef(null)
+  useEffect(() => () => exportAbort.current?.abort(), [])
+
   const exportFile = async () => {
     if (exporting) return
     setExporting(true)
     setExportError('')
+    const controller = new AbortController()
+    exportAbort.current = controller
     try {
       await saveUrlAsFile(exportHref, {
         fallbackName: 'comparison.mp4',
         failure: 'The comparison could not be built.',
+        signal: controller.signal,
       })
     } catch (err) {
-      setExportError(err.message || 'The comparison could not be built.')
+      if (!isAbort(err)) setExportError(err.message || 'The comparison could not be built.')
     } finally {
+      exportAbort.current = null
       setExporting(false)
     }
   }
