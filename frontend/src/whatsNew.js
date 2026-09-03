@@ -94,6 +94,8 @@ export const WHATS_NEW = [
       + 'one prompt after another — and every verb (download, deploy, continue, delete) '
       + 'is one click away on the pill, the same as in the list below.',
     to: '/datasets',
+  },
+  {
     id: '2026-09-03-video-smooth-rate',
     date: '2026-09-03',
     title: 'Smooth asks which rate you want',
