@@ -59,6 +59,11 @@ NON_DATASET_JOB_NAMES = {
     # at face_dataset_service would look up a row that does not exist. The
     # finished mp4 reaches its clip through video_test_studio.link_completed_clip.
     'video_lora_test',
+    # 🔴 The live channel routes on `is_live`, checked before model_name and
+    # before the Studio's own branch. Its clips are EPHEMERAL — no row in any
+    # table — so there is nothing a dataset dispatch could link; the finished
+    # mp4 reaches the stream through live_studio.link_completed_live_clip.
+    'video_live',
 }
 
 

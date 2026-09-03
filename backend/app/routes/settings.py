@@ -10,7 +10,15 @@ from .. import netguard as _netguard
 # The path-redaction helper moved to a shared util so services (run_share) can
 # reuse it without a route<-service back-import. Kept under its historical
 # private name here for the diagnostic call site below.
+from ..utils.redact import redact_tokens as _redact_tokens
 from ..utils.redact import redact_user_paths as _redact_user_paths
+
+
+def _paste_safe(line):
+    """Path- AND credential-redacted. An access token presented as `?token=`
+    (a phone's first hit, or VLC reading the live channel: one access-log
+    line per segment) sits in the log tail this payload carries."""
+    return _redact_user_paths(_redact_tokens(line))
 
 bp = Blueprint('settings', __name__, url_prefix='/api')
 
@@ -875,7 +883,7 @@ def _error_log_records(max_records=2, max_lines_per_record=30):
         kept = rec_lines[:max_lines_per_record]
         if len(rec_lines) > max_lines_per_record:
             kept.append(f'    … +{len(rec_lines) - max_lines_per_record} more line(s)')
-        out.extend(_redact_user_paths(l) for l in kept)
+        out.extend(_paste_safe(l) for l in kept)
     return out
 
 
@@ -916,7 +924,7 @@ def _recent_generation_errors(scan=40) -> dict:
     error hold engine/API/save/ComfyUI messages (prompts live in a SEPARATE column),
     still path-redacted and length-capped here. {} when nothing has failed."""
     def _clean(s):
-        return _redact_user_paths((s or '').strip())[:300]
+        return _paste_safe((s or '').strip())[:300]
 
     engines = {}
     try:
@@ -992,7 +1000,7 @@ def diagnostic():
     # viewer) keeps the raw lines, they're local-only and never meant to be
     # copy-pasted into a public thread.
     _, log_lines = _log_tail_lines(80)
-    log_lines = [_redact_user_paths(l) for l in log_lines]
+    log_lines = [_paste_safe(l) for l in log_lines]
     return jsonify({
         'app_version': APP_VERSION,
         'git_sha': updater.current_sha(),

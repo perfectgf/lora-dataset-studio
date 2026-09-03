@@ -51,6 +51,22 @@ def test_diagnostic_includes_log_tail(client, app, tmp_path, monkeypatch):
     assert j['log_tail'][-1] == 'line two'
 
 
+def test_diagnostic_redacts_an_access_token_in_the_log_tail(client, app):
+    """A phone or VLC presents the access token as `?token=` and werkzeug logs
+    the URL — once per segment for a player reading the live channel. The
+    value must not reach the payload meant to be pasted into a public thread."""
+    import os
+    from pathlib import Path
+    data_dir = Path(os.environ['LDS_DATA_DIR'])
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / 'app.log').write_text(
+        'INFO werkzeug: "GET /api/video-studio/live/abcd1234/seg/seg_000002.ts?token=SECRETtoken12345 HTTP/1.1" 200\n',
+        encoding='utf-8')
+    tail = client.get('/api/diagnostic').get_json()['log_tail']
+    assert 'SECRETtoken12345' not in '\n'.join(tail)
+    assert any('token=***' in line for line in tail)
+
+
 def test_diagnostic_exposes_ollama_vision_model_and_tags(client, app, monkeypatch):
     """The report carries the configured vision-model string AND the tags Ollama
     actually reports, so a 'vision_model=no' report can be triaged without a round

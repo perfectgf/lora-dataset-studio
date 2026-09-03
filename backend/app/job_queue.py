@@ -587,6 +587,14 @@ def _dispatch_completion(job, filename, failed):
             reason = job.error_message if job.error_message != 'generation failed' else None
             face_dataset_service.link_completed_reference_edit(
                 job.job_id, filename, failed=failed, reason=reason)
+        elif md.get('is_live'):
+            # 🔴 A live channel clip. Ephemeral by design — no row anywhere —
+            # so it cannot ride the Studio's branch below, which looks one up.
+            # Its result goes into the channel's stream (live_studio).
+            from .services import live_studio
+            reason = job.error_message if job.error_message != 'generation failed' else None
+            live_studio.link_completed_live_clip(job.job_id, filename, failed=failed, reason=reason,
+                                                 session_id=md.get('live_session'))
         elif md.get('is_video_test'):
             # A Video Test Studio clip. Its own branch rather than a model_name
             # match: the mp4 arrives under the history's `images` key like any

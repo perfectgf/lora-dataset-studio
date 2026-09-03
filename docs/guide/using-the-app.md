@@ -3847,6 +3847,51 @@ If the panel refuses to launch, it is telling you the graph cannot run on this
 install: the message names the missing weights and the ComfyUI node packs to
 install, rather than letting the job fail silently a minute later.
 
+## A live channel from your video LoRA
+
+The **Live** tab of the Test Studio (experimental) is the video engine as a
+channel that never stops: it draws a scene from a list, renders a clip with the
+LoRA you picked, keeps the next scene already in the queue, and appends every
+finished clip to a stream you watch in the tab — or in **VLC** on any machine
+of your network (*Media ▸ Open Network Stream*, paste the address the panel
+shows; if the app requires an access token from other machines, add
+`?token=…` to it and the segments inherit it). The stream follows its most
+advanced player: a second one joining later starts at the live edge rather
+than replaying what the first has watched. The shape comes from FastH3
+Live, an open-source endless AI channel
+built on the same MiniMax H3 engine; this lane keeps its two good ideas and
+uses your own installed pipeline for the rest — nothing new to download.
+
+**Why the picture plays slower than life.** H3 authors motion at 24 fps, and no
+consumer card renders 24 frames of video per second of clock. A channel that
+keeps up therefore plays the frames at a **lower rate** — 18 fps is motion at
+75 % speed, 12 fps is half — with the sound stretched by the same factor and its
+pitch preserved. Fast subjects read as deliberate slow motion; a person walking
+is where you notice. **Playback rate ▸ auto** measures your card on the first
+two clips and picks a tenth under what it sustains; pick a number yourself when
+you would rather have the speed and accept that the player waits between clips.
+
+**The rail tells you the truth per clip**: how many seconds a clip plays for at
+the chosen rate, how many seconds it took to render (model loading included —
+the first clip after a start is always slow), what rate the card sustains, and
+whether the stream is *keeping up* or *behind* and by how much. A channel that
+is behind is not broken; it is a card asked for more than it has. Lower the
+rate, **lengthen** the clips or drop the resolution — a clip pays a fixed cost
+(the model call, the decode, the encode) whatever its length, so more frames
+per clip buy more seconds of playback per second of render; shorter clips
+never help. When nobody is reading the stream the channel stops rendering
+after a few clips and the rail says so: nothing is spent on clips nobody
+watches.
+
+**Scenes** are written in H3's own grammar — what is shown, then the soundscape
+— one per block separated by a line holding `---`; `{NAME}` in a scene becomes
+the **Subject** (the trigger word of your LoRA, typically). They play in a
+shuffled order and do not repeat until all have played; edit the list and
+restart the channel to change it. The clips of a channel are not kept: a
+channel that ran for an hour must not leave two hundred cards in the history.
+The one thing it needs beyond the Video lane's weights is `ffmpeg`, which the
+app already ships for its other video work.
+
 ## Stopping Score, and what a relaunch costs
 
 **✨ Score** always covers the whole bank — but it only *computes* what it does

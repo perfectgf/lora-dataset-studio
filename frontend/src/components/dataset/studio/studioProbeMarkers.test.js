@@ -17,6 +17,7 @@ const shell = read('./StudioShell.jsx');
 const actionBar = read('./StudioActionBar.jsx');
 const setup = read('./RunSetupPanel.jsx');
 const picker = read('./LoraPicker.jsx');
+const liveLane = read('./live/LiveStudio.jsx');
 const probe = read('../../../../scripts/responsiveProbe.mjs');
 
 test('the Studio chrome and panels are marked for the responsive probe', () => {
@@ -56,6 +57,13 @@ test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () =
   assert.match(lanes, /data-testid=\{`studio-lane-\$\{id\}`\}/);
   assert.match(picker, /data-testid=\{`video-source-\$\{id\}`\}/);
   assert.match(probe, /\{ name: 'video', open: \['\[data-testid="studio-lane-video"\]'\] \}/);
+  // 🔴 The third lane is a tab too: without its own state the channel's rail
+  // and player are never measured at 360 px.
+  assert.match(probe, /\{ name: 'live', open: \['\[data-testid="studio-lane-live"\]'\] \}/);
+  // The lane's header is the chrome the probe budgets there, as the Video lane's is:
+  // without one the probe measures nothing and says so, which is not a pass.
+  assert.match(liveLane, /<header data-probe-chrome="live-studio-header"/);
+  assert.match(lanes, /\{ id: 'live', label: 'Live', icon: Radio \}/);
   assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
   assert.match(probe, /'\[data-testid="video-source-clip"\]'/);
 });

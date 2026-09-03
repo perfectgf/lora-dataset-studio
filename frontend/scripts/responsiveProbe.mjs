@@ -359,6 +359,9 @@ const PAGES = {
          that could only be checked by hand. The gallery state opens the tab
          whose grid and "Show older" row live one level deeper still. */
       { name: 'video', open: ['[data-testid="studio-lane-video"]'] },
+      /* 🔴 The Live lane: a take sheet, a rail of six dials and the player —
+         another tab the Images run would never open. */
+      { name: 'live', open: ['[data-testid="studio-lane-live"]'] },
       { name: 'video-gallery',
         open: ['[data-testid="studio-lane-video"]', '[data-testid="video-source-gallery"]'] },
       /* The Dataset clip tab: its select and footnote. The clip grid behind

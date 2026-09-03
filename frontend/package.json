@@ -17,6 +17,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "hls.js": "^1.7.2",
     "lucide-react": "^1.34.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.7",

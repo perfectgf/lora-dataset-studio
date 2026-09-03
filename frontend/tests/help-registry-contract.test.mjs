@@ -65,7 +65,7 @@ const routeValid = (route) => {
   // the image lane silently, which is exactly the class of dead link this test
   // exists to catch.
   if (path === '/studio') {
-    return ['image', 'video'].includes(new URLSearchParams(qs).get('lane'))
+    return ['image', 'video', 'live'].includes(new URLSearchParams(qs).get('lane'))
   }
   if (path !== '/datasets') return false
   const params = new URLSearchParams(qs)
