@@ -85,6 +85,20 @@ export const WHATS_NEW = [
   {
     // Same-day ids sort the feed (date, then id): an id below the day's
     // others never reaches the top, and the badge counts nothing new.
+    id: '2026-09-03-what-each-capability-unlocks',
+    date: '2026-09-03',
+    title: 'Capabilities: every row says what it unlocks — and the Video lane’s three doors are counted',
+    blurb:
+      'Settings ▸ Overview (and the wizard’s last screen) put one line under '
+      + 'each capability saying what it does — "Test Studio (images)" is where '
+      + 'test images are generated with a LoRA, "Video Test Studio" tests one '
+      + 'in motion. Three rows join the count: ✨ DLSS 5 neural rendering, '
+      + '↗ Smooth (frame interpolation) and the 🔴 Live lane — each its own '
+      + 'install, each shown not-ready with its door instead of hiding behind '
+      + 'a green video row.',
+    to: '/settings/overview',
+  },
+  {
     id: '2026-09-03-video-test-studio-prompts-per-picture',
     date: '2026-09-03',
     title: 'A batch of pictures, one prompt each',

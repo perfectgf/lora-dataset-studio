@@ -39,7 +39,7 @@ export default function OverviewSection({ caps }) {
             {ready}/{summary.length} ready{waiting ? ` · ${waiting} waiting` : ''}
           </span>
         </div>
-        <p className="mt-1 text-xs text-content-subtle">Pick any row to jump to the setting that turns it on.</p>
+        <p className="mt-1 text-xs text-content-subtle">Each row says what it unlocks — pick one to jump to the setting that turns it on.</p>
         <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
           {summary.map((s) => {
             const dest = capabilityDestination(s)
@@ -57,6 +57,11 @@ export default function OverviewSection({ caps }) {
                   <span className={`block truncate ${s.ok || s.pending ? 'text-content' : 'text-content-muted'}`}>
                     {s.label}
                   </span>
+                  {/* What the row unlocks, always shown: a name alone ("Test
+                      Studio") did not say it was where test IMAGES are made —
+                      read from a phone, 2026-09-03. Wraps rather than truncates:
+                      the second half of the sentence is the point. */}
+                  {s.what && <span className="block text-[11px] leading-snug text-content-subtle">{s.what}</span>}
                   {s.note && <span className="block truncate text-[11px] text-amber-300/80">{s.note}</span>}
                 </span>
                 <span aria-hidden

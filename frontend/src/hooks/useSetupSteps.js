@@ -606,11 +606,19 @@ export function deriveCapabilitySummary(caps) {
   const kreaDiskGap = !!(Array.isArray(cu.krea_missing) && cu.krea_missing.length)
     || !cu.krea_nodes_installed
   const kreaRestartPending = kreaNeedsComfyuiRestart(c)
+  // The Video lane's three doors (rows below): each is its own install, so
+  // each is its own row. `videoWeightsThere` is the "weights on disk" half of
+  // the pending rule the 🎬 row already applies — down only because ComfyUI
+  // is; Smooth's packs are read from /object_info, unreadable while it is.
+  const videoWeightsThere = !(Array.isArray(cu.video_studio_missing) && cu.video_studio_missing.length)
+  const vfi = (cu.video_studio_options && cu.video_studio_options.vfi) || {}
+  const smoothOk = !!cu.video_studio_ready && vfi.available === true
+  const liveOk = !!cu.video_studio_ready && !!c.video_encode
   return [
-    { label: 'Nano Banana (Gemini)', ok: !!e.nanobanana, topic: 'GEMINI_API_KEY' },
-    { label: 'ChatGPT (gpt-image-2)', ok: !!e.chatgpt, topic: 'engines.chatgpt_auth' },
-    { label: 'OpenRouter', ok: !!e.openrouter, topic: 'OPENROUTER_API_KEY' },
-    { label: 'Klein (local)', ok: !!e.klein,
+    { label: 'Nano Banana (Gemini)', what: "Generates test images from a prompt — Google's cloud engine (API key)", ok: !!e.nanobanana, topic: 'GEMINI_API_KEY' },
+    { label: 'ChatGPT (gpt-image-2)', what: "Generates test images — OpenAI's cloud engine (API key)", ok: !!e.chatgpt, topic: 'engines.chatgpt_auth' },
+    { label: 'OpenRouter', what: 'Generates test images through OpenRouter-hosted models (API key)', ok: !!e.openrouter, topic: 'OPENROUTER_API_KEY' },
+    { label: 'Klein (local)', what: 'Generates test images in your own ComfyUI — no key, your GPU', ok: !!e.klein,
       topic: 'setup-comfyui', waitingTopic: WAITING,
       ...(!e.klein && comfyOff ? { pending: true, note: NOTE } : {}) },
     // Krea 2 Edit is COUNTED even though it is optional, and even though nothing
@@ -620,7 +628,7 @@ export function deriveCapabilitySummary(caps) {
     // believing there was nothing left — and met a dark engine card weeks later.
     // A capability that is absent must be VISIBLE and counted, never removed from
     // the denominator.
-    { label: 'Krea 2 Edit (local)', ok: !!e.krea,
+    { label: 'Krea 2 Edit (local)', what: 'Edits pictures in your ComfyUI (Krea 2 Edit node pack + identity LoRA)', ok: !!e.krea,
       topic: 'setup-krea-install', waitingTopic: WAITING,
       // Two different "not yet": nothing is on disk (a real install to do, so a
       // plain ✗ pointing at the install screen), or everything is there and only
@@ -635,7 +643,7 @@ export function deriveCapabilitySummary(caps) {
     // completeness by omission. `camera_ready` is asset-only (no node pack, no
     // per-run process), so unlike the two engines above there is no restart
     // state — just installed or not, plus the shared "ComfyUI is off" note.
-    { label: '📷 Camera angles (local)', ok: !!cu.camera_ready,
+    { label: '📷 Camera angles (local)', what: 'Re-shoots a picture from another viewpoint, in your ComfyUI', ok: !!cu.camera_ready,
       topic: 'setup-camera-install', waitingTopic: WAITING,
       ...(!cu.camera_ready && !(Array.isArray(cu.camera_missing) && cu.camera_missing.length)
         && comfyOff ? { pending: true, note: NOTE } : {}) },
@@ -647,28 +655,49 @@ export function deriveCapabilitySummary(caps) {
     // tab ships to every install, so a machine without the weights must read
     // "not ready, here is the install" rather than vanish from the denominator.
     // Its OPTIONS are not counted — each one degrades a checkbox, not the lane.
-    { label: '🎬 Video Test Studio (beta)', ok: !!cu.video_studio_ready,
+    { label: '🎬 Video Test Studio (beta)', what: 'Tests a LoRA in motion — image- or text-to-video clips with MiniMax H3', ok: !!cu.video_studio_ready,
       topic: 'setup-video-studio', waitingTopic: WAITING,
       ...(!cu.video_studio_ready
         && !(Array.isArray(cu.video_studio_missing) && cu.video_studio_missing.length)
         && comfyOff ? { pending: true, note: NOTE } : {}) },
-    { label: 'Captioning',
+    // ✨ DLSS 5, ↗ Smooth and 🔴 Live are the Video lane's three doors a green
+    // 🎬 row said nothing about ("DLSS is missing" — asked on the Overview,
+    // 2026-09-03). Each is its own install — the bridge and the model file,
+    // two node packs, ffmpeg — so each is its own row, counted like every
+    // other: absent must read "not ready, here is the install", never vanish
+    // from the denominator. DLSS never waits on ComfyUI (a worker of its own).
+    { label: '✨ DLSS 5 neural rendering', ok: !!(c.dlss5nr && c.dlss5nr.ready),
+      what: "Re-renders a finished clip's lighting and materials — NVIDIA DLSS 5, Windows",
+      topic: 'setup-dlss5-install' },
+    { label: '↗ Smooth (frame interpolation)', ok: smoothOk,
+      what: "Doubles or triples a clip's frame rate — RIFE, two ComfyUI node packs",
+      topic: 'setup-video-studio', waitingTopic: WAITING,
+      ...(!smoothOk && videoWeightsThere && comfyOff ? { pending: true, note: NOTE } : {}) },
+    { label: '🔴 Live lane (beta)', ok: liveOk,
+      what: 'Endless clips played as one stream — the video weights plus ffmpeg',
+      // The gap decides the door: weights missing → the video install; weights
+      // there but no ffmpeg → the video extra, on the quality step.
+      topic: cu.video_studio_ready ? 'setup-quality' : 'setup-video-studio', waitingTopic: WAITING,
+      ...(!liveOk && videoWeightsThere && comfyOff ? { pending: true, note: NOTE }
+        : !liveOk && cu.video_studio_ready && !c.video_encode
+          ? { note: 'needs ffmpeg — install the video extra' } : {}) },
+    { label: 'Captioning', what: 'Writes a caption for every picture — JoyCaption or your local LLM',
       ok: !!(cap.joycaption || (cap.local_llm !== undefined ? cap.local_llm : cap.ollama)),
       topic: 'setup-ollama' },
-    { label: 'Auto-framing & head-crop',
+    { label: 'Auto-framing & head-crop', what: 'The local vision model: framing, head crops — and ✨ motion prompts for video',
       ok: !!(cap.local_llm_vision !== undefined
         ? cap.local_llm_vision
         : (o.reachable && o.vision_model_ready)),
       topic: 'setup-ollama' },
-    { label: 'Face-similarity scoring', ok: !!c.face_scoring, topic: 'setup-quality' },
-    { label: 'Person masks', ok: !!c.masks, topic: 'setup-quality' },
-    { label: 'Watermark inpainting', ok: !!c.watermark_inpaint, topic: 'setup-quality' },
+    { label: 'Face-similarity scoring', what: 'Ranks how much each picture looks like the reference face (InsightFace)', ok: !!c.face_scoring, topic: 'setup-quality' },
+    { label: 'Person masks', what: 'Cuts the person out of the background for masked training (rembg)', ok: !!c.masks, topic: 'setup-quality' },
+    { label: 'Watermark inpainting', what: 'Repaints off-center watermarks during 🧽 Clean (LaMa)', ok: !!c.watermark_inpaint, topic: 'setup-quality' },
     // Counted for the same reason Krea is (see above): the final screen used to
     // certify "12 of 12 ready" on a machine whose video lane could not open one
     // file. A capability that is absent must be visible and counted, never
     // removed from the denominator.
-    { label: 'Video bank — reading files', ok: !!c.video_decode, topic: 'setup-quality' },
-    { label: 'Video bank — shot detection', ok: !!c.video_detect, topic: 'setup-quality' },
+    { label: 'Video bank — reading files', what: 'Opens video files: length, thumbnails, quality, cuts (PyAV)', ok: !!c.video_decode, topic: 'setup-quality' },
+    { label: 'Video bank — shot detection', what: 'Splits a video at its shot boundaries (TransNetV2)', ok: !!c.video_detect, topic: 'setup-quality' },
     // The THIRD video piece, and the one that was still silently missing from
     // this list. capabilities.probe_video() reports decode / detect / encode
     // apart on purpose ("a single boolean would be a lie here"), and the encoder
@@ -679,26 +708,26 @@ export function deriveCapabilitySummary(caps) {
     // export one clip. Same install action as decoding (`video` = PyAV +
     // imageio-ffmpeg), so the fix is one ↻ Reinstall on the quality step, but it
     // is a separate row because a green "reading files" is not the answer to it.
-    { label: 'Video bank — clip encoding', ok: !!c.video_encode, topic: 'setup-quality' },
+    { label: 'Video bank — clip encoding', what: 'Cuts and exports clips (ffmpeg)', ok: !!c.video_encode, topic: 'setup-quality' },
     // Four more that were installable (INSTALL_ACTIONS: bank_scoring, bank_siglip2,
     // watermark_detect, scrape_extras; capabilities.py: bank_scoring, bank_siglip2,
     // watermark_detect, scrape_deps) and had a working Setup card, yet never had a
     // row here — the exact defect the comments above name, just for four different
     // engines. A machine missing all four still certified "14 of 14 ready".
-    { label: 'Bank scoring (aesthetic · NSFW · style)', ok: !!c.bank_scoring,
+    { label: 'Bank scoring (aesthetic · NSFW · style)', what: 'Scores Bank pictures: aesthetics, NSFW flag, style groups (CLIP)', ok: !!c.bank_scoring,
       topic: 'setup-quality' },
-    { label: 'SigLIP2 Bank semantics (optional)', ok: !!c.bank_siglip2,
+    { label: 'SigLIP2 Bank semantics (optional)', what: 'Semantic search, similarity and diversity in a Bank (SigLIP 2)', ok: !!c.bank_siglip2,
       topic: 'setup-quality' },
-    { label: 'Watermark detector (optional)', ok: !!c.watermark_detect,
+    { label: 'Watermark detector (optional)', what: 'Finds watermarks about ten times faster and marks where they sit', ok: !!c.watermark_detect,
       topic: 'setup-quality' },
-    { label: 'Scraping extras (optional)', ok: !!c.scrape_deps, topic: 'setup-quality' },
+    { label: 'Scraping extras (optional)', what: 'Gallery links, keyless web image search and video sources (gallery-dl, yt-dlp…)', ok: !!c.scrape_deps, topic: 'setup-quality' },
     // 📤 A credential, counted like the engine keys above: publishing a
     // checkpoint or posting an image to Civitai needs the one Civitai key,
     // and a machine without it must read "not ready, here is the field" —
     // the same rule as every row here. Its door is the key itself.
-    { label: '📤 Civitai publishing', ok: !!(c.civitai && c.civitai.ok), topic: 'CIVITAI_API_KEY' },
-    { label: 'LoRA training', ok: !!c.training_visible, topic: 'setup-training' },
-    { label: 'Test Studio', ok: !!c.studio_visible,
+    { label: '📤 Civitai publishing', what: 'Posts checkpoints and images to Civitai; also the 🌐 prompt browser (API key)', ok: !!(c.civitai && c.civitai.ok), topic: 'CIVITAI_API_KEY' },
+    { label: 'LoRA training', what: 'Trains LoRAs with ai-toolkit — your GPU or a Vast.ai machine', ok: !!c.training_visible, topic: 'setup-training' },
+    { label: '🖼️ Test Studio (images)', what: 'Generates test images with a LoRA in your ComfyUI — the Test Studio page', ok: !!c.studio_visible,
       topic: 'setup-comfyui', waitingTopic: WAITING,
       ...(!c.studio_visible && comfyOff ? { pending: true, note: NOTE } : {}) },
   ]
