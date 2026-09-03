@@ -31,6 +31,7 @@ import os
 import re
 import socket
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -853,6 +854,15 @@ _OBJECT_INFO_TIMEOUT_MAX = 300
 # consumer still fails OPEN, so this can only ever make the app decide FASTER,
 # never differently, and `clear_model_caches()` drops it on demand.
 _OBJECT_INFO_FAIL_TTL = 20
+# Past the TTL the cached set is STALE, not wrong: it is served at once and
+# refreshed in the background, so a launch never waits the read out (6.7 MB,
+# 2.2 s measured — paid by every Generate that came more than a minute after
+# the previous one). Past _OBJECT_INFO_STALE_MAX the read blocks again: a set
+# that old may predate a ComfyUI restart, and the refresh button still drops
+# the cache outright (`clear_model_caches`) for the fresh-deploy case.
+_OBJECT_INFO_STALE_MAX = 600
+_object_info_refresh_lock = threading.Lock()
+_object_info_refreshing = False
 # Outcome of the last real ATTEMPT (a cache hit is not an attempt and never
 # rewrites it). Doubles as the negative cache: `status != 'ok'` within
 # _OBJECT_INFO_FAIL_TTL of `timestamp`, for the same api address, is served
@@ -1056,9 +1066,14 @@ def _fetch_object_info(timeout=None, force=False):
     (see `confirm_unavailable_model_files`). Nothing on a hot path may pass it."""
     addr = api_address()
     now = time.time()
-    if (not force and _object_info_cache["data"] is not None
-            and _object_info_cache["key"] == addr
-            and now - _object_info_cache["timestamp"] < _OBJECT_INFO_TTL):
+    cached_here = (not force and _object_info_cache["data"] is not None
+                   and _object_info_cache["key"] == addr)
+    if cached_here and now - _object_info_cache["timestamp"] < _OBJECT_INFO_TTL:
+        return (_object_info_cache["data"], _object_info_cache["enums"],
+                _object_info_cache["files"])
+    if cached_here and now - _object_info_cache["timestamp"] < _OBJECT_INFO_STALE_MAX:
+        # Stale-while-revalidate: answer with what we have, refresh behind.
+        _refresh_object_info_in_background()
         return (_object_info_cache["data"], _object_info_cache["enums"],
                 _object_info_cache["files"])
     if (not force and _object_info_last["status"] not in ('ok', 'unknown')
@@ -1095,6 +1110,26 @@ def _fetch_object_info(timeout=None, force=False):
                               files=files)
     _object_info_last.update(timestamp=now, key=addr, status='ok', waited=read_budget)
     return classes, enums, files
+
+
+def _refresh_object_info_in_background():
+    """One refresh at a time; the caller already has a stale answer to use."""
+    global _object_info_refreshing
+    with _object_info_refresh_lock:
+        if _object_info_refreshing:
+            return
+        _object_info_refreshing = True
+
+    def _run():
+        global _object_info_refreshing
+        try:
+            _fetch_object_info(force=True)
+        except Exception:  # noqa: BLE001 — the stale set stays; the next call retries
+            logger.debug('object_info background refresh failed', exc_info=True)
+        finally:
+            with _object_info_refresh_lock:
+                _object_info_refreshing = False
+    threading.Thread(target=_run, name='object-info-refresh', daemon=True).start()
 
 
 def fetch_object_info_classes(timeout=None):

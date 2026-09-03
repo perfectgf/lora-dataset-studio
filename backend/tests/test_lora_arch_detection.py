@@ -288,8 +288,8 @@ def test_arch_mismatch_route_maps_to_409(app, client, monkeypatch):
     with app.app_context():
         ds = svc.create_dataset(LOCAL_USER, 'Kit', 'kitty')
         dsid = ds.id
-    monkeypatch.setattr(_common.capabilities, 'probe',
-                        lambda *a, **k: {'comfyui': {'reachable': True}})
+    monkeypatch.setattr(_common.capabilities, 'probe_comfyui',
+                        lambda: {'ok': True, 'detail': '', 'status': 'ok', 'hint': ''})
 
     def _raise(*a, **k):
         raise lts.StudioArchMismatch('krea', 'zimage', 'krea\\lora_kitty_000002000.safetensors')

@@ -15,6 +15,8 @@ def _create(client, name='Nova', trigger='nova'):
 
 def _comfy(monkeypatch, reachable):
     monkeypatch.setattr('app.capabilities.probe', lambda *a, **k: {'comfyui': {'reachable': reachable}})
+    # The gate reads the ComfyUI probe alone, never the whole-app probe.
+    monkeypatch.setattr('app.capabilities.probe_comfyui', lambda: {'ok': reachable, 'status': 'ok' if reachable else 'unreachable', 'detail': '', 'hint': ''})   # empty: the gate's own default hint applies
 
 
 # --- /api/studio/run gating ---------------------------------------------------

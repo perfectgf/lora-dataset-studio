@@ -26,6 +26,7 @@ _ST =(b'\x08\x00\x00\x00\x00\x00\x00\x00{"__metadata__":{}}'
 def _comfy(monkeypatch, reachable=True):
     monkeypatch.setattr('app.capabilities.probe',
                         lambda *a, **k: {'comfyui': {'reachable': reachable}})
+    monkeypatch.setattr('app.capabilities.probe_comfyui', lambda: {'ok': reachable, 'status': 'ok' if reachable else 'unreachable', 'detail': '', 'hint': 'Check the URL'})
 
 
 def _zimage_tree(tmp_path, monkeypatch, loras):
