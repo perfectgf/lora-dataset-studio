@@ -387,18 +387,22 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
     accel = normalise_accel(accel, turbo)
     if accel == 'turbo':
         _graft_turbo(wf)
-        notes.append(f'turbo: larryvrh distillation, steps={wf[N_SCHEDULER]["inputs"]["steps"]}')
     elif accel:
-        spec = accel_spec(accel)
-        _graft_stock_accel(wf, spec)
-        notes.append(f"accel: {spec['label']} @ {spec['strength']:g}, shift "
-                     f"{spec['shift'][0]:g}/{spec['shift'][1]:g}, euler, "
-                     f"steps={wf[N_SCHEDULER]['inputs']['steps']}")
+        _graft_stock_accel(wf, accel_spec(accel))
     if steps is not None:
         # An explicit step count always wins, including over the turbo default:
         # the panel showing 6 while the graph runs 4 is the exact failure this
         # pipeline already paid for once.
         wf[N_SCHEDULER]['inputs']['steps'] = max(4, min(40, int(steps)))
+    # The note reads the count AFTER the override: a log that said "steps=6"
+    # while the graph ran the user's 4 was seen on the first real launch.
+    if accel == 'turbo':
+        notes.append(f'turbo: larryvrh distillation, steps={wf[N_SCHEDULER]["inputs"]["steps"]}')
+    elif accel:
+        spec = accel_spec(accel)
+        notes.append(f"accel: {spec['label']} @ {spec['strength']:g}, shift "
+                     f"{spec['shift'][0]:g}/{spec['shift'][1]:g}, euler, "
+                     f"steps={wf[N_SCHEDULER]['inputs']['steps']}")
 
     if lora:
         # The applied force comes BACK from the graft rather than being

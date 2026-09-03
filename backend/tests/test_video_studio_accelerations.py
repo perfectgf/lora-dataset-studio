@@ -65,7 +65,11 @@ def test_the_lora_under_test_sits_on_top_of_the_acceleration():
 
 
 def test_an_explicit_step_count_still_wins_over_the_accelerations_six():
-    assert _graph(accel='dareties', steps=8)['steps'] == 8
+    out = _graph(accel='dareties', steps=8)
+    assert out['steps'] == 8
+    assert any(n.endswith('steps=8') for n in out['notes']), 'the note says what the graph runs, not the default'
+    turbo = _graph(turbo=True, steps=4)
+    assert turbo['steps'] == 4 and any(n.endswith('steps=4') for n in turbo['notes'])
 
 
 def test_every_optional_weight_with_a_button_is_a_download_setup_knows():
