@@ -208,64 +208,110 @@ def test_the_lanes_that_were_missing_are_collectable_too(tmp_path, name):
 
 def test_every_staging_call_site_mints_a_collectable_name():
     r"""`_STAGED_INPUT_RE` is a hand-written mirror of the staging call sites, and
-    it had already drifted from them twice — `wmkleinmask_img_…` once, then four
+    it had already drifted from them twice — `wmkleinmask_img_…` once, then several
     lanes at once. So check the mirror against the SOURCE rather than against
     another hand-written list: every `stage_input_*` call under `app/` is read out
-    of the AST, its destination name rendered with a plausible uid, and handed to
-    `is_staged_input_name`.
+    of the AST, every name its destination expression can produce is rendered, and
+    each one is handed to `is_staged_input_name`.
 
-    A lane added later fails here by name, with the file and line to fix. Names
-    built from a local variable are resolved through the enclosing function, which
-    is how the watermark lane passes its three."""
+    A lane added later fails here by name, with the file and line to fix.
+
+    Two things this has to get right, both learned by getting them wrong. A uid
+    keeps its REAL width, read off the expression that builds it — a bare
+    `uuid.uuid4().hex` is thirty-two digits, and matching the letters "uid" inside
+    the word "uuid" once made this guard accuse a name that was perfectly well
+    swept. And one slot can hold SEVERAL literals: the video-reference lane picks
+    its extension out of a dict, so all three of its names are checked rather than
+    one invented average of them."""
     import ast
 
     funcs = {'stage_input_image': 1, 'stage_input_write': 0, 'stage_input_copy': 1}
     app_root = pathlib.Path(__file__).resolve().parents[1] / 'app'
+    HEX = '0a1b2c3d4e5f6789abcdef0123456789'
 
-    def render(node, scope):
-        """The literal a dest-name expression produces, or None when it is not
-        one the AST can settle. Placeholders are filled from the EXPRESSION's own
-        text, so `uuid.uuid4().hex[:10]` yields ten hex digits, not a guess."""
+    def bind(scope, name, lineno):
+        """What `name` holds where the CALL sits: the last assignment above it,
+        not whichever one `ast.walk` happened to reach first. `video_references`
+        assigns `suffix` twice in one function, and taking the wrong one renders a
+        name that never existed."""
+        above = [value for line, value in scope.get(name, ()) if line <= lineno]
+        return above[-1] if above else None
+
+    def render(node, scope, lineno):
+        """Every literal the expression can produce; [] when the AST cannot settle
+        it. A list, not one string — see the docstring above."""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node.value
+            return [node.value]
         if isinstance(node, ast.Name):
-            bound = scope.get(node.id)
-            return render(bound, scope) if bound is not None else None
+            bound = bind(scope, node.id, lineno)
+            return render(bound, scope, lineno) if bound is not None else []
+        if isinstance(node, ast.Subscript):
+            target = node.value
+            if isinstance(target, ast.Name):
+                target = bind(scope, target.id, lineno)
+            if isinstance(target, ast.Dict):        # `{'image': '.png', …}[kind]`
+                return [v.value for v in target.values
+                        if isinstance(v, ast.Constant) and isinstance(v.value, str)]
+            return []
         if not isinstance(node, ast.JoinedStr):
-            return None
-        out = []
+            return []
+        out = ['']
         for part in node.values:
             if isinstance(part, ast.Constant):
-                out.append(str(part.value))
+                out = [prefix + str(part.value) for prefix in out]
                 continue
-            src = ast.unparse(part.value)
-            width = re.search(r'hex\[:(\d+)\]', src)
-            if width:
-                out.append('0a1b2c3d4e5f6789abcdef0123456789'[:int(width.group(1))])
-            elif 'uid' in src:
-                out.append('0a1b2c3d')
-            elif src.strip() == 'i':
-                out.append('1')
-            else:
-                out.append('src')
-        return ''.join(out)
+            options = slot(part.value, scope, lineno)
+            if not options:
+                return []
+            out = [prefix + option for prefix in out for option in options]
+        return out
+
+    def slot(expr, scope, lineno):
+        """What one `{…}` can contain, read off the expression itself."""
+        src = ast.unparse(expr)
+        width = re.search(r'\.hex\[:(\d+)\]', src)
+        if width:
+            return [HEX[:int(width.group(1))]]
+        if src.endswith('.hex'):
+            return [HEX]
+        if isinstance(expr, ast.Name):
+            bound = bind(scope, expr.id, lineno)
+            if bound is not None:
+                return slot(bound, scope, lineno)
+        literals = render(expr, scope, lineno)
+        if literals:
+            return literals
+        if re.search(r'\buid\b', src):
+            return [HEX[:8]]
+        if src.strip() == 'i':
+            return ['1']
+        return ['src']              # a stem taken from the user's own file name
 
     minted, unresolved = {}, []
     for path in sorted(app_root.rglob('*.py')):
         tree = ast.parse(path.read_text(encoding='utf-8'))
         for fn in (n for n in ast.walk(tree)
                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
-            scope = {t.id: n.value for n in ast.walk(fn) if isinstance(n, ast.Assign)
-                     for t in n.targets if isinstance(t, ast.Name)}
+            scope = {}
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name):
+                            scope.setdefault(target.id, []).append((node.lineno, node.value))
+            for bindings in scope.values():
+                bindings.sort(key=lambda pair: pair[0])
             for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
                 if not isinstance(call.func, ast.Attribute) or call.func.attr not in funcs:
                     continue
-                idx = funcs[call.func.attr]
-                if len(call.args) <= idx:
+                index = funcs[call.func.attr]
+                if len(call.args) <= index:
                     continue
                 where = f'{path.relative_to(app_root).as_posix()}:{call.lineno}'
-                name = render(call.args[idx], scope)
-                (minted.setdefault(name, where) if name else unresolved.append(where))
+                names = render(call.args[index], scope, call.lineno)
+                if not names:
+                    unresolved.append(where)
+                for name in names:
+                    minted.setdefault(name, where)
 
     assert not unresolved, (
         'a staging call site names its file in a way this guard cannot read, so it '
