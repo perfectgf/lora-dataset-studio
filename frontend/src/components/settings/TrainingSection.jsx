@@ -4,7 +4,7 @@ import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './Setti
 import { TRAINING_GROUPS } from './settingsGroups'
 import ResetToDefault from './ResetToDefault'
 import { defaultValueAt } from './settingDefaults.js'
-import { VAST_CONSOLE_URL, VAST_REFERRAL_ID, vastSignupUrl } from '../../utils/vastReferral.js'
+import { VAST_REFERRAL_ID, vastSignupUrl } from '../../utils/vastReferral.js'
 import VastReferralDisclosure from '../common/VastReferralDisclosure'
 
 // Keep in sync with backend TRAIN_TYPES (face_dataset_service.py) — 'flux' had
@@ -20,7 +20,6 @@ const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea', 'flux', 'flux2klein', 'anima']
 export function VastKeyGuide({ referralId = VAST_REFERRAL_ID } = {}) {
   const link = 'font-medium text-sky-300 underline hover:text-sky-200'
   const signup = vastSignupUrl(referralId)
-  const referral = signup !== VAST_CONSOLE_URL
   return (
     <details className="mb-2 rounded-lg border border-border bg-surface px-3 py-2 open:pb-3">
       <summary className="cursor-pointer select-none text-xs font-medium text-content">
@@ -49,11 +48,8 @@ export function VastKeyGuide({ referralId = VAST_REFERRAL_ID } = {}) {
           key automatically and should answer “connected as &lt;your account&gt;”.
         </li>
       </ol>
-      {referral && (
-        <p className="mt-2 text-xs text-content-muted">
-          <VastReferralDisclosure subject="Step 1’s link" linkClass={link} />
-        </p>
-      )}
+      <VastReferralDisclosure referralId={referralId} subject="Step 1’s link" linkClass={link}
+        className="mt-2 text-xs text-content-muted" />
     </details>
   )
 }

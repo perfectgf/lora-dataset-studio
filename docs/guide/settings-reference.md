@@ -883,7 +883,7 @@ separate 3.10–3.12 interpreter.
 
 ### Cloud GPU (vast.ai)
 
-- **vast.ai API key** → `VAST_API_KEY` (secret). Add it to unlock **☁️ Train in cloud**. **Test** validates it (and auto-saves it first). The card includes a step-by-step guide to getting the key from [cloud.vast.ai](https://cloud.vast.ai/?ref_id=683073) — a referral link: vast.ai pays the project 3% of what a referred account spends, at no cost to you and with no change in the app (see the [affiliate disclosure](../../README.md#getting-api-keys) in the README); the untagged <https://cloud.vast.ai/> works exactly the same.
+- **vast.ai API key** → `VAST_API_KEY` (secret). Add it to unlock **☁️ Train in cloud**. **Test** validates it (and auto-saves it first). The card includes a step-by-step guide to getting the key from [cloud.vast.ai](https://cloud.vast.ai/?ref_id=683073) — a referral link: vast.ai pays the project 3% of what a referred account spends, at no cost to you and with no change in the app (see the [affiliate disclosure](https://github.com/perfectgf/lora-dataset-studio#getting-api-keys) in the README); the untagged [cloud.vast.ai](https://cloud.vast.ai/) works exactly the same.
 
 ### Cloud training
 
