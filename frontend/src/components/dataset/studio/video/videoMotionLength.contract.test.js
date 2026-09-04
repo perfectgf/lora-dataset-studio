@@ -40,7 +40,18 @@ function motionCalls(src) {
 
 test('both ✨ gestures send the clip length the dials are set to', () => {
   const calls = motionCalls(PANEL)
-  assert.deepEqual(calls.map((c) => c.url).sort(), ['motionEnhanceUrl', 'motionSuggestUrl'],
+  // A CENSUS, not a list: a writer added tomorrow fails here until someone has
+  // decided what clip length it paces on.
+  //
+  // ⚠️ THE COUNT IS THE POINT. It used to be FOUR — the two ✨ buttons plus a
+  // per-picture writer that asked the same two routes once per frame. Each of
+  // those calls opens a vision window, and every window makes ComfyUI drop its
+  // models, so a twelve-picture strip reloaded the video model twelve times.
+  // The per-picture path is now ONE batched call, so the census is back to
+  // three. If a fourth ever reappears here, check it is not that loop coming
+  // back before extending this list.
+  assert.deepEqual(calls.map((c) => c.url).sort(),
+    ['motionEnhanceUrl', 'motionSuggestUrl', 'motionWriteBatchUrl'],
     'a ✨ call was added, doubled or renamed — extend this contract to cover it')
   for (const { url, body } of calls) {
     assert.match(body, /\bseconds\b/, `${url}: the body does not carry the clip length:\n${body}`)
@@ -85,8 +96,44 @@ test('the enrichment names the frame only when one will be animated', () => {
   // A text-to-video enrichment that still sent a stale staged name would come
   // back referencing <Picture 1> — a picture the encoder is never given. The
   // gate is on the MODE, not on whether a frame happens to be staged.
-  const call = motionCalls(PANEL).find((c) => c.url === 'motionEnhanceUrl')
-  assert.ok(call, 'the enrichment call is not in the panel')
-  assert.match(call.body,
+  const calls = motionCalls(PANEL).filter((c) => c.url === 'motionEnhanceUrl')
+  assert.equal(calls.length, 1, 'the ✨ button’s enrichment call is not in the panel')
+  // The ✨ button's call gates on the mode…
+  const [button] = calls
+  assert.match(button.body,
     /image:\s*mode\s*===\s*'t2v'\s*\?\s*null\s*:\s*\(\s*source\.image\s*\|\|\s*null\s*\)/)
+  // …and the per-picture writer still names the frame it writes for — it just
+  // does it for the WHOLE strip in one request now (one vision window instead
+  // of one per picture), so the naming moved into the batch body and is
+  // enforced server-side (test_video_studio_motion_routes: each frame anchors
+  // its own rewrite). What is checked here is that the strip travels at all…
+  const batch = motionCalls(PANEL).find((c) => c.url === 'motionWriteBatchUrl')
+  assert.ok(batch, 'the per-picture writer’s batched call is gone')
+  assert.match(batch.body, /images:\s*frames\.map\(\(f\) => f\.image\)/)
+  // …and that it is still only ever reached on a strip of pictures in i2v.
+  assert.match(PANEL, /const perPicture = mode === 'i2v' && promptMode === 'per-image' && launches\.length > 1;/)
+})
+
+test('the per-picture writer asks ONCE for the whole strip, not once per picture', () => {
+  /* THE GUARD THAT MATTERS, and the reason the batched route exists.
+
+     Every ✨ call opens the GPU-exclusive vision window, and entering it makes
+     ComfyUI let go of its models — so the NEXT clip reloads the video model,
+     tens of gigabytes for H3. The first per-picture writer called the two
+     single-frame routes once per frame: a twelve-picture strip paid that
+     reload twelve times, all of it invisible on a two-picture test.
+
+     So: exactly one batched call, and NO single-frame writer inside the
+     launch path. A future refactor that "simplifies" this back into a loop
+     fails here rather than in somebody's twelve-minute batch. */
+  const gen = PANEL.slice(PANEL.indexOf('const generate = async () => {'),
+    PANEL.indexOf('const rate = '))
+  assert.match(gen, /await writePromptsFor\(launches, prompt\)/)
+  assert.equal((PANEL.match(/motionWriteBatchUrl\(\)/g) || []).length, 1,
+    'the strip is written for in exactly one request')
+  assert.doesNotMatch(gen, /motionSuggestUrl\(\)|motionEnhanceUrl\(\)/,
+    'the launch path must not write frame by frame — that is the reload this avoids')
+  // And the writing happens BEFORE any clip is queued: the order is the point.
+  assert.ok(gen.indexOf('writePromptsFor(') < gen.indexOf('await queueClips('),
+    'clips are queued before the prompts are written')
 })

@@ -68,6 +68,15 @@ test('the probe opens the VIDEO lane, and the tab whose grid lives deeper', () =
   assert.match(lanes, /\{ id: 'live', label: 'Live', icon: Radio, badge: 'beta' \}/);
   assert.match(probe, /'\[data-testid="video-source-gallery"\]'/);
   assert.match(probe, /'\[data-testid="video-source-clip"\]'/);
+  // ⏭ Continue and the per-picture prompt segments: the probe clicks the
+  // button by its text (twice, to stage two frames without a Gallery) and
+  // the control is found by its testid — pinned on both sides, like ✨ Neural.
+  const cards = read('./video/VideoClipHistory.jsx');
+  assert.match(cards, /<SkipForward aria-hidden="true" className="h-3\.5 w-3\.5" \/>Continue/);
+  assert.match(probe, /\{ name: 'video-continue',/);
+  assert.match(probe, /\{ name: 'video-batch-prompt',/);
+  assert.match(probe, /'button:has-text\("Continue"\) >> nth=1'/);
+  assert.match(read('./video/VideoTestStudio.jsx'), /data-testid="video-prompt-mode"/);
 });
 
 test('the probe opens the 🌐 Civitai browser, whose action row grew a third button', () => {

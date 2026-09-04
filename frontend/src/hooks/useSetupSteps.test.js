@@ -495,6 +495,50 @@ test('installCatalog gates the vision model on a reachable, named Ollama', () =>
   assert.match(noName.ollama_model.hint, /model name/);
 });
 
+test('the Video lane\'s three doors are rows of their own: ready, waiting, or missing with a door', () => {
+  const row = (caps, label) => deriveCapabilitySummary(caps).find((s) => s.label === label);
+  const DLSS = '✨ DLSS 5 neural rendering';
+  const SMOOTH = '↗ Smooth (frame interpolation)';
+  const LIVE = '🔴 Live lane (beta)';
+  // Everything there.
+  const on = { comfyui: { dir_valid: true, reachable: true, video_studio_ready: true,
+    video_studio_options: { vfi: { available: true } } }, dlss5nr: { ready: true }, video_encode: true };
+  for (const l of [DLSS, SMOOTH, LIVE]) assert.equal(row(on, l).ok, true, l);
+  // ComfyUI down with the weights on disk: Smooth and Live wait (their
+  // verdict needs the process), DLSS does not — it has a worker of its own.
+  const off = { comfyui: { dir_valid: true, reachable: false, video_studio_missing: [] },
+    dlss5nr: { ready: false }, video_encode: true };
+  assert.equal(row(off, SMOOTH).pending, true);
+  assert.match(row(off, SMOOTH).note, /launch ComfyUI/);
+  assert.equal(row(off, LIVE).pending, true);
+  assert.equal(row(off, DLSS).pending, undefined);
+  assert.equal(row(off, DLSS).ok, false);
+  // ComfyUI up, packs missing: Smooth is plainly missing, its door the video
+  // install card (which lists the packs) — never "waiting".
+  const noPacks = { comfyui: { dir_valid: true, reachable: true, video_studio_ready: true,
+    video_studio_options: { vfi: { available: false, nodes: ['RIFE VFI'] } } }, video_encode: true };
+  assert.equal(row(noPacks, SMOOTH).ok, false);
+  assert.equal(row(noPacks, SMOOTH).pending, undefined);
+  assert.equal(row(noPacks, SMOOTH).topic, 'setup-video-studio');
+  // /object_info unreadable while ComfyUI answers (available: null) is not a
+  // verdict either way: the row does not go green on it.
+  const unread = { comfyui: { dir_valid: true, reachable: true, video_studio_ready: true,
+    video_studio_options: { vfi: { available: null } } } };
+  assert.equal(row(unread, SMOOTH).ok, false);
+  // Weights there, ffmpeg not: Live names the gap and its door is the video
+  // extra on the quality step, not the weights it already has.
+  const noFfmpeg = { comfyui: { dir_valid: true, reachable: true, video_studio_ready: true }, video_encode: false };
+  assert.equal(row(noFfmpeg, LIVE).ok, false);
+  assert.match(row(noFfmpeg, LIVE).note, /ffmpeg/);
+  assert.equal(row(noFfmpeg, LIVE).topic, 'setup-quality');
+  // Weights missing: the door is the video install.
+  const noWeights = { comfyui: { dir_valid: true, reachable: true, video_studio_ready: false,
+    video_studio_missing: ['h3_unet'] }, video_encode: true };
+  assert.equal(row(noWeights, LIVE).ok, false);
+  assert.equal(row(noWeights, LIVE).pending, undefined);
+  assert.equal(row(noWeights, LIVE).topic, 'setup-video-studio');
+});
+
 test('installCatalog gates Klein weights on a validated ComfyUI', () => {
   const invalid = byAction(installCatalog({ ...fullCaps(),
     comfyui: { dir_valid: false, klein_missing: ['klein_model'] } }));
@@ -516,7 +560,7 @@ test('capability summary: configured-but-not-running ComfyUI reads as OK with a 
   const off = { comfyui: { dir_valid: true, reachable: false }, engines: {} };
   assert.equal(row(off, 'Klein (local)').pending, true);
   assert.match(row(off, 'Klein (local)').note, /launch ComfyUI/);
-  assert.equal(row(off, 'Test Studio').pending, true);
+  assert.equal(row(off, '🖼️ Test Studio (images)').pending, true);
   // no ComfyUI configured at all -> honest plain miss, no note
   const none = { comfyui: { dir_valid: false, reachable: false }, engines: {} };
   assert.equal(row(none, 'Klein (local)').pending, undefined);

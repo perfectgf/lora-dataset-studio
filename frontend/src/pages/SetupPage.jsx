@@ -104,6 +104,12 @@ const CAPABILITY_STEP_ID = {
   // 39.5 GB, and it lives on the install step. The comfyui step would land on
   // nothing to press.
   '🎬 Video Test Studio (beta)': 'install',
+  // The Video lane's three doors: the DLSS 5 bridge card and the video
+  // install card (which lists the option node packs, Smooth's included) are
+  // both on the install screen; Live needs those weights first.
+  '✨ DLSS 5 neural rendering': 'install',
+  '↗ Smooth (frame interpolation)': 'install',
+  '🔴 Live lane (beta)': 'install',
   'Captioning': 'ollama',
   'Auto-framing & head-crop': 'ollama',
   'Face-similarity scoring': 'quality',
@@ -125,7 +131,7 @@ const CAPABILITY_STEP_ID = {
   // control that turns it on.
   '📤 Civitai publishing': 'image',
   'LoRA training': 'training',
-  'Test Studio': 'comfyui',
+  '🖼️ Test Studio (images)': 'comfyui',
 }
 
 export default function SetupPage() {
@@ -1897,7 +1903,10 @@ export default function SetupPage() {
                 return (
                   <li key={s.label} className={`flex items-center gap-2 px-2 py-1 text-sm ${rowOk ? 'text-content' : 'text-content-subtle'}`}>
                     <span aria-hidden="true" className={rowOk ? 'text-emerald-400' : 'text-content-subtle'}>{rowOk ? '✓' : '✗'}</span>
-                    <span>{s.label}{noteEl}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span>{s.label}{noteEl}</span>
+                      {s.what && <span className="text-[11px] text-content-subtle">{s.what}</span>}
+                    </span>
                   </li>
                 )
               }
@@ -1909,7 +1918,10 @@ export default function SetupPage() {
                       focus-visible:ring-primary ${rowOk ? 'text-content' : 'text-content-subtle'}`}>
                     <span className="flex items-center gap-2">
                       <span aria-hidden="true" className={rowOk ? 'text-emerald-400' : 'text-content-subtle'}>{rowOk ? '✓' : '✗'}</span>
+                      <span className="flex min-w-0 flex-col">
                       <span>{s.label}{noteEl}</span>
+                      {s.what && <span className="text-[11px] text-content-subtle">{s.what}</span>}
+                    </span>
                     </span>
                     <span aria-hidden="true" className={`text-xs ${s.ok ? 'text-content-subtle/60' : 'text-content-subtle'}`}>›</span>
                   </button>

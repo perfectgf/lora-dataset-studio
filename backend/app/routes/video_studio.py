@@ -30,7 +30,38 @@ from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
 
 logger = logging.getLogger(__name__)
 
+# ✨ How many start frames ONE vision window will write for in a row.
+# Not a performance guard: it is the honest ceiling of a single held window.
+# Each frame is model work during which no clip can render, so past this the
+# right answer is two batches, not a longer freeze nobody can interrupt.
+MAX_WRITE_BATCH = 12
+
+# The window's TTL has to cover the WHOLE batch, not one click: a TTL cut for a
+# single ✨ press would expire halfway through twelve frames and let a queued
+# clip take the card out from under the writer. Generous per frame on purpose —
+# a cold model on a slow machine is the case that must not trip it — and the
+# window is released as soon as the loop ends.
+_WRITE_TTL_PER_FRAME = 180
+_WRITE_TTL_FLOOR = 600
+
+
+def _write_batch_ttl(count):
+    return max(_WRITE_TTL_FLOOR, _WRITE_TTL_PER_FRAME * max(1, int(count)))
+
 bp = Blueprint('video_studio', __name__, url_prefix='/api/video-studio')
+
+
+def _joined_state(clip):
+    """⏭ True (the file is the joint), False (left as the part — every failure
+    path writes why in `error`), None (no verdict: still rendering, or the
+    join is running right now)."""
+    if clip.status != 'done':
+        return None
+    if clip.filename and str(clip.filename).endswith('_joined.mp4'):
+        return True
+    if clip.error and 'continuation not joined' in str(clip.error):
+        return False
+    return None
 
 
 def _json_or_none(text):
@@ -60,6 +91,14 @@ def _clip_dict(clip):
         'source_image': clip.source_image,
         # ↗ The clip this one was smoothed from, so the card can say so.
         'vfi_of': getattr(clip, 'vfi_of', None),
+        # ⏭ The clip this one continues (joined behind it), and whether the join happened.
+        'continues_of': getattr(clip, 'continues_of', None),
+        # Three states, not two: joined; left as the part, which every failure
+        # path says in `error`; or no verdict yet — the part still rendering,
+        # or landed seconds ago with the join under way (the completion is
+        # committed before the join runs). The card's "(not joined)" is for
+        # the middle one only.
+        'joined': _joined_state(clip),
         # ✨ The clip this one was neural-rendered from, same reading.
         'nr_of': getattr(clip, 'nr_of', None),
         # ✨ The dials that made a neural render, or null — the pills read them.
@@ -182,6 +221,44 @@ def video_studio_clip_vfi(clip_id):
     return jsonify({'ok': True, **out})
 
 
+@bp.get('/clip/<int:clip_id>/last-frame.png')
+def video_studio_clip_last_frame_png(clip_id):
+    """⏭ The clip's last frame, as the strip's preview."""
+    try:
+        path = vts.last_frame_png(clip_id)
+    except LookupError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 404
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    resp = send_file(path, mimetype='image/png', conditional=True, max_age=0)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@bp.post('/clip/<int:clip_id>/last-frame')
+def video_studio_clip_last_frame(clip_id):
+    """⏭ Stage the clip's last frame as the next start frame — the same staging
+    as the Bank, Gallery and upload routes, so the graph loads it the same way.
+    The reply names the clip so the launch can say it continues it."""
+    try:
+        png = vts.last_frame_png(clip_id)
+        from ..utils import comfy_fs
+        from .. import config as cfg
+        input_dir = comfy_fs.ensure_input_usable(cfg.comfyui_dir('input'))
+        dest = f'lds_vstudio_{uuid.uuid4().hex[:10]}.png'
+        staged = comfy_fs.stage_input_image(png, dest, input_dir)
+        ratio = _image_ratio(staged)
+    except LookupError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 404
+    except (ValueError, TypeError) as exc:
+        return _map_error(exc)
+    except Exception as exc:                      # noqa: BLE001
+        logger.exception('video studio: staging the last frame of clip %s failed', clip_id)
+        return jsonify({'ok': False, 'error': str(exc)}), 409
+    return jsonify({'ok': True, 'image': dest, 'ratio': ratio, 'continues': int(clip_id),
+                    'preview': f'/api/video-studio/clip/{int(clip_id)}/last-frame.png'})
+
+
 def _clip_seconds(data: dict):
     """How long the clip the panel is set to will be, for the motion writer.
 
@@ -239,6 +316,68 @@ def video_studio_motion_suggest():
         # a bare 500 with no message to show.
         return _map_error(exc)
     return jsonify({'ok': True, 'prompt': out})
+
+
+@bp.post('/motion/write-batch')
+def video_studio_motion_write_batch():
+    """✨ One prompt PER start frame, written inside a SINGLE vision window.
+
+    WHY THE LOOP IS HERE AND NOT IN THE PANEL. Entering the vision window asks
+    ComfyUI to let go of its models, so the next clip pays the video model's
+    load again — tens of gigabytes for H3 (the cost is stated in
+    `/motion/suggest`). A panel that called the single-frame writers once per
+    picture would pay that reload once per picture. Holding one window for the
+    whole strip pays it once, which is the entire point of writing every prompt
+    BEFORE the first clip is queued.
+
+    Body `{images: [...], prompt?, model?, seconds?|frames?, shots?}` — the same
+    pieces the two ✨ buttons send. A `prompt` present means ENRICH each frame
+    from it (what `/motion/enhance` does for one); absent means PROPOSE from the
+    frame alone (`/motion/suggest`). The panel's own rule, applied N times.
+
+    PARTIAL RESULTS ARE THE CONTRACT. Every entry answers `{index, image,
+    prompt}` or `{index, image, error}`, and the call is 200 as long as the
+    window opened: one unreadable frame must not cost the eleven others their
+    prompt. Only a failure to OPEN the window is an error status — there is
+    nothing partial to keep then.
+    """
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    images = [str(n) for n in (data.get('images') or []) if str(n or '').strip()]
+    if not images:
+        return jsonify({'ok': False, 'error': 'No start frame to write for.'}), 400
+    if len(images) > MAX_WRITE_BATCH:
+        return jsonify({'ok': False,
+                        'error': (f'{len(images)} pictures at once is more than one '
+                                  f'window writes for (max {MAX_WRITE_BATCH}).')}), 400
+    typed = str(data.get('prompt') or '').strip()
+    seconds = _clip_seconds(data)
+    shots = data.get('shots', 1)
+    model = data.get('model')
+    out = []
+    try:
+        # ONE window for the whole strip — the reason this route exists.
+        with gpu_exclusive_vision_window(flag_ttl=_write_batch_ttl(len(images))):
+            for i, name in enumerate(images):
+                try:
+                    if typed:
+                        written = vmp.enhance(typed, image=name, model=model,
+                                              seconds=seconds, shots=shots)
+                    else:
+                        written = vmp.suggest_from_frame(name, instruction='',
+                                                         model=model, seconds=seconds,
+                                                         shots=shots)
+                    out.append({'index': i, 'image': name, 'prompt': written})
+                except Exception as exc:          # noqa: BLE001
+                    logger.warning('video studio: batch write failed on %s: %s', name, exc)
+                    out.append({'index': i, 'image': name,
+                                'error': str(exc) or exc.__class__.__name__})
+    except Exception as exc:
+        # The window itself: fence, refusal, transport. Nothing was written.
+        return _map_error(exc)
+    return jsonify({'ok': True, 'results': out,
+                    'written': sum(1 for r in out if str(r.get('prompt') or '').strip()),
+                    'failed': sum(1 for r in out if r.get('error'))})
 
 
 @bp.post('/motion/enhance')
@@ -574,7 +713,7 @@ def video_studio_generate():
             frames=data.get('frames'), megapixels=data.get('megapixels',
                                                            vts.MP_DEFAULT),
             aspect=data.get('aspect', 'auto'), turbo=bool(data.get('turbo')),
-            accel=data.get('accel'),
+            accel=data.get('accel'), continues=data.get('continues'),
             eros=bool(data.get('eros')), sparse=data.get('sparse', ''),
             latent_upscale=bool(data.get('latent_upscale')),
             # The ratio only sizes the latent upscale, and a client that has
@@ -621,7 +760,8 @@ def video_studio_clips():
         query = query.filter(VideoTestClip.id < before)
     page = query.limit(limit).all()
     listed = {c.id for c in page}
-    wanted = {getattr(c, 'nr_of', None) for c in page} | {getattr(c, 'vfi_of', None) for c in page}
+    wanted = ({getattr(c, 'nr_of', None) for c in page} | {getattr(c, 'vfi_of', None) for c in page}
+              | {getattr(c, 'continues_of', None) for c in page})
     wanted = {i for i in wanted if i and i not in listed}
     sources = (VideoTestClip.query.filter(VideoTestClip.id.in_(wanted)).all()
                if wanted else [])
@@ -732,6 +872,13 @@ def video_studio_delete(clip_id):
                                    os.path.basename(clip.filename)))
         except OSError:
             pass
+    # ⏭ The last-frame cache the clip may have grown: derived from the mp4,
+    # written by the app, and SQLite reuses a deleted id — a stale sidecar
+    # under the next clip's id is one mtime check away from being served.
+    try:
+        os.unlink(os.path.join(str(vts.clips_dir()), f'clip_{int(clip_id)}_last.png'))
+    except OSError:
+        pass
     db.session.delete(clip)
     db.session.commit()
     return jsonify({'ok': True})

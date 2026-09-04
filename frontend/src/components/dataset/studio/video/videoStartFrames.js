@@ -97,10 +97,16 @@ export async function queueClips(frames, base, post, onQueued = () => {}) {
   let enhance = !!base?.enhance;
   let enrichSkipped = null;
   for (const frame of launches) {
+    // A frame may carry its OWN prompt (the per-picture batch mode wrote
+    // it) — then it launches as written, never enriched again — and the
+    // clip it continues (⏭), which the server joins the render behind.
+    const own = typeof frame?.prompt === 'string' && frame.prompt.trim();
     let reply;
     try {
       reply = await post(buildGeneratePayload({
-        ...base, seed, prompt, enhance, image: frame?.image || null, ratio: frame?.ratio || null,
+        ...base, seed, prompt: own ? frame.prompt : prompt, enhance: own ? false : enhance,
+        image: frame?.image || null, ratio: frame?.ratio || null,
+        continues: frame?.continues || null,
       }));
     } catch (error) {
       return { queued, total: launches.length, seed, failed: error, enrichSkipped };
@@ -110,7 +116,9 @@ export async function queueClips(frames, base, post, onQueued = () => {}) {
     // The launch went through with the prompt as typed — the writer could not
     // run (fence, server away). Kept once: the same reason five times is noise.
     if (reply?.enrich_skipped && !enrichSkipped) enrichSkipped = reply.enrich_skipped;
-    if (enhance) {
+    // A frame launched with its own prompt was not enriched: its reply says
+    // nothing about the typed prompt, so the next frame still gets the writer.
+    if (enhance && !own) {
       enhance = false;
       if (typeof reply?.prompt === 'string' && reply.prompt.trim()) {
         prompt = reply.prompt;
@@ -121,6 +129,44 @@ export async function queueClips(frames, base, post, onQueued = () => {}) {
     onQueued(queued.length, launches.length);
   }
   return { queued, total: launches.length, seed, failed: null, enrichSkipped };
+}
+
+/** The per-picture batch mode: one prompt WRITTEN for each frame, before any
+ * clip is queued — the writer's window shuts the moment a clip sits in the
+ * queue, so all the writing happens first, while ComfyUI is idle. `ask(frame,
+ * typed)` resolves to the prompt the writer wrote for that picture (the typed
+ * motion enriched with it, or a proposal from the picture alone when nothing
+ * was typed); a frame the writer could not answer for — a refusal, an empty
+ * reply — launches with the prompt as typed, and `fallen` names it so the
+ * notice can say so rather than let three clips run a rewrite two of them did
+ * not get. `onProgress(done, total)` counts for the button. */
+export async function perImagePrompts(frames, typed, ask, onProgress = () => {}) {
+  const out = [];
+  const fallen = [];
+  let error = null;
+  const list = frames || [];
+  for (const [index, frame] of list.entries()) {
+    let written = '';
+    let failure = null;
+    try {
+      // `index` travels too: a batched writer answers for the whole strip at
+      // once and needs to know WHICH picture this call is about.
+      const answer = await ask(frame, typed, index);
+      written = typeof answer === 'string' ? answer.trim() : '';
+    } catch (e) {
+      failure = e;
+    }
+    if (written) out.push({ ...frame, prompt: written });
+    else {
+      out.push({ ...frame, prompt: typed || '' });
+      // WHICH picture (its place in the strip is what the user sees) and
+      // WHY: the first refusal travels — a "GPU busy" one names what to wait for.
+      fallen.push({ key: frame?.key, index, error: failure });
+      if (!error && failure) error = failure;
+    }
+    onProgress(out.length, list.length);
+  }
+  return { frames: out, fallen, error };
 }
 
 /** What the toast says when every launch went through. One clip reads as it
@@ -151,8 +197,9 @@ export function failureNotice(outcome, fallback = 'The clip could not be queued.
 
 /** The button's text: how many clips this click queues, and while it queues,
  * how far it is. Text-only is always one clip whatever the strip holds. */
-export function generateLabel({ mode, count, busy, done = 0, total = 0 }) {
+export function generateLabel({ mode, count, busy, done = 0, total = 0, phase = 'queueing' }) {
   if (busy) {
+    if (phase === 'writing') return `Writing prompt ${Math.min(done + 1, total)} of ${total}…`;
     return total > 1 ? `Queueing ${Math.min(done + 1, total)} of ${total}…` : 'Queueing…';
   }
   const n = mode === 't2v' ? 1 : count;

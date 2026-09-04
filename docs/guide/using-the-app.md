@@ -3802,8 +3802,25 @@ rest, and ✨ Enrich at launch rewrites the prompt once, for that first clip,
 the rest running the rewrite it got (the vision model shares the GPU with
 ComfyUI and is not asked again once a clip sits in its queue), so the clips
 differ by their picture and nothing else — the button says how
-many clips a click will queue, and ✨ Auto reads the first frame. Text-only
-skips the picture entirely and composes the shot from the prompt. Either way,
+many clips a click will queue, and ✨ Auto reads the first frame — or each one, in the *Written per picture* mode described below. That is the
+**Same for all** choice of the *Prompt for the pictures* pair that appears
+under the Motion field once the strip holds two frames; **✨ Written per
+picture** asks the vision model for one prompt per picture BEFORE anything is
+queued — your motion enriched with that picture, or a proposal from the
+picture alone when the field is empty — the button counting *Writing prompt 2
+of 3…*; a picture the writer could not answer for launches with the prompt as
+typed, and the notice says which.
+
+All of that writing happens in **one pass**, and the reason is worth knowing
+because it is the difference between a batch that takes a minute and one that
+takes twenty. Looking at a picture needs the GPU, and taking it means asking
+ComfyUI to let go of its models — so the next clip reloads the video model,
+tens of gigabytes for MiniMax H3. Asking picture by picture would pay that
+reload once per picture. Every prompt is therefore written before the first
+clip is queued, in a single hold of the GPU, and the video model comes back
+once.
+Text-only skips the picture entirely and composes the shot from the prompt.
+Either way,
 describe the *movement*: the start frame already says what the scene looks
 like.
 
@@ -3875,6 +3892,26 @@ says anything about that dial.
 If the panel refuses to launch, it is telling you the graph cannot run on this
 install: the message names the missing weights and the ComfyUI node packs to
 install, rather than letting the job fail silently a minute later.
+
+## Continue a clip from its last frame
+
+**⏭ Continue** on a finished clip stages its **last frame** as the next start
+frame — the strip shows it, the mode switches to image-to-video, and the
+Motion field is yours to write again: the next thing that happens, from
+exactly where that clip ended. Generate then renders the new motion from that
+frame and, when it lands, **joins it behind the clip it continues**: the card
+plays one video, that clip followed by the new one, and says so. The first
+frame of the new part is dropped in the join (it is the parent's last frame,
+the picture the part was conditioned on; kept, it would freeze the cut for one
+frame) and the sound is trimmed by the same one frame so the two stay in
+step; the part is scaled to the parent's size if the dials changed in between.
+The parent stays as it is, so a chain can branch: continue the same clip
+twice with two different motions and compare. Continue the joined clip again
+and the chain grows — each link re-encodes the whole chain once (x264,
+near-lossless, so a very long chain softens slightly). A smoothed clip can be
+continued too: it has no sound of its own, so its side is padded with silence
+while the new part keeps its own. A join that fails — ffmpeg gone, a file missing — leaves
+the new part as its own clip and tags it *not joined*, never a lost render.
 
 ## Smooth: pick the rate before it runs
 

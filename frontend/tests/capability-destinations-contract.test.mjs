@@ -25,7 +25,9 @@ const CAPS_FULL = {
   engines: { nanobanana: true, chatgpt: true, openrouter: true, klein: true, krea: true },
   captioners: { joycaption: true, ollama: true },
   ollama: { reachable: true, vision_model_ready: true },
-  comfyui: { dir_valid: true, reachable: true },
+  comfyui: { dir_valid: true, reachable: true, video_studio_ready: true,
+    video_studio_options: { vfi: { available: true } } },
+  dlss5nr: { ready: true }, video_encode: true,
   face_scoring: true, masks: true, watermark_inpaint: true,
   training_visible: true, studio_visible: true,
   civitai: { ok: true },
@@ -56,8 +58,10 @@ test('every capability row carries a destination, in every rig', () => {
     // 12 ready" on a machine that could not cut one file); these four repeated
     // it again ("14 of 14 ready" on a machine missing four installable
     // engines). An absent capability must be visible and counted, never
-    // dropped from the denominator.
-    assert.equal(rows.length, 22, `${name}: expected 22 capabilities`)
+    // dropped from the denominator. 25 since the Video lane's three doors —
+    // ✨ DLSS 5, ↗ Smooth, 🔴 Live — did: a green 🎬 row said nothing about a
+    // missing bridge, two absent node packs or no ffmpeg (asked 2026-09-03).
+    assert.equal(rows.length, 25, `${name}: expected 25 capabilities`)
     for (const row of rows) {
       const dest = capabilityDestination(row)
       assert.ok(dest, `${name}: "${row.label}" has no destination`)
@@ -111,10 +115,13 @@ test('a pending row is not a missing one: own destination, own wording', () => {
   // Camera angles joins the pending set for the same reason Klein does: the
   // lane is asset-only, so with the weights on disk and only the process down
   // the honest state is "waiting for ComfyUI", never "install something".
+  // Smooth and Live wait with the 🎬 row: their verdict needs ComfyUI up
+  // (Smooth's packs are read from /object_info). DLSS has a worker of its
+  // own and never waits on ComfyUI, so it is not in this list.
   assert.deepEqual(pending.map((r) => r.label),
     ['Klein (local)', '📷 Camera angles (local)', '🎬 Video Test Studio (beta)',
-      'Test Studio'],
-    'ComfyUI down leaves Klein + Camera angles + Video Test Studio + Test Studio pending')
+      '↗ Smooth (frame interpolation)', '🔴 Live lane (beta)', '🖼️ Test Studio (images)'],
+    'ComfyUI down leaves Klein + Camera angles + the video rows + Test Studio pending')
   for (const row of pending) {
     assert.ok(row.note, `${row.label}: pending row must explain itself`)
     const waiting = capabilityDestination(row)
@@ -135,6 +142,22 @@ test('the accessible label says the state AND where the row leads', () => {
   assert.match(label('Klein (local)'), /^Klein \(local\) — launch ComfyUI to enable, /)
   const ready = deriveCapabilitySummary(CAPS_FULL).find((r) => r.label === 'OpenRouter')
   assert.match(capabilityDestination(ready).announce, /^OpenRouter — ready, /)
+})
+
+test('every row says what it unlocks, and both screens show it', () => {
+  // A name alone did not: "Test Studio" read from a phone said nothing about
+  // test IMAGES (2026-09-03). One sentence per row, short enough to wrap on a
+  // 360 px tile, and rendered wherever the rows are — the Overview grid and
+  // the wizard's "What's unlocked" screen.
+  for (const [name, caps] of RIGS) {
+    for (const row of deriveCapabilitySummary(caps)) {
+      assert.ok(typeof row.what === 'string' && row.what.trim().length >= 20,
+        `${name}: "${row.label}" does not say what it unlocks`)
+      assert.ok(row.what.length <= 100, `${name}: "${row.label}" — the what-line is a paragraph`)
+    }
+  }
+  assert.match(read('src/components/settings/OverviewSection.jsx'), /\{s\.what && <span/)
+  assert.match(read('src/pages/SetupPage.jsx'), /\{s\.what && <span/)
 })
 
 test('the Overview grid actually uses the destinations (no dead tiles)', () => {

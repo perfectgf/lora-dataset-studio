@@ -23,4 +23,10 @@ test('a smoothed clip is never mistaken for the one it came from', () => {
   assert.ok(clipTags({ accel: 'parasyte', steps: 6 }).includes('Parasyte Turbo'))
   assert.ok(clipTags({ accel: 'dareties', steps: 6 }).includes('DARE-TIES merge'))
   assert.ok(clipTags({ accel: 'turbo', turbo: true, steps: 6 }).includes('turbo'))
+  // ⏭ A continuation says which clip it follows, and whether the join happened.
+  assert.ok(clipTags({ continues_of: 41, joined: true, steps: 6 }).includes('continues #41'))
+  assert.ok(clipTags({ continues_of: 41, joined: false, steps: 6 }).includes('continues #41 (not joined)'))
+  // Still rendering: no verdict, so no "(not joined)" for the length of the render.
+  const pending = clipTags({ continues_of: 41, joined: null, steps: 6 })
+  assert.ok(pending.includes('continues #41') && !pending.some((t) => t.includes('not joined')))
 })

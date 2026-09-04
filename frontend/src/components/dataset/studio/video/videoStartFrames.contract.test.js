@@ -28,10 +28,19 @@ test('the strip is the state, and `source` is its first frame — what the ✨ h
 test('Generate walks the strip through queueClips — one POST per frame, text-only one launch', () => {
   const gen = STUDIO.slice(STUDIO.indexOf('const generate = async () => {'), STUDIO.indexOf('const rate = '))
   assert.ok(gen.length > 0, 'generate is gone')
-  assert.match(gen, /const launches = mode === 't2v' \? \[null\] : sources;/)
-  assert.match(gen, /await queueClips\(launches, \{ enhance: enhanceOn,/)
+  // `let`: the per-picture batch mode swaps the strip for the same frames
+  // carrying the prompts written for them, before anything is queued.
+  assert.match(gen, /let launches = mode === 't2v' \? \[null\] : sources;/)
+  assert.match(gen, /const perPicture = mode === 'i2v' && promptMode === 'per-image' && launches\.length > 1;/)
+  // One batched request writes for the whole strip, THEN the loop reads the
+  // answers back — no second round trip and no second vision window.
+  assert.match(gen, /const resolve = await writePromptsFor\(launches, prompt\);/)
+  assert.match(gen, /const written = await perImagePrompts\(launches, prompt,/)
+  assert.match(gen, /launches = written\.frames;/)
+  // The written prompts are final: the launch does not enrich them again.
+  assert.match(gen, /await queueClips\(launches, \{ enhance: enhanceOn && !perPicture,/)
   assert.match(gen, /\(body\) => postJson\(generateUrl\(\), body\)/)
-  assert.match(gen, /\(done, total\) => setProgress\(\{ done, total \}\)/)
+  assert.match(gen, /\(done, total\) => setProgress\(\{ done, total, phase: 'queueing' \}\)/)
   // The frame travels with each launch, never from the Studio's own state.
   assert.doesNotMatch(gen, /image: source\.image|ratio: source\.ratio/)
   // The notices come from the helper — "Queued 3 clips", "Queued 2 of 4".
@@ -44,7 +53,7 @@ test('Generate walks the strip through queueClips — one POST per frame, text-o
 })
 
 test('the button counts the clips — in the rail and in the phone bar — and the readback says how many images', () => {
-  assert.match(STUDIO, /const label = generateLabel\(\{ mode, count: sources\.length, busy, done: progress\.done, total: progress\.total \}\);/)
+  assert.match(STUDIO, /const label = generateLabel\(\{ mode, count: sources\.length, busy, done: progress\.done, total: progress\.total,\s*phase: progress\.phase \}\);/)
   const start = STUDIO.indexOf('const generateButton = (')
   assert.ok(start > 0, 'the rail button is gone')
   const button = STUDIO.slice(start, STUDIO.indexOf('\n  return (', start))

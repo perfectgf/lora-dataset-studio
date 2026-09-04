@@ -22,6 +22,10 @@ export const loraImportUrl = () => '/api/video-studio/lora/import';
 
 /** ↗ Smooth a finished clip — RIFE interpolation, as a new clip. */
 export const clipVfiUrl = (id) => `/api/video-studio/clip/${id}/vfi`;
+/** ⏭ Stage a finished clip's last frame as the next start frame (POST), and
+ *  the same frame as a picture for the strip (GET). */
+export const clipLastFrameUrl = (id) => `/api/video-studio/clip/${id}/last-frame`;
+export const clipLastFramePngUrl = (id) => `/api/video-studio/clip/${id}/last-frame.png`;
 /** ↗ The rates Smooth can make of a clip. RIFE interpolates by a WHOLE factor,
  *  so the choices are the source rate times 2, 3 and 4 — 48, 72, 96 fps for a
  *  clip authored at 24 — never an arbitrary number (that would mean dropping
@@ -46,6 +50,10 @@ export const clipNeuralRenderUrl = (id) => `/api/video-studio/clip/${id}/neural-
  * what is already written. Both answer with a prompt the user can still edit —
  * neither is a launch. */
 export const motionSuggestUrl = () => '/api/video-studio/motion/suggest';
+/* ✨ One window, N frames. Entering the vision window makes ComfyUI drop its
+   models, so writing per picture through the two single-frame routes would
+   reload the video model once per picture. See the route's docstring. */
+export const motionWriteBatchUrl = () => '/api/video-studio/motion/write-batch';
 export const motionEnhanceUrl = () => '/api/video-studio/motion/enhance';
 
 /** ⚙ The model that writes the motion — listed, and chosen. */
@@ -145,6 +153,8 @@ export function buildGeneratePayload(state) {
   if (s.eros) body.eros = true;
   if (s.sparse) body.sparse = s.sparse;
   if (s.latentUpscale) body.latent_upscale = true;
+  // ⏭ The clip this launch continues: the render is joined behind it.
+  if (s.continues) body.continues = Number(s.continues);
   return body;
 }
 
@@ -204,6 +214,7 @@ export function clipSummary(clip) {
   if (accel) bits.push(accel === 'turbo' ? '⚡ turbo' : `⚡ ${accelLabel(accel)}`);
   if (clip.sparse) bits.push(`sparse ${clip.sparse}`);
   if (clip.latent_upscale) bits.push('🔬 upscale');
+  if (clip.continues_of) bits.push(`⏭ continues #${clip.continues_of}`);
   bits.push(`${clip.steps} steps`);
   if (clip.seed !== null && clip.seed !== undefined) bits.push(`seed ${clip.seed}`);
   return bits.join(' · ');

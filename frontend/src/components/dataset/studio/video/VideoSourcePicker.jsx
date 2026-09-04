@@ -487,7 +487,7 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
                     <code className="ml-1 break-all">{frames[0].image}</code>
                   </>
                 ) : (
-                  <>{frames.length} start frames — one clip each, on one seed; ✨ reads the first.</>
+                  <>{frames.length} start frames — one clip each, on one seed.</>
                 )}
               </span>
               {frames.length > 1 && (

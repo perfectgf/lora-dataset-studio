@@ -83,6 +83,62 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-04-per-picture-prompts-in-one-pass',
+    date: '2026-09-04',
+    title: 'Writing a prompt per picture no longer reloads the video model between each one',
+    blurb:
+      '✨ Written per picture asked the vision model once per picture — and every '
+      + 'one of those asks makes ComfyUI let go of its models, so the next clip '
+      + 'reloaded MiniMax H3, tens of gigabytes, once per picture. A twelve-frame '
+      + 'strip paid that eleven times over for nothing. The prompts are now all '
+      + 'written in a single hold of the GPU, before the first clip is queued: '
+      + 'the model comes back once. Same screen, same fallbacks, same notices — '
+      + 'the batch is simply not spending its time swapping weights any more.',
+    to: '/studio',
+  },
+  {
+    // Same-day ids sort the feed (date, then id): an id below the day's
+    // others never reaches the top, and the badge counts nothing new.
+    id: '2026-09-03-what-each-capability-unlocks',
+    date: '2026-09-03',
+    title: 'Capabilities: every row says what it unlocks — and the Video lane’s three doors are counted',
+    blurb:
+      'Settings ▸ Overview (and the wizard’s last screen) put one line under '
+      + 'each capability saying what it does — "Test Studio (images)" is where '
+      + 'test images are generated with a LoRA, "Video Test Studio" tests one '
+      + 'in motion. Three rows join the count: ✨ DLSS 5 neural rendering, '
+      + '↗ Smooth (frame interpolation) and the 🔴 Live lane — each its own '
+      + 'install, each shown not-ready with its door instead of hiding behind '
+      + 'a green video row.',
+    to: '/settings/overview',
+  },
+  {
+    id: '2026-09-03-video-test-studio-prompts-per-picture',
+    date: '2026-09-03',
+    title: 'A batch of pictures, one prompt each',
+    blurb:
+      'With several start frames in the strip, the Video Test Studio now asks '
+      + 'which prompt the batch runs: the same motion for every picture (as '
+      + 'before, the comparison that says something about the LoRA), or one '
+      + 'written by ✨ per picture — your motion enriched with each frame, or '
+      + 'a proposal from the frame alone — written before anything is queued.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-03-video-test-studio-continue-from-last-frame',
+    date: '2026-09-03',
+    title: 'Continue a clip from its last frame — and get one video',
+    blurb:
+      'A ⏭ Continue button on every finished clip of the Video Test Studio: '
+      + 'its last frame becomes the next start frame, you write the next '
+      + 'motion, and the render lands joined behind the clip it continues — '
+      + 'one video, that clip then the new one, the cut frame dropped and the '
+      + 'sound kept in step (a smoothed clip has none: its side is padded with '
+      + 'silence, the new part keeps its own). Continue the result again and '
+      + 'the chain grows.',
+    to: '/studio?lane=video',
+  },
+  {
     id: '2026-09-03-video-accelerations',
     date: '2026-09-03',
     title: 'Pick your video acceleration among the arena’s top three',

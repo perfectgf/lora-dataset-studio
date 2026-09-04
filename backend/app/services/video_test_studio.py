@@ -32,6 +32,7 @@ reason the pitfalls below can be pinned by tests at all.
 
 import json
 import os
+import subprocess
 import random
 import re
 import uuid
@@ -987,7 +988,7 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
                  lora_strength=1.0, run_id=None, dataset_id=None, seed=None,
                  steps=None, frames=None, megapixels=MP_DEFAULT, aspect='auto',
                  turbo=False, accel=None, eros=False, sparse='', latent_upscale=False,
-                 source_ratio=None, skip_preflight=False) -> dict:
+                 source_ratio=None, skip_preflight=False, continues=None) -> dict:
     """Build the graph, record the clip, queue the job — in that order.
 
     The row is written BEFORE the queue insert and in the SAME transaction, so a
@@ -1004,6 +1005,13 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     # preflight below) whether an armed option's nodes are there. Reading it
     # twice would let a ComfyUI that restarts between the two answer differently
     # for the same clip.
+    # ⏭ A continuation: the clip this one will be joined behind. Checked
+    # before anything is queued — a parent that is not done has no last frame.
+    parent = None
+    if continues:
+        parent = VideoTestClip.query.filter_by(id=int(continues)).first()
+        if parent is None or parent.status != 'done' or not parent.filename:
+            raise ValueError('the clip to continue has not finished rendering')
     classes = registered_classes()
     built = build_workflow(
         prompt=prompt, mode=mode, image=image, seed=seed, steps=steps,
@@ -1024,7 +1032,8 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
         fps=float(_profile().get('fps') or 24.0), base_model=built['base'],
         lora=lora, lora_strength=float(lora_strength) if lora else None,
         turbo=(built['accel'] == 'turbo'), accel=(built['accel'] or None),
-        sparse=normalise_sparse(sparse), latent_upscale=bool(latent_upscale))
+        sparse=normalise_sparse(sparse), latent_upscale=bool(latent_upscale),
+        continues_of=(parent.id if parent else None))
     db.session.add(clip)
     db.session.flush()          # mint the id inside the same transaction
     queue_manager.add_job(job_type='image', user_id=str(user_id),
@@ -1203,7 +1212,230 @@ def link_completed_clip(job_id, filename, failed=False, reason=None):
     clip.filename = filename
     clip.status = 'done'
     _bring_clip_home(filename)
+    continues = getattr(clip, 'continues_of', None)
+    clip_id = clip.id
+    # Committed BEFORE any join: from here the row is a valid render (the
+    # part), and the encode below runs with no write transaction open. It ran
+    # inside this one once — measured: every other writer got "database is
+    # locked" for the length of ffmpeg (up to its 600 s timeout).
     db.session.commit()
+    if continues:
+        # ⏭ The part becomes the whole: parent, then this render.
+        _join_continuation(clip_id)
+
+
+# ── ⏭ Continue: the last frame as the next start frame, the clips joined ──
+
+def _run_ffmpeg(cmd, timeout=600):
+    """The app's subprocess convention for ffmpeg (video_bank_service has the
+    same): no console window in the frozen Windows build, utf-8 stderr with
+    replacement, and a timeout."""
+    return subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8',
+                          errors='replace', timeout=timeout,
+                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+
+
+def last_frame_command(ffmpeg, src, dst):
+    """The last frame of `src` as a PNG: seek into the last second and take the
+    first frame of the REVERSED tail — the true last frame whatever the exact
+    duration, where `-sseof` alone can land past it and write nothing."""
+    return [ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-sseof', '-1', '-i', src,
+            '-vf', 'reverse', '-frames:v', '1', '-update', '1', dst]
+
+
+def last_frame_png(clip_id) -> str:
+    """The clip's last frame as a PNG next to its mp4 (`clip_<id>_last.png`),
+    extracted once and kept; the picture the next clip starts from."""
+    from ..models import VideoTestClip
+    from . import ffmpeg_tools
+    clip = VideoTestClip.query.filter_by(id=int(clip_id)).first()
+    if clip is None:
+        raise LookupError('clip not found')
+    if clip.status != 'done' or not clip.filename:
+        raise ValueError('that clip has not finished rendering yet')
+    root = str(clips_dir())
+    src = os.path.join(root, os.path.basename(clip.filename))
+    if not os.path.isfile(src):
+        raise ValueError('that clip is no longer on disk')
+    dst = os.path.join(root, f'clip_{int(clip_id)}_last.png')
+    if os.path.isfile(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+        return dst
+    ffmpeg = ffmpeg_tools.ffmpeg_path()
+    if not ffmpeg:
+        raise ValueError('ffmpeg is needed to read the last frame — install the video extra from Setup')
+    r = _run_ffmpeg(last_frame_command(ffmpeg, src, dst), timeout=120)
+    if r.returncode != 0 or not os.path.isfile(dst):
+        raise ValueError(f'the last frame could not be read: {(r.stderr or "")[-300:]}')
+    return dst
+
+
+def _probe_media(ffmpeg, path) -> dict:
+    """What ffmpeg sees in a file, read off its own `-i` banner: whether it
+    has a sound track, and how long it plays. The join needs both — a smoothed
+    clip has no sound (its VHS_VideoCombine is given pictures only), and a
+    silent side joined to a sounding one must be padded with silence of ITS
+    length, not muted along with the other side (found in verification,
+    2026-09-03: the blind `-an` fallback threw the new part's sound away)."""
+    r = _run_ffmpeg([ffmpeg, '-hide_banner', '-i', path], timeout=60)
+    text = (r.stderr or '') + (getattr(r, 'stdout', '') or '')
+    audio = re.search(r'Stream #\d+:\d+.*?: Audio', text) is not None
+    m = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', text)
+    duration = None
+    if m:
+        duration = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    return {'audio': audio, 'duration': duration}
+
+
+def continuation_command(ffmpeg, parent, part, dst, width, height, fps, *, part_fps=None,
+                         parent_audio=True, part_audio=True, parent_seconds=None,
+                         part_seconds=None):
+    """Parent, then the new part: one video, at the parent's cadence.
+
+    The part's FIRST frame is dropped — it is the parent's last frame, the
+    picture the part was conditioned on, and kept it freezes the join for one
+    frame — and its audio is trimmed by the same 1/fps (the PART's fps: a
+    smoothed parent plays at 48 while its part rendered at 24) so the two stay
+    in step. Both sides are forced to one constant cadence (`fps=`): concat
+    accepts mixed rates and writes a variable-rate file whose stated fps then
+    lies to Smooth and to the card. The part is scaled to the parent's size in
+    case the dials changed between the two.
+
+    Sound: each side that has a track keeps it (resampled to one format, or
+    concat refuses the pair); a side without one is padded with silence of
+    its own length, so the other side's sound survives. Neither side sounding
+    → no track. Metadata is dropped: a studio clip carries its whole
+    generation graph in a tag, and the join is not that graph."""
+    fps = float(fps or 24)
+    part_fps = float(part_fps or fps)
+    trim = 1.0 / part_fps
+    rate = f'{fps:g}'
+    graph = (f'[1:v]trim=start_frame=1,setpts=PTS-STARTPTS,'
+             f'scale={int(width)}:{int(height)}:flags=lanczos,setsar=1,fps={rate}[v1];'
+             f'[0:v]setsar=1,fps={rate}[v0];[v0][v1]concat=n=2:v=1:a=0[v]')
+    cmd = [ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-i', parent, '-i', part]
+    fmt = 'aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo'
+    if parent_audio or part_audio:
+        if parent_audio:
+            a0 = f'[0:a]{fmt}[a0]'
+        else:
+            if parent_seconds is None:
+                raise ValueError('a silent parent needs its length to be padded with silence')
+            a0 = f'anullsrc=r=48000:cl=stereo:d={max(float(parent_seconds), 0.01):.3f}[a0]'
+        if part_audio:
+            a1 = f'[1:a]atrim=start={trim:.6f},asetpts=PTS-STARTPTS,{fmt}[a1]'
+        else:
+            if part_seconds is None:
+                raise ValueError('a silent part needs its length to be padded with silence')
+            a1 = f'anullsrc=r=48000:cl=stereo:d={max(float(part_seconds) - trim, 0.01):.3f}[a1]'
+        graph += f';{a0};{a1};[a0][a1]concat=n=2:v=0:a=1[a]'
+        cmd += ['-filter_complex', graph, '-map', '[v]', '-map', '[a]', '-c:a', 'aac', '-b:a', '128k']
+    else:
+        cmd += ['-filter_complex', graph, '-map', '[v]', '-an']
+    cmd += ['-c:v', 'libx264', '-crf', '19', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+            '-movflags', '+faststart', '-map_metadata', '-1', dst]
+    return cmd
+
+
+def _join_continuation(clip_id) -> bool:
+    """⏭ The finished part joined behind the clip it continues, as THIS clip's
+    file: what the card plays is the whole, the parent followed by the new
+    motion. The parent stays as it is; the part is not kept apart.
+
+    Called AFTER the completion is committed, and committing on its own: the
+    row is already 'done' with the part as its file — a valid render — while
+    ffmpeg runs, so no write lock is held for the length of an encode (the
+    Bank's passes keep the same rule, `_release_db_before_inference`). A join
+    that fails, or raises, leaves the part as the clip and says so in
+    `error`, which the card shows under its lineage line."""
+    from ..extensions import db
+    from ..models import VideoTestClip
+    from . import ffmpeg_tools
+
+    def _fail(msg):
+        row = VideoTestClip.query.filter_by(id=int(clip_id)).first()
+        if row is not None:
+            row.error = f'continuation not joined: {msg}'[:300]
+            db.session.commit()
+        return False
+
+    # 1. What the join needs, read in one short transaction.
+    clip = VideoTestClip.query.filter_by(id=int(clip_id)).first()
+    if clip is None or not clip.continues_of or not clip.filename:
+        return False
+    parent = VideoTestClip.query.filter_by(id=int(clip.continues_of)).first()
+    root = str(clips_dir())
+    part = os.path.join(root, os.path.basename(clip.filename))
+    if parent is None or not parent.filename:
+        return _fail('the clip it continues is gone')
+    src = os.path.join(root, os.path.basename(parent.filename))
+    if not os.path.isfile(src) or not os.path.isfile(part):
+        return _fail('a file is missing')
+    ffmpeg = ffmpeg_tools.ffmpeg_path()
+    if not ffmpeg:
+        return _fail('ffmpeg is not available')
+    parent_id, parent_frames, part_frames = parent.id, parent.frames, clip.frames
+    fps = float(parent.fps or clip.fps or 24)
+    part_fps = float(clip.fps or fps)
+    try:
+        from PIL import Image
+        with Image.open(last_frame_png(parent_id)) as im:
+            width, height = im.size
+    except Exception as exc:  # noqa: BLE001 — no size, no scaling target
+        return _fail(str(exc))
+    db.session.commit()   # nothing dirty — this only ends the read before the encode
+
+    # 2. The encode, with no transaction open.
+    stem, _ = os.path.splitext(os.path.basename(part))
+    out_name = f'{stem}_joined.mp4'
+    dst = os.path.join(root, out_name)
+    try:
+        p_src, p_part = _probe_media(ffmpeg, src), _probe_media(ffmpeg, part)
+        parent_audio, part_audio = p_src['audio'], p_part['audio']
+        # A silent side is padded with silence of its own length; when that
+        # length cannot be read the pair goes without sound rather than out of step.
+        if ((not parent_audio and part_audio and p_src['duration'] is None)
+                or (parent_audio and not part_audio and p_part['duration'] is None)):
+            parent_audio = part_audio = False
+        r = _run_ffmpeg(continuation_command(
+            ffmpeg, src, part, dst, width, height, fps, part_fps=part_fps,
+            parent_audio=parent_audio, part_audio=part_audio,
+            parent_seconds=p_src['duration'], part_seconds=p_part['duration']))
+        if r.returncode != 0 or not os.path.isfile(dst):
+            raise RuntimeError((r.stderr or '')[-300:] or 'ffmpeg wrote nothing')
+    except Exception as exc:  # noqa: BLE001 — a timeout, a vanished binary, a refused graph: the part stays
+        try:
+            os.remove(dst)
+        except OSError:
+            pass
+        # A timeout's own text is the whole command line — the two paths alone
+        # outrun the 300 characters the card can show; say the one fact.
+        msg = (f'ffmpeg timed out after {exc.timeout:.0f} s'
+               if isinstance(exc, subprocess.TimeoutExpired) else str(exc))
+        logger.warning('video studio: clip %s could not be joined behind clip %s: %s',
+                       clip_id, parent_id, msg)
+        return _fail(msg)
+
+    # 3. Name the joint on the row and commit — then, and only then, let the part go.
+    row = VideoTestClip.query.filter_by(id=int(clip_id)).first()
+    if row is None:
+        try:
+            os.remove(dst)
+        except OSError:
+            pass
+        return False
+    row.filename = out_name
+    if parent_frames and part_frames:
+        # The part's frames, minus the dropped one, at the parent's cadence.
+        row.frames = int(parent_frames) + int(round((int(part_frames) - 1) * fps / part_fps))
+    row.fps = fps
+    row.error = None
+    db.session.commit()
+    try:
+        os.remove(part)
+    except OSError:
+        pass
+    logger.info('video studio: clip %s joined behind clip %s -> %s', clip_id, parent_id, out_name)
+    return True
 
 
 def _render_seconds(job_id):
