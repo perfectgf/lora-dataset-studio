@@ -31,6 +31,12 @@ const EMPTY_CAPS = {
 export function CapabilitiesProvider({ children }) {
   const [caps, setCaps] = useState(EMPTY_CAPS)
   const [loading, setLoading] = useState(true)
+  // Whether `caps` is the server's answer, at least once. EMPTY_CAPS reads
+  // exactly like a machine nobody configured (`configured: false`), and a
+  // request that FAILED must never be read that way: a phone coming back to
+  // the app on a reconnecting link dropped the first requests of the page
+  // load, and a verified install was sent through Setup (2026-09-04).
+  const [known, setKnown] = useState(false)
 
   // Return the fetched snapshot on success and null on failure. Most callers
   // only need the state update, while managed-runtime polling needs the verdict:
@@ -42,6 +48,7 @@ export function CapabilitiesProvider({ children }) {
         `/api/capabilities${force ? '?force=1' : ''}`,
         options,
       )
+      setKnown(true)
       setCaps(data)
       return data
     } catch {
@@ -53,10 +60,20 @@ export function CapabilitiesProvider({ children }) {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      if ((await refresh()) !== null || !alive) return
+      // One quiet retry: the first request of a page load is the one a
+      // reconnecting link drops, and every gated screen reads this answer.
+      await new Promise((r) => setTimeout(r, 2500))
+      if (alive) refresh(false, { background: true })
+    })()
+    return () => { alive = false }
+  }, [refresh])
 
   return (
-    <CapabilitiesContext.Provider value={{ caps, loading, refresh }}>
+    <CapabilitiesContext.Provider value={{ caps, loading, known, refresh }}>
       {children}
     </CapabilitiesContext.Provider>
   )

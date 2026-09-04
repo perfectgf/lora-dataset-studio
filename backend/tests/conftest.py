@@ -86,6 +86,31 @@ def _no_live_comfyui_vram_release(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_live_comfyui_input_visibility_probe(monkeypatch):
+    """Staging a file now ASKS ComfyUI whether it can see it (GitHub #64).
+
+    Same undeclared dependency as the fixture above, one door over: every
+    `stage_input_image` / `stage_input_write` in the suite would HEAD
+    `<comfyui>/view` — and `api_address()` always resolves, because config.py's
+    DEFAULTS ship http://127.0.0.1:8188. On a machine running ComfyUI that call
+    ANSWERS, with a 404 (the tmp_path a test staged into is obviously not that
+    ComfyUI's input folder), and the guard would then refuse the staging. The
+    suite would go red on the developer's machine and stay green in CI, which is
+    the worst shape a test can take.
+
+    None is the module's own "could not ask" verdict, so this stub puts every
+    test back on the pre-#64 code path. Tests that are ABOUT the guard set their
+    own value; a later setattr wins over this one.
+
+    `_comfy_folder_note` is stubbed for the same reason and needs saying, because
+    it is NOT on the same path: it only runs once the guard has already refused,
+    so a test that sets the verdict to False would reach a live /system_stats
+    through the message builder even with the line above in place."""
+    monkeypatch.setattr('app.utils.comfy_fs.comfyui_sees_input', lambda *a, **k: None)
+    monkeypatch.setattr('app.utils.comfy_fs._comfy_folder_note', lambda *a, **k: '')
+
+
+@pytest.fixture(autouse=True)
 def _reset_inmemory_registries():
     """dataset_activity is a process-global in-memory store (a batch dies with the
     process, not the request). With :memory: DBs each test restarts dataset ids at

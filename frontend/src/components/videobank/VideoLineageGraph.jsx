@@ -1,9 +1,11 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import { buildLineageGraph, CARD_W } from '../../utils/lineageGraph'
 import { GraphCard, CheckpointPill } from '../dataset/lineageNodes'
 import { LineageEdgeDefs, LineageEdges } from '../dataset/lineageEdges'
-import { checkpointPopoverPlacement, POPOVER_H, POPOVER_W } from '../dataset/checkpointPopover.js'
+import { clampPopoverToViewport, POPOVER_W } from '../dataset/checkpointPopover.js'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { fmtSize } from './videoCheckpoints'
 import {
   MUTED_CLS, ROW_CLS, nodeGroup, pillActionModel, pillPreview, pillStep, videoDeployHint,
@@ -13,6 +15,44 @@ import {
 // width down to this scale, then pan; never taller than this before scrolling.
 const MIN_SCALE = 0.5
 const MAX_H = 560
+
+/** Keep menu text and touch targets independent of the graph's zoom and clip. */
+function FloatingVideoMenu({ anchor, onClose, children }) {
+  const ref = useRef(null)
+  const [position, setPosition] = useState({ left: 8, top: 8, width: POPOVER_W })
+  useFocusTrap(ref, true)
+  useLayoutEffect(() => {
+    const place = () => {
+      const next = clampPopoverToViewport(anchor,
+        { width: window.innerWidth, height: window.innerHeight },
+        { height: ref.current?.getBoundingClientRect().height || 264 })
+      setPosition((prev) => prev.left === next.left && prev.top === next.top && prev.width === next.width
+        ? prev : next)
+    }
+    place()
+    const observer = new ResizeObserver(place)
+    observer.observe(ref.current)
+    window.addEventListener('resize', place)
+    return () => { observer.disconnect(); window.removeEventListener('resize', place) }
+  }, [anchor])
+  useEffect(() => {
+    const outside = (e) => { if (!ref.current?.contains(e.target)) onClose() }
+    const escape = (e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    ref.current?.querySelector('button[aria-label="Close"]')?.focus()
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [onClose])
+  return createPortal(
+    <div ref={ref} data-probe-layer data-probe-chrome="video-checkpoint-menu"
+      style={{ ...position, position: 'fixed', zIndex: 1100,
+        maxHeight: 'calc(100dvh - 16px)', overflowY: 'auto' }}>
+      {children}
+    </div>, document.body)
+}
 
 /** 📦 The actions popover of ONE pill on the video graph — the list's verbs,
  * decided by the list's model (`pillActionModel`), at the pill. Presentational:
@@ -40,7 +80,7 @@ export function VideoCheckpointPopover({
           </span>
         )}
         <button type="button" onClick={onClose}
-          className="ml-auto shrink-0 text-content-subtle hover:text-content text-[0.75rem]"
+          className="ml-auto min-h-10 min-w-10 shrink-0 text-content-subtle hover:text-content text-[0.75rem] lg:min-h-0 lg:min-w-0"
           aria-label="Close">✕</button>
       </div>
       <div className="flex flex-col gap-1">
@@ -91,7 +131,7 @@ export function VideoCheckpointPopover({
         {a.del.ok ? (
           <button type="button" disabled={rowBusy} onClick={() => onDelete?.(g, s, node, pill)}
             title={a.del.title}
-            className="mt-1 flex items-center gap-1.5 border-t border-border px-2 pt-1.5 pb-0.5 text-left text-content-subtle text-[0.625rem] hover:text-rose-200 disabled:opacity-60">
+            className="mt-1 flex min-h-10 items-center gap-1.5 border-t border-border px-2 pt-1.5 pb-0.5 text-left text-content-subtle text-[0.625rem] hover:text-rose-200 disabled:opacity-60 lg:min-h-0">
             <Trash2 aria-hidden="true" className="h-3.5 w-3.5" /> {a.del.label}
           </button>
         ) : (
@@ -129,8 +169,8 @@ export default function VideoLineageGraph({
   const scrollRef = useRef(null)
   const [scale, setScale] = useState(1)
   const [hoverId, setHoverId] = useState(null)
-  // The open popover: { node, laid, pill } — `laid` is the laid-out pill (its
-  // box places the popover), `pill` the tree's own (it carries `files`).
+  // The open popover: `laid` identifies the drawn pill, `pill` carries its
+  // files, and `anchor` positions the menu in viewport pixels.
   const [openCk, setOpenCk] = useState(null)
   const closePopover = useCallback(() => setOpenCk(null), [])
 
@@ -224,7 +264,11 @@ export default function VideoLineageGraph({
                       active={openCk?.laid === p} selected={false}
                       preview={pillPreview(originalOf(n.node, p))} big={bigPreviews}
                       resultNoun="sample" resultIcon="🎬" deployHint={videoDeployHint}
-                      onOpen={(laid) => setOpenCk({ node: n.node, laid, pill: originalOf(n.node, laid) })}
+                      onOpen={(laid, event) => {
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        setOpenCk({ node: n.node, laid, pill: originalOf(n.node, laid),
+                          anchor: { x: rect.left + rect.width / 2, y: rect.bottom } })
+                      }}
                       onOpenGallery={typeof onPlaySample === 'function'
                         ? (laid) => onPlaySample(n.node, originalOf(n.node, laid)) : undefined}
                       onZoomPreview={typeof onPlaySample === 'function'
@@ -234,25 +278,18 @@ export default function VideoLineageGraph({
               </foreignObject>
             ))}
           </g>
-          {openCk && (() => {
-            const at = checkpointPopoverPlacement(openCk.laid, g)
-            return (
-              <foreignObject className="lds-gnode overflow-visible"
-                x={at.x} y={at.y} width={POPOVER_W + 10} height={POPOVER_H + 60}>
-                <div style={{ width: POPOVER_W }}>
-                  <VideoCheckpointPopover node={openCk.node} pill={openCk.pill}
-                    a={pillActionModel(datasetId, openCk.node, openCk.pill, ctx)}
-                    busy={busy}
-                    onDeploy={onDeploy} onUndeploy={onUndeploy} onDelete={onDelete}
-                    onContinue={onContinue} onDetails={onDetails} onPlaySample={onPlaySample}
-                    onClose={closePopover} />
-                </div>
-              </foreignObject>
-            )
-          })()}
         </svg>
       </div>
+      {openCk && (
+        <FloatingVideoMenu anchor={openCk.anchor} onClose={closePopover}>
+          <VideoCheckpointPopover node={openCk.node} pill={openCk.pill}
+            a={pillActionModel(datasetId, openCk.node, openCk.pill, ctx)}
+            busy={busy}
+            onDeploy={onDeploy} onUndeploy={onUndeploy} onDelete={onDelete}
+            onContinue={onContinue} onDetails={onDetails} onPlaySample={onPlaySample}
+            onClose={closePopover} />
+        </FloatingVideoMenu>
+      )}
     </>
   )
 }
-

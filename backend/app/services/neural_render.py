@@ -935,6 +935,7 @@ def start_studio_render(app, user_id, clip_id, params) -> dict:
     clip = VideoTestClip(
         run_id=src.run_id, dataset_id=src.dataset_id, job_id=None,
         status='pending', prompt=src.prompt, mode=src.mode,
+        aspect=src.aspect or 'auto', accel=src.accel,
         source_image=src.source_image, seed=src.seed, steps=src.steps,
         frames=src.frames, megapixels=src.megapixels, fps=src.fps,
         base_model=src.base_model, lora=src.lora, lora_strength=src.lora_strength,

@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useState } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useLocation } from 'react-router'
-import { Archive, ArrowUp, Dumbbell, Images, Loader2, Menu, Settings, X } from 'lucide-react'
+import { Archive, ArrowUp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, Network, Settings, X } from 'lucide-react'
 import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
@@ -192,7 +192,9 @@ function NavBar() {
   // mobile panel. Same caps gates in both places.
   const workspaceLinks = (
     <>
-      <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>Datasets</NavLink>
+      <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>
+        <span className="inline-flex items-center gap-1"><FolderOpen aria-hidden="true" className="h-3.5 w-3.5" /> Datasets</span>
+      </NavLink>
       {/* Bank sits right after Datasets: it FEEDS them (triage a big unsorted
           folder, then promote the keepers into a dataset). */}
       <NavLink to="/bank" className={navItemClass} onClick={() => setOpen(false)}>
@@ -221,7 +223,7 @@ function NavBar() {
           other, across every dataset at once. */}
       {(caps.cloud_training || caps.training_visible) && (
         <NavLink to="/canvas" className={navItemClass} onClick={() => setOpen(false)}>
-          <span className="inline-flex items-center gap-1"><span aria-hidden>◉</span> Canvas
+          <span className="inline-flex items-center gap-1"><Network aria-hidden="true" className="h-3.5 w-3.5" /> Canvas
             {/* The Beta chip marks the newest surface, not the oldest: the Bank
                 has been in daily use for weeks, the canvas ships today.
 
@@ -235,7 +237,9 @@ function NavBar() {
         </NavLink>
       )}
       {caps.studio_visible && (
-        <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>Test Studio</NavLink>
+        <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>
+          <span className="inline-flex items-center gap-1"><FlaskConical aria-hidden="true" className="h-3.5 w-3.5" /> Test Studio</span>
+        </NavLink>
       )}
       {/* 🖼 Gallery — every generated image, one feed. Last: it is where the
           OUTPUT of the other workspaces accumulates, so it reads as the shelf
@@ -245,12 +249,6 @@ function NavBar() {
       {(caps.studio_visible || caps.cloud_training || caps.training_visible) && (
         <NavLink to="/gallery" className={navItemClass} onClick={() => setOpen(false)}>
           <span className="inline-flex items-center gap-1"><Images aria-hidden="true" className="h-3.5 w-3.5" /> Gallery
-            {/* Same rule and the same hiding as the ◉ Canvas chip above: gone on
-                the tight desktop bar (md→lg) where the row already overflows,
-                kept in the mobile panel, which is where this app is actually
-                browsed — a beta warning that vanishes on the reader's own screen
-                warns nobody. */}
-            <span className="px-1 py-0.5 rounded border border-amber-400/50 bg-amber-500/10 text-amber-300 text-[0.5625rem] font-semibold uppercase tracking-wide leading-none md:hidden lg:inline">Beta</span>
           </span>
         </NavLink>
       )}
@@ -275,52 +273,22 @@ function NavBar() {
     </>
   )
   return (
-    <header className="border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
-      <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:gap-6">
+    <header className="app-header border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
+      <div className="app-header-shell mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:gap-6">
         <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
           className="shrink-0 whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
         {/* Desktop: workspaces on the left, utilities grouped into icon menus
             on the right (Guide/Help under ?, Setup/Settings under ⚙). */}
-        {/* WHICH BOX YIELDS. Two things share this bar and they cannot both
-            fit: the workspace links (598 px with the Beta chips) and the
-            utility cluster (192 px folded, 484 px once the 📊 machine load is
-            unfolded). The bar itself is `max-w-5xl`, so it is 1024 px wide on a
-            1024-px laptop AND on a 1920-px monitor — the width never grows and
-            neither does the budget. 598 + 484 = 1082 > 1024: on every desktop
-            there IS a shortfall, and the only question is which box absorbs it.
-
-            It used to be the workspace row, because that row was the flex-wrap
-            box and the cluster was `shrink-0`. So the app's own navigation was
-            the thing that shattered: measured on the Runs page with the load
-            readout unfolded, six links broke into FOUR ragged lines and the
-            header grew to 135 px (246 px at 768). The links are the identity of
-            the app; a status line is not.
-
-            So the wrap moved OUT one level. `nav` wraps, and the workspace box
-            takes `basis-auto` — its content width now counts in the wrapping
-            decision, which makes the utility cluster the item that drops to a
-            second, right-aligned row. The links keep one clean line.
-
-            The inner flex-wrap STAYS, and it is still the thing that protects
-            the document: at 768 px the row is saturated to the pixel, and as
-            direct nav children the links could not wrap, so the smallest growth
-            — one more link, one longer label — widened the header past the
-            viewport and the whole PAGE scrolled sideways, which is the one
-            thing a layout must never do. The ladder is now: the cluster yields
-            first, the links wrap only if they alone overflow, the document
-            never widens. And unlike `overflow-x-auto` here, none of it clips
-            the ? / ⚙ popovers, which live in that cluster. */}
+        {/* Desktop CSS places workspaces beside the brand, with machine load
+            and utility menus on a separate full-width row. Links and readings
+            can wrap at narrow widths without clipping the menu popovers. */}
         <nav className="hidden md:flex flex-1 min-w-0 flex-wrap items-center gap-x-1 gap-y-1.5" aria-label="Main navigation">
-          <div className="flex min-w-0 shrink grow basis-auto flex-wrap items-center gap-1">
+          <div className="app-header-workspaces flex min-w-0 shrink grow basis-auto flex-wrap items-center gap-1">
             {workspaceLinks}
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {/* Folded, this is one quiet 📊 button. Unfolded, the line takes
-                the width it takes and the workspace row (flex-wrap) yields —
-                a taller header is the documented overflow here, never a wider
-                document. */}
+          <div className="app-header-tools ml-auto flex shrink-0 items-center gap-1">
             {desktopNav && machineLoad}
             <HeaderMenu triggerLabel={<span aria-hidden>?</span>}
               triggerTitle="Help & guide" active={helpMenuActive}>

@@ -1763,6 +1763,7 @@ class VideoTestClip(db.Model):
 
     prompt = db.Column(Text, nullable=True)
     mode = db.Column(String(8), nullable=False, default='i2v')  # i2v|t2v
+    aspect = db.Column(String(16), nullable=True, default='auto', server_default='auto')
     source_image = db.Column(String(255), nullable=True)  # the file handed to LoadImage
     seed = db.Column(db.BigInteger, nullable=True)
     steps = db.Column(Integer, nullable=True)

@@ -187,7 +187,7 @@ export default function SetupPage() {
   // Auto-detect installed tools. Reachable default ports (Ollama 11434, ComfyUI
   // 8188) are safe to fill + save automatically; disk-scanned paths are only
   // SUGGESTED (a scan can guess wrong) and applied on the user's click.
-  const runAutodetect = useCallback(async (baseConfig) => {
+  const runAutodetect = useCallback(async (baseConfig, force = false) => {
     setDetecting(true)
     try {
       const d = await apiFetch('/api/setup/autodetect')
@@ -213,7 +213,10 @@ export default function SetupPage() {
         setConfig(saved.config)
         savedConfigRef.current = JSON.stringify(saved.config)
       }
-      await refresh(true)
+      // The app shell is already checking capabilities on first load. Reuse
+      // that scan unless auto-detection saved new settings or the user asked
+      // for a fresh check; otherwise cold Python checks run twice at startup.
+      await refresh(force || changed)
       return d
     } catch { return null }
     finally { setDetecting(false); setScanned(true) }
@@ -1810,7 +1813,7 @@ export default function SetupPage() {
             {detecting
               ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-border-strong border-t-primary" aria-hidden="true" />
               : (
-                <button type="button" onClick={() => runAutodetect(config)}
+                <button type="button" onClick={() => runAutodetect(config, true)}
                   className="text-xs text-primary underline">Re-scan</button>
               )}
           </div>

@@ -83,6 +83,64 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-05-zzz-video-reuse-reliability',
+    date: '2026-09-05',
+    title: 'Keep your clip settings when you reuse or finish a video',
+    blurb: 'Reuse keeps the canvas shape of text-to-video clips, and Smooth and Neural rendering preserve the selected accelerator. Last-frame extraction also recovers cleanly if an export is interrupted.',
+    to: '/studio?lane=video',
+  },
+  {
+    id: '2026-09-05-zzz-training-cleanup-ownership',
+    date: '2026-09-05',
+    title: 'Keep your quantization GPU safe from training cleanup',
+    blurb: 'Training cleanup now checks which task owns a rented instance, so it leaves quantization instances alone.',
+  },
+  {
+    id: '2026-09-05-zzz-small-screen-video-controls',
+    date: '2026-09-05',
+    title: 'Reach video graph actions on a small screen',
+    blurb: 'Checkpoint menus stay inside the screen and offer comfortable touch targets. Long render-option labels wrap so you can read the whole setting.',
+    to: '/datasets',
+  },
+  {
+    id: '2026-09-05-zzz-comfyui-input-check',
+    date: '2026-09-05',
+    title: 'Know when ComfyUI cannot see the image you selected',
+    blurb: 'A mismatched input folder is caught before a render starts, with an explanation of which folder needs checking instead of an unexplained generation error.',
+  },
+  {
+    id: '2026-09-05-zzz-cancelled-reads',
+    date: '2026-09-05',
+    title: 'Closing a picker no longer looks like a lost connection',
+    blurb: 'A cancelled read no longer triggers the offline banner or a connection-error notification.',
+  },
+  {
+    id: '2026-09-05-zz-setup-scan-startup',
+    date: '2026-09-05',
+    title: 'Spend less time waiting for the Setup scan',
+    blurb: 'Setup checks your installed tools sooner after an app restart. Opening it reuses the current machine scan; Re-scan still checks again when you need it.',
+    to: '/setup',
+  },
+  {
+    id: '2026-09-04-zzzzzzzz-workspace-header-refresh',
+    date: '2026-09-04',
+    title: 'Find your workspace at a glance',
+    blurb: 'The header now separates workspace navigation from machine readings and tools, with matching icons, a clearer active tab and more readable resource values. Gallery no longer carries a Beta badge.',
+  },
+  {
+    id: '2026-09-04-zzzzz-no-setup-detour-after-a-dropped-request',
+    date: '2026-09-04',
+    title: 'Coming back to the app no longer lands you on Setup when a request dropped on the way',
+    blurb:
+      'Opening the app again on a phone — after a video had rendered, say — '
+      + 'sometimes showed the Setup wizard as if the machine had never been '
+      + 'configured. It had: the first two requests of the page load had been '
+      + 'dropped by a link that was reconnecting, and “I could not ask” was '
+      + 'being read as “never set up”. A dropped request is now retried once '
+      + 'and otherwise ignored; only the server’s own answer can open the '
+      + 'wizard, and an install it has already seen working is never bounced.',
+  },
+  {
     id: '2026-09-04-per-picture-prompts-in-one-pass',
     date: '2026-09-04',
     title: 'Writing a prompt per picture no longer reloads the video model between each one',

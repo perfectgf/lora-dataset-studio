@@ -12,11 +12,14 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
+from flask import current_app, has_app_context
 
 from . import config as cfg
 from .services import ffmpeg_tools
@@ -26,6 +29,10 @@ from .utils import comfy_fs
 _CACHE_TTL = 30
 _cache = None
 _cache_ts = 0.0
+_cache_lock = threading.Lock()
+_probe_lock = threading.Lock()
+_cache_generation = 0
+_PROBE_WORKERS = 4
 
 _IMPORT_TTL = 600
 # How long an UNKNOWN verdict (the probe never answered) is remembered. Short,
@@ -39,6 +46,7 @@ _UNKNOWN_TTL = 60
 # answered 'CUDA' to one probe and 'no answer' to the other.
 _IMPORT_TIMEOUT = 90
 _import_cache = {}  # key -> (ts, ok|None)  — None = unknown, kept briefly
+_import_locks = {}  # same key -> lock; retained across invalidation for waiters
 # EVERY probe that vouches for a ``backend/infer/*`` worker runs in the exact
 # environment that worker runs in — isolated from the process owner's user
 # site-packages (``services.infer_env``). The two must move together: a probe
@@ -151,19 +159,39 @@ def _cached_import_state(key: str, python: str, module_expr: str):
     for _IMPORT_TTL (a venv does not change between two probes), an unknown for
     _UNKNOWN_TTL so it re-tries soon against a now-warm import WITHOUT spawning
     a fresh 90 s subprocess on every 2 s poll of the Bank panel."""
-    now = time.time()
     cache_key = f'{key}:{python}:{module_expr}'
-    cached = _import_cache.get(cache_key)
-    if cached is not None:
-        ttl = _IMPORT_TTL if cached[1] is not None else _UNKNOWN_TTL
-        if now - cached[0] < ttl:
+
+    def fresh_cached():
+        cached = _import_cache.get(cache_key)
+        if cached is not None:
+            ttl = _IMPORT_TTL if cached[1] is not None else _UNKNOWN_TTL
+            if time.time() - cached[0] < ttl:
+                return cached
+        return None
+
+    with _cache_lock:
+        cached = fresh_cached()
+        if cached is not None:
             return cached[1]
-    probe_python = (python if (key in _USER_SITE_IMPORT_KEYS
-                               or not infer_env.is_borrowed(python))
-                    else (python, infer_env.NO_USER_SITE_FLAG))
-    ok = _import_ok(probe_python, module_expr)
-    _import_cache[cache_key] = (now, ok)
-    return ok
+        import_lock = _import_locks.setdefault(cache_key, threading.Lock())
+    # Different import expressions can proceed together; callers asking the
+    # same question share the verdict, including an UNKNOWN timeout.
+    with import_lock:
+        with _cache_lock:
+            cached = fresh_cached()
+            if cached is not None:
+                return cached[1]
+            generation = _cache_generation
+        probe_python = (python if (key in _USER_SITE_IMPORT_KEYS
+                                   or not infer_env.is_borrowed(python))
+                        else (python, infer_env.NO_USER_SITE_FLAG))
+        ok = _import_ok(probe_python, module_expr)
+        with _cache_lock:
+            # An install may finish while this old interpreter is still being
+            # probed. Its caller may finish, but it cannot poison the next read.
+            if generation == _cache_generation:
+                _import_cache[cache_key] = (time.time(), ok)
+        return ok
 
 
 def _cached_import(key: str, python: str, module_expr: str) -> bool:
@@ -632,14 +660,15 @@ def comfyui_runtime(timeout=3) -> dict:
 def clear_import_cache() -> None:
     """Drop cached import-probe results and the main probe cache so the next
     probe re-checks freshly installed packages instead of a stale 600s 'False'."""
-    global _cache, _cache_ts
-    _import_cache.clear()
-    # The encoder verdict is a probe too (it RUNS ffmpeg), cached the same way —
-    # so it has to be dropped here or the video row keeps its pre-install ✗ for
-    # ten minutes after the install that fixed it.
-    ffmpeg_tools.clear_cache()
-    _cache = None
-    _cache_ts = 0.0
+    global _cache, _cache_ts, _cache_generation
+    with _cache_lock:
+        _cache_generation += 1
+        _import_cache.clear()
+        # The encoder verdict is a probe too (it RUNS ffmpeg), cached the same
+        # way, so a fresh install must drop its pre-install verdict as well.
+        ffmpeg_tools.clear_cache()
+        _cache = None
+        _cache_ts = 0.0
 
 
 # Where an ai-toolkit checkout keeps the Python that runs it. There is NO single
@@ -1722,6 +1751,15 @@ def _input_check(base_dir: str) -> dict:
         target = cfg.resolve_comfyui_dir('input', base_dir, override)
         path = str(target) if target else ''
         verdict = comfy_fs.probe_folder('input', path)
+        # Writable is only half of "usable". A folder can pass every local check
+        # and still not be the one ComfyUI reads — a second install, or the
+        # `--input-directory` flag no disk inspection can see (GitHub #64). Asked
+        # only once the local verdict is green: a missing or read-only folder has
+        # a louder answer already, and this one costs a round trip.
+        if verdict['ok']:
+            invisible = comfy_fs.input_visibility_problem(path)
+            if invisible:
+                verdict = {'ok': False, 'problem': invisible}
     except Exception:
         return {'path': '', 'ok': None, 'problem': ''}
     return {'path': comfy_fs.safe_path(path), 'ok': verdict['ok'],
@@ -1772,6 +1810,12 @@ def classify_comfyui_folders(base_dir: str, overrides: dict | None = None) -> di
         if exists:
             verdict = comfy_fs.probe_folder(kind, resolved)
             usable, problem = verdict['ok'], verdict['problem']
+            # input/ is the only folder BOTH sides must agree on by path, and the
+            # only one whose disagreement is invisible from here (GitHub #64).
+            if kind == 'input' and usable:
+                invisible = comfy_fs.input_visibility_problem(resolved)
+                if invisible:
+                    usable, problem = False, invisible
         out[key] = {'kind': kind, 'source': source,
                     'resolved': resolved, 'exists': exists,
                     'usable': usable, 'problem': problem}
@@ -2205,18 +2249,37 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
     }
 
 
-def probe(force=False) -> dict:
-    global _cache, _cache_ts
-    now = time.time()
-    if _cache is not None and not force and (now - _cache_ts) < _CACHE_TTL:
-        return copy.deepcopy(_cache)
+def _parallel_probes(probes):
+    """Bound cold subprocess/network work and give each worker its own context."""
+    app = current_app._get_current_object() if has_app_context() else None
 
+    def run(function):
+        if app is None:
+            return function()
+        with app.app_context():
+            return function()
+
+    with ThreadPoolExecutor(max_workers=_PROBE_WORKERS,
+                            thread_name_prefix='capability') as executor:
+        pending = {key: executor.submit(run, function)
+                   for key, function in probes.items()}
+        return {key: future.result() for key, future in pending.items()}
+
+
+def _probe_comfy_models():
+    # Keep the shared ComfyUI discovery caches on one worker: these dependent
+    # reads must not launch concurrent /object_info scans against the server.
     comfy = probe_comfyui()
-    ollama = probe_ollama()
-    ollama_installed = probe_ollama_installed()
-    from .services import vision_llm as _vision_llm
-    _llm_provider = _vision_llm.provider()
-    _wm_clean = _watermark_clean_options()
+    return (comfy, _scan_models(), _probe_klein(comfy), _probe_krea(comfy),
+            _probe_seedvr2(comfy))
+
+
+def _probe_training_captioner():
+    aitoolkit = probe_aitoolkit()
+    return aitoolkit, probe_joycaption(aitoolkit)
+
+
+def _probe_active_lmstudio(_llm_provider):
     _lmstudio_url = ''
     # A filesystem stat, not a round-trip, so it runs for the INACTIVE provider
     # too: "LM Studio is installed on this machine" is worth knowing on the card
@@ -2238,30 +2301,81 @@ def probe(force=False) -> dict:
         # Swallowing the reason into a log nobody opens is how a broken provider
         # reads as "just not configured".
         lmstudio_model = {'ok': False, 'detail': f'LM Studio probe failed: {_exc}'}
-    aitoolkit = probe_aitoolkit()
-    gemini = probe_gemini()
-    openai_ = probe_openai()
-    openrouter_ = probe_openrouter()
-    face_scoring = probe_face_scoring()
-    masks = probe_masks()
-    bank_scoring = probe_bank_scoring()
-    bank_siglip2 = probe_bank_siglip2()
-    watermark_inpaint = probe_watermark_inpaint()
-    watermark_detect = probe_watermark_detect()
-    video = probe_video()
-    dlss5nr = probe_dlss5nr()
-    video_text = probe_video_text()
-    scrape_deps = probe_scrape_deps()
-    joycaption = probe_joycaption(aitoolkit)
-    models = _scan_models()
+    return _lmstudio_url, _lmstudio_installed, lmstudio, lmstudio_model
+
+
+def probe(force=False) -> dict:
+    """Share ordinary polls; an explicit refresh always re-reads configuration."""
+    global _cache, _cache_ts
+    with _cache_lock:
+        if _cache is not None and not force and time.time() - _cache_ts < _CACHE_TTL:
+            return copy.deepcopy(_cache)
+    with _probe_lock:
+        with _cache_lock:
+            # Another request may have filled the cache while this one waited.
+            # Force must still scan: Settings may have changed in the meantime.
+            if _cache is not None and not force and time.time() - _cache_ts < _CACHE_TTL:
+                return copy.deepcopy(_cache)
+            generation = _cache_generation
+        caps = None
+        try:
+            caps = _probe_uncached()
+        finally:
+            with _cache_lock:
+                if generation != _cache_generation:
+                    # Discard a late encoder verdict even if another probe
+                    # failed: ffmpeg owns an additional, independent cache.
+                    ffmpeg_tools.clear_cache()
+                elif caps is not None:
+                    # A cold scan can exceed the TTL. Its lifetime starts when
+                    # the answer becomes available, not before the first import.
+                    _cache, _cache_ts = caps, time.time()
+        return copy.deepcopy(caps)
+
+
+def _probe_uncached():
+    from .services import vision_llm as _vision_llm
+    _llm_provider = _vision_llm.provider()
+    results = _parallel_probes({
+        'comfy_models': _probe_comfy_models,
+        'training_captioner': _probe_training_captioner,
+        'bank_scoring': probe_bank_scoring,
+        'masks': probe_masks,
+        'ollama': probe_ollama,
+        'ollama_installed': probe_ollama_installed,
+        'lmstudio': lambda: _probe_active_lmstudio(_llm_provider),
+        'gemini': probe_gemini,
+        'openai': probe_openai,
+        'openrouter': probe_openrouter,
+        'face_scoring': probe_face_scoring,
+        'bank_siglip2': probe_bank_siglip2,
+        'watermark_inpaint': probe_watermark_inpaint,
+        'watermark_detect': probe_watermark_detect,
+        'video': probe_video,
+        'dlss5nr': probe_dlss5nr,
+        'video_text': probe_video_text,
+        'scrape_deps': probe_scrape_deps,
+        'watermark_clean': _watermark_clean_options,
+    })
+    comfy, models, klein, krea, seedvr2 = results['comfy_models']
+    aitoolkit, joycaption = results['training_captioner']
+    ollama = results['ollama']
+    ollama_installed = results['ollama_installed']
+    _lmstudio_url, _lmstudio_installed, lmstudio, lmstudio_model = results['lmstudio']
+    gemini, openai_, openrouter_ = results['gemini'], results['openai'], results['openrouter']
+    face_scoring, masks = results['face_scoring'], results['masks']
+    bank_scoring, bank_siglip2 = results['bank_scoring'], results['bank_siglip2']
+    watermark_inpaint, watermark_detect = results['watermark_inpaint'], results['watermark_detect']
+    video, dlss5nr, video_text = results['video'], results['dlss5nr'], results['video_text']
+    scrape_deps, _wm_clean = results['scrape_deps'], results['watermark_clean']
     (_keh, klein_missing, klein_invalid, klein_unsupported_enums,
-     klein_ready) = _probe_klein(comfy)
+     klein_ready) = klein
     (krea_missing, krea_nodes_missing, krea_nodes_installed, krea_invalid,
-     krea_pin_gaps, krea_base_resolved, krea_ready) = _probe_krea(comfy)
+     krea_pin_gaps, krea_base_resolved, krea_ready) = krea
     (seedvr2_missing, seedvr2_nodes_missing, seedvr2_nodes_installed,
      seedvr2_invalid, seedvr2_ready, seedvr2_tiling_ready,
      seedvr2_tiling_nodes_missing,
-     seedvr2_ceiling_mp) = _probe_seedvr2(comfy)
+     seedvr2_ceiling_mp) = seedvr2
     base_dir = cfg.get('comfyui.base_dir') or ''
     from .services import comfyui_control
     comfy_launcher = comfyui_control.launcher_status()
@@ -2503,5 +2617,4 @@ def probe(force=False) -> dict:
         'studio_visible': comfy['ok'],
     }
 
-    _cache, _cache_ts = caps, now
-    return copy.deepcopy(caps)
+    return caps

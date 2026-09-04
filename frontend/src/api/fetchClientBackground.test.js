@@ -10,7 +10,7 @@ import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { apiFetch, setToastRef, CONNECTION_BACK_MESSAGE } from './fetchClient.js';
-import { reportRequestFailure, resetConnectionStatus } from '../utils/connectionStatus.js';
+import { getConnectionState, reportRequestFailure, resetConnectionStatus } from '../utils/connectionStatus.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -102,4 +102,39 @@ test('a background 503 closes the outage without becoming a toast', async () => 
 
   // Reachable again — that is worth the one recovery line, and nothing else.
   assert.deepEqual(seen, [['success', CONNECTION_BACK_MESSAGE]]);
+});
+
+test('cancelling a replaced library read preserves AbortError and does not invent an outage or recovery', async () => {
+  const seen = recorder();
+  const before = getConnectionState();
+  const controller = new AbortController();
+  const aborted = new DOMException('The request was replaced', 'AbortError');
+  globalThis.fetch = async () => { controller.abort(); throw aborted; };
+  await assert.rejects(apiFetch('/api/video-studio/reference-library', { signal: controller.signal, background: true }),
+    (error) => error === aborted, 'the caller must retain the cancellation identity');
+  assert.equal(getConnectionState(), before);
+  globalThis.fetch = async () => response(200, { items: [] });
+  await apiFetch('/api/video-studio/reference-library', { background: true });
+  assert.deepEqual(seen, [], 'a successful replacement must not announce Back online');
+});
+
+test('an explicit abort reason stays a cancellation even when it is not named AbortError', async () => {
+  const seen = recorder();
+  const before = getConnectionState();
+  const controller = new AbortController();
+  const reason = new Error('Selection removed');
+  controller.abort(reason);
+  globalThis.fetch = async () => { throw reason; };
+  await assert.rejects(apiFetch('/api/video-studio/reference-library/info', { signal: controller.signal }), (error) => error === reason);
+  assert.equal(getConnectionState(), before); assert.deepEqual(seen, []);
+});
+
+test('a cancelled read neither grows nor closes an existing network outage', async () => {
+  const seen = recorder();
+  reportRequestFailure({ background: true });
+  const before = getConnectionState();
+  const aborted = new DOMException('Cancelled', 'AbortError');
+  globalThis.fetch = async () => { throw aborted; };
+  await assert.rejects(apiFetch('/api/read', { background: true }), (error) => error === aborted);
+  assert.equal(getConnectionState(), before); assert.deepEqual(seen, []);
 });

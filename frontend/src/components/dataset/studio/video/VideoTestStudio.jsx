@@ -442,6 +442,7 @@ export default function VideoTestStudio() {
   const reuse = (clip) => {
     setPrompt(clip.prompt || '');
     setMode(clip.mode === 't2v' ? 't2v' : 'i2v');
+    setAspect(clip.aspect || 'auto');
     setOpts({
       accel: clipAccel(clip), eros: !!clip.eros, sparse: clip.sparse || '',
       latentUpscale: !!clip.latent_upscale,

@@ -100,7 +100,10 @@ export async function apiFetch(url, options = {}) {
   let res;
   try {
     res = await fetchWithCsrfRetry(url, init);
-  } catch {
+  } catch (error) {
+    // Replacing a search or leaving a picker cancels its read deliberately.
+    // Keep that cancellation distinct from a failed network connection.
+    if (error?.name === 'AbortError' || init.signal?.aborted) throw error;
     // One banner per outage, from the foreground only. Ten failed polls used to
     // mean ten stacked banners covering the app on a phone.
     if (reportRequestFailure({ background })) toastRef?.error(CONNECTION_LOST_MESSAGE);

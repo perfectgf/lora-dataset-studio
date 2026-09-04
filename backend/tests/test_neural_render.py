@@ -328,15 +328,21 @@ def test_dataset_routes(app, client, tmp_path, monkeypatch):
     assert r.status_code == 400 and 'tone' in r.get_json()['error']
 
 
-def test_the_capability_payload_carries_the_lane():
-    """The Setup card and both verbs read `caps['dlss5nr']`; the full probe is
-    too heavy for a unit test (it imports every extra in subprocesses), so the
-    key is pinned where it is written."""
+def test_the_capability_payload_carries_the_lane(app, monkeypatch):
+    """Setup and both verbs receive the complete Neural status, including why
+    the lane is unavailable, regardless of how the probes are scheduled."""
     from app import capabilities
-    src = (nr.cfg.BACKEND_DIR / 'app' / 'capabilities.py').read_text(encoding='utf-8')
-    assert re.search(r"^\s+'dlss5nr': dlss5nr,", src, re.M), 'the probe payload must carry dlss5nr'
-    assert re.search(r"^\s+dlss5nr = probe_dlss5nr\(\)", src, re.M)
-    assert callable(capabilities.probe_dlss5nr)
+    status = {'ready': False, 'missing': ['model missing'],
+              'runtime_dir': 'test-runtime', 'model_file': nr.MODEL_FILE}
+    monkeypatch.setattr(nr, 'status', lambda: status)
+    monkeypatch.setattr(capabilities, '_http_ok', lambda *a, **k: False)
+    monkeypatch.setattr(capabilities, '_import_ok', lambda *a, **k: False)
+    monkeypatch.setattr(capabilities, 'gpu_vram_gb', lambda: None)
+    monkeypatch.setattr(capabilities.ffmpeg_tools, 'ffmpeg_ready',
+                        lambda: {'ok': False, 'reason': 'not installed'})
+    with app.app_context():
+        payload = capabilities.probe(force=True)
+    assert payload['dlss5nr'] == status
 
 
 # ── the child's stderr pump ─────────────────────────────────────────────────

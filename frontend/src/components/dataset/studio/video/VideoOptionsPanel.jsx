@@ -27,7 +27,7 @@ function Toggle({ checked, onChange, icon: Icon, label, cost, hint, disabled, di
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 text-sm text-content">
           <Icon aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />
-          <span className="min-w-0 flex-1 truncate">{label}</span>
+          <span className="min-w-0 flex-1 break-words">{label}</span>
           {!disabled && cost && (
             <span className="shrink-0 rounded-full border border-border px-1.5 py-px text-[0.625rem] text-content-subtle">
               {cost}

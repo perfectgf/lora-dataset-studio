@@ -69,9 +69,12 @@ export function shouldProbeDockerChoice({ state, caps }) {
  *  therefore beats `configured`; the once-per-session flag still applies, so
  *  this cannot become a loop. */
 export function shouldRedirectToSetup({
-  loading, caps, state, alreadyRedirected, pendingDockerChoice,
+  loading, caps, capsKnown = true, state, alreadyRedirected, pendingDockerChoice,
 }) {
   if (loading || !state) return false          // never redirect on a guess
+  // Capabilities that could not be read look exactly like an unconfigured
+  // machine (EMPTY_CAPS). "I could not ask" is not a verdict.
+  if (capsKnown === false) return false
   if (state.verified) return false
   if (caps && caps.configured && !pendingDockerChoice) return false
   return !alreadyRedirected

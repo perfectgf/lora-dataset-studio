@@ -24,7 +24,7 @@ import { setupHealthPhase, shouldRedirectToSetup, regressionNotice, statusMessag
 const SETUP_REDIRECT_KEY = 'lds_setup_redirected'
 
 export default function SetupHealthNotice() {
-  const { caps, loading, refresh } = useCapabilities()
+  const { caps, loading, known, refresh } = useCapabilities()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const [state, setState] = useState(null)      // GET /api/setup-state
@@ -33,23 +33,30 @@ export default function SetupHealthNotice() {
   const [hidden, setHidden] = useState(false)   // the "all good" line has faded
   const startedRef = useRef(false)
 
-  // One pass per page load. Runs only once capabilities have answered, so the
-  // cached probe the state endpoint reads is already warm and this costs a
-  // round-trip, not a second machine scan.
+  // One pass per page load. Runs only once capabilities have ANSWERED (not
+  // merely settled), so the cached probe the state endpoint reads is already
+  // warm and this costs a round-trip, not a second machine scan.
   useEffect(() => {
-    if (loading || startedRef.current) return
+    if (loading || !known || startedRef.current) return
     startedRef.current = true
     let alive = true
     ;(async () => {
-      let s
-      try {
-        s = await apiFetch('/api/setup-state', { background: true })
-      } catch {
-        // Server unreachable or an older backend: fall back to "never verified",
-        // which is exactly the behaviour that shipped before this feature.
-        s = { verified: false, checks: {}, regressions: [] }
+      // The server's answer, or nothing. A request that failed used to fall
+      // back to "never verified" — and a phone coming back to the app after
+      // a render, its link reconnecting, had its first requests dropped and
+      // was sent through Setup on a machine set up for weeks (2026-09-04).
+      // One quiet retry, then silence: the next page load asks again, and
+      // a genuine first run is still redirected the moment the server says so.
+      let s = null
+      for (let attempt = 0; attempt < 2 && alive; attempt += 1) {
+        try {
+          s = await apiFetch('/api/setup-state', { background: true })
+          break
+        } catch {
+          await new Promise((r) => setTimeout(r, 1500))
+        }
       }
-      if (!alive) return
+      if (!alive || !s) return
       setState(s)
       if (!s.verified) {
         // Only asked for when the answer can change the decision — a Docker
@@ -67,7 +74,7 @@ export default function SetupHealthNotice() {
           if (!alive) return
         }
         if (shouldRedirectToSetup({
-          loading: false, caps, state: s, pendingDockerChoice,
+          loading: false, caps, capsKnown: known, state: s, pendingDockerChoice,
           alreadyRedirected: !!sessionStorage.getItem(SETUP_REDIRECT_KEY),
         })) {
           sessionStorage.setItem(SETUP_REDIRECT_KEY, '1')
@@ -94,7 +101,7 @@ export default function SetupHealthNotice() {
       }
     })()
     return () => { alive = false }
-  }, [loading, caps, navigate, pathname, refresh])
+  }, [loading, known, caps, navigate, pathname, refresh])
 
   const phase = setupHealthPhase({ state, checking, result })
 

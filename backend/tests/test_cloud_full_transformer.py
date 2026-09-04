@@ -803,7 +803,7 @@ def test_supervisor_periodically_reaps_expired_verified_cleanup_and_retries(
         ct, 'reconcile_full_transformer_deliveries', lambda: [])
     monkeypatch.setattr(
         ct.vast_client, 'list_instances',
-        lambda: [{'instance_id': 'pod-expired', 'label': 'lds-expired'}])
+        lambda: [{'instance_id': 'pod-expired', 'label': f'lds-{run_id}'}])
     monkeypatch.setattr(
         ct.vast_client, 'destroy_instance',
         lambda instance_id: destroyed.append(instance_id) or next(outcomes))

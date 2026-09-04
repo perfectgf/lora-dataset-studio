@@ -25,7 +25,9 @@ any file.
 
 ## Where work lands: `nightly` first, `main` when it is done
 
-Two branches, and the difference is what each one costs.
+Two branches, and the difference is what each one costs. `nightly` and work
+branches live in the private repository; the public repository carries only
+`main`, tags and releases.
 
 **`nightly` is where development happens.** Land there freely, as often as you
 like: targeted tests, the tree-wide invariants, both linters and the frontend
@@ -35,13 +37,17 @@ development phase it cost more than the confidence it bought (maintainer's call,
 2026-08-31: "arrête avec les suites complètes en développement").
 
 **`main` is what the world runs, and it is where the full suite is paid — once.**
-When a body of work is finished, merge `nightly` into `main` and run BOTH suites
-whole on that merged tree before the push. One run for a wave, not one per
-commit.
+Maintainer's policy, 2026-09-05: ship visual improvements and fixes to existing
+public functions on `main` too. Keep new features and their dependent fixes on
+`nightly` while the plugin system is being completed. Do not merge all of
+`nightly` into `main` during this period: select independent commits and adapt
+mixed commits without importing their new features. Rebuild `dist` from the
+selected stable sources. Run BOTH suites whole on the integrated stable tree
+before its push. One run for a wave, not one per commit.
 
 - **The maintainer's test instance is checked out on `nightly`.** Two things
   follow, and both are easy to forget: nightly must be **pushed** (that instance
-  pulls from origin — the in-app updater fast-forwards whatever branch its
+  pulls from the private repository — the in-app updater fast-forwards whatever branch its
   checkout is on, so it follows nightly by itself), and the **`dist` rebuild
   stays part of every nightly landing**. Skipping it is not a saving, it is a
   test instance serving last week's UI while you ask whether the feature works.
@@ -203,9 +209,9 @@ the same reason. In that week 96 commits reached `main` and 7 went through a PR.
 - **Look before you start**, on anything a contributor might also be attempting:
   `git ls-remote --heads origin` and the open PRs. An overlap found before the
   work is a conversation; found after, it is somebody's wasted evening.
-- **A finished branch merges into `nightly`, not into `main`.** `main` receives
-  `nightly`, once, when the work is done and both suites are green on the merged
-  tree (see the section above).
+- **A finished feature branch merges into private `nightly`.** Stable fixes
+  and visual improvements also reach public `main` through the selective
+  integration policy above, with both suites green on that integrated tree.
 - **`main` stays releasable.** A branch may be red while it cooks; `main` may
   not. The gate does not move for what LANDS: both suites green on that exact
   tree before the push that makes the wave landable, and before anything reaches

@@ -2,6 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The global header keeps workspaces above a separate machine/tools shelf. */
+.app-header {
+  background: rgb(var(--surface-overlay));
+  backdrop-filter: none;
+}
+.app-header-shell > a { letter-spacing: -0.025em; }
+.app-header a:focus-visible,
+.app-header button:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 3px;
+}
+.app-header-workspaces > a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  border-radius: 8px;
+}
+.app-header-workspaces > a[aria-current="page"] {
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / 0.1);
+}
+.app-header-workspaces > a[aria-current="page"]::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgb(var(--accent));
+}
+.app-header-tools > button,
+.app-header-tools > .relative > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+.app-header-tools > button:hover,
+.app-header-tools > .relative > button:hover {
+  border-color: rgb(var(--border));
+  background: rgb(var(--surface-raised));
+}
+.app-header [data-testid="header-system-stats"] { gap: 8px; }
+.app-header [data-testid="header-system-stats"] > span:first-child {
+  flex-wrap: wrap;
+  gap: 0;
+  font-size: 11px;
+}
+.app-header [data-testid="header-system-stats"] > span:first-child > span {
+  padding: 3px 10px;
+  gap: 6px;
+  border-right: 1px solid rgb(var(--border));
+}
+.app-header [data-testid="header-system-stats"] > span:first-child > span:first-child { padding-left: 0; }
+.app-header [data-testid="header-system-stats"] > span:first-child > span:last-child { border-right: 0; }
+.app-header [data-testid="header-system-stats"] > button {
+  min-width: 28px;
+  border-radius: 6px;
+}
+@media (min-width: 768px) {
+  .app-header .app-header-shell {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    max-width: 1280px;
+    column-gap: 28px;
+    row-gap: 8px;
+    padding-top: 10px;
+    padding-bottom: 8px;
+  }
+  .app-header nav[aria-label="Main navigation"] { display: contents; }
+  .app-header-workspaces { justify-content: flex-end; }
+  .app-header-tools {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    border-top: 1px solid rgb(var(--border));
+    padding-top: 6px;
+  }
+  .app-header-tools > [data-testid="header-system-stats"] { margin-right: auto; }
+  :root[data-theme="dark"] { --app-header-h: 102px; }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .app-header .app-header-shell {
+    column-gap: 12px;
+    row-gap: 4px;
+    padding-top: 6px;
+    padding-bottom: 4px;
+  }
+  :root[data-theme="dark"] { --app-header-h: 102px; }
+  .app-header-workspaces > a,
+  .app-header-tools > button,
+  .app-header-tools > .relative > button { min-height: 40px; }
+}
+@media (max-width: 1023px) {
+  .app-header a,
+  .app-header button { min-height: 40px; }
+  .app-header button { min-width: 40px; }
+  .app-header-shell > a { display: inline-flex; align-items: center; }
+}
+
 /* ── Theme tokens ───────────────────────────────────────────────────────────
    The app is dark-only. data-theme="dark" is always set on <html>.
 

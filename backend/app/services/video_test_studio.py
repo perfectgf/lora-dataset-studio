@@ -1000,6 +1000,13 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     from ..job_queue import queue_manager
     from ..models import VideoTestClip
 
+    # Keep the T2V canvas choice with the clip so Reuse cannot inherit a later
+    # render's format. I2V follows its source image instead of a canvas preset.
+    mode = 't2v' if str(mode or 'i2v').lower() == 't2v' else 'i2v'
+    aspect = str(aspect or 'auto').strip().lower()
+    if mode == 'i2v' or aspect not in ('auto', 'portrait', 'landscape', 'square'):
+        aspect = 'auto'
+
     # ONE /object_info read for the whole launch, and it decides two things:
     # whether SageAttention goes into the graph at all, and (through the
     # preflight below) whether an armed option's nodes are there. Reading it
@@ -1026,7 +1033,7 @@ def enqueue_clip(user_id, *, prompt, mode='i2v', image=None, lora=None,
     job_id = str(uuid.uuid4())
     clip = VideoTestClip(
         run_id=run_id, dataset_id=dataset_id, job_id=job_id, status='pending',
-        prompt=prompt, mode=('t2v' if str(mode).lower() == 't2v' else 'i2v'),
+        prompt=prompt, mode=mode, aspect=aspect,
         source_image=image, seed=built['seed'], steps=built['steps'],
         frames=built['frames'], megapixels=built['megapixels'],
         fps=float(_profile().get('fps') or 24.0), base_model=built['base'],
@@ -1151,6 +1158,7 @@ def interpolate_clip(user_id, clip_id, multiplier=VFI_MULTIPLIER) -> dict:
     clip = VideoTestClip(
         run_id=src.run_id, dataset_id=src.dataset_id, job_id=job_id,
         status='pending', prompt=src.prompt, mode=src.mode,
+        aspect=src.aspect or 'auto', accel=src.accel,
         source_image=src.source_image, seed=src.seed, steps=src.steps,
         # The frame COUNT grows with the rate, so the clip lasts exactly as
         # long — RIFE inserts between frames, it does not slow anything down.
@@ -1263,9 +1271,19 @@ def last_frame_png(clip_id) -> str:
     ffmpeg = ffmpeg_tools.ffmpeg_path()
     if not ffmpeg:
         raise ValueError('ffmpeg is needed to read the last frame — install the video extra from Setup')
-    r = _run_ffmpeg(last_frame_command(ffmpeg, src, dst), timeout=120)
-    if r.returncode != 0 or not os.path.isfile(dst):
-        raise ValueError(f'the last frame could not be read: {(r.stderr or "")[-300:]}')
+    # Concurrent previews and continuations must never see a partial PNG. Keep
+    # the previous complete image until ffmpeg succeeds, then publish in place.
+    tmp = os.path.join(root, f'.clip_{int(clip_id)}_last.{uuid.uuid4().hex[:8]}.png')
+    try:
+        r = _run_ffmpeg(last_frame_command(ffmpeg, src, tmp), timeout=120)
+        if r.returncode != 0 or not os.path.isfile(tmp):
+            raise ValueError(f'the last frame could not be read: {(r.stderr or "")[-300:]}')
+        os.replace(tmp, dst)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
     return dst
 
 

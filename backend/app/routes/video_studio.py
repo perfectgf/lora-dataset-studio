@@ -84,6 +84,7 @@ def _clip_dict(clip):
     return {
         'id': clip.id, 'status': clip.status, 'error': clip.error,
         'filename': clip.filename, 'prompt': clip.prompt, 'mode': clip.mode,
+        'aspect': getattr(clip, 'aspect', None) or 'auto',
         # The staged start frame, so ↻ Reuse can hand it back: without it a
         # reused image-to-video clip lands in i2v mode with nothing to animate
         # and Generate stays blocked — every dial restored except the one that

@@ -42,6 +42,24 @@ test('a configured-but-never-verified backend is left alone', () => {
   }), false)
 })
 
+test('capabilities that could not be read are not a verdict', () => {
+  // EMPTY_CAPS after a failed fetch reads `configured: false` — exactly what
+  // a never-configured machine reports. A phone whose link dropped the
+  // first requests of a page load was sent through Setup on an install
+  // set up for weeks (2026-09-04).
+  assert.equal(shouldRedirectToSetup({
+    loading: false, caps: { configured: false }, capsKnown: false, state: FRESH, alreadyRedirected: false,
+  }), false)
+  // The same answer, actually read from the server: the first run it is.
+  assert.equal(shouldRedirectToSetup({
+    loading: false, caps: { configured: false }, capsKnown: true, state: FRESH, alreadyRedirected: false,
+  }), true)
+  // Callers that predate the flag keep their meaning.
+  assert.equal(shouldRedirectToSetup({
+    loading: false, caps: { configured: false }, state: FRESH, alreadyRedirected: false,
+  }), true)
+})
+
 // --- the Docker GPU first boot ------------------------------------------------
 
 test('a fresh Docker install owing its Ollama choice IS sent to the wizard', () => {

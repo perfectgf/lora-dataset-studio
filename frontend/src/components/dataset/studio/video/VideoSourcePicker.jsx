@@ -63,6 +63,8 @@ function Poster({ src, className, fallback }) {
 
 export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, onRemove, onClear, aspect, onAspect }) {
   const toast = useToast();
+  // Text-to-video auto renders at 16:9, including clips saved before aspect was recorded.
+  const displayedAspect = aspect === 'auto' ? 'landscape' : aspect;
   // Whether a picture is already in the strip — by where it came from. A
   // tile the strip holds clicks OUT again (a pressed tile, the way a
   // multi-pick grid reads), rather than staging the same portrait under a
@@ -257,7 +259,7 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
           {[['landscape', '16:9'], ['portrait', '9:16'], ['square', '1:1']].map(([id, label]) => (
             <button key={id} type="button" onClick={() => onAspect(id)}
               className={`rounded-lg border px-2 py-1 text-xs min-h-10 lg:min-h-0 ${
-                aspect === id ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted'}`}>
+                displayedAspect === id ? 'border-primary bg-primary/10 text-content' : 'border-border text-content-muted'}`}>
               {label}
             </button>
           ))}

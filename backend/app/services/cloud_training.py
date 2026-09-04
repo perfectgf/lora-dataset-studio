@@ -4522,8 +4522,8 @@ def start_supervisor(app):
 
 
 def reconcile_orphans(app) -> int:
-    """Boot-time safety net: destroy every 'lds-*' vast instance that no
-    active run owns. GENUINELY never raises (boot must not be blocked): the
+    """Boot-time safety net: destroy orphaned 'lds-<run id>' training instances.
+    Never raises (boot must not be blocked): the
     whole body — app_context included — sits under a blanket except, so an
     unexpected failure outside the vast_client calls (db not ready, config
     error...) is logged and returns the count destroyed so far.
@@ -4587,7 +4587,9 @@ def reconcile_orphans(app) -> int:
                             'Dense checkpoint available — pod absence confirmed'))
             for inst in instances:
                 label = inst.get('label') or ''
-                if not label.startswith('lds-'):
+                # Quantization and other lanes own their own labels. Only the
+                # exact shape this training service stamps belongs to its sweep.
+                if not _is_training_label(label):
                     continue
                 iid = str(inst['instance_id'])
                 if iid in keep:
@@ -4634,6 +4636,18 @@ def reconcile_orphans(app) -> int:
     except Exception:
         logger.exception('reconcile failed')
     return destroyed
+
+
+_TRAINING_LABEL_RE = re.compile(r'lds-[0-9]+')
+
+
+def _is_training_label(label) -> bool:
+    """Only `lds-<run id>`, stamped by training; never `lds-quantize-*`.
+
+    Match the whole label, including its end: a suffix or a trailing newline
+    does not identify a pod that this training service created.
+    """
+    return bool(_TRAINING_LABEL_RE.fullmatch(str(label or '')))
 
 
 def _start_monitor_for_app(app, run_id):

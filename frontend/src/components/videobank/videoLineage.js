@@ -12,7 +12,7 @@ import { stepActionModel, stepKey } from './videoCheckpoints.js'
    this lane: a verb learned on one surface has to LOOK like itself on the
    other. Here rather than in a component, because both components import
    this module and neither should import the other. */
-export const ROW_CLS = 'flex items-center gap-1.5 rounded-md border px-2 py-1 text-[0.6875rem] font-medium '
+export const ROW_CLS = 'flex min-h-10 items-center gap-1.5 rounded-md border px-2 py-1 text-[0.6875rem] font-medium lg:min-h-0 '
   + 'disabled:cursor-not-allowed disabled:opacity-60'
 export const MUTED_CLS = 'rounded-md border border-border bg-app/40 px-2 py-1 text-content-subtle text-[0.625rem]'
 

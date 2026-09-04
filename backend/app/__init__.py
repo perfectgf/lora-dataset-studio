@@ -229,6 +229,7 @@ _SCHEMA_ADDITIONS = (
     ('video_test_clip', 'accel', 'VARCHAR(16)'),
     # ⏭ The clip a continuation was joined behind (see the model).
     ('video_test_clip', 'continues_of', 'INTEGER'),
+    ('video_test_clip', 'aspect', "VARCHAR(16) DEFAULT 'auto'"),
     ('face_dataset', 'kind', 'VARCHAR(16)'),
     ('face_dataset', 'subject_type', 'VARCHAR(16)'),
     ('face_dataset', 'concept_desc', 'TEXT'),

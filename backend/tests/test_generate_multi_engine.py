@@ -10,6 +10,8 @@ test_dataset_routes.test_generate_chatgpt_no_key_accepts_and_creates_pending_row
 so no test ever fires a real, billed request.
 """
 import io
+import threading
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -30,9 +32,12 @@ def _create(client, name='Lola', trigger='lola'):
 def no_threads(monkeypatch):
     """Capture the API batch dispatches instead of running them."""
     calls = []
-    monkeypatch.setattr(
-        'app.services.face_dataset_service.threading.Thread',
-        lambda target, args=(), daemon=True: type('T', (), {'start': lambda s: calls.append(args)})())
+    # Patching threading.Thread itself also intercepts ComfyUI's independent
+    # object_info refresh. Replace only this service's view of the module.
+    api_threads = SimpleNamespace(**vars(threading))
+    api_threads.Thread = lambda target, args=(), daemon=True: type(
+        'T', (), {'start': lambda s: calls.append(args)})()
+    monkeypatch.setattr(svc, 'threading', api_threads)
     return calls
 
 
@@ -47,6 +52,27 @@ def _dataset_with_ref(client, name='Iris'):
 def _shots(n, prefix='Shot'):
     return [{'label': f'{prefix} {i}', 'framing': 'face', 'prompt': f'prompt {i}'}
             for i in range(n)]
+
+
+def test_api_dispatch_capture_leaves_object_info_refresh_running(no_threads, monkeypatch):
+    """A stale ComfyUI cache may refresh while the API dispatch is captured."""
+    from app.utils import comfyui
+
+    refreshed, workers = threading.Event(), []
+
+    def fetch(*, force):
+        assert force is True
+        workers.append(threading.current_thread())
+        refreshed.set()
+
+    monkeypatch.setattr(comfyui, '_fetch_object_info', fetch)
+    monkeypatch.setattr(comfyui, '_object_info_refreshing', False)
+    comfyui._refresh_object_info_in_background()
+    assert refreshed.wait(2), 'the cache refresh must run independently'
+    workers[0].join(timeout=2)
+    assert not workers[0].is_alive()
+    assert not comfyui._object_info_refreshing
+    assert not no_threads
 
 
 def test_two_api_engines_split_the_shots(client, no_threads):
@@ -149,10 +175,13 @@ def test_nsfw_detected_by_label_too(client, no_threads):
     assert not no_threads
 
 
-def test_klein_preflight_refuses_before_the_api_batches_are_dispatched(client, no_threads):
+def test_klein_preflight_refuses_before_the_api_batches_are_dispatched(
+        client, no_threads, monkeypatch):
     """Mixed run on a machine without ComfyUI: the Klein half is impossible, so
     the whole request 409s. The API half must NOT have been queued already —
     that would bill for images belonging to a batch the user was told failed."""
+    monkeypatch.setattr('app.services.klein_edit_helper.klein_missing_nodes',
+                        lambda: ['Flux2KleinModelLoader'])
     ds_id = _dataset_with_ref(client)
     resp = client.post(f'/api/dataset/{ds_id}/generate', json={
         'engine_batches': [

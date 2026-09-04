@@ -18,22 +18,34 @@ This module makes that failure SPEAK. Every staged write goes through
 the plausible cause, and raise `ComfyFolderUnavailable` (a RuntimeError, so the
 existing route mapping answers 409 + message instead of 500 + nothing).
 
+There is a THIRD failure, and it is the quiet one: the folder exists, this process
+writes into it happily, and it is simply not the folder ComfyUI reads. Nothing
+local can tell — every write succeeds, every probe is green — so the job is queued
+and dies inside ComfyUI on `LoadImage -> "Invalid image file: <the file we just
+wrote>"`. `comfyui_sees_input` closes that hole by ASKING the running ComfyUI,
+whose answer is the same predicate the validation uses.
+
 Every message is PASTE-SAFE: paths run through `redact_user_paths`, because these
 strings are written to be dropped into a public help thread.
 """
 from __future__ import annotations
 
 import logging
+import ntpath
 import os
+import posixpath
 import re
 import shutil
 import time
 import uuid
 import warnings
+from urllib.parse import urljoin
 
+import requests
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from .redact import redact_user_paths
+from .redact import redact_url_secrets, redact_user_paths
+from .. import config as cfg
 from ..services import image_encoding, input_budget  # noqa: F401 - installs the shared budget
 
 logger = logging.getLogger(__name__)
@@ -163,6 +175,209 @@ def ensure_input_usable(path) -> str:
     return str(path)
 
 
+# --- Is this ComfyUI's input folder, or just A folder? ----------------------
+# `folder_problem` answers "can THIS process write here", which was the whole
+# question while the only failures were a folder that was missing or read-only.
+# It is not the whole question. A folder can exist, be writable, and belong to a
+# DIFFERENT ComfyUI — a second install, a portable copy — or be shadowed by the
+# one thing no amount of looking at disk can reveal: ComfyUI takes
+# `--input-directory` / `--base-directory` on the COMMAND LINE and records them
+# nowhere. When that happens:
+#
+#   * every staged write succeeds, so no OSError names anything;
+#   * `probe_folder` is green, so Setup and Settings stay silent;
+#   * ComfyUI validates the graph, does not find the file, and answers 400
+#     `custom_validation_failed: image - Invalid image file: <name>`.
+#
+# That 400 is deterministic — `job_queue` never retries a WORKFLOW_INVALIDE — so
+# the tile dies at once and the only trace is a JSON body in the log. Reported as
+# GitHub #64 by mikemil828: Krea 2, "it stops instantly without an error message",
+# and the whole answer was two folders apart inside the diagnostic report.
+#
+# The running ComfyUI can simply be ASKED, and its answer is the SAME predicate
+# the validation uses: `/view?filename=<name>&type=input` resolves through
+# `folder_paths.get_directory_by_type('input')`, which is the very
+# `get_input_directory()` that `LoadImage.VALIDATE_INPUTS` checks with
+# `exists_annotated_filepath`. A 404 there IS the refusal the generation would
+# collect minutes later — in words, before anything is queued.
+#
+# HEAD, not GET: the question is existence, and a GET streams the whole PNG back
+# over the loopback to answer it.
+
+# (connect, read), both short. The work behind the answer is one `os.path.isfile`;
+# a ComfyUI too busy to reply must never hold a job up, because an unanswered
+# probe means "could not ask", never "not there".
+VISIBILITY_TIMEOUT = (3, 5)
+
+
+def comfyui_sees_input(name) -> bool | None:
+    """Can the ComfyUI at `comfyui.api_url` serve `name` from ITS input folder?
+
+    True and False are answers. None means the question could not be put — ComfyUI
+    down, a build too old, a proxy that refuses HEAD, anything unexpected — and
+    every caller reads None as "carry on". This check may cost a user a generation
+    only when ComfyUI has SAID, in the same terms the validator uses, that it
+    cannot see the file. Never raises.
+    """
+    base = os.path.basename(str(name or ''))
+    api = (cfg.get('comfyui.api_url') or '').strip()
+    if not base or not api:
+        return None
+    try:
+        r = requests.head(urljoin(api.rstrip('/') + '/', 'view'),
+                          params={'filename': base, 'type': 'input'},
+                          timeout=VISIBILITY_TIMEOUT, allow_redirects=False)
+    except Exception:                    # unreachable, DNS, proxy, TLS — anything
+        return None
+    status = getattr(r, 'status_code', None)
+    if status == 200:
+        return True
+    if status == 404:
+        return False
+    # 400/403 (a name this route rejects), 405 (no HEAD), 5xx, a login page: the
+    # answer is untrustworthy, which is not the same as "the file is not there".
+    return None
+
+
+def _comfy_folder_note() -> str:
+    """One clause naming where the RUNNING ComfyUI says it keeps its input folder,
+    or '' when it says nothing useful.
+
+    REPORTED, never inferred. ComfyUI echoes its own `sys.argv` in `/system_stats`,
+    so every clause below is its own words: the flags are quoted as flags and the
+    script path as "runs from", because turning either into "<X>/input" would be a
+    guess about somebody else's install — the same guess `parse_comfy_argv_dirs`
+    refuses to make for the Setup fields. Never raises.
+    """
+    api = (cfg.get('comfyui.api_url') or '').strip()
+    if not api:
+        return ''
+    try:
+        r = requests.get(f'{api.rstrip("/")}/system_stats', timeout=VISIBILITY_TIMEOUT)
+        if r.status_code != 200:
+            return ''
+        argv = ((r.json() or {}).get('system') or {}).get('argv')
+    except Exception:
+        return ''
+    if not isinstance(argv, (list, tuple)):
+        return ''
+    items = [str(a) for a in argv]
+    for flag in ('--input-directory', '--base-directory'):
+        value = _argv_value(items, flag)
+        if value:
+            return f'it was started with `{flag} {safe_path(value)}`'
+    # No flag: argv[0] is the main.py that is actually running, which is the
+    # answer whenever the cause is a SECOND install rather than a flag.
+    script = items[0] if items else ''
+    if script and _is_absolute_anywhere(script) and \
+            _path_module(script).basename(script).lower() == 'main.py':
+        return ('the ComfyUI answering there runs from '
+                f'{safe_path(_path_module(script).dirname(script))}')
+    return ''
+
+
+def _path_module(path: str):
+    """The path flavour the STRING uses, not the one this OS runs. Everything
+    parsed here was written by another process that may be on another kernel."""
+    return ntpath if '\\' in path else posixpath
+
+
+def _is_absolute_anywhere(value: str) -> bool:
+    """Absolute under EITHER convention.
+
+    Not `os.path.isabs`: ComfyUI may be answering from WSL or a container, so a
+    Windows app routinely reads `/workspace/ComfyUI/input` — and on Windows
+    `ntpath.isabs` calls that RELATIVE (a leading slash is drive-relative there;
+    Python 3.13 made the rule explicit). Judging another machine's path by this
+    machine's rules is how the container case — the one this module exists for —
+    goes silent."""
+    return ntpath.isabs(value) or posixpath.isabs(value)
+
+
+def _argv_value(items, flag) -> str:
+    """The absolute path given to `flag` in an argv list, both argparse spellings
+    (`--flag X` and `--flag=X`), or ''.
+
+    Relative values are dropped: they resolve against a working directory this
+    process does not know. Absolute ones are returned VERBATIM — normalising a
+    path that came from another machine would rewrite `/mnt/shared/input` as
+    `\\mnt\\shared\\input` on a Windows reader, and this string is quoted back to
+    the user as ComfyUI's own words."""
+    for i, tok in enumerate(items):
+        name, _, inline = tok.partition('=')
+        if name != flag:
+            continue
+        value = (inline if inline else (items[i + 1] if i + 1 < len(items) else '')).strip().strip('"')
+        if not value or (not inline and value.startswith('-')):
+            continue
+        if _is_absolute_anywhere(value):
+            return value
+    return ''
+
+
+def _mismatch_message(what: str, input_dir) -> str:
+    """The sentence shown when ComfyUI proves it does not read `input_dir`.
+
+    Names BOTH sides — the folder the app used and where ComfyUI says it looks —
+    because naming only one leaves the reader with the half they already knew."""
+    note = _comfy_folder_note()
+    api = safe_path(redact_url_secrets((cfg.get('comfyui.api_url') or '').strip()))
+    return (f'ComfyUI cannot see {what}. The app used {safe_path(input_dir)}, but '
+            f'the ComfyUI answering at {api} reads its input folder somewhere else'
+            + (f' — {note}' if note else '') + '. '
+            + SHARED_FOLDER_HINT + ' ' + _SETTINGS_HINT)
+
+
+def _refuse_invisible_stage(dest, input_dir):
+    """Drop the file that was just staged and raise the named refusal.
+
+    Deleted on the way out because the job it was staged for is not going to run:
+    leaving a full-resolution copy in a folder that belongs to ComfyUI is exactly
+    the litter the sweep at the bottom of this module exists to clear, and there
+    is no reason to create the work."""
+    try:
+        os.remove(dest)
+    except OSError:
+        pass
+    raise ComfyFolderUnavailable(
+        _mismatch_message('the source image the app just staged', input_dir))
+
+
+def input_visibility_problem(path) -> str:
+    """'' unless the running ComfyUI PROVES it does not read `path`.
+
+    The staging guard's question, asked without a job to lose: a probe file is
+    written into the folder, ComfyUI is asked whether it can serve that file, and
+    the probe is removed either way. The Settings preview and the Setup wizard
+    both render this, so a folder that is present, writable and simply not
+    ComfyUI's is amber at configuration time instead of a dead tile an hour later.
+
+    The probe carries a leading dot and NO image extension on purpose: ComfyUI's
+    own listings skip both (`LoadImage` filters its combo by content type,
+    `/internal/files` skips dotfiles), so it cannot surface in a node's dropdown
+    even during the moment it exists. Never raises.
+    """
+    if not path:
+        return ''
+    probe = f'.lds-comfy-visibility-{uuid.uuid4().hex[:8]}'
+    target = os.path.join(str(path), probe)
+    try:
+        with open(target, 'wb') as fh:
+            fh.write(b'lds')
+    except OSError:
+        return ''            # unwritable: `folder_problem` already says so, louder
+    try:
+        seen = comfyui_sees_input(probe)
+    finally:
+        try:
+            os.remove(target)
+        except OSError:
+            pass
+    if seen is not False:
+        return ''
+    return _mismatch_message('a file written into this folder', path)
+
+
 def stage_input_copy(src_path, dest_name, input_dir) -> str:
     """Copy `src_path` into ComfyUI's input folder as `dest_name`; return the full
     destination path. Any filesystem failure becomes a named, paste-safe 409."""
@@ -229,6 +444,11 @@ def stage_input_image(src_path, dest_name, input_dir) -> str:
             os.remove(tmp)
         except OSError:
             pass
+    # The file is on disk — the remaining question is whether it is on disk where
+    # ComfyUI looks. Asked here rather than at each lane: this is the one funnel
+    # every image lane goes through, so a lane added later inherits the guard.
+    if comfyui_sees_input(dest) is False:
+        _refuse_invisible_stage(dest, base)
     return dest
 
 
@@ -243,6 +463,8 @@ def stage_input_write(dest_name, writer, input_dir) -> str:
     except OSError as exc:
         raise _staging_error('Writing the source image into ComfyUI', 'input',
                              base, _cause(exc)) from exc
+    if comfyui_sees_input(dest) is False:
+        _refuse_invisible_stage(dest, base)
     return dest
 
 
