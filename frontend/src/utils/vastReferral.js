@@ -17,7 +17,7 @@
 export const VAST_CONSOLE_URL = 'https://cloud.vast.ai/'
 
 /** Referral id of the project's referral-only vast.ai account ('' = untagged). */
-export const VAST_REFERRAL_ID = ''
+export const VAST_REFERRAL_ID = '683073'
 
 /** The sign-up link step 1 of the guide points at — tagged when an id is set. */
 export function vastSignupUrl(referralId = VAST_REFERRAL_ID) {

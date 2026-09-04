@@ -493,7 +493,9 @@ Which of the two serves those features is a single setting (**Settings ▸ Local
 | OpenRouter | Image models through OpenRouter | [OpenRouter keys](https://openrouter.ai/keys) |
 | Pexels | Optional official-API image search | [Pexels API key](https://www.pexels.com/api/key/) |
 | Hugging Face | Gated weights and optional publishing | [Hugging Face tokens](https://huggingface.co/settings/tokens) |
-| vast.ai | Optional cloud training | [vast.ai console](https://cloud.vast.ai/) |
+| vast.ai | Optional cloud training | [vast.ai console](https://cloud.vast.ai/?ref_id=683073) (referral link — disclosed below) |
+
+> **Affiliate disclosure.** The vast.ai link above is a referral link. If you create an account through it, vast.ai pays this project 3% of what you spend on their platform, for as long as your account lives. It costs you nothing extra — vast.ai's prices are the same either way — and it changes nothing in the app: LDS never picks a provider for you, the cloud lane behaves identically, and the app sends no data about you anywhere. If you would rather not, use the untagged link: <https://cloud.vast.ai/>
 
 Secrets saved in Settings live in the git-ignored `.env`, never in `config.json` or a commit. Full-model Krea 2 cloud runs use a separate `HF_CLOUD_TOKEN`; a narrowly scoped fine-grained token is recommended, while a global `role=write` token is accepted with a broad-access warning and read-only is rejected. Follow the [cloud-token instructions](docs/guide/settings-reference.md#cloud-training).
 
@@ -553,8 +555,11 @@ Still stuck? **Guide → Getting help** generates a paste-safe diagnostic report
 </p>
 
 LoRA Dataset Studio is free, open source, and has no paid tier, no telemetry and
-no upsell. It is built and maintained by one person, on personal time — every
-feature in the list above came out of somebody's evenings.
+no upsell — nothing in the app is gated, and nothing you use costs more because
+of it. Its only income is voluntary donations and the vast.ai referral link
+disclosed above, which changes neither the app nor the price you pay. It is
+built and maintained by one person, on personal time — every feature in the
+list above came out of somebody's evenings.
 
 If the app saves you an afternoon of sorting, captioning and re-running failed
 trainings, consider giving a little of that time back:

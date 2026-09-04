@@ -59,12 +59,27 @@ test('the sources never spell a tagged vast.ai link out — vastSignupUrl is the
   assert.deepEqual(offenders, [], 'a tagged link written by hand bypasses the one-place rule')
 })
 
-test('exactly one component builds the sign-up link: the API-key guide in Settings', () => {
+/* The two "create an account" moments of the product, and nothing else. */
+const SIGNUP_SURFACES = ['components/settings/TrainingSection.jsx', 'pages/SetupPage.jsx']
+
+test('only the two "create an account" surfaces build the sign-up link, once each', () => {
   const callers = SOURCES.filter((f) => read(f).includes('vastSignupUrl('))
-    .map(rel).filter((f) => f !== 'utils/vastReferral.js')
-  assert.deepEqual(callers, ['components/settings/TrainingSection.jsx'])
-  const calls = read(resolve(SRC, 'components/settings/TrainingSection.jsx')).match(/vastSignupUrl\(/g)
-  assert.equal(calls.length, 1, 'one call site — the "create an account" step, nothing else')
+    .map(rel).filter((f) => f !== 'utils/vastReferral.js').sort()
+  assert.deepEqual(callers, SIGNUP_SURFACES)
+  for (const f of SIGNUP_SURFACES) {
+    const calls = read(resolve(SRC, f)).match(/vastSignupUrl\(/g)
+    assert.equal(calls.length, 1, `${f}: one call site — the "create an account" link, nothing else`)
+  }
+})
+
+test('every tagged sign-up link renders the shared disclosure beside it, and the wording lives once', () => {
+  for (const f of SIGNUP_SURFACES) {
+    assert.ok(read(resolve(SRC, f)).includes('<VastReferralDisclosure'),
+      `${f}: a tagged link without its disclosure is the thing this rule exists to prevent`)
+  }
+  const wording = SOURCES.filter((f) => read(f).includes('is a referral link: open a vast.ai account through it')).map(rel)
+  assert.deepEqual(wording, ['components/common/VastReferralDisclosure.jsx'],
+    'the disclosure sentence is written in one component so the two surfaces cannot drift')
 })
 
 test('Billing, Keys and the instances console stay untagged: those users already have an account', () => {

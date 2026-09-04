@@ -18,6 +18,8 @@ import InstallRunner from '../components/setup/InstallRunner'
 import InstallEverything from '../components/setup/InstallEverything'
 import { HelpBadge } from '../help/HelpMode'
 import { kleinAssetBlocks } from '../utils/kleinAssets.js'
+import { VAST_CONSOLE_URL, vastSignupUrl } from '../utils/vastReferral.js'
+import VastReferralDisclosure from '../components/common/VastReferralDisclosure'
 
 const INPUT_CLASS =
   'mt-1 w-full rounded-md border border-border-strong bg-surface-raised px-3 py-2 text-sm text-content ' +
@@ -1486,6 +1488,10 @@ export default function SetupPage() {
     // training (ai-toolkit)
     const dir = (config.aitoolkit && config.aitoolkit.dir) || ''
     const detectedDir = detected && detected.aitoolkit && detected.aitoolkit.dir
+    // The sign-up link may carry the project's vast.ai referral id (utils/vastReferral.js):
+    // this is the wizard's one "create an account" moment, and the disclosure renders
+    // right under it whenever the link is tagged.
+    const signup = vastSignupUrl()
     const fields = (
       <>
         {guidedField('ai-toolkit directory', 'aitoolkit', 'dir', 'C:\\ai-toolkit')}
@@ -1493,8 +1499,16 @@ export default function SetupPage() {
         <p className="mt-2 text-content-muted text-xs">
           No GPU? You can skip this step: add a <strong>vast.ai API key</strong> in
           Settings instead and train in the cloud (the app rents a GPU per run,
-          ~$1-2, and shuts it down automatically).
+          ~$1-2, and shuts it down automatically). No vast.ai account yet? Create a
+          free one at{' '}
+          <a href={signup} target="_blank" rel="noreferrer" className="text-primary underline">cloud.vast.ai</a>
+          {' '}— the Settings card then walks you through the key.
         </p>
+        {signup !== VAST_CONSOLE_URL && (
+          <p className="mt-1 text-content-muted text-xs">
+            <VastReferralDisclosure subject="That sign-up link" linkClass="text-primary underline" />
+          </p>
+        )}
       </>
     )
     if (step.valid) {
