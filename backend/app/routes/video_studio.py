@@ -30,6 +30,24 @@ from ._common import (_map_error, _require_comfyui, _require_no_stalled_comfyui,
 
 logger = logging.getLogger(__name__)
 
+# ✨ How many start frames ONE vision window will write for in a row.
+# Not a performance guard: it is the honest ceiling of a single held window.
+# Each frame is model work during which no clip can render, so past this the
+# right answer is two batches, not a longer freeze nobody can interrupt.
+MAX_WRITE_BATCH = 12
+
+# The window's TTL has to cover the WHOLE batch, not one click: a TTL cut for a
+# single ✨ press would expire halfway through twelve frames and let a queued
+# clip take the card out from under the writer. Generous per frame on purpose —
+# a cold model on a slow machine is the case that must not trip it — and the
+# window is released as soon as the loop ends.
+_WRITE_TTL_PER_FRAME = 180
+_WRITE_TTL_FLOOR = 600
+
+
+def _write_batch_ttl(count):
+    return max(_WRITE_TTL_FLOOR, _WRITE_TTL_PER_FRAME * max(1, int(count)))
+
 bp = Blueprint('video_studio', __name__, url_prefix='/api/video-studio')
 
 
@@ -298,6 +316,68 @@ def video_studio_motion_suggest():
         # a bare 500 with no message to show.
         return _map_error(exc)
     return jsonify({'ok': True, 'prompt': out})
+
+
+@bp.post('/motion/write-batch')
+def video_studio_motion_write_batch():
+    """✨ One prompt PER start frame, written inside a SINGLE vision window.
+
+    WHY THE LOOP IS HERE AND NOT IN THE PANEL. Entering the vision window asks
+    ComfyUI to let go of its models, so the next clip pays the video model's
+    load again — tens of gigabytes for H3 (the cost is stated in
+    `/motion/suggest`). A panel that called the single-frame writers once per
+    picture would pay that reload once per picture. Holding one window for the
+    whole strip pays it once, which is the entire point of writing every prompt
+    BEFORE the first clip is queued.
+
+    Body `{images: [...], prompt?, model?, seconds?|frames?, shots?}` — the same
+    pieces the two ✨ buttons send. A `prompt` present means ENRICH each frame
+    from it (what `/motion/enhance` does for one); absent means PROPOSE from the
+    frame alone (`/motion/suggest`). The panel's own rule, applied N times.
+
+    PARTIAL RESULTS ARE THE CONTRACT. Every entry answers `{index, image,
+    prompt}` or `{index, image, error}`, and the call is 200 as long as the
+    window opened: one unreadable frame must not cost the eleven others their
+    prompt. Only a failure to OPEN the window is an error status — there is
+    nothing partial to keep then.
+    """
+    from ..services import video_motion_prompt as vmp
+    data = request.get_json(silent=True) or {}
+    images = [str(n) for n in (data.get('images') or []) if str(n or '').strip()]
+    if not images:
+        return jsonify({'ok': False, 'error': 'No start frame to write for.'}), 400
+    if len(images) > MAX_WRITE_BATCH:
+        return jsonify({'ok': False,
+                        'error': (f'{len(images)} pictures at once is more than one '
+                                  f'window writes for (max {MAX_WRITE_BATCH}).')}), 400
+    typed = str(data.get('prompt') or '').strip()
+    seconds = _clip_seconds(data)
+    shots = data.get('shots', 1)
+    model = data.get('model')
+    out = []
+    try:
+        # ONE window for the whole strip — the reason this route exists.
+        with gpu_exclusive_vision_window(flag_ttl=_write_batch_ttl(len(images))):
+            for i, name in enumerate(images):
+                try:
+                    if typed:
+                        written = vmp.enhance(typed, image=name, model=model,
+                                              seconds=seconds, shots=shots)
+                    else:
+                        written = vmp.suggest_from_frame(name, instruction='',
+                                                         model=model, seconds=seconds,
+                                                         shots=shots)
+                    out.append({'index': i, 'image': name, 'prompt': written})
+                except Exception as exc:          # noqa: BLE001
+                    logger.warning('video studio: batch write failed on %s: %s', name, exc)
+                    out.append({'index': i, 'image': name,
+                                'error': str(exc) or exc.__class__.__name__})
+    except Exception as exc:
+        # The window itself: fence, refusal, transport. Nothing was written.
+        return _map_error(exc)
+    return jsonify({'ok': True, 'results': out,
+                    'written': sum(1 for r in out if str(r.get('prompt') or '').strip()),
+                    'failed': sum(1 for r in out if r.get('error'))})
 
 
 @bp.post('/motion/enhance')

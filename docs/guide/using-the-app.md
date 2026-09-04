@@ -3807,9 +3807,18 @@ many clips a click will queue, and ✨ Auto reads the first frame — or each on
 under the Motion field once the strip holds two frames; **✨ Written per
 picture** asks the vision model for one prompt per picture BEFORE anything is
 queued — your motion enriched with that picture, or a proposal from the
-picture alone when the field is empty — one short call each while ComfyUI is
-idle, the button counting *Writing prompt 2 of 3…*; a picture the writer could
-not answer for launches with the prompt as typed, and the notice says which.
+picture alone when the field is empty — the button counting *Writing prompt 2
+of 3…*; a picture the writer could not answer for launches with the prompt as
+typed, and the notice says which.
+
+All of that writing happens in **one pass**, and the reason is worth knowing
+because it is the difference between a batch that takes a minute and one that
+takes twenty. Looking at a picture needs the GPU, and taking it means asking
+ComfyUI to let go of its models — so the next clip reloads the video model,
+tens of gigabytes for MiniMax H3. Asking picture by picture would pay that
+reload once per picture. Every prompt is therefore written before the first
+clip is queued, in a single hold of the GPU, and the video model comes back
+once.
 Text-only skips the picture entirely and composes the shot from the prompt.
 Either way,
 describe the *movement*: the start frame already says what the scene looks

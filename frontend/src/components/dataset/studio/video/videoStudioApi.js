@@ -50,6 +50,10 @@ export const clipNeuralRenderUrl = (id) => `/api/video-studio/clip/${id}/neural-
  * what is already written. Both answer with a prompt the user can still edit —
  * neither is a launch. */
 export const motionSuggestUrl = () => '/api/video-studio/motion/suggest';
+/* ✨ One window, N frames. Entering the vision window makes ComfyUI drop its
+   models, so writing per picture through the two single-frame routes would
+   reload the video model once per picture. See the route's docstring. */
+export const motionWriteBatchUrl = () => '/api/video-studio/motion/write-batch';
 export const motionEnhanceUrl = () => '/api/video-studio/motion/enhance';
 
 /** ⚙ The model that writes the motion — listed, and chosen. */

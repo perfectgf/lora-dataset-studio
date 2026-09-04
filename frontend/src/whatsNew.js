@@ -83,6 +83,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-04-per-picture-prompts-in-one-pass',
+    date: '2026-09-04',
+    title: 'Writing a prompt per picture no longer reloads the video model between each one',
+    blurb:
+      '✨ Written per picture asked the vision model once per picture — and every '
+      + 'one of those asks makes ComfyUI let go of its models, so the next clip '
+      + 'reloaded MiniMax H3, tens of gigabytes, once per picture. A twelve-frame '
+      + 'strip paid that eleven times over for nothing. The prompts are now all '
+      + 'written in a single hold of the GPU, before the first clip is queued: '
+      + 'the model comes back once. Same screen, same fallbacks, same notices — '
+      + 'the batch is simply not spending its time swapping weights any more.',
+    to: '/studio',
+  },
+  {
     // Same-day ids sort the feed (date, then id): an id below the day's
     // others never reaches the top, and the badge counts nothing new.
     id: '2026-09-03-what-each-capability-unlocks',

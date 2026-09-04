@@ -56,7 +56,7 @@ import {
   pickAvailableAccel,
   isRunning, launchAdviceLines, optionsUrl, clipVfiUrl, clipNeuralRenderUrl, clipVideoUrl,
   clipComparisonUrl,
-  motionEnhanceUrl, motionSuggestUrl,
+  motionEnhanceUrl, motionSuggestUrl, motionWriteBatchUrl,
 } from './videoStudioApi';
 
 /* No start frame yet — what the ✨ helpers and the readback see before a pick. */
@@ -207,14 +207,34 @@ export default function VideoTestStudio() {
   const said = (e, fallback) =>
     [e?.message, e?.body?.detail].filter(Boolean).join(' — ') || fallback;
   /* ✨ One prompt for one picture, the way the two buttons ask: the typed
-     motion enriched with the frame, or a proposal from the frame alone. */
-  const askPromptFor = async (frame, typed) => {
-    if (typed && typed.trim()) {
-      const r = await postJson(motionEnhanceUrl(), { prompt: typed, image: frame.image, model: motionModel, seconds });
-      return r?.unchanged ? typed : (r?.prompt || '');
+     motion enriched with the frame, or a proposal from the frame alone.
+
+     ⚠️ Asked for EVERY picture in ONE request, not once per picture. Entering
+     the vision window makes ComfyUI let go of its models, so the next clip
+     reloads the video model — tens of gigabytes for H3. Twelve single-frame
+     calls would pay that twelve times over; `/motion/write-batch` holds one
+     window for the whole strip and pays it once. `perImagePrompts` keeps its
+     loop and its fallbacks: what changes is WHERE the writing happens. */
+  const writePromptsFor = async (frames, typed) => {
+    const reply = await postJson(motionWriteBatchUrl(), {
+      images: frames.map((f) => f.image),
+      prompt: (typed && typed.trim()) ? typed : '',
+      model: motionModel, seconds,
+    });
+    const byIndex = new Map();
+    const byImage = new Map();
+    for (const r of (reply?.results || [])) {
+      if (typeof r?.index === 'number') byIndex.set(r.index, r);
+      if (r?.image) byImage.set(r.image, r);
     }
-    const r = await postJson(motionSuggestUrl(), { image: frame.image, instruction: '', model: motionModel, seconds });
-    return r?.prompt || '';
+    // The shape `perImagePrompts` expects: resolve to the prompt, or throw the
+    // frame's own reason so its fallback and its naming still work.
+    return (frame, index) => {
+      const r = byIndex.get(index) || byImage.get(frame?.image) || null;
+      const written = typeof r?.prompt === 'string' ? r.prompt.trim() : '';
+      if (written) return written;
+      throw new Error(r?.error || 'the writer had nothing for this picture');
+    };
   };
 
   const generate = async () => {
@@ -225,7 +245,11 @@ export default function VideoTestStudio() {
       const perPicture = mode === 'i2v' && promptMode === 'per-image' && launches.length > 1;
       if (perPicture) {
         setProgress({ done: 0, total: launches.length, phase: 'writing' });
-        const written = await perImagePrompts(launches, prompt, askPromptFor,
+        // ONE request writes for every picture, then the loop below only reads
+        // the answers back — no second round trip, no second window.
+        const resolve = await writePromptsFor(launches, prompt);
+        const written = await perImagePrompts(launches, prompt,
+          (frame, typed, index) => resolve(frame, index),
           (done, total) => setProgress({ done, total, phase: 'writing' }));
         launches = written.frames;
         // The pictures the writer could not answer for, BY NAME, and why (a

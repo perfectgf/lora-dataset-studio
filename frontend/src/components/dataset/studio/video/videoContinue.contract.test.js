@@ -30,7 +30,11 @@ test('the batch prompt pair appears with two frames, and per-picture writing hap
   assert.match(studio, /data-testid="video-prompt-mode"/);
   assert.match(studio, /mode === 'i2v' && sources\.length > 1 && \(/);
   assert.match(studio, /role="radiogroup" aria-label="Prompt for the batch"/);
-  assert.match(studio, /await perImagePrompts\(launches, prompt, askPromptFor/);
+  // The writer is now a resolver over ONE batched reply (see
+  // videoMotionLength.contract): the loop and its fallbacks are unchanged,
+  // only WHERE the writing happens moved — one vision window, not N.
+  assert.match(studio, /await writePromptsFor\(launches, prompt\)/);
+  assert.match(studio, /await perImagePrompts\(launches, prompt,/);
   assert.match(studio, /enhance: enhanceOn && !perPicture/, 'no second rewrite of a prompt written per picture');
   assert.match(studio, /min-h-10 rounded-md px-2 py-1 text-xs font-semibold lg:min-h-0/, 'finger-sized segments');
 });

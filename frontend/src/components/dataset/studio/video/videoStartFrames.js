@@ -149,7 +149,9 @@ export async function perImagePrompts(frames, typed, ask, onProgress = () => {})
     let written = '';
     let failure = null;
     try {
-      const answer = await ask(frame, typed);
+      // `index` travels too: a batched writer answers for the whole strip at
+      // once and needs to know WHICH picture this call is about.
+      const answer = await ask(frame, typed, index);
       written = typeof answer === 'string' ? answer.trim() : '';
     } catch (e) {
       failure = e;

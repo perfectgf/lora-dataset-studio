@@ -32,7 +32,10 @@ test('Generate walks the strip through queueClips — one POST per frame, text-o
   // carrying the prompts written for them, before anything is queued.
   assert.match(gen, /let launches = mode === 't2v' \? \[null\] : sources;/)
   assert.match(gen, /const perPicture = mode === 'i2v' && promptMode === 'per-image' && launches\.length > 1;/)
-  assert.match(gen, /const written = await perImagePrompts\(launches, prompt, askPromptFor,/)
+  // One batched request writes for the whole strip, THEN the loop reads the
+  // answers back — no second round trip and no second vision window.
+  assert.match(gen, /const resolve = await writePromptsFor\(launches, prompt\);/)
+  assert.match(gen, /const written = await perImagePrompts\(launches, prompt,/)
   assert.match(gen, /launches = written\.frames;/)
   // The written prompts are final: the launch does not enrich them again.
   assert.match(gen, /await queueClips\(launches, \{ enhance: enhanceOn && !perPicture,/)
