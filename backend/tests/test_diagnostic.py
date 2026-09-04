@@ -284,3 +284,66 @@ def test_diagnostic_redacts_user_paths_in_log_tail(client, app):
     assert 'somebody' not in body
     log_tail = r.get_json()['log_tail']
     assert all('~' in line for line in log_tail)
+
+
+def test_model_files_name_what_each_engine_would_load(client, app, monkeypatch):
+    """GitHub #60 (drago87): Klein died on `mat1 and mat2 shapes cannot be
+    multiplied (512x2560 and 4096x2560)` — a 2560-wide text encoder in a graph
+    that wants 4096 — and the report said `klein=yes` and nothing about WHICH
+    encoder. Whether that file was the user's own pin or the app's name match
+    decides the fix, so the report now carries both."""
+    from app.routes import settings as settings_routes
+    from app.services import klein_edit_helper as keh
+    from app.services import krea_edit_helper as kreh
+
+    monkeypatch.setattr(keh, 'resolve_klein_unet', lambda *a, **k: 'klein/flux2-klein-9b.safetensors')
+    # The wrong file, from the wrong family — the reported shape exactly.
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder',
+                        lambda *a, **k: 'qwen3vl_4b_fp8_scaled.safetensors')
+    monkeypatch.setattr(keh, 'resolve_klein_vae', lambda *a, **k: 'flux2-vae.safetensors')
+    monkeypatch.setattr(kreh, 'resolve_krea_unet', lambda *a, **k: 'krea/krea2_turbo.safetensors')
+    monkeypatch.setattr(kreh, 'resolve_krea_text_encoder', lambda *a, **k: None)
+    monkeypatch.setattr(kreh, 'resolve_krea_vae', lambda *a, **k: 'qwen_image_vae.safetensors')
+    # The identity LoRA resolver answers a (name, path) pair — only the NAME is
+    # paste-safe, and only the name is what a loader node takes.
+    monkeypatch.setattr(kreh, 'resolve_krea_identity_lora',
+                        lambda *a, **k: ('krea/identity.safetensors', r'C:\Users\someone\identity.safetensors'))
+    with app.app_context():
+        import app.config as config
+        config.save_config({'klein': {'text_encoder': 'qwen3vl_4b_fp8_scaled.safetensors'}})
+        out = settings_routes._resolved_model_files()
+
+    klein = {s['slot']: s for s in out['klein']}
+    assert klein['text encoder']['name'] == 'qwen3vl_4b_fp8_scaled.safetensors'
+    assert klein['text encoder']['pinned'] is True      # the user chose it
+    assert klein['vae']['pinned'] is False              # the app found it
+    krea = {s['slot']: s for s in out['krea 2']}
+    assert krea['text encoder']['name'] is None         # nothing resolved, said so
+    assert krea['identity lora']['name'] == 'krea/identity.safetensors'
+    # The absolute half of that pair must never reach a paste-safe payload.
+    assert 'someone' not in json.dumps(out)
+
+
+def test_model_files_survive_a_resolver_that_raises(client, app, monkeypatch):
+    """A diagnostic is what someone reaches for when things are broken, so one
+    unhappy resolver may cost its own slot and nothing more."""
+    from app.routes import settings as settings_routes
+    from app.services import klein_edit_helper as keh
+
+    def _boom(*a, **k):
+        raise RuntimeError('ComfyUI is not configured')
+
+    monkeypatch.setattr(keh, 'resolve_klein_unet', _boom)
+    monkeypatch.setattr(keh, 'resolve_klein_text_encoder', lambda *a, **k: 'te.safetensors')
+    with app.app_context():
+        out = settings_routes._resolved_model_files()
+    slots = {s['slot'] for s in out['klein']}
+    assert 'unet' not in slots and 'text encoder' in slots
+
+
+def test_diagnostic_route_carries_the_model_files(client):
+    j = client.get('/api/diagnostic').get_json()
+    assert set(j['model_files']) == {'klein', 'krea 2'}
+    for slots in j['model_files'].values():
+        for s in slots:
+            assert set(s) == {'slot', 'name', 'pinned'}

@@ -28,6 +28,17 @@ function fullPayload() {
       studio_visible: true,
       cloud_training: false,
     },
+    model_files: {
+      klein: [
+        { slot: 'unet', name: 'klein/flux2-klein-9b.safetensors', pinned: false },
+        { slot: 'text encoder', name: 'qwen3vl_4b_fp8_scaled.safetensors', pinned: true },
+        { slot: 'vae', name: 'flux2-vae.safetensors', pinned: false },
+      ],
+      'krea 2': [
+        { slot: 'unet', name: 'krea/krea2_turbo_fp8_scaled.safetensors', pinned: false },
+        { slot: 'text encoder', name: null, pinned: false },
+      ],
+    },
     comfyui_runtime: {
       version: '0.3.30',
       gpu: 'cuda:0 NVIDIA GeForce RTX 4090',
@@ -70,7 +81,8 @@ function fullPayload() {
 
 test('renders every section header, most-discriminating first', () => {
   const out = formatDiagnostic(fullPayload());
-  const headers = ['── Engines ──', '── ComfyUI ──', '── Captioning (Ollama) ──',
+  const headers = ['── Engines ──', '── ComfyUI ──',
+    '── Model files the engines resolved ──', '── Captioning (Ollama) ──',
     '── Environment ──', '── Recent generation failures ──',
     '── Last errors (with traceback) ──', '── Last log lines ──'];
   let last = -1;
@@ -124,17 +136,33 @@ test('a MIXED Pillow is flagged', () => {
   assert.match(out, /Pillow 12\.2\.0 \(MIXED ⚠\)/);
 });
 
+test('names the model file each engine resolved, and says which was pinned', () => {
+  // GitHub #60: Klein failed on `mat1 and mat2 shapes cannot be multiplied`
+  // because the encoder it was handed is 2560 wide where Flux2TEModel wants
+  // 4096 — and the report could not say whether that file was the user's pin or
+  // the app's own match. Both halves are the answer, so both are printed.
+  const out = formatDiagnostic(fullPayload());
+  assert.match(out, /klein: unet=klein\/flux2-klein-9b\.safetensors/);
+  assert.match(out, /text encoder=qwen3vl_4b_fp8_scaled\.safetensors \(pinned\)/);
+  // Auto-detected slots carry no marker — the distinction is the point.
+  assert.match(out, /vae=flux2-vae\.safetensors(?! \(pinned\))/);
+  assert.match(out, /krea 2: unet=krea\/krea2_turbo_fp8_scaled\.safetensors/);
+  // A slot with nothing resolved is left out rather than printed as 'null'.
+  assert.ok(!out.includes('text encoder=null'));
+});
+
 test('empty optional sections are dropped so the healthy case stays short', () => {
   const lean = {
     app_version: '2026.07.17.1', git_sha: null, os: 'Linux', python: '3.12.4',
     python_ml: { ml_supported: true, ml_range: '3.10–3.12' },
     pillow: { version: null, healthy: null }, disk: {},
     secrets_present: {}, capabilities: {}, comfyui_runtime: {}, config: {},
-    ollama: {}, generation_errors: {}, error_log: [], log_tail: [],
+    ollama: {}, generation_errors: {}, error_log: [], log_tail: [], model_files: {},
   };
   const out = formatDiagnostic(lean);
   assert.ok(!out.includes('── Recent generation failures ──'));
   assert.ok(!out.includes('── Last errors (with traceback) ──'));
+  assert.ok(!out.includes('── Model files the engines resolved ──'));
   // core sections still render.
   assert.ok(out.includes('── Engines ──') && out.includes('── ComfyUI ──'));
   // no git sha -> no trailing parenthesis on the header line.
