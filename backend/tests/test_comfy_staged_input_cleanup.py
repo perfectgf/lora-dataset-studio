@@ -14,6 +14,8 @@ The contract these tests hold:
 """
 import json
 import os
+import pathlib
+import re
 import time
 
 import pytest
@@ -184,6 +186,101 @@ def test_every_klein_staged_input_is_collectable(tmp_path, name):
 
 
 @pytest.mark.parametrize('name', [
+    'krea_ref_b_0a1b2c3d.png',           # the SECOND Krea subject
+    'camera_source_0a1b2c3d_shot.png',   # 📷 camera angles
+    'seedvr2_source_0a1b2c3d_shot.png',  # SeedVR2 upscale
+    'lds_vstudio_0a1b2c3d4e.png',        # the Video Studio's staged frames
+])
+def test_the_lanes_that_were_missing_are_collectable_too(tmp_path, name):
+    """Four lanes minted names the sweep did not recognise. Precise per-job
+    deletion still collected them (every lane records `staged_inputs`), so the
+    leak was confined to the case the sweep is the backstop for: a process killed
+    between the stage and the job. Confined is not absent — that is the case that
+    put 3 896 orphans in someone's input folder."""
+    d = tmp_path / 'input'
+    d.mkdir()
+    orphan = _touch(d / name, age_seconds=365 * 24 * 3600)
+
+    assert comfy_fs.is_staged_input_name(name), f'{name} must be recognised as ours'
+    assert comfy_fs.prune_staged_inputs(str(d)) == 1
+    assert not orphan.exists()
+
+
+def test_every_staging_call_site_mints_a_collectable_name():
+    r"""`_STAGED_INPUT_RE` is a hand-written mirror of the staging call sites, and
+    it had already drifted from them twice — `wmkleinmask_img_…` once, then four
+    lanes at once. So check the mirror against the SOURCE rather than against
+    another hand-written list: every `stage_input_*` call under `app/` is read out
+    of the AST, its destination name rendered with a plausible uid, and handed to
+    `is_staged_input_name`.
+
+    A lane added later fails here by name, with the file and line to fix. Names
+    built from a local variable are resolved through the enclosing function, which
+    is how the watermark lane passes its three."""
+    import ast
+
+    funcs = {'stage_input_image': 1, 'stage_input_write': 0, 'stage_input_copy': 1}
+    app_root = pathlib.Path(__file__).resolve().parents[1] / 'app'
+
+    def render(node, scope):
+        """The literal a dest-name expression produces, or None when it is not
+        one the AST can settle. Placeholders are filled from the EXPRESSION's own
+        text, so `uuid.uuid4().hex[:10]` yields ten hex digits, not a guess."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        if isinstance(node, ast.Name):
+            bound = scope.get(node.id)
+            return render(bound, scope) if bound is not None else None
+        if not isinstance(node, ast.JoinedStr):
+            return None
+        out = []
+        for part in node.values:
+            if isinstance(part, ast.Constant):
+                out.append(str(part.value))
+                continue
+            src = ast.unparse(part.value)
+            width = re.search(r'hex\[:(\d+)\]', src)
+            if width:
+                out.append('0a1b2c3d4e5f6789abcdef0123456789'[:int(width.group(1))])
+            elif 'uid' in src:
+                out.append('0a1b2c3d')
+            elif src.strip() == 'i':
+                out.append('1')
+            else:
+                out.append('src')
+        return ''.join(out)
+
+    minted, unresolved = {}, []
+    for path in sorted(app_root.rglob('*.py')):
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for fn in (n for n in ast.walk(tree)
+                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            scope = {t.id: n.value for n in ast.walk(fn) if isinstance(n, ast.Assign)
+                     for t in n.targets if isinstance(t, ast.Name)}
+            for call in (n for n in ast.walk(fn) if isinstance(n, ast.Call)):
+                if not isinstance(call.func, ast.Attribute) or call.func.attr not in funcs:
+                    continue
+                idx = funcs[call.func.attr]
+                if len(call.args) <= idx:
+                    continue
+                where = f'{path.relative_to(app_root).as_posix()}:{call.lineno}'
+                name = render(call.args[idx], scope)
+                (minted.setdefault(name, where) if name else unresolved.append(where))
+
+    assert not unresolved, (
+        'a staging call site names its file in a way this guard cannot read, so it '
+        f'cannot be checked: {unresolved}. Pass an f-string or a local variable.')
+    # The guard must EXERCISE the lanes, not merely agree with itself: a walk that
+    # silently found nothing would pass just as quietly.
+    assert len(minted) >= 8, f'only {len(minted)} staged names found — the walk broke'
+    leaking = {name: where for name, where in minted.items()
+               if not comfy_fs.is_staged_input_name(name)}
+    assert not leaking, (
+        'these staged names are not swept — add them to comfy_fs._STAGED_INPUT_RE: '
+        + ', '.join(f'{n} ({w})' for n, w in sorted(leaking.items())))
+
+
+@pytest.mark.parametrize('name', [
     'edit_reference.png',            # a user file that merely STARTS like ours
     'edit_references_backup.png',
     'krea_sources.png',
@@ -191,6 +288,10 @@ def test_every_klein_staged_input_is_collectable(tmp_path, name):
     'edit_source.png',
     'wmklein_crop_notes.txt',
     'my_edit_source_0a1b2c3d_a.png',  # our shape, but not at the start
+    'krea_ref_backup.png',           # the new alternatives must not widen the net
+    'camera_source.png',
+    'seedvr2_source_notahexuid_a.png',
+    'lds_vstudio_notes.txt',
 ])
 def test_the_sweep_never_matches_a_file_it_did_not_mint(tmp_path, name):
     """A loose `startswith` would have eaten the first three of these. The match

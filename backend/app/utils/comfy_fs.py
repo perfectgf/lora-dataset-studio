@@ -269,20 +269,20 @@ def _comfy_folder_note() -> str:
     # No flag: argv[0] is the main.py that is actually running, which is the
     # answer whenever the cause is a SECOND install rather than a flag.
     script = items[0] if items else ''
-    if script and _is_absolute_anywhere(script) and \
-            _path_module(script).basename(script).lower() == 'main.py':
+    if script and is_absolute_anywhere(script) and \
+            path_flavour(script).basename(script).lower() == 'main.py':
         return ('the ComfyUI answering there runs from '
-                f'{safe_path(_path_module(script).dirname(script))}')
+                f'{safe_path(path_flavour(script).dirname(script))}')
     return ''
 
 
-def _path_module(path: str):
+def path_flavour(path: str):
     """The path flavour the STRING uses, not the one this OS runs. Everything
     parsed here was written by another process that may be on another kernel."""
     return ntpath if '\\' in path else posixpath
 
 
-def _is_absolute_anywhere(value: str) -> bool:
+def is_absolute_anywhere(value: str) -> bool:
     """Absolute under EITHER convention.
 
     Not `os.path.isabs`: ComfyUI may be answering from WSL or a container, so a
@@ -310,7 +310,7 @@ def _argv_value(items, flag) -> str:
         value = (inline if inline else (items[i + 1] if i + 1 < len(items) else '')).strip().strip('"')
         if not value or (not inline and value.startswith('-')):
             continue
-        if _is_absolute_anywhere(value):
+        if is_absolute_anywhere(value):
             return value
     return ''
 
@@ -486,13 +486,23 @@ def stage_input_write(dest_name, writer, input_dir) -> str:
 #  1. NAME. Not a loose prefix — a full match on the exact shape the staging code
 #     mints, `<lane>_<8 hex uid>_<original name>`. A user's own `edit_reference.png`
 #     or `krea_sources.png` does not match; nothing without one of our uids does.
+#     Every lane that stages MUST appear below, and four did not: the second Krea
+#     reference, the camera lane, the SeedVR2 lane and the Video Studio's frames
+#     were minted and never swept. Precise per-job deletion still collected them
+#     (each lane records `staged_inputs`), so what leaked was the case the sweep
+#     exists for — a process killed between the stage and the job. The same
+#     omission shipped once before with `wmkleinmask_img_…`, which is why
+#     `test_every_staging_call_site_mints_a_collectable_name` now reads the call
+#     sites out of the source instead of trusting this list to stay complete.
 #  2. AGE. Nothing younger than STAGED_INPUT_MAX_AGE_SECONDS, which is set above
 #     the longest a staged copy can legitimately still be waiting for its job.
 #  3. LIVE JOBS. The caller passes the names every non-terminal queue row still
 #     references; those are skipped whatever their age or name.
 _STAGED_INPUT_RE = re.compile(
-    r'^(?:edit_source|edit_ref\d+|krea_source)_[0-9a-f]{8}_'
-    r'|^wmklein_(?:crop|frame|mask)_[0-9a-f]{8}\.png$')
+    r'^(?:edit_source|edit_ref\d+|krea_source|camera_source|seedvr2_source)'
+    r'_[0-9a-f]{8}_'
+    r'|^(?:krea_ref_b|wmklein_(?:crop|frame|mask))_[0-9a-f]{8}\.png$'
+    r'|^lds_vstudio_[0-9a-f]{10}\.png$')
 
 # A staged input is dead once its job can no longer run. The worst case is a full
 # fan-out queued at once (MAX_FANOUT jobs) each burning the whole poll timeout

@@ -213,6 +213,25 @@ def test_parse_argv_drops_relative_paths():
     assert parse_comfy_argv_dirs(['main.py', '--output-directory=../out']) == {}
 
 
+def test_parse_argv_reads_a_container_path_whatever_the_host_is():
+    r"""The case these fields exist for: ComfyUI in WSL or a container, reporting
+    `/workspace/…` to a Windows reader.
+
+    `os.path.isabs` answers False for that on Windows — a leading slash is
+    drive-relative there, and Python 3.13 made the rule explicit — so the
+    suggestion vanished on exactly the installs that need it. Where a POSIX path
+    did get through, `os.path.normpath` then rewrote `/mnt/shared/input` as
+    `\mnt\shared\input`, a path correct on neither side. Both are judged under the
+    convention the PATH uses now, so this passes on either host."""
+    from app.capabilities import parse_comfy_argv_dirs
+    assert parse_comfy_argv_dirs(['main.py', '--input-directory', '/workspace/in',
+                                  '--output-directory=/mnt/shared/out']) == {
+        'input_dir': '/workspace/in', 'output_dir': '/mnt/shared/out'}
+    # ...and the Windows spelling survives a POSIX reader, for the same reason.
+    assert parse_comfy_argv_dirs(['main.py', '--models-directory', 'E:\\models']) == {
+        'models_dir': 'E:\\models'}
+
+
 def test_parse_argv_ignores_base_directory():
     """--base-directory is a layout, not an answer: the install-directory field
     already derives from it, and turning it into input/output would be an assumption."""
