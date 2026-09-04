@@ -77,3 +77,31 @@ def test_a_watermark_pass_talks_to_nobody(app, client, tmp_path, connections):
     assert len(monkey_calls) == 3               # the pass really ran
     assert connections == [], (
         f'the watermark pass reached out over the network: {connections}')
+
+
+def test_staging_a_source_image_talks_to_nobody(app, tmp_path, connections):
+    """A third door, opened by the #64 fix: every staged write now ASKS ComfyUI
+    whether it can see the file (`HEAD <comfyui>/view`).
+
+    `api_address()` always resolves — config.py's DEFAULTS ship
+    http://127.0.0.1:8188 — so without the conftest stub this HEADs a real
+    address on every staging in the suite, and on a machine where ComfyUI is
+    listening it gets a 404 (a tmp_path is obviously not that install's input
+    folder) and REFUSES the staging. Green in CI, red on the maintainer's
+    machine, which is the worst shape a test can take.
+
+    Deterministic either way: without the stub a socket is opened whether or not
+    anything answers, so this spy goes red everywhere, not just where ComfyUI
+    runs."""
+    from PIL import Image
+    from app.utils import comfy_fs
+
+    folder = tmp_path / 'input'
+    folder.mkdir()
+    src = tmp_path / 'src.png'
+    Image.new('RGB', (16, 16), (7, 7, 7)).save(src, 'PNG')
+    del connections[:]                          # ignore anything the setup did
+    with app.app_context():
+        comfy_fs.stage_input_image(str(src), 'krea_source_abcd1234_src.png', str(folder))
+    assert connections == [], (
+        f'staging reached out over the network: {connections}')

@@ -1722,6 +1722,15 @@ def _input_check(base_dir: str) -> dict:
         target = cfg.resolve_comfyui_dir('input', base_dir, override)
         path = str(target) if target else ''
         verdict = comfy_fs.probe_folder('input', path)
+        # Writable is only half of "usable". A folder can pass every local check
+        # and still not be the one ComfyUI reads — a second install, or the
+        # `--input-directory` flag no disk inspection can see (GitHub #64). Asked
+        # only once the local verdict is green: a missing or read-only folder has
+        # a louder answer already, and this one costs a round trip.
+        if verdict['ok']:
+            invisible = comfy_fs.input_visibility_problem(path)
+            if invisible:
+                verdict = {'ok': False, 'problem': invisible}
     except Exception:
         return {'path': '', 'ok': None, 'problem': ''}
     return {'path': comfy_fs.safe_path(path), 'ok': verdict['ok'],
@@ -1772,6 +1781,12 @@ def classify_comfyui_folders(base_dir: str, overrides: dict | None = None) -> di
         if exists:
             verdict = comfy_fs.probe_folder(kind, resolved)
             usable, problem = verdict['ok'], verdict['problem']
+            # input/ is the only folder BOTH sides must agree on by path, and the
+            # only one whose disagreement is invisible from here (GitHub #64).
+            if kind == 'input' and usable:
+                invisible = comfy_fs.input_visibility_problem(resolved)
+                if invisible:
+                    usable, problem = False, invisible
         out[key] = {'kind': kind, 'source': source,
                     'resolved': resolved, 'exists': exists,
                     'usable': usable, 'problem': problem}

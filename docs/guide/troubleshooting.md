@@ -234,6 +234,18 @@ and then the copy writes into a folder ComfyUI cannot see, or fails outright.
   matching paths in **Settings → Local tools → Advanced: ComfyUI folder overrides**.
   Those fields take the path **as seen by the app**.
 
+**How you will know.** The app checks this itself, at the moment it stages a source
+image and again in Settings and the Setup wizard: it asks the running ComfyUI, over
+ComfyUI's own `/view`, whether it can see the file that was just written. When the
+answer is no, the generation is refused with a message naming **the folder the app
+used** and **what ComfyUI reported about its own** — quoted from the command line
+ComfyUI echoes in `/system_stats`, so a second install or a `--base-directory` is
+named rather than guessed. This replaced the failure that started it: ComfyUI
+answering `Invalid image file: krea_source_….png` to its own console while the app
+showed a tile that stopped instantly with no error at all (GitHub #64). If ComfyUI
+cannot be asked — stopped, behind a proxy that refuses `HEAD`, too old — nothing is
+refused and staging behaves exactly as before.
+
 With Docker, that means bind-mounting the same host folders into both containers at
 identical paths, e.g.:
 
