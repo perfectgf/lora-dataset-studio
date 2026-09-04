@@ -4,15 +4,22 @@ import { SettingsGroup, SettingsGroupsToc, useSettingsGroupProps } from './Setti
 import { TRAINING_GROUPS } from './settingsGroups'
 import ResetToDefault from './ResetToDefault'
 import { defaultValueAt } from './settingDefaults.js'
+import { VAST_CONSOLE_URL, VAST_REFERRAL_ID, vastSignupUrl } from '../../utils/vastReferral.js'
 
 // Keep in sync with backend TRAIN_TYPES (face_dataset_service.py) — 'flux' had
 // been forgotten here when the FLUX.1 family landed (fixed alongside flux2klein).
 const FAMILY_OPTIONS = ['zimage', 'sdxl', 'krea', 'flux', 'flux2klein', 'anima']
 
 /* First-time walkthrough for renting cloud GPUs — collapsed by default so the
-   card stays compact for users who already have a key. */
-function VastKeyGuide() {
+   card stays compact for users who already have a key. Step 1 is the ONE link
+   in the app that may carry the project's vast.ai referral id (the account is
+   created there; see utils/vastReferral.js). When it does, the disclosure sits
+   right under the steps with the untagged link beside it — Billing and Keys
+   stay bare. Exported for tests/vast-key-guide-render.test.mjs. */
+export function VastKeyGuide({ referralId = VAST_REFERRAL_ID } = {}) {
   const link = 'font-medium text-sky-300 underline hover:text-sky-200'
+  const signup = vastSignupUrl(referralId)
+  const referral = signup !== VAST_CONSOLE_URL
   return (
     <details className="mb-2 rounded-lg border border-border bg-surface px-3 py-2 open:pb-3">
       <summary className="cursor-pointer select-none text-xs font-medium text-content">
@@ -21,7 +28,7 @@ function VastKeyGuide() {
       <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-content-muted">
         <li>
           Create a free account at{' '}
-          <a href="https://cloud.vast.ai/" target="_blank" rel="noreferrer" className={link}>cloud.vast.ai</a>
+          <a href={signup} target="_blank" rel="noreferrer" className={link}>cloud.vast.ai</a>
           {' '}(email or Google sign-in).
         </li>
         <li>
@@ -41,6 +48,16 @@ function VastKeyGuide() {
           key automatically and should answer “connected as &lt;your account&gt;”.
         </li>
       </ol>
+      {referral && (
+        <p className="mt-2 text-xs text-content-muted">
+          Step 1’s link is a referral link: open a vast.ai account through it and vast.ai
+          pays this project 3% of what you spend there. It costs you nothing — the prices
+          are identical either way, and nothing in the app behaves differently. Prefer not
+          to?{' '}
+          <a href={VAST_CONSOLE_URL} target="_blank" rel="noreferrer" className={link}>cloud.vast.ai</a>
+          {' '}works exactly the same.
+        </p>
+      )}
     </details>
   )
 }
