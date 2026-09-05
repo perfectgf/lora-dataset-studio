@@ -22,7 +22,7 @@ export const MEMORY_KEYS = ['quantize', 'quantize_te', 'low_vram'];
 export const MEMORY_LABELS = {
   quantize: 'Quantise base model',
   quantize_te: 'Quantise text encoder',
-  low_vram: 'Low-VRAM streaming',
+  low_vram: 'Low-VRAM loading',
 };
 
 /* "NVIDIA GeForce RTX 5090 · 31.4 GB", or whichever half we actually know. */
@@ -83,7 +83,7 @@ export function memoryIsOverridden(stored) {
    Why this exists at all: these three flags live in one global `train_settings`
    blob while the calibrated default is per family. Switching an off-by-default
    2B family (Anima, SDXL) to a 12B DiT carried the `false` over and produced a
-   config with no quantisation, no low-VRAM streaming and no qtype — a recipe
+   config with no quantisation, no low-VRAM loading and no qtype — a recipe
    that OOMs or crawls, built in silence. The flags still travel (they are a
    statement about the CARD, not about the family, so remembering them per family
    would answer a question nobody asked); what changes is that they are now said

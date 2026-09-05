@@ -628,7 +628,7 @@ export const SETTINGS_FIELD_TOPICS = [
     'Loss weight kept on faces',
     ['face mask', 'weight', 'loss', 'min weight', 'concept', 'mask faces', 'zero',
      'strength', 'how hard']),
-  // Memory saving (quantisation + low-VRAM streaming) is a per-run Advanced
+  // Memory saving (quantisation + low-VRAM loading) is a per-run Advanced
   // training option like Dual captions, so it points at the settings-reference
   // section that documents the Advanced panel rather than a global Settings card.
   { id: 'training.memory_saving', kind: 'setting', title: 'Memory saving (quantisation, low VRAM)',
@@ -642,7 +642,7 @@ export const SETTINGS_FIELD_TOPICS = [
     guide: { chapter: 'settings-reference', anchor: 'training' },
     app: { route: '/datasets?section=training' },
     tip: { trigger: 'memory-saving-advanced',
-      text: 'New: if your card is bigger than 24 GB you can switch quantisation and low-VRAM streaming off (Advanced options → Memory saving) for a faster, more precise run.' } },
+      text: 'New: if your card is bigger than 24 GB you can switch quantisation and low-VRAM loading off (Advanced options → Memory saving) for a faster, more precise run.' } },
   // server
   setting('server.port', 'server', 'server-port', 'Server port',
     ['server', 'port', 'bind', 'network', '5050']),

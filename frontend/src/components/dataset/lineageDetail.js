@@ -34,7 +34,7 @@ const CONFIG_LABELS = [
   [['dual_captions'], 'Dual captions'],
   [['quantize'], 'Quantise base model'],
   [['quantize_te'], 'Quantise text encoder'],
-  [['low_vram'], 'Low-VRAM streaming'],
+  [['low_vram'], 'Low-VRAM loading'],
   [['trigger'], 'Trigger word'],
   [['style_mode'], 'Style mode'],
   [['slider_mode'], 'Slider mode'],

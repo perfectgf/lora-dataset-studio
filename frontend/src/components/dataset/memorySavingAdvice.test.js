@@ -91,7 +91,7 @@ test('an intact recipe stays visually silent', () => {
 test('a disabled saver on a hungry family names it, the family and the need', () => {
   const t = memoryRiskLine({ disabled: ['quantize', 'low_vram'], verdict: 'keep_on',
     vram_gb: 24, unquantised_vram_gb: 30 }, 'Krea 2');
-  assert.match(t, /Quantise base model, Low-VRAM streaming/);
+  assert.match(t, /Quantise base model, Low-VRAM loading/);
   assert.match(t, /Krea 2 needs roughly 30 GB/);
   assert.match(t, /this card reports 24 GB/);
   // Same discipline as memoryAdviceText: the symptom is SLOWNESS, not a clean OOM.

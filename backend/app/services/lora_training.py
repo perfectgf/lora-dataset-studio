@@ -1650,11 +1650,14 @@ _QTYPE_CHOICES = ('qfloat8', 'float8', 'int8')
 _SAVE_DTYPE_CHOICES = ('float16', 'bf16')
 _OFFLOADING_PERCENT_RANGE = (0.0, 1.0)
 
-# --- Memory-saving levers (quantisation + low-VRAM streaming) --------------------
+# --- Memory-saving levers (quantisation + low-VRAM loading) ----------------------
 # Community request (GitHub issue #14, bobba84): the recipes hard-coded quantize /
 # quantize_te / low_vram, calibrated so a 12B DiT fits in 24 GB. On a card with MORE
 # than the target, that calibration is a tax nobody asked for — quantisation costs
-# precision and low_vram costs a lot of speed (it streams blocks CPU↔GPU).
+# precision and low_vram costs start-up time: ai-toolkit parks the transformer and
+# the text encoder in system RAM while they load and quantise, then moves them to
+# the card for the run (a loading strategy, not block streaming during the steps —
+# verified in krea2.py, flux2_model.py and stable_diffusion_model.py, 2026-09-05).
 #
 # VÉRIFIÉ dans l'ai-toolkit installé : `quantize`, `quantize_te`, `qtype` et
 # `low_vram` sont des champs de ModelConfig (toolkit/config_modules.py L658-662),
@@ -1672,7 +1675,7 @@ _MEMORY_SETTING_KEYS = ('quantize', 'quantize_te', 'low_vram')
 # a preflight sentence names the checkbox the user has to go and tick back.
 _MEMORY_LABELS = {'quantize': 'Quantise base model',
                   'quantize_te': 'Quantise text encoder',
-                  'low_vram': 'Low-VRAM streaming'}
+                  'low_vram': 'Low-VRAM loading'}
 
 # Ce que chaque famille émet quand l'utilisateur ne choisit rien. NE PAS TOUCHER :
 # la majorité du parc est à 24 Go ou moins et c'est ce qui fait tenir l'entraînement.
