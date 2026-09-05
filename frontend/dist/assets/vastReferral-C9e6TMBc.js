@@ -1,0 +1,1 @@
+const o="https://cloud.vast.ai/",r="683073";function e(t="/",a=r){const n=String(a??"").trim(),s=o+String(t??"/").replace(/^\/+/,"");return n?`${s}?ref_id=${encodeURIComponent(n)}`:s}function c(t=r){return e("/",t)}export{r as V,o as a,e as b,c as v};
