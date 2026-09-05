@@ -3635,7 +3635,7 @@ duration and total for this set (one measured run, scaled — the window says
 so), a warning when the run would outlive the runtime cap, and this month's spend
 against your budget. Nothing is rented until you pick a class and press the
 button. Before the window even opens, the cloud-lane preflight runs: a blocker
-(no vast.ai key, no clips) stops there and says why; warnings are put to you once,
+(no [vast.ai](https://cloud.vast.ai/?ref_id=683073) key, no clips) stops there and says why; warnings are put to you once,
 together. And when the account already has a run on a pod for this set, "second
 pod, billed separately — launch anyway?" is a question you answer, not an error
 you read.
