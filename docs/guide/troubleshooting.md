@@ -169,8 +169,10 @@ of seven days; the same run at 768, 3.5 s per step. Linux fails loudly instead
 (`CUDA out of memory`), which is the kinder failure.
 
 **Why it happens on a card that should fit.** The Krea 2 and FLUX.1 recipes are
-calibrated to fit a 24 GB card that is *empty*. Anything else holding a few GB
-tips them over, and the usual culprit on a machine that also runs ComfyUI is
+calibrated to fit a 24 GB card that is *empty*, and they do: measured with the
+shipped Krea 2 recipe on an otherwise idle 24 GB card, the run peaks at about
+21.6 GB, so a little under 3 GB is all the room there is. Anything else holding
+that much tips them over, and the usual culprit on a machine that also runs ComfyUI is
 ComfyUI itself: it keeps the models it last used resident (in VRAM while it
 has the room, in system RAM once they leave the card) and does not let go on
 its own. A

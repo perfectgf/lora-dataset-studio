@@ -52,6 +52,15 @@ logger = logging.getLogger(__name__)
 # mais on libère le Qwen3-VL via cache_text_embeddings + unload_text_encoder (~4-8 Go) pour
 # tenir sans offload. Si 1024 sature encore → baisser ce SEUL curseur à 896 (mesurer), puis 768
 # (cadence prouvée). Curseur de tuning #1, un seul endroit.
+# MESURÉ 2026-09-05 (RTX 4090 24,5 Go, carte VIDE hors bureau 1,6 Go, Windows/WDDM, recette
+# livrée telle quelle : 768+1024, qfloat8 + qfloat8 TE + low_vram, TE déchargé après cache,
+# 12 images, 20 pas) : pic 21,6 Go à nvidia-smi, mémoire partagée WDDM max 194 Mio = AUCUNE
+# pagination, 3,4-5,6 s/it (médiane 3,9), preview 1024 à 25 pas = 23,6 s, run complet 6 min 28.
+# Donc la recette TIENT sur 24 Go avec ~3 Go de marge — et c'est toute la marge : un ComfyUI
+# qui garde un modèle résident, un navigateur chargé, un second écran suffisent à la manger,
+# et sous WDDM le run ne meurt pas, il pagine (GPU à 3 %, ETA en centaines d'heures — le
+# rapport Discord du 05/09). D'où le /free ComfyUI avant chaque training local
+# (_comfyui_free_before_training) plutôt qu'un seuil VRAM : _pf_vram reste muet à 24 Go à raison.
 KREA_TRAIN_RESOLUTION = 1024
 
 # Dense checkpoints are roughly 26 GB.  These values are intentionally NOT
