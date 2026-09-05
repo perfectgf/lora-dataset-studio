@@ -88,10 +88,34 @@ def fence_data_dir(tmp_path, monkeypatch):
     ('  llava  ', 'llava:latest'),
     ('LLaVA', 'LLaVA:latest'),                               # the model's own case is kept, as Ollama keeps it
     ('llava/', 'llava/'),                                    # no model part: never invent a name
+    # A separator that promises a part and delivers none is not a name to Ollama
+    # (its parser files the gap as a missing part and refuses the request), so
+    # it must not become one here either — see the test below for why.
+    ('llava:', 'llava:'),
+    ('llava:latest:', 'llava:latest:'),
+    ('/llava', '/llava'),
+    ('hf.co//r', 'hf.co//r'),
+    ('//ZZ', '//ZZ'),
     ('', ''),
 ])
 def test_canonical_name_is_the_name_ollama_prints(typed, printed):
     assert fence.canonical_ollama_name(typed) == printed
+
+
+def test_a_setting_ollama_would_refuse_never_becomes_a_real_name():
+    """`llava:` passes the Settings Test button green (the probe folds it) and
+    Ollama refuses it, so nothing is ever loaded under it. Had the fence filled
+    the gap with `latest`, LDS would have OWNED `llava:latest` without loading
+    it — and the next hand-off would have unloaded another tool's copy."""
+    with patch.object(fence.requests, 'get', return_value=_ps()):
+        assert fence.mark_before_generate(ENDPOINT, 'llava:') == 'local'
+    assert fence._owned_models[ENDPOINT] == {'llava:'}
+    with patch.object(fence.requests, 'get', return_value=_ps('llava:latest')), \
+            patch.object(fence.requests, 'post') as post, \
+            patch.object(fence, '_configured_local_endpoint', return_value=('local', ENDPOINT)):
+        assert fence.mark_before_generate(ENDPOINT, 'llava:') == 'blocked'
+        assert fence.ensure_released_for_comfy() is False
+    post.assert_not_called()
 
 
 # --- the reported sequence ---------------------------------------------------
@@ -186,6 +210,21 @@ def test_lm_studio_identifiers_are_compared_as_typed():
                                           provider='lmstudio') == 'local'
     assert fence._borrowed_models[ENDPOINT] == {'qwen/qwen3-vl-8b'}
     assert fence._canonical_for(ENDPOINT, 'qwen/qwen3-vl-8b') == 'qwen/qwen3-vl-8b'
+
+
+def test_lm_studio_load_is_filed_under_the_pinned_driver_as_typed():
+    """register_lds_load is LM Studio's by contract; it pins the driver, so the
+    identifier is filed exactly as the admission will look it up — the one
+    writer of the ownership map that used to bypass the canonical door."""
+    fence.register_lds_load(ENDPOINT, 'qwen/qwen3-vl-8b')
+    assert fence._driver_for(ENDPOINT) == 'lmstudio'
+    assert fence._owned_models[ENDPOINT] == {'qwen/qwen3-vl-8b'}
+    with patch.object(fence, '_probe_lmstudio',
+                      return_value=('models', {'qwen/qwen3-vl-8b'}, {})):
+        assert fence.mark_before_generate(ENDPOINT, 'qwen/qwen3-vl-8b',
+                                          provider='lmstudio') == 'local'
+    # Its own load, not a borrowed one: the hand-off may release it.
+    assert 'qwen/qwen3-vl-8b' not in fence._borrowed_models.get(ENDPOINT, set())
 
 
 # --- the claims that outlive a restart -------------------------------------------

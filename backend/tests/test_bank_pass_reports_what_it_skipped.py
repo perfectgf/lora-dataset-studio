@@ -276,3 +276,33 @@ def test_a_cancelled_watermark_scan_names_what_it_could_not_read(bank_ctx,
     assert 'unreadable' in job['detail'], (
         'the stopped watermark scan hid every file it failed on: '
         + repr(job['detail']))
+
+
+def test_a_framing_pass_quotes_the_fences_own_reason_not_the_gpu_window_sentence(
+        bank_ctx, monkeypatch):
+    """The fence refuses for more than one reason. When another tool holds the
+    model, the historical "GPU window expired" clause named a remedy that was
+    false for that case; the pass now quotes the refusal it actually got."""
+    from app.services import image_bank_service as banks
+    from app.services.ollama_gpu_fence import FENCE_BLOCKED_MESSAGE
+    from app.services.vision_ollama import LocalOllamaFenceError
+
+    bank_id = bank_ctx
+    calls = {'n': 0}
+
+    def describe(image_bytes, *a, **k):
+        calls['n'] += 1
+        if calls['n'] <= 2:
+            return '{"framing": "face"}'
+        raise LocalOllamaFenceError(FENCE_BLOCKED_MESSAGE)
+
+    _framing_over_ollama(monkeypatch, describe)
+    job = _new_job('framing')
+    _run(banks._framing_job(bank_id, False), job)
+
+    assert job['error'] is None, job['error']
+    detail = job['detail']
+    assert '2 classified' in detail, detail
+    reason = FENCE_BLOCKED_MESSAGE.rstrip('.')
+    assert f'10 not analysed ({reason} — run the pass again to finish them)' in detail, detail
+    assert 'GPU window expired' not in detail, detail

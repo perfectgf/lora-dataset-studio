@@ -202,21 +202,31 @@ _OLLAMA_DEFAULT_TAG = 'latest'
 def canonical_ollama_name(name) -> str:
     """``name`` as Ollama prints it back: `llava` -> `llava:latest`,
     `registry.ollama.ai/library/llava:13b` -> `llava:13b`, a custom registry
-    kept as typed. '' for an empty reference; a reference with no model part
-    (`llava/`) is returned untouched rather than turned into a name."""
+    kept as typed. '' for an empty reference.
+
+    A separator that promises a part and delivers none (`llava:`, `/llava`,
+    `hf.co//r`, `llava/`) is not a name to Ollama — its parser files the gap as
+    a missing part and the request is refused, so nothing is ever loaded under
+    it. Filling the gap with a default here would hand LDS a REAL name it never
+    loaded, and with it the right to unload somebody else's copy of that model
+    (the refuter's finding: `llava:` passes the Settings Test button green).
+    Such text is returned as it is, which matches nothing the runner prints."""
     text = name.strip() if isinstance(name, str) else ''
     if not text:
         return ''
-    rest, tag = text, ''
+    rest, tag, promised_tag = text, '', False
     # '/' is not a legal tag character, so a ':' after the last '/' starts the tag.
     if rest.rfind(':') > rest.rfind('/'):
         rest, _, tag = rest.rpartition(':')
+        promised_tag = True
     parts = rest.rsplit('/', 2)          # [host/][namespace/]model
     model = parts[-1]
-    if not model:
-        return text
     namespace = parts[-2] if len(parts) >= 2 else ''
     host = parts[0] if len(parts) == 3 else ''
+    if (not model or (promised_tag and not tag)
+            or (len(parts) >= 2 and not namespace)
+            or (len(parts) == 3 and not host)):
+        return text
     if '://' in host:
         host = host.split('://', 1)[1]
     host = host or _OLLAMA_DEFAULT_HOST
@@ -911,6 +921,13 @@ def register_lds_load(endpoint_url, model) -> None:
     scope, endpoint = _endpoint_scope(endpoint_url)
     if scope != 'local':
         return
+    # LM Studio's load, by the contract above — so pin the driver here rather
+    # than let it be resolved later. This is the one writer of `_owned_models`
+    # that did not go through `_canonical_for`: under a misresolved driver it
+    # would have filed `x` where the admission files `x:latest`, and the
+    # hand-off would then have refused to release LDS's own load.
+    _remember_driver(endpoint, 'lmstudio')
+    model = _canonical_for(endpoint, model)      # the identity, for LM Studio
     with _lock:
         _owned_models.setdefault(endpoint, set()).add(model)
         _borrowed_models.get(endpoint, set()).discard(model)

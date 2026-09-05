@@ -8213,7 +8213,12 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
         """One image handled without a caption. The FIRST fence refusal's own
         sentence is kept verbatim: the fence refuses for more than one reason
         (an expired GPU window, a model another tool loaded) and each names
-        its own remedy better than a category chosen here would."""
+        its own remedy better than a category chosen here would.
+
+        Counted from the SECOND image on, by design: the first image runs
+        alone, and a refusal there is raised, not counted — nothing after it
+        could pass either, so the pass fails at once with that sentence as its
+        error instead of walking thirty images to refuse each one."""
         if outcome is None:
             return
         outcome[kind] = outcome.get(kind, 0) + 1

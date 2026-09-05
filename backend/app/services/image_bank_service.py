@@ -9875,6 +9875,7 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
         classified = errors = vanished = stale = fenced = 0
         missing = unanswered = 0
         fence_streak = 0
+        fence_reason = ''      # the FIRST refusal's own sentence, for the last line
 
         def prepared():
             """Path resolution reads the row, so it belongs on the job's own
@@ -9917,9 +9918,11 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
                 # A fence refusal is kept apart from a bad file: the image was
                 # never shown to the model, so it is neither unreadable nor
                 # classified, and only a re-run fixes it (see _skipped_note).
+                fenced_call = isinstance(exc, LocalOllamaFenceError)
                 return {'raw': None, 'fingerprint': fingerprint,
                         'error': f'{type(exc).__name__}: {exc}',
-                        'fenced': isinstance(exc, LocalOllamaFenceError)}
+                        'fenced': fenced_call,
+                        'fence_reason': str(exc) if fenced_call else ''}
 
         with gpu_exclusive_vision_window(flag_ttl=1800):
             try:
@@ -9982,6 +9985,7 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
                     if call_error is not None:  # one bad file never sinks the pass
                         if answer.get('fenced'):
                             fenced += 1
+                            fence_reason = fence_reason or (answer.get('fence_reason') or '')
                         else:
                             errors += 1
                     elif raw is None:      # file gone: leave the row as it was
@@ -10026,6 +10030,7 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
                 unload_vision_model()  # hand the VRAM back to ComfyUI
         skipped = _skipped_note(vanished=vanished, missing=missing,
                                 unanswered=unanswered, fenced=fenced,
+                                fence_reason=fence_reason,
                                 stale=stale, unreadable=errors)
         if bank_jobs.cancelled(job):
             bank_jobs.progress(
