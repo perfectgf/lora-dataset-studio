@@ -8638,9 +8638,9 @@ def _lt_publish_bridge_context(run_dir, config_path, env, masked, _prepared,
 
 
 # -- ComfyUI's resident models, before a LOCAL training takes the card ----------
-# ComfyUI keeps every model it loaded resident once a render is done (its default
-# "smart memory": nothing is unloaded until ComfyUI itself needs the room, and a
-# second process asking the driver for VRAM is not that). Every guard in the
+# ComfyUI keeps the models it last used resident once a render is done (its
+# default "smart memory": nothing is unloaded until ComfyUI itself needs the
+# room, and a second process asking the driver for VRAM is not that). Every guard in the
 # spawn transaction reads LDS's OWN state -- its queue table, its vision flag, its
 # Ollama fence -- so a ComfyUI that finished a Klein edit ten minutes ago and still
 # holds ~15 GB passed all of them, and a Krea 2 run calibrated for an EMPTY 24 GB
@@ -8654,9 +8654,10 @@ def _lt_publish_bridge_context(run_dir, config_path, env, masked, _prepared,
 # Best-effort on purpose, unlike the vision window's fail-closed gate: a training
 # does not need ComfyUI at all, so an offline, unreachable or silent ComfyUI is
 # logged and the launch goes on. A verdict alone would never tell whether the
-# lever mattered, so the card is read before the request and again at the spawn
-# (register_launch and the config write sit between the two, ~1-3 s; ComfyUI
-# unloads from its worker loop within that) and both numbers go to the log.
+# lever mattered, so the card is read before the request and again once the
+# child exists and the lock pair is released (register_launch, the config write
+# and the spawn sit between the two, ~1-3 s; ComfyUI unloads from its worker
+# loop within that) and both numbers go to the log.
 #
 # The import stays INSIDE the function: tests/conftest.py stubs
 # `app.utils.comfyui.free_comfyui_vram` by attribute, and a module-level import
@@ -8691,8 +8692,8 @@ def _comfyui_free_before_training(lane='image') -> dict:
 
 
 def _comfyui_free_report(state) -> None:
-    """Second half, once the child exists: read the card again, log both numbers.
-    Diagnostic only -- nothing here may raise past the spawn."""
+    """Second half, once the child exists and the locks are released: read the
+    card again, log both numbers. Diagnostic only -- it never raises."""
     try:
         from . import system_stats
         after = system_stats.gpu_vram_used_gb()
@@ -8833,7 +8834,6 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
             if isinstance(e, (FileNotFoundError, OSError)):
                 raise ValueError(f"could not start training: {e}") from e
             raise
-        _comfyui_free_report(_comfy_free)
         # Popen success is the irreversible launch boundary.  From this point on,
         # no persistence failure may escape to continue_training(), whose
         # pre-spawn exception path restores the archived lane.  The already
@@ -8861,6 +8861,9 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
                 # earlier launching intent + durable fence remain recoverable.
                 logger.exception(
                     'could not attach process identity to exact-resume journal')
+    # The second VRAM reading, outside the lock pair: the child exists and the
+    # fence is published, so nothing here holds Stop up for an nvidia-smi.
+    _comfyui_free_report(_comfy_free)
     return proc
 
 

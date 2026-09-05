@@ -171,8 +171,9 @@ of seven days; the same run at 768, 3.5 s per step. Linux fails loudly instead
 **Why it happens on a card that should fit.** The Krea 2 and FLUX.1 recipes are
 calibrated to fit a 24 GB card that is *empty*. Anything else holding a few GB
 tips them over, and the usual culprit on a machine that also runs ComfyUI is
-ComfyUI itself: it keeps every model of the session resident (in VRAM while it
-can, in system RAM once it leaves the card) and never lets go on its own. A
+ComfyUI itself: it keeps the models it last used resident (in VRAM while it
+has the room, in system RAM once they leave the card) and does not let go on
+its own. A
 browser with many tabs, a second monitor and a game launcher add up too.
 
 **Two readings settle it.** Task Manager → Performance → GPU: *Dedicated GPU

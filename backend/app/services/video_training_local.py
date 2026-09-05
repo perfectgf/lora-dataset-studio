@@ -475,7 +475,6 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
             if isinstance(exc, (FileNotFoundError, OSError)):
                 raise ValueError(f'could not start training: {exc}') from exc
             raise
-        lt._comfyui_free_report(_comfy_free)
         # Past the spawn nothing may escape: the fence is now the only thing that
         # keeps another GPU owner off the card, and it must stay fail-closed even
         # if the richer PID identity cannot be persisted.
@@ -486,6 +485,8 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
                 'could not persist the spawned video training identity; '
                 'keeping the GPU fence fail-closed')
 
+    # Second VRAM reading outside the lock pair, as on the image lane.
+    lt._comfyui_free_report(_comfy_free)
     threading.Thread(
         target=lt._watch_training,
         args=(app, proc, log_path, dataset_id),
