@@ -352,7 +352,9 @@ export function ollamaGateReason(s) {
 
 // Map a /api/setup/comfyui-dir verdict to the wizard's inline feedback: a tone
 // (drives the colour) and an actionable message. `suggestion` is carried through so
-// the caller can render an "adopt this folder" button for the launcher-folder case.
+// the caller can render an "adopt this folder" button for the launcher-folder case;
+// `inputSuggestion` does the same for the input folder ComfyUI REPORTS when it has
+// proved it cannot see ours (GitHub #64) — offered only while there is a note to fix.
 // Pure + exhaustive so node --test can lock every branch. `checking` is the UI's own
 // in-flight state; `empty` (nothing typed) renders nothing here — the skip panel owns it.
 export function comfyuiDirVerdict(check) {
@@ -360,25 +362,26 @@ export function comfyuiDirVerdict(check) {
   const resolved = c.resolved || ''
   const suggestion = c.suggestion || ''
   const note = inputFolderNote(c.input_check)
+  const inputSuggestion = note ? ((c.input_check && c.input_check.suggestion) || '') : ''
   switch (c.status) {
     case 'valid':
-      return { tone: 'ok', suggestion: '', note,
+      return { tone: 'ok', suggestion: '', note, inputSuggestion,
         message: resolved ? `ComfyUI found at ${resolved}.` : 'ComfyUI found.' }
     case 'nested':
-      return { tone: 'warn', suggestion, note,
+      return { tone: 'warn', suggestion, note, inputSuggestion,
         message: `This looks like the launcher/parent folder — did you mean ${suggestion}?` }
     case 'missing':
-      return { tone: 'warn', suggestion: '', note: '',
+      return { tone: 'warn', suggestion: '', note: '', inputSuggestion: '',
         message: "That folder doesn't exist yet — check the path." }
     case 'empty_dir':
-      return { tone: 'warn', suggestion: '', note: '',
+      return { tone: 'warn', suggestion: '', note: '', inputSuggestion: '',
         message: 'That folder is empty — point at the folder that holds main.py and a models/ folder.' }
     case 'not_comfyui':
-      return { tone: 'warn', suggestion: '', note: '',
+      return { tone: 'warn', suggestion: '', note: '', inputSuggestion: '',
         message: "This folder isn't a ComfyUI install — it must contain main.py and a models/ folder. "
           + 'For the portable build, point at the inner …\\ComfyUI_windows_portable\\ComfyUI.' }
     default:
-      return { tone: 'muted', suggestion: '', note: '', message: '' }
+      return { tone: 'muted', suggestion: '', note: '', inputSuggestion: '', message: '' }
   }
 }
 

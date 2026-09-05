@@ -286,7 +286,7 @@ test('comfyuiDirVerdict maps each backend status to an actionable message', () =
   }
   // Blank / in-flight / unknown -> muted, nothing to render.
   assert.deepEqual(comfyuiDirVerdict({ status: 'empty' }),
-    { tone: 'muted', suggestion: '', note: '', message: '' });
+    { tone: 'muted', suggestion: '', note: '', inputSuggestion: '', message: '' });
   assert.equal(comfyuiDirVerdict(null).message, '');
 });
 
@@ -322,6 +322,33 @@ test('a working install, or a backend that says nothing, adds no note', () => {
 test('the wizard renders the input-folder note', () => {
   const jsx = fs.readFileSync(new URL('../pages/SetupPage.jsx', import.meta.url), 'utf8');
   assert.match(jsx, /v\.note/);
+});
+
+/* GitHub #64 (mikemil828, Comfy Desktop with its shared folder): the folder ComfyUI
+   was started with was known to the app but offered only inside an Advanced fold of
+   Settings. Once ComfyUI has proved it cannot see ours, the wizard offers the one it
+   reports — and only then: a suggestion with nothing to fix is a field to explain. */
+test('when ComfyUI cannot see our input folder and says where it reads, that folder is offered', () => {
+  const v = comfyuiDirVerdict({
+    status: 'valid', resolved: 'C:/Comfy',
+    input_check: { path: 'C:/Comfy/input', ok: false,
+      problem: 'ComfyUI cannot see the source image the app just staged. The app used C:/Comfy/input, but the ComfyUI answering at http://127.0.0.1:8188 reads its input folder somewhere else — it was started with `--input-directory D:/ComfyUI-Shared/input`.',
+      suggestion: 'D:/ComfyUI-Shared/input' },
+  });
+  assert.equal(v.tone, 'ok');
+  assert.match(v.note, /cannot see/);
+  assert.equal(v.inputSuggestion, 'D:/ComfyUI-Shared/input');
+  // no note, no offer — even if the backend sent a folder
+  assert.equal(comfyuiDirVerdict({ status: 'valid', resolved: 'C:/Comfy',
+    input_check: { path: 'C:/Comfy/input', ok: true, problem: '', suggestion: 'D:/x' } }).inputSuggestion, '');
+  assert.equal(comfyuiDirVerdict({ status: 'valid', resolved: 'C:/Comfy',
+    input_check: { path: 'C:/Comfy/input', ok: false, problem: 'not writable' } }).inputSuggestion, '');
+});
+
+test('the wizard renders the one-click adoption of the reported input folder', () => {
+  const jsx = fs.readFileSync(new URL('../pages/SetupPage.jsx', import.meta.url), 'utf8');
+  assert.match(jsx, /v\.inputSuggestion/);
+  assert.match(jsx, /applyDetectedPath\('comfyui', 'input_dir', v\.inputSuggestion\)/);
 });
 
 test('skip panel lists what turns off and what stays on', () => {

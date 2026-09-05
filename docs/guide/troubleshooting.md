@@ -290,7 +290,9 @@ ComfyUI's own `/view`, whether it can see the file that was just written. When t
 answer is no, the generation is refused with a message naming **the folder the app
 used** and **what ComfyUI reported about its own** — quoted from the command line
 ComfyUI echoes in `/system_stats`, so a second install or a `--base-directory` is
-named rather than guessed. This replaced the failure that started it: ComfyUI
+named rather than guessed. When ComfyUI also says where it reads (an absolute
+`--input-directory` in that command line), the Setup wizard's ComfyUI card offers
+that folder in one click. This replaced the failure that started it: ComfyUI
 answering `Invalid image file: krea_source_….png` to its own console while the app
 showed a tile that stopped instantly with no error at all (GitHub #64). If ComfyUI
 cannot be asked — stopped, behind a proxy that refuses `HEAD`, too old — nothing is

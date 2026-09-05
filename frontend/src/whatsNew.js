@@ -129,6 +129,13 @@ export const WHATS_NEW = [
     to: '/setup',
   },
   {
+    id: '2026-09-05-setup-adopts-comfyui-input-folder',
+    date: '2026-09-05',
+    title: "Setup points you at the input folder ComfyUI really reads",
+    blurb: "If your ComfyUI keeps its input folder somewhere else (Comfy Desktop's shared folder, a --input-directory launch), the Setup wizard's ComfyUI card now says so and offers that folder in one click, instead of leaving the fix inside an Advanced fold of Settings. Reported on GitHub (#64).",
+    to: '/setup?step=comfyui',
+  },
+  {
     id: '2026-09-04-zzzzzzzz-workspace-header-refresh',
     date: '2026-09-04',
     title: 'Find your workspace at a glance',

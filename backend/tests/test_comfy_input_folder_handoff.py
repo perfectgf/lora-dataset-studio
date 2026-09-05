@@ -309,6 +309,60 @@ def test_setup_wizard_honours_a_saved_input_override(app, tmp_path):
     assert r['input_check']['path'].endswith('mounted-input')
 
 
+def _valid_comfy(tmp_path):
+    comfy = tmp_path / 'ComfyUI'
+    (comfy / 'models').mkdir(parents=True)
+    (comfy / 'main.py').write_text('x', encoding='utf-8')
+    (comfy / 'input').mkdir()
+    return comfy
+
+
+def test_setup_wizard_offers_the_input_folder_comfyui_reports_when_it_cannot_see_ours(
+        app, tmp_path, monkeypatch):
+    """GitHub #64 (mikemil828, Comfy Desktop with its shared folder): the folder
+    ComfyUI was started with was known to the app, but offered only inside an
+    Advanced fold of Settings. Once ComfyUI has proved it does not read ours, the
+    wizard offers the one it reports — reported, never inferred."""
+    from app import capabilities
+    comfy = _valid_comfy(tmp_path)
+    monkeypatch.setattr(comfy_fs, 'input_visibility_problem',
+                        lambda p: 'ComfyUI cannot see the source image the app just staged.')
+    monkeypatch.setattr(capabilities, 'detect_comfyui_folders',
+                        lambda *a, **k: {'input_dir': 'D:/ComfyUI-Shared/input'})
+    with app.app_context():
+        r = capabilities.classify_comfyui_dir(str(comfy))
+    assert r['status'] == 'valid'
+    assert r['input_check']['ok'] is False
+    assert r['input_check']['suggestion'] == 'D:/ComfyUI-Shared/input'
+
+
+def test_no_suggestion_when_comfyui_says_nothing_or_names_our_own_folder(
+        app, tmp_path, monkeypatch):
+    from app import capabilities
+    comfy = _valid_comfy(tmp_path)
+    monkeypatch.setattr(comfy_fs, 'input_visibility_problem', lambda p: 'cannot see')
+    monkeypatch.setattr(capabilities, 'detect_comfyui_folders', lambda *a, **k: {})
+    with app.app_context():
+        assert capabilities.classify_comfyui_dir(str(comfy))['input_check']['suggestion'] == ''
+    # The same folder in ComfyUI's own spelling is not a fix, so it is not offered.
+    monkeypatch.setattr(capabilities, 'detect_comfyui_folders',
+                        lambda *a, **k: {'input_dir': str(comfy / 'input')})
+    with app.app_context():
+        assert capabilities.classify_comfyui_dir(str(comfy))['input_check']['suggestion'] == ''
+
+
+def test_a_visible_input_folder_never_asks_comfyui_for_a_suggestion(app, tmp_path, monkeypatch):
+    from app import capabilities
+    comfy = _valid_comfy(tmp_path)
+
+    def _never(*a, **k):
+        raise AssertionError('detect_comfyui_folders must not run when the probe is green')
+    monkeypatch.setattr(capabilities, 'detect_comfyui_folders', _never)
+    with app.app_context():
+        r = capabilities.classify_comfyui_dir(str(comfy))
+    assert r['input_check']['ok'] is True and r['input_check']['suggestion'] == ''
+
+
 def test_setup_route_carries_the_input_check(client, tmp_path):
     comfy = tmp_path / 'ComfyUI'
     (comfy / 'models').mkdir(parents=True)
