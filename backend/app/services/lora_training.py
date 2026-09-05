@@ -1663,10 +1663,11 @@ _OFFLOADING_PERCENT_RANGE = (0.0, 1.0)
 # Community request (GitHub issue #14, bobba84): the recipes hard-coded quantize /
 # quantize_te / low_vram, calibrated so a 12B DiT fits in 24 GB. On a card with MORE
 # than the target, that calibration is a tax nobody asked for — quantisation costs
-# precision and low_vram costs start-up time: ai-toolkit parks the transformer and
-# the text encoder in system RAM while they load and quantise, then moves them to
-# the card for the run (a loading strategy, not block streaming during the steps —
-# verified in krea2.py, flux2_model.py and stable_diffusion_model.py, 2026-09-05).
+# precision and low_vram costs start-up time: ai-toolkit parks the transformer (and,
+# on Krea 2 and FLUX.2 Klein, the text encoder) in system RAM while it loads and
+# quantises, then moves it to the card for the run — a loading strategy, not block
+# streaming during the steps (krea2.py, flux2_model.py, z_image.py and
+# stable_diffusion_model.py, local copy and upstream, 2026-09-05).
 #
 # VÉRIFIÉ dans l'ai-toolkit installé : `quantize`, `quantize_te`, `qtype` et
 # `low_vram` sont des champs de ModelConfig (toolkit/config_modules.py L658-662),
@@ -8667,9 +8668,9 @@ def _lt_publish_bridge_context(run_dir, config_path, env, masked, _prepared,
 # does not need ComfyUI at all, so an offline, unreachable or silent ComfyUI is
 # logged and the launch goes on. A verdict alone would never tell whether the
 # lever mattered, so the card is read before the request and again once the
-# child exists and the lock pair is released (register_launch, the config write
-# and the spawn sit between the two, ~1-3 s; ComfyUI unloads from its worker
-# loop within that) and both numbers go to the log.
+# child exists and the lock pair is released (the identity writes and the spawn
+# sit between the two; ComfyUI unloads from its worker loop within that second)
+# and both numbers go to the log.
 #
 # The import stays INSIDE the function: tests/conftest.py stubs
 # `app.utils.comfyui.free_comfyui_vram` by attribute, and a module-level import
@@ -8773,8 +8774,6 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
             raise GpuBusyError(
                 'Ollama still owns the GPU, so local training cannot start safely. '
                 'Wait for the vision task to finish or unload it, then try again.')
-        # Ollama has let go; now ComfyUI (see _comfyui_free_before_training).
-        _comfy_free = _comfyui_free_before_training('image')
         # Provenance registry: record WHICH dataset version this launch trains on
         # only after this request has won the process slot.
         # Honest provenance: a launch waved through despite a readiness blocker
@@ -8792,6 +8791,10 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
             raise RuntimeError(
                 'could not persist the Dataset provenance for local training; '
                 'no training process was started')
+        # Ollama has let go and the run record exists: ComfyUI is asked last, right
+        # before the identity is published, so a refusal above never costs the
+        # user's ComfyUI a reload for a run that did not start.
+        _comfy_free = _comfyui_free_before_training('image')
         queue_manager._set_system_state('training_error', None, ttl_seconds=1)
         identity = {
             'training_in_progress': True,

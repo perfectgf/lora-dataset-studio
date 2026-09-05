@@ -4,8 +4,8 @@ The 📊 machine-load readout answers "how full is this machine"; this is the
 button beside it that answers "then give it back". Two things hold memory on
 a machine running LDS, and neither returns it on its own:
 
-* **ComfyUI** keeps every model it loaded in the session cached — offloaded to
-  system RAM when it leaves the card — until it is asked to let go. Measured
+* **ComfyUI** keeps the models it last used cached — offloaded to system RAM
+  once a later load of its own needs the card — and, idle, never lets go. Measured
   on the maintainer's machine: 34 GB of commit charge on an IDLE ComfyUI,
   the whole day's models. Its own `/free` endpoint (`unload_models` +
   `free_memory`) is the lever, the same one LDS pulls before every vision

@@ -162,11 +162,13 @@ like `ETA 300:12:45`, the GPU sits at a few percent and the only number that
 moved is system RAM. Nothing failed, and that is the problem.
 
 **What it is.** The run no longer fits in the card's memory. On Windows the
-NVIDIA driver does not answer that with an out-of-memory error: it quietly pages
-the overflow into system RAM and keeps going, 20 to 150 times slower. Measured
-here: Krea 2 at 1024 on a saturated 24 GB card, about 180 s per step and an ETA
-of seven days; the same run at 768, 3.5 s per step. Linux fails loudly instead
-(`CUDA out of memory`), which is the kinder failure.
+NVIDIA driver, by default (Control Panel → *CUDA - Sysmem Fallback Policy*),
+does not answer that with an out-of-memory error: it pages the overflow into
+system RAM and keeps going, tens of times slower. Measured here: Krea 2 at 1024
+on a saturated 24 GB card, about 180 s per step and an ETA of seven days; the
+same run at 768, 3.5 s per step. Linux, or Windows with *Prefer No Sysmem
+Fallback* set, fails loudly instead (`CUDA out of memory`), which is the kinder
+failure.
 
 **Why it happens on a card that should fit.** The Krea 2 and FLUX.1 recipes are
 calibrated to fit a 24 GB card that is *empty*, and they do: measured with the
@@ -197,10 +199,11 @@ the 🧹 button and the vision passes make), so with a reachable ComfyUI this
 trap closes by itself; the app log's launch line says what the card held
 before the request and at spawn.
 
-**Not this.** The first minutes of any run legitimately show a low GPU and a
-high RAM: the weights are read into RAM, quantised block by block, the text
-embeddings and latents are cached, and the step-0 preview images are rendered
-before step 1. Read the ETA after five minutes of steps, not before.
+**Not this.** The first minutes of an image run legitimately show a low GPU and
+a high RAM: the weights are read into RAM and quantised, the text embeddings and
+latents are cached, and the step-0 preview images are rendered before step 1 (a
+video run skips the previews). Read the ETA after five minutes of steps, not
+before.
 
 ## ai-toolkit isn't detected (conda / uv / no venv)
 

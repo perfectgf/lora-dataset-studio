@@ -86,6 +86,24 @@ def _no_live_comfyui_vram_release(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_nvidia_smi_vram_reading(request, monkeypatch):
+    """Every local training launch reads the card twice around its ComfyUI /free
+    (`system_stats.gpu_vram_used_gb`, one fresh nvidia-smi fork each). Where the
+    spawn is injected or real -- the video lane's `_spawn` seam, test_run_folder_log's
+    dying_run -- nothing stubs subprocess, so 48 real nvidia-smi forks joined the
+    suite (measured 61b009ae vs ad7557c3): a dependency on the box's driver, 5 s
+    each on a hung one, exactly the undeclared dependency the fixture above names.
+
+    None is the function's own "cannot answer" value, so the launch paths keep
+    behaving. The test that is ABOUT the reading opts back in with
+    @pytest.mark.gpu_reading and stubs `_gpu_sample` itself."""
+    if request.node.get_closest_marker('gpu_reading'):
+        return
+    from app.services import system_stats
+    monkeypatch.setattr(system_stats, 'gpu_vram_used_gb', lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_live_comfyui_input_visibility_probe(monkeypatch):
     """Staging a file now ASKS ComfyUI whether it can see it (GitHub #64).
 

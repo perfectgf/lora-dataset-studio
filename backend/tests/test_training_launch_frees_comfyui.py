@@ -22,6 +22,8 @@ block verbatim, so a fix that lands on one lane only is the next report:
 import pathlib
 import re
 
+import pytest
+
 from app.config import LOCAL_USER
 from test_training_service import _FakeProc, _configure_aitoolkit
 from test_video_training_local import _FakeProc as _VideoFakeProc
@@ -177,19 +179,30 @@ def test_the_video_launch_asks_too(app, tmp_path, monkeypatch):
 
 # --- the source contracts: order, and the import that must stay lazy --------------
 
+def _indent_of(body, line_start):
+    m = re.search(r'^( *)' + re.escape(line_start), body, re.M)
+    assert m, line_start
+    return len(m.group(1))
+
+
 def test_the_request_sits_after_the_ollama_fence_and_before_the_child_in_both_lanes():
     lanes = (
         ('image', _body(SRC_DIR / 'lora_training.py', '_lt_spawn_transaction'),
-         'subprocess.Popen('),
+         'subprocess.Popen(', 'with _queue_lock, GPU_ARBITER_LOCK:', '_comfyui_free_report('),
         ('video', _body(SRC_DIR / 'video_training_local.py', 'start_video_training'),
-         'proc = spawn('),
+         'proc = spawn(', 'with lt._queue_lock, GPU_ARBITER_LOCK:', 'lt._comfyui_free_report('),
     )
-    for name, body, child_marker in lanes:
+    for name, body, child_marker, with_marker, report_marker in lanes:
         fence = body.index('ensure_released_for_comfy()')
         asked = body.index('_comfyui_free_before_training(')
         child = body.index(child_marker)
         assert fence < asked < child, f'{name}: fence={fence} asked={asked} child={child}'
-        assert body.index('_comfyui_free_report(') > child, name
+        assert body.index(report_marker) > child, name
+        # ...and OUTSIDE the lock pair: the report line sits at the indentation of
+        # the `with` line itself, dedented out of the block Stop waits on. A
+        # rewrite that pulls it back under the locks reads green on the index
+        # check above and red here.
+        assert _indent_of(body, report_marker) == _indent_of(body, with_marker), name
 
 
 def test_the_comfyui_import_stays_inside_the_helper():
@@ -214,6 +227,7 @@ def test_the_report_never_raises_past_the_spawn(monkeypatch):
     lt._comfyui_free_report({'asked_at': 'not a number', 'lane': 'image'})
 
 
+@pytest.mark.gpu_reading
 def test_gpu_vram_used_gb_is_one_fresh_reading_or_none(monkeypatch):
     from app.services import system_stats
     monkeypatch.setattr(system_stats, '_gpu_sample', lambda: (12, 3.4, 24.0, 55))
