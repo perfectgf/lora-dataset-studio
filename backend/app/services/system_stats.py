@@ -134,6 +134,16 @@ def _gpu_sample():
     return sample + (temp,)
 
 
+def gpu_vram_used_gb():
+    """VRAM in use on GPU 0 at THIS instant, in GB -- one fresh `nvidia-smi`
+    read, no cache. The shared 3 s cache serves the readout's polling; a launch
+    that wants to know what a ComfyUI `/free` handed back needs the number now,
+    not the last poll's. None when the machine cannot answer, like every other
+    field here (no NVIDIA card, nvidia-smi absent, a hung driver)."""
+    sample = _gpu_sample()
+    return None if sample is None else sample[1]
+
+
 def _collect():
     """One fresh reading. Every probe is independent: a broken GPU probe must
     not cost the CPU and RAM numbers, and vice versa."""

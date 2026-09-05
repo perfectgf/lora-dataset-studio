@@ -8,8 +8,10 @@ a machine running LDS, and neither returns it on its own:
   system RAM when it leaves the card — until it is asked to let go. Measured
   on the maintainer's machine: 34 GB of commit charge on an IDLE ComfyUI,
   the whole day's models. Its own `/free` endpoint (`unload_models` +
-  `free_memory`) is the lever, the same one LDS already pulls before a
-  training (`utils.comfyui.free_comfyui_vram`).
+  `free_memory`) is the lever, the same one LDS pulls before every vision
+  pass and before every local training (`utils.comfyui.free_comfyui_vram`;
+  the training half only since 2026-09-05 -- this line said it earlier than
+  the code did).
 * **The vision model** LDS loaded into Ollama / LM Studio for captioning,
   kept warm by the lease so a batch does not reload it per image.
   `vision_llm.unload_vision_model` releases the models LDS itself loaded and

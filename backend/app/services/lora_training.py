@@ -8637,6 +8637,77 @@ def _lt_publish_bridge_context(run_dir, config_path, env, masked, _prepared,
     return _bridge_candidate, env, _bridge_identity_path, _bridge_status_path
 
 
+# -- ComfyUI's resident models, before a LOCAL training takes the card ----------
+# ComfyUI keeps every model it loaded resident once a render is done (its default
+# "smart memory": nothing is unloaded until ComfyUI itself needs the room, and a
+# second process asking the driver for VRAM is not that). Every guard in the
+# spawn transaction reads LDS's OWN state -- its queue table, its vision flag, its
+# Ollama fence -- so a ComfyUI that finished a Klein edit ten minutes ago and still
+# holds ~15 GB passed all of them, and a Krea 2 run calibrated for an EMPTY 24 GB
+# card started on what was left. On Windows/WDDM that is not an OOM, it is a
+# crawl: the driver pages the overflow to system RAM, GPU utilisation drops to a
+# few percent and the ETA reads in hundreds of hours (acontentsheltie, Discord
+# #help 2026-09-05, RTX 3090). `gpu_exclusive_vision_window` has pulled `/free`
+# before every vision pass since July for exactly this reason; the training
+# launch never did -- while memory_release.py's docstring already said it did.
+#
+# Best-effort on purpose, unlike the vision window's fail-closed gate: a training
+# does not need ComfyUI at all, so an offline, unreachable or silent ComfyUI is
+# logged and the launch goes on. A verdict alone would never tell whether the
+# lever mattered, so the card is read before the request and again at the spawn
+# (register_launch and the config write sit between the two, ~1-3 s; ComfyUI
+# unloads from its worker loop within that) and both numbers go to the log.
+#
+# The import stays INSIDE the function: tests/conftest.py stubs
+# `app.utils.comfyui.free_comfyui_vram` by attribute, and a module-level import
+# here would bind the real function first and POST /free to a developer's live
+# ComfyUI from the unit suite (test_training_launch_frees_comfyui pins this).
+# 4 s, not the helper's default 10: a live ComfyUI answers /free at once (the
+# unload happens later, on its worker loop); only a dead host ever waits, and it
+# would wait under _queue_lock + GPU_ARBITER_LOCK, where Stop also waits.
+_COMFYUI_FREE_TIMEOUT_S = 4
+
+
+def _comfyui_free_before_training(lane='image') -> dict:
+    """Ask ComfyUI to unload its models before a local training takes the card.
+
+    Returns the first half of the report (`lane`, `verdict`, `vram_before_gb`,
+    `asked_at`) for `_comfyui_free_report`; never raises, never refuses."""
+    state = {'lane': lane, 'verdict': 'error', 'vram_before_gb': None,
+             'asked_at': time.time()}
+    try:
+        from . import system_stats
+        state['vram_before_gb'] = system_stats.gpu_vram_used_gb()
+    except Exception:
+        logger.debug('VRAM reading before ComfyUI /free failed', exc_info=True)
+    try:
+        from ..utils.comfyui import free_comfyui_vram   # late import, see above
+        verdict = free_comfyui_vram(timeout=_COMFYUI_FREE_TIMEOUT_S)
+        state['verdict'] = getattr(verdict, 'value', None) or str(verdict)
+    except Exception:
+        logger.exception('ComfyUI /free before %s training raised; launching anyway',
+                         lane)
+    return state
+
+
+def _comfyui_free_report(state) -> None:
+    """Second half, once the child exists: read the card again, log both numbers.
+    Diagnostic only -- nothing here may raise past the spawn."""
+    try:
+        from . import system_stats
+        after = system_stats.gpu_vram_used_gb()
+    except Exception:
+        after = None
+    s = state or {}
+    try:
+        elapsed = time.time() - float(s.get('asked_at') or time.time())
+    except (TypeError, ValueError):
+        elapsed = 0.0
+    logger.info('ComfyUI /free before %s training: %s - VRAM %s GB before, %s GB at '
+                'spawn (%.1f s later)', s.get('lane'), s.get('verdict'),
+                s.get('vram_before_gb'), after, elapsed)
+
+
 def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
                           variant, base_model, recipe, allow_not_ready,
                           parent_record_id, resumed_from, run_token,
@@ -8689,6 +8760,8 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
             raise GpuBusyError(
                 'Ollama still owns the GPU, so local training cannot start safely. '
                 'Wait for the vision task to finish or unload it, then try again.')
+        # Ollama has let go; now ComfyUI (see _comfyui_free_before_training).
+        _comfy_free = _comfyui_free_before_training('image')
         # Provenance registry: record WHICH dataset version this launch trains on
         # only after this request has won the process slot.
         # Honest provenance: a launch waved through despite a readiness blocker
@@ -8760,6 +8833,7 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
             if isinstance(e, (FileNotFoundError, OSError)):
                 raise ValueError(f"could not start training: {e}") from e
             raise
+        _comfyui_free_report(_comfy_free)
         # Popen success is the irreversible launch boundary.  From this point on,
         # no persistence failure may escape to continue_training(), whose
         # pre-spawn exception path restores the archived lane.  The already

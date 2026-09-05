@@ -155,6 +155,50 @@ tools → ai-toolkit Python interpreter**. The preflight/failure panel recognize
 this specific `sm_120` mismatch. For another architecture mismatch, use the
 torch build appropriate to that card instead of copying this command blindly.
 
+## Local training crawls: GPU near idle, RAM climbing, ETA in the hundreds of hours
+
+The run started, the training panel shows a step counter, but the ETA reads
+like `ETA 300:12:45`, the GPU sits at a few percent and the only number that
+moved is system RAM. Nothing failed, and that is the problem.
+
+**What it is.** The run no longer fits in the card's memory. On Windows the
+NVIDIA driver does not answer that with an out-of-memory error: it quietly pages
+the overflow into system RAM and keeps going, 20 to 150 times slower. Measured
+here: Krea 2 at 1024 on a saturated 24 GB card, about 180 s per step and an ETA
+of seven days; the same run at 768, 3.5 s per step. Linux fails loudly instead
+(`CUDA out of memory`), which is the kinder failure.
+
+**Why it happens on a card that should fit.** The Krea 2 and FLUX.1 recipes are
+calibrated to fit a 24 GB card that is *empty*. Anything else holding a few GB
+tips them over, and the usual culprit on a machine that also runs ComfyUI is
+ComfyUI itself: it keeps every model of the session resident (in VRAM while it
+can, in system RAM once it leaves the card) and never lets go on its own. A
+browser with many tabs, a second monitor and a game launcher add up too.
+
+**Two readings settle it.** Task Manager → Performance → GPU: *Dedicated GPU
+memory* pinned near the top with *Shared GPU memory* at several GB means the
+driver is paging. The GPU % in the app's 📊 readout comes straight from
+`nvidia-smi` and is the figure to trust.
+
+**Fix.** ⏹ Stop the run, unfold the 📊 readout in the top bar and press
+🧹 **Free memory** (ComfyUI unloads its cached models and the vision model is
+released; the VRAM figure should fall to a couple of GB), or simply close
+ComfyUI, then launch again. A healthy run shows the GPU at 90-100 % and a few
+seconds per step once the first minutes are over. If it still crawls with an
+empty card, ⚙️ Advanced options → **Resolution** → *768 only (low VRAM)*, and
+leave Expert → **Memory saving** on: that trio of switches is what makes a 12B
+model fit at all.
+
+The app also asks ComfyUI to unload before every local run (the same request
+the 🧹 button and the vision passes make), so with a reachable ComfyUI this
+trap closes by itself; the app log's launch line says what the card held
+before the request and at spawn.
+
+**Not this.** The first minutes of any run legitimately show a low GPU and a
+high RAM: the weights are read into RAM, quantised block by block, the text
+embeddings and latents are cached, and the step-0 preview images are rendered
+before step 1. Read the ETA after five minutes of steps, not before.
+
 ## ai-toolkit isn't detected (conda / uv / no venv)
 
 **Why:** the app auto-detects ai-toolkit's Python from a `venv/` or `.venv/`

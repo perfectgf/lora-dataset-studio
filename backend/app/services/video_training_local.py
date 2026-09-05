@@ -438,6 +438,9 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
             raise GpuBusyError(
                 'Ollama still owns the GPU, so local training cannot start '
                 'safely. Wait for the vision task to finish or unload it.')
+        # Same lever as the image lane, same place: after Ollama, before the
+        # identity is published (lora_training._comfyui_free_before_training).
+        _comfy_free = lt._comfyui_free_before_training('video')
 
         queue_manager._set_system_state('training_error', None, ttl_seconds=1)
         identity = {
@@ -472,6 +475,7 @@ def start_video_training(user_id, video_dataset_id, steps=1000, base_model=None,
             if isinstance(exc, (FileNotFoundError, OSError)):
                 raise ValueError(f'could not start training: {exc}') from exc
             raise
+        lt._comfyui_free_report(_comfy_free)
         # Past the spawn nothing may escape: the fence is now the only thing that
         # keeps another GPU owner off the card, and it must stay fail-closed even
         # if the richer PID identity cannot be persisted.
