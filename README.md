@@ -211,7 +211,7 @@ the target model accepts.
 |---|---|
 | **Guided local training** | ai-toolkit underneath, family-scoped starters, adaptive step policies, launch guards, queueing and advanced controls |
 | **Slider LoRA (Beta)** | Train a bipolar conceptual slider from positive and negative prompt poles, so LoRA strength moves the learned trait in either direction and Test Studio can sweep both sides |
-| **Cloud training** | Rent a vast.ai GPU from the same launch flow, stream progress and checkpoints home, and terminate pods automatically |
+| **Cloud training** | Rent a [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU from the same launch flow, stream progress and checkpoints home, and terminate pods automatically |
 | **Parallel cloud runs** | Run several cloud trainings on one dataset at once to A/B toolkit settings — each run rents its own pod (billed separately), capped by the concurrent-runs ceiling in Settings |
 | **Full-model training (Krea 2)** | Train the whole transformer instead of an adapter. The finished master lands on your own disk and is verified before the pod is destroyed, appears in 📦 Checkpoints & LoRAs next to the ~10 GB fp8 twin ComfyUI loads, and can be continued from the step written inside it. The lane is cloud-only and Krea 2 only, and it accepts Raw, Turbo or a Krea 2 checkpoint of your own. Turbo is allowed with a warning nobody can honestly skip — a full-model run on a distilled base has not been measured, by us or by anyone, and it may cost the model its few-step behaviour. A ComfyUI scaled-fp8 export is refused outright as a base: the trainer cannot load one |
 | **Merge a LoRA into a checkpoint** | Fold one or more of your LoRAs into a base, each at its own weight, and get a complete model you can publish. A plan answers first, from the file headers alone: how many tensors change, how big the output is, which drive it lands on, how long it takes, and what a half-way failure leaves. What comes out is a **merged** model, not a trained one — the file's own metadata records the base, every LoRA and its weight, so it stays true after a rename. It is also the published route to getting few-step speed back on a Raw full model, by folding in the re-distillation LoRA Krea publishes for Turbo; that one we have not tested ourselves, and the screen says so before you start it |
@@ -374,7 +374,7 @@ Missing dependencies are shown in Setup/Settings and gated features stay unavail
 |---|---|---|
 | **Docker + existing ComfyUI** | Run LDS in Docker while keeping the ComfyUI already installed on the host | The launcher asks for the ComfyUI folder once; local training still uses host ai-toolkit or the cloud |
 | **Docker GPU + fresh ComfyUI** | Run LDS and a new isolated ComfyUI together on an NVIDIA GPU | Existing ComfyUI/models stay untouched; local training still uses host ai-toolkit or the cloud |
-| **Rented GPU pod (RunPod)** | Reach the studio, Image Bank and ComfyUI generation from any browser, on a GPU you do not own | Training still rents a vast.ai instance; ai-toolkit is not in the image, so local training is unavailable. Large ZIP exports can hit the pod proxy's 100-second timeout. See the [RunPod guide](docs/guide/runpod.md) |
+| **Rented GPU pod (RunPod)** | Reach the studio, Image Bank and ComfyUI generation from any browser, on a GPU you do not own | Training still rents a [vast.ai](https://cloud.vast.ai/?ref_id=683073) instance; ai-toolkit is not in the image, so local training is unavailable. Large ZIP exports can hit the pod proxy's 100-second timeout. See the [RunPod guide](docs/guide/runpod.md) |
 | **Full local** | Local engines, ML helpers, ai-toolkit training, Canvas generation and Test Studio | Install/connect only the tools you need; each capability degrades independently |
 
 ## Setup & install
@@ -495,7 +495,7 @@ Which of the two serves those features is a single setting (**Settings ▸ Local
 | Hugging Face | Gated weights and optional publishing | [Hugging Face tokens](https://huggingface.co/settings/tokens) |
 | vast.ai | Optional cloud training | [vast.ai console](https://cloud.vast.ai/?ref_id=683073) (referral link — disclosed below) |
 
-> **Affiliate disclosure.** The vast.ai link above is a referral link. If you create an account through it, vast.ai pays this project 3% of what you spend on their platform, for as long as your account lives. It costs you nothing extra — vast.ai's prices are the same either way — and it changes nothing in the app: the cloud lane was vast.ai-only before this link existed and still runs on your own API key, vast.ai bills you directly, and the app sends no data about you anywhere. If you would rather not, use the untagged link: <https://cloud.vast.ai/>
+> **Affiliate disclosure.** The vast.ai links in this README, in the guides and in the app are referral links. If you create an account through one of them, vast.ai pays this project 3% of what you spend on their platform, for as long as your account lives. It costs you nothing extra — vast.ai's prices are the same either way — and it changes nothing in the app: the cloud lane was vast.ai-only before these links existed and still runs on your own API key, vast.ai bills you directly, and the app sends no data about you anywhere. If you would rather not, use the untagged link: <https://cloud.vast.ai/>
 
 Secrets saved in Settings live in the git-ignored `.env`, never in `config.json` or a commit. Full-model Krea 2 cloud runs use a separate `HF_CLOUD_TOKEN`; a narrowly scoped fine-grained token is recommended, while a global `role=write` token is accepted with a broad-access warning and read-only is rejected. Follow the [cloud-token instructions](docs/guide/settings-reference.md#cloud-training).
 
@@ -556,8 +556,8 @@ Still stuck? **Guide → Getting help** generates a paste-safe diagnostic report
 
 LoRA Dataset Studio is free, open source, and has no paid tier, no telemetry and
 no upsell — nothing in the app is gated, and nothing you use costs more because
-of it. Its only income is voluntary donations and the vast.ai referral link
-disclosed above, which changes neither the app nor the price you pay. It is
+of it. Its only income is voluntary donations and the [vast.ai](https://cloud.vast.ai/?ref_id=683073) referral links
+disclosed above, which change neither the app nor the price you pay. It is
 built and maintained by one person, on personal time — every feature in the
 list above came out of somebody's evenings.
 

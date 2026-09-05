@@ -1,26 +1,33 @@
 /**
- * The project's vast.ai referral link — held in ONE place.
+ * The project's vast.ai referral id — held in ONE place, applied to EVERY
+ * vast.ai link the app renders.
  *
  * vast.ai pays a referrer 3% of everything a referred account spends, for the
- * life of that account (docs.vast.ai → Referral Program). The referral is
- * attached when the account is CREATED through the tagged link — never to a
- * pod, a template or an API call — so the only surface that can carry it is
- * the moment the app asks someone to open an account: step 1 of the API-key
- * guide in Settings → Cloud GPU. Every other vast.ai link in the app (Billing,
- * Keys, the instances console) addresses someone who already has an account;
- * tagging those earns nothing and reads as tracking. `vastReferral.test.js`
- * holds that line, and mirrors the id into README and the settings guide.
+ * life of that account (docs.vast.ai → Referral Program); the referral is
+ * attached when an account is CREATED through a tagged link. The maintainer's
+ * rule (2026-09-05) is "wherever we talk about vast.ai, our link goes with it",
+ * so every console page the app links to — sign-up, Billing, Keys, the
+ * instances console — carries the id, through vastUrl()/VastLink. The
+ * disclosure (VastReferralDisclosure) says so next to the two "create an
+ * account" moments and offers the one deliberately untagged link.
+ * `vastReferral.test.js` refuses a vast.ai URL spelled anywhere else in the
+ * sources, and mirrors the id into README, the guides and .env.example.
  *
- * An empty id means the plain console link everywhere — what a fork wants,
- * and what the app does until the referral-only account exists.
+ * An empty id means plain links everywhere — what a fork wants.
  */
 export const VAST_CONSOLE_URL = 'https://cloud.vast.ai/'
 
 /** Referral id of the project's referral-only vast.ai account ('' = untagged). */
 export const VAST_REFERRAL_ID = '683073'
 
-/** The sign-up link step 1 of the guide points at — tagged when an id is set. */
-export function vastSignupUrl(referralId = VAST_REFERRAL_ID) {
+/** A vast.ai console URL for `path` ('/', '/billing/', '/instances/'…), tagged when an id is set. */
+export function vastUrl(path = '/', referralId = VAST_REFERRAL_ID) {
   const id = String(referralId ?? '').trim()
-  return id ? `${VAST_CONSOLE_URL}?ref_id=${encodeURIComponent(id)}` : VAST_CONSOLE_URL
+  const base = VAST_CONSOLE_URL + String(path ?? '/').replace(/^\/+/, '')
+  return id ? `${base}?ref_id=${encodeURIComponent(id)}` : base
+}
+
+/** The sign-up link the "create an account" steps point at — the console root. */
+export function vastSignupUrl(referralId = VAST_REFERRAL_ID) {
+  return vastUrl('/', referralId)
 }

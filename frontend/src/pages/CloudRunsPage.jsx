@@ -33,6 +33,8 @@ import { podBootFailureView, stopButtonLabel, uploadStallFailureView } from '../
 import { runSilenceWarning, stopOutcomeMessage } from '../utils/runSilence';
 import CloudStopDialog from '../components/shared/CloudStopDialog';
 import { runsHubContinueLanes } from '../utils/runsHubContinueLanes';
+import { vastUrl } from '../utils/vastReferral.js';
+import VastLink from '../components/common/VastLink';
 import {
   canFetchDenseLocally,
   canRecheckFullTransformerDelivery,
@@ -1157,7 +1159,7 @@ export default function CloudRunsPage() {
           </h1>
           {/* Escape hatch to the provider: see the pod's own console (billing,
               logs, manual destroy) when something looks off app-side. */}
-          <a href="https://cloud.vast.ai/instances/" target="_blank" rel="noreferrer"
+          <a href={vastUrl('/instances/')} target="_blank" rel="noreferrer"
             className="ml-auto text-xs font-medium text-sky-300 underline hover:text-sky-200">
             Open the vast.ai console ↗
           </a>
@@ -1170,7 +1172,8 @@ export default function CloudRunsPage() {
 
       {data && !configured && (
         <div className="rounded-lg border border-border bg-surface p-4 text-content-muted text-sm">
-          Cloud training isn’t configured yet. Add your vast.ai API key in{' '}
+          Cloud training isn’t configured yet. Add your{' '}
+          <VastLink className="text-sky-300 underline hover:text-sky-200" /> API key in{' '}
           {/* Land on the section that actually holds the key and the cloud
               guard-rails, not the Settings landing page. */}
           <button type="button" onClick={() => navigate('/settings/training')}
@@ -1356,7 +1359,7 @@ export default function CloudRunsPage() {
                   {/* Per-run escape hatch to this pod's provider console (billing,
                       logs, manual destroy). The vast instance id, when known, goes
                       in the tooltip so it's findable in the console's instance list. */}
-                  <a href="https://cloud.vast.ai/instances/" target="_blank" rel="noreferrer"
+                  <a href={vastUrl('/instances/')} target="_blank" rel="noreferrer"
                     title={run.vast_instance_id
                       ? `vast.ai instance ${run.vast_instance_id} — provider console (billing, logs, manual destroy)`
                       : 'vast.ai console — billing, logs, manual destroy'}

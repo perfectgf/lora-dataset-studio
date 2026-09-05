@@ -11,7 +11,7 @@ Run the whole studio on a rented NVIDIA GPU and reach it from any browser, with 
 | | |
 |---|---|
 | **Runs on the pod** | The studio UI, the Image Bank, captioning, scoring, watermark tools, and ComfyUI generation on the pod's GPU |
-| **Still runs elsewhere** | LoRA training. The cloud lane rents a vast.ai instance exactly as it does locally — the pod does not train |
+| **Still runs elsewhere** | LoRA training. The cloud lane rents a [vast.ai](https://cloud.vast.ai/?ref_id=683073) instance exactly as it does locally — the pod does not train |
 | **Not available** | Local ai-toolkit training. ai-toolkit is not in the image, so the "local" training lane has nothing to run |
 
 If you only want a GPU for training, you do not need this page — the existing cloud training lane already rents one per run.
@@ -138,7 +138,7 @@ The cost is cosmetic: your datasets live under a ComfyUI-named path. The benefit
 Every one of these is a real boundary, not a caveat:
 
 - **The pod HTTP proxy times out at 100 seconds** (Cloudflare, reported as a 524). Dataset ZIP export and full backup build the whole archive before sending the first byte, so both can exceed it on a large dataset. The size at which this starts happening is **not yet measured**. Downloads that have already started streaming are not affected.
-- **Training does not run on the pod.** It rents a vast.ai instance, as it does from a local install.
+- **Training does not run on the pod.** It rents a [vast.ai](https://cloud.vast.ai/?ref_id=683073) instance, as it does from a local install.
 - **ai-toolkit is not in the image**, so local training is unavailable regardless of the pod's GPU.
 - **A network volume pins the pod to one datacenter.** RunPod cannot schedule your pod elsewhere once a volume is attached, which can mean waiting for capacity.
 - **Do not run two pods against one volume.** Two Flask processes must not share a SQLite database and a `config.json` — the same rule as the Docker guide's two-container warning.

@@ -251,7 +251,7 @@ The final check runs before the launch, not during it. Near-duplicate pairs are 
 
 ### No GPU? Train in the cloud
 
-The cloud lane rents a vast.ai GPU for one run, stages the same dataset/config, streams progress and saved epochs home, and terminates the pod automatically. Stop and freeze handling are evidence-based so a silent pod cannot keep billing indefinitely; downloads use byte progress rather than the training-step watchdog.
+The cloud lane rents a [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU for one run, stages the same dataset/config, streams progress and saved epochs home, and terminates the pod automatically. Stop and freeze handling are evidence-based so a silent pod cannot keep billing indefinitely; downloads use byte progress rather than the training-step watchdog.
 
 The offer list is priced per run, not per hour alone: each candidate GPU shows its hourly rate, the estimated duration for *this* dataset and step count, and the resulting total. Estimates, as the dialog says.
 

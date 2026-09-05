@@ -21,8 +21,7 @@ export default function CloudSignupNote({ referralId = VAST_REFERRAL_ID } = {}) 
         <a href={vastSignupUrl(referralId)} target="_blank" rel="noreferrer" className={link}>cloud.vast.ai</a>
         {' '}— the Settings card then walks you through the key.
       </p>
-      <VastReferralDisclosure referralId={referralId} subject="That sign-up link" linkClass={link}
-        className="mt-1 text-content-muted text-xs" />
+      <VastReferralDisclosure referralId={referralId} linkClass={link} className="mt-1 text-content-muted text-xs" />
     </>
   )
 }

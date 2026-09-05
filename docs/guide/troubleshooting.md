@@ -423,7 +423,7 @@ Open the **Cloud** tab: every run shows its live phase, and the stall watchdog
 progress happens for too long. Orphaned pods are also destroyed automatically
 at every app start — you never pay for a forgotten GPU.
 
-**Decide without opening the vast.ai console.** The longest phase of a fresh
+**Decide without opening the [vast.ai](https://cloud.vast.ai/?ref_id=683073) console.** The longest phase of a fresh
 run is the pod pulling its base weights — 26 GB for Krea 2, half an hour on a
 healthy host. The card shows that download as it happens: how much has landed,
 of how much, at what speed and its ETA. Two readings tell you everything:

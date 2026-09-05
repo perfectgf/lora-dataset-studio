@@ -192,7 +192,7 @@ mentioning it again.
   flow (source → curate → caption → train).
 - **🏋️ Runs** — every training in one place, cloud *and* local: live progress,
   the settings each launch used, retry a failed run (↻), continue a finished
-  one (▶), and download the LoRA (appears once ai-toolkit or a vast.ai key is set).
+  one (▶), and download the LoRA (appears once ai-toolkit or a [vast.ai](https://cloud.vast.ai/?ref_id=683073) key is set).
 - **Test Studio** — grid-test a trained LoRA across checkpoints and strengths,
   vote, and rank (appears once ComfyUI is reachable).
 - **Guide** — this manual.
