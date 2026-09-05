@@ -193,7 +193,7 @@ def test_a_claim_that_has_run_out_stops_speaking_for_the_runner(fence_data_dir):
 
     path = fence._claims_path()
     data = json.loads(path.read_text(encoding='utf-8'))
-    data['claims'][endpoint]['lds-model']['deadline'] = time.time() - 600
+    data['claims'][endpoint]['lds-model:latest']['deadline'] = time.time() - 600
     path.write_text(json.dumps(data), encoding='utf-8')
 
     with patch.object(fence.requests, 'get',

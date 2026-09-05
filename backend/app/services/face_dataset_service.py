@@ -8149,7 +8149,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
 
 def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
                   extra_instructions=None, should_cancel=None, on_caption=None,
-                  progress=None) -> dict:
+                  progress=None, outcome=None) -> dict:
     """Caption a list of image FILE PATHS with the app's configured engines, returning
     {path: caption}. Dataset-free, purely DESCRIPTIVE captioning (no trigger word, no
     identity/concept/style omission) for the image bank and the future launch-all
@@ -8176,6 +8176,14 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
                       which under the 'auto' backend differs from image to image inside
                       one run — the caller records it as the caption's origin.
     progress(done, total)     : progress callback (every handled image, captioned or not).
+    outcome         : optional dict, filled with what the pass HANDLED without a caption —
+                      {fenced, unanswered, failed, fence_reason}: refused by the local GPU
+                      fence (the model never saw the image), answered with nothing,
+                      unreadable; and the first refusal's own sentence, verbatim. The
+                      pool below turns a per-image failure into a log line and one step
+                      of the bar, so the caller's report is the only place these numbers
+                      can reach the screen — without them a Bank pass with 29 of 30
+                      images refused ended on "done — 1 captioned" (Discord, 2026-09-03).
 
     Best-effort: a totally unavailable engine raises RuntimeError (so the caller can
     surface WHY); an individual empty caption is simply skipped. Unloads the Ollama model
@@ -8196,6 +8204,21 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
         cap_prompt = _with_caption_instructions(cap_prompt, (extra_instructions or '').strip())
     ollama_model = (ollama_model or '').strip() or None
     done = 0
+    if outcome is not None:
+        for key in ('fenced', 'unanswered', 'failed'):
+            outcome.setdefault(key, 0)
+        outcome.setdefault('fence_reason', '')
+
+    def _left(kind, error=None):
+        """One image handled without a caption. The FIRST fence refusal's own
+        sentence is kept verbatim: the fence refuses for more than one reason
+        (an expired GPU window, a model another tool loaded) and each names
+        its own remedy better than a category chosen here would."""
+        if outcome is None:
+            return
+        outcome[kind] = outcome.get(kind, 0) + 1
+        if kind == 'fenced' and error is not None and not outcome.get('fence_reason'):
+            outcome['fence_reason'] = str(error).strip()[:_SKIP_REASON_CHARS]
 
     def _emit(p, cap, engine=None):
         nonlocal done
@@ -8248,6 +8271,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
             from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
         except ImportError:
             raise RuntimeError('vision (Ollama) service not configured/available yet')
+        from .vision_ollama import LocalOllamaFenceError
         from .vision_pool import map_vision
 
         def _describe(path, *, auto_start=False):
@@ -8268,6 +8292,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
                 _emit(path, _cap_caption(cap), caption_origin.OLLAMA)
             else:
                 done += 1  # handled-but-empty still advances the bar
+                _left('unanswered')
                 if progress:
                     progress(done, total)
 
@@ -8288,9 +8313,14 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
                                                    should_cancel=should_cancel):
                     if error is not None:
                         # A file that vanished mid-pass, a permission error: one
-                        # image is skipped and counted, the batch goes on.
+                        # image is skipped and counted, the batch goes on. A GPU
+                        # fence refusal is counted APART: the file was fine and
+                        # the model never saw it (LM Studio's refusal subclasses
+                        # the Ollama one, so both land here).
                         logger.warning('caption_paths: %s skipped: %s',
                                        os.path.basename(path), error)
+                        _left('fenced' if isinstance(error, LocalOllamaFenceError)
+                              else 'failed', error)
                         done += 1
                         if progress:
                             progress(done, total)

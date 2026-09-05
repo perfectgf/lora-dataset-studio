@@ -23,7 +23,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
-# Normalised local endpoint -> exact models LDS has admitted in this process.
+# Normalised local endpoint -> models LDS has admitted in this process, filed
+# under the name the runner prints back (see canonical_ollama_name).
 # ComfyUI probes before every new prompt: a manual Ollama load between cells
 # must block rather than overlap with ComfyUI.
 _owned_models: dict[str, set[str]] = {}
@@ -171,6 +172,78 @@ def _endpoint_scope(url) -> tuple[str, str | None]:
     return 'local', f'{parsed.scheme}://{authority}'
 
 
+# What Ollama prints for a model reference. A reference is
+# [scheme://][host/][namespace/]model[:tag], and Ollama reports it SHORTEST in
+# /api/ps and /api/tags: the default registry and namespace are elided, the tag
+# is always there ('latest' when none was typed), the model's own case is kept
+# (types/model/name.go, ParseNameBare + DisplayShortest). So a model asked for
+# as `llava` comes back as `llava:latest` — measured on a real daemon on
+# 2026-09-03, a model requested as `ldsfencetest` was reported as
+# `ldsfencetest:latest`.
+#
+# The fence used to file the TYPED string and compare it byte-for-byte with what
+# /api/ps printed, so a model configured without a tag — the Settings field is
+# free text — was recognised as LDS's own for exactly one call: the one that
+# loaded it. Every call after that read LDS's own residency as a stranger's,
+# refused the vision request AND refused to release the card to ComfyUI
+# (reported from a real install as "captions 1 image, then Ollama is blocked";
+# killing Ollama bought exactly one more image).
+#
+# This folds ONLY what Ollama itself folds. It is deliberately NOT the Test
+# button's `_model_present` ("a tagless name matches any pulled tag"): here a
+# tagless `llava` is `llava:latest` and nothing else, because a different tag is
+# a different residency, and adopting it would let a ComfyUI hand-off unload a
+# model somebody else loaded — the over-adoption this module forbids.
+_OLLAMA_DEFAULT_HOST = 'registry.ollama.ai'
+_OLLAMA_DEFAULT_NAMESPACE = 'library'
+_OLLAMA_DEFAULT_TAG = 'latest'
+
+
+def canonical_ollama_name(name) -> str:
+    """``name`` as Ollama prints it back: `llava` -> `llava:latest`,
+    `registry.ollama.ai/library/llava:13b` -> `llava:13b`, a custom registry
+    kept as typed. '' for an empty reference; a reference with no model part
+    (`llava/`) is returned untouched rather than turned into a name."""
+    text = name.strip() if isinstance(name, str) else ''
+    if not text:
+        return ''
+    rest, tag = text, ''
+    # '/' is not a legal tag character, so a ':' after the last '/' starts the tag.
+    if rest.rfind(':') > rest.rfind('/'):
+        rest, _, tag = rest.rpartition(':')
+    parts = rest.rsplit('/', 2)          # [host/][namespace/]model
+    model = parts[-1]
+    if not model:
+        return text
+    namespace = parts[-2] if len(parts) >= 2 else ''
+    host = parts[0] if len(parts) == 3 else ''
+    if '://' in host:
+        host = host.split('://', 1)[1]
+    host = host or _OLLAMA_DEFAULT_HOST
+    namespace = namespace or _OLLAMA_DEFAULT_NAMESPACE
+    tag = tag or _OLLAMA_DEFAULT_TAG
+    if host.lower() != _OLLAMA_DEFAULT_HOST:
+        prefix = f'{host}/{namespace}/'
+    elif namespace.lower() != _OLLAMA_DEFAULT_NAMESPACE:
+        prefix = f'{namespace}/'
+    else:
+        prefix = ''
+    return f'{prefix}{model}:{tag}'
+
+
+def _canonical_for(endpoint, name) -> str:
+    """The name to file and compare ``name`` under on ``endpoint``: Ollama's
+    printed form for an Ollama endpoint, the identifier as typed for LM Studio,
+    which reports ids (`qwen/qwen3-vl-8b`) verbatim and has no tags to fold."""
+    if _driver_for(endpoint) == 'ollama':
+        return canonical_ollama_name(name)
+    return name
+
+
+def _canonical_set(endpoint, names) -> set[str]:
+    return {_canonical_for(endpoint, name) for name in names}
+
+
 def _keep_alive_seconds(value) -> float | None:
     """Seconds a ``keep_alive`` asks Ollama to hold the model, or ``None``.
 
@@ -302,6 +375,11 @@ def _adopt_persisted(endpoint, loaded, expiry) -> set[str]:
     claims = _read_claims().get(endpoint)
     if not isinstance(claims, dict):
         return set()
+    # Claims are filed under the printed name. One written by an older build
+    # under the TYPED name (`llava`, for a runner reporting `llava:latest`) is
+    # read the same way, so an upgrade does not fence LDS out of its own warm
+    # model for the rest of the lease.
+    claims = {_canonical_for(endpoint, key): value for key, value in claims.items()}
     now = time.time()
     adopted = set()
     for model in loaded:
@@ -347,8 +425,14 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
     # that already holds an LDS model keeps the wire format it was admitted with,
     # even after the global setting points somewhere else.
     _remember_driver(endpoint, provider or _driver_for(endpoint))
+    # Filed under the name the runner will print back, not the one that was
+    # typed (see canonical_ollama_name). `loaded` keeps the printed names, for
+    # the unload requests and the dock; `resident` is the same set to compare.
+    model = _canonical_for(endpoint, model)
 
     state, loaded, expiry = _probe(endpoint)
+    resident = _canonical_set(endpoint, loaded)
+    expiry = {_canonical_for(endpoint, name): when for name, when in expiry.items()}
     if state == 'down':
         # Nothing is listening, so there is no residency to fence — and none to
         # own either. The request goes through (it will either fail on its own
@@ -378,7 +462,7 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         # ...and not already OURS: after ensure_model_loaded, the resident model
         # is LDS's own load. Marking it borrowed too would make the ComfyUI
         # hand-off refuse to release a model LDS is fully entitled to release.
-        borrowed = (_driver_for(endpoint) == 'lmstudio' and model in loaded
+        borrowed = (_driver_for(endpoint) == 'lmstudio' and model in resident
                     and model not in owned)
         # ...and the mirror of it. An EMPTY LM Studio is not "the card is free for
         # the model I am about to load" -- nothing here loads a model on LDS's
@@ -394,13 +478,13 @@ def mark_before_generate(url, model, keep_alive=None, provider=None) -> str:
         never_ours = _driver_for(endpoint) == 'lmstudio' and state == 'empty'
         if borrowed:
             _borrowed_models.setdefault(endpoint, set()).add(model)
-        if state != 'empty' and not loaded.issubset(owned):
+        if state != 'empty' and not resident.issubset(owned):
             # Before calling a resident model a stranger's, ask the claims LDS
             # wrote down: after a restart this is its own keep-warm lease.
-            owned |= _adopt_persisted(endpoint, loaded - owned, expiry)
-            if loaded.issubset(owned):
+            owned |= _adopt_persisted(endpoint, resident - owned, expiry)
+            if resident.issubset(owned):
                 _owned_models.setdefault(endpoint, set()).update(owned)
-        if state == 'empty' or loaded.issubset(owned):
+        if state == 'empty' or resident.issubset(owned):
             if not never_ours:
                 _owned_models.setdefault(endpoint, set()).add(model)
             # Still not foreign: an empty server holds nobody else's model either.
@@ -599,13 +683,18 @@ def _release_endpoint(endpoint, expected_models) -> bool:
         _drop_claims(endpoint)
         return True
 
+    # `expected_models` holds printed names (that is how they were filed);
+    # `loaded` is what the runner printed, kept as-is for the unload requests
+    # and the dock, and compared through the same canonical form.
+    resident = _canonical_set(endpoint, loaded)
+    expiry = {_canonical_for(endpoint, name): when for name, when in expiry.items()}
     with _lock:
         foreign = endpoint in _foreign_local_endpoints
-        if not foreign and loaded - expected_models:
+        if not foreign and resident - expected_models:
             # Same restart case as the admission path: a model this process has
             # no memory of may still be one it loaded a moment ago.
             expected_models = set(expected_models) | _adopt_persisted(
-                endpoint, loaded - expected_models, expiry)
+                endpoint, resident - expected_models, expiry)
     if foreign:
         # A later /api/ps empty response is the only way this endpoint becomes
         # safe again. Never infer that a same-named resident model is still ours.
@@ -614,7 +703,7 @@ def _release_endpoint(endpoint, expected_models) -> bool:
 
     with _lock:
         borrowed = set(_borrowed_models.get(endpoint, set()))
-    still_borrowed = loaded & borrowed
+    still_borrowed = resident & borrowed
     if still_borrowed:
         # LDS may use these, never unload them: the user loaded them. Refusing the
         # hand-off is the honest answer, and the queue dock already offers the two
@@ -622,7 +711,7 @@ def _release_endpoint(endpoint, expected_models) -> bool:
         return _refused(endpoint, 'foreign', still_borrowed,
                         'a model loaded outside LDS is holding the card; ComfyUI stays blocked')
 
-    unknown = loaded - expected_models
+    unknown = resident - expected_models
     if unknown:
         with _lock:
             _foreign_local_endpoints.add(endpoint)
@@ -670,8 +759,10 @@ def release_owned_models(*, ollama_url=None, model=None) -> bool | None:
         if not isinstance(model, str) or not model.strip():
             return False
         wanted = model.strip()
+        # Ownership is filed under the printed name; the caller asks by the
+        # typed one (the configured setting), so translate per endpoint.
         candidates = {key: values for key, values in candidates.items()
-                      if wanted in values}
+                      if _canonical_for(key, wanted) in values}
 
     # No local model has been admitted by LDS and no endpoint is known foreign:
     # do not poke or unload a user's manually loaded Ollama model.
@@ -933,14 +1024,18 @@ def fence_status() -> dict:
         # button for a daemon nobody can talk to.
         return {'applies': True, 'blocked': False, 'scope': 'local',
                 'reachable': False, 'models': [], 'provider': _provider}
+    resident = _canonical_set(endpoint, loaded)
+    expiry = {_canonical_for(endpoint, name): when for name, when in expiry.items()}
     with _lock:
         owned = set(_owned_models.get(endpoint, set()))
-        if state != 'empty' and not loaded.issubset(owned):
-            owned |= _adopt_persisted(endpoint, loaded - owned, expiry)
-            if loaded and loaded.issubset(owned):
+        if state != 'empty' and not resident.issubset(owned):
+            owned |= _adopt_persisted(endpoint, resident - owned, expiry)
+            if resident and resident.issubset(owned):
                 _owned_models.setdefault(endpoint, set()).update(owned)
                 _foreign_local_endpoints.discard(endpoint)
-    foreign = sorted(loaded - owned)
+    # Named as the runner prints them, so the banner shows what `ollama ps` shows.
+    foreign = sorted(name for name in loaded
+                     if _canonical_for(endpoint, name) not in owned)
     return {'applies': True, 'blocked': bool(foreign), 'scope': 'local',
             'reachable': True, 'models': foreign, 'provider': _provider}
 
