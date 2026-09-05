@@ -975,6 +975,67 @@ def logs_tail():
     return jsonify({'ok': True, 'file': name, 'lines': lines})
 
 
+def _resolved_model_files() -> dict:
+    """Which model FILE each local engine would actually load, slot by slot.
+
+    The one fact a "generation fails" report never carried, and the one that
+    decides it. GitHub #60 (drago87): the Klein graph was handed a text encoder
+    2560 wide where `Flux2TEModel` wants 4096, ComfyUI answered `mat1 and mat2
+    shapes cannot be multiplied`, and nothing in the report said WHICH file that
+    was — a pin the user had set, or a file not matching its own name. Two
+    downloaded ComfyUI tracebacks later it was still undecided, and it is a
+    single line to print.
+
+    NAMES only, never paths: every resolver returns the loader-relative name
+    ComfyUI itself prints, so this stays paste-safe (and it goes through
+    `_paste_safe` anyway, because a pin may be stored as an absolute path).
+    `pinned` says whether the value came from the user's own Settings pin or from
+    auto-detection — the same wrong file has two different fixes depending on it.
+
+    Best effort, slot by slot: a resolver that raises drops its own slot rather
+    than costing the report. The resolvers walk the model folders, which sounded
+    expensive and is not: measured at 0.02 s for all seven slots on an install
+    holding the full Klein + Krea 2 set, against the ~24 s `capabilities.probe()`
+    this same route already pays."""
+    from ..services import klein_edit_helper as _keh
+    from ..services import krea_edit_helper as _kreh
+
+    def pinned(key):
+        if not key:
+            return False
+        try:
+            return bool((cfg.get(key) or '').strip())
+        except Exception:
+            return False
+
+    def slot(label, resolve, pin_key=None):
+        try:
+            value = resolve()
+        except Exception:
+            return None
+        if isinstance(value, tuple):          # (relative name, absolute path)
+            value = value[0] if value else None
+        return {'slot': label,
+                'name': _paste_safe(str(value)) if value else None,
+                'pinned': pinned(pin_key)}
+
+    engines = {
+        'klein': [slot('unet', _keh.resolve_klein_unet, 'klein.unet'),
+                  slot('text encoder', _keh.resolve_klein_text_encoder,
+                       'klein.text_encoder'),
+                  slot('vae', _keh.resolve_klein_vae, 'klein.vae')],
+        # Krea's text encoder and VAE carry no pin key — they are auto-detected
+        # only (GitHub #55 asks for the fields). `pinned` is false for them by
+        # construction, which is itself worth reading in a report.
+        'krea 2': [slot('unet', _kreh.resolve_krea_unet, 'krea.base_model'),
+                   slot('text encoder', _kreh.resolve_krea_text_encoder),
+                   slot('vae', _kreh.resolve_krea_vae),
+                   slot('identity lora', _kreh.resolve_krea_identity_lora,
+                        'krea.identity_lora')],
+    }
+    return {engine: [s for s in slots if s] for engine, slots in engines.items()}
+
+
 @bp.get('/diagnostic')
 def diagnostic():
     """Paste-safe bug-report payload: version, platform, capability booleans and
@@ -1047,6 +1108,10 @@ def diagnostic():
         # when unreachable. Tells a "generation hangs" apart from a busy queue or a
         # VRAM-starved GPU. Network, so outside the network-free probe() above.
         'comfyui_runtime': capabilities.comfyui_runtime(),
+        # The file each local engine would load per slot, and whether it was
+        # pinned or auto-detected. See the helper: this is the fact GitHub #60
+        # needed and no report carried.
+        'model_files': _resolved_model_files(),
         'config': {
             'captioning_backend': (conf.get('captioning') or {}).get('backend'),
             'default_engine': (conf.get('engines') or {}).get('default'),

@@ -1847,14 +1847,23 @@ _COMFY_ARGV_FLAGS = {'--output-directory': 'output_dir', '--input-directory': 'i
 
 
 def parse_comfy_argv_dirs(argv) -> dict:
-    """Extract the folder overrides ComfyUI was launched with from its own argv.
+    r"""Extract the folder overrides ComfyUI was launched with from its own argv.
 
     Both argparse spellings are accepted (`--input-directory X` and
     `--input-directory=X`). RELATIVE paths are deliberately DROPPED: they resolve
     against ComfyUI's working directory, which we do not know, and this app never
     guesses a path by convention. `--base-directory` is likewise not turned into
     input/output suggestions — the install-directory field already derives those, and
-    inventing them here would be a layout assumption, not an answer. Never raises."""
+    inventing them here would be a layout assumption, not an answer.
+
+    "Absolute" is judged under BOTH conventions, and the path is normalised under
+    its OWN. ComfyUI may be answering from WSL or a container, so a Windows reader
+    routinely gets `/workspace/ComfyUI/input` — and `os.path.isabs` calls that
+    RELATIVE on Windows (a leading slash is drive-relative there; Python 3.13 made
+    the rule explicit), which silently dropped the container case, the one these
+    fields exist for. `os.path.normpath` made it worse where it did pass: it
+    rewrote `/mnt/shared/input` as `\mnt\shared\input`, a path correct on neither
+    side. Never raises."""
     out = {}
     if not isinstance(argv, (list, tuple)):
         return out
@@ -1869,12 +1878,9 @@ def parse_comfy_argv_dirs(argv) -> dict:
         # A following token that is itself a flag means the value was missing.
         if not value or (not inline and value.startswith('-')):
             continue
-        try:
-            if not os.path.isabs(value):
-                continue
-        except (OSError, ValueError):
+        if not comfy_fs.is_absolute_anywhere(value):
             continue
-        out[key] = os.path.normpath(value)
+        out[key] = comfy_fs.path_flavour(value).normpath(value)
     return out
 
 

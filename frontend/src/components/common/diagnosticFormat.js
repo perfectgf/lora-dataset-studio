@@ -39,6 +39,24 @@ export function formatDiagnostic(d) {
   if (rt.queue_running != null) rtBits.push(`queue ${rt.queue_running} running / ${rt.queue_pending ?? 0} pending`)
   L.push(`reachable=${yn(c.comfyui_reachable)} · klein_model=${yn(c.klein_model)}${rtBits.length ? ' · ' + rtBits.join(' · ') : ''}`)
 
+  // WHICH file each engine would load. A "generation fails" report used to say
+  // that Klein was ready and nothing about the encoder it would hand ComfyUI —
+  // and with two encoders in models/text_encoders/ and a name-based match, that
+  // is the fact that decides the report (GitHub #60: a 2560-wide encoder in a
+  // graph wanting 4096, undecidable from the report alone). `(pinned)` matters
+  // as much as the name: a wrong file the user chose and a wrong file the app
+  // found have different fixes.
+  const mf = d.model_files || {}
+  const mfLines = Object.entries(mf)
+    .map(([engine, slots]) => [engine, (slots || []).filter((s) => s && s.name)])
+    .filter(([, slots]) => slots.length)
+    .map(([engine, slots]) => `${engine}: ` + slots
+      .map((s) => `${s.slot}=${s.name}${s.pinned ? ' (pinned)' : ''}`).join(' · '))
+  if (mfLines.length) {
+    L.push('── Model files the engines resolved ──')
+    L.push(...mfLines)
+  }
+
   L.push('── Captioning (Ollama) ──')
   L.push(`reachable=${yn(c.ollama_reachable)} · vision_model_ready=${yn(c.vision_model_ready)}`)
   // The configured model + the tags Ollama actually reports: when vision_model=no
