@@ -2,6 +2,7 @@
 import os
 import sys
 
+import logging
 from flask import Blueprint, current_app, jsonify, request
 
 from .. import capabilities
@@ -12,6 +13,8 @@ from .. import netguard as _netguard
 # private name here for the diagnostic call site below.
 from ..utils.redact import redact_tokens as _redact_tokens
 from ..utils.redact import redact_user_paths as _redact_user_paths
+
+logger = logging.getLogger(__name__)
 
 
 def _paste_safe(line):
@@ -637,6 +640,39 @@ def update_check():
     return jsonify(out)
 
 
+_AUTO_ACTIVE_PHASES = ('extracting', 'writing', 'generating')
+
+
+def _update_blocker():
+    """What must finish before the server may restart for an update, as one
+    sentence — or None. Each probe fails OPEN (an unreadable state never
+    blocks an update), which is why every one sits in its own try."""
+    try:
+        from ..services import queue_view
+        listing = queue_view.list_queue()
+        busy = int(listing.get('generating') or 0) + int(listing.get('queued') or 0) + int(listing.get('stalled') or 0)
+        if busy:
+            return f'{busy} generation(s) still owe GPU time'
+    except Exception:
+        logger.debug('update blocker: queue unreadable', exc_info=True)
+    try:
+        from ..services import video_auto_continue as auto
+        state = auto.manager(current_app._get_current_object()).status()
+        if state and (state.get('enabled') or state.get('draining')
+                      or state.get('phase') in _AUTO_ACTIVE_PHASES):
+            return f"an Auto continuation is running (clip {int(state.get('completed') or 0) + 1})"
+    except Exception:
+        logger.debug('update blocker: auto continuation unreadable', exc_info=True)
+    try:
+        from ..services import live_studio
+        current = live_studio.current()
+        if current is not None and str(getattr(current, 'state', 'idle')) not in ('idle', 'stopped', 'done'):
+            return 'a Live take is running'
+    except Exception:
+        logger.debug('update blocker: live lane unreadable', exc_info=True)
+    return None
+
+
 @bp.post('/update/apply')
 def update_apply():
     """Update to the latest version and, if anything changed, restart the server.
@@ -667,6 +703,15 @@ def update_apply():
                       'Stop, then Update, then Start.',
             **updater.pinokio_update_payload(),
         })
+    # A restart in the middle of work is a loss, not a delay: a render on the
+    # card is thrown away, an Auto continuation comes back paused between two
+    # of its clips (its vision step holds no queue row, so a queue check alone
+    # saw it as idle — measured 2026-09-06), a Live take stops. Refuse in
+    # words; the banner shows the reason and the user updates when it is done.
+    blocker = _update_blocker()
+    if blocker:
+        return jsonify({'ok': False, 'busy': True,
+                        'reason': f'{blocker} — let it finish or stop it, then update.'})
     if updater.is_git_checkout():
         res = updater.apply_update()
         res['restarting'] = bool(res.get('ok') and res.get('changed'))
