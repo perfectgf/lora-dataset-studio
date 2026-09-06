@@ -49,3 +49,32 @@ def test_the_captioners_payload_gains_nothing_it_did_not_ask_for(app, monkeypatc
     assert 'think' not in p
     for key in ('top_p', 'top_k', 'min_p', 'presence_penalty', 'stop'):
         assert key not in p['options'], key
+
+
+def test_the_image_and_frame_doors_carry_the_same_switch_only_when_asked(app, monkeypatch):
+    """`think` lands at the top level of the image payload too, and only when
+    a caller asked — the captioners' image payload keeps its measured shape.
+    (2026-09-06: the motion writer's still read, on a hybrid 27B, came back
+    as 1 726 characters of reasoning inside `response` without it.)"""
+    from app.services import vision_ollama as vo
+    seen = []
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {'response': 'a still'}
+
+    monkeypatch.setattr(vo, '_admit_local_ollama', lambda *a, **k: None)
+    monkeypatch.setattr(vo, '_ensure_ollama_decodable', lambda b: b)
+    with app.app_context(), \
+         patch('app.services.vision_ollama.requests.post',
+               side_effect=lambda url, json=None, timeout=None: seen.append(json) or _Resp()):
+        assert vo.describe_image_ollama(b'jpeg', 'describe', model='m', think=False) == 'a still'
+        assert vo.describe_image_ollama(b'jpeg', 'describe', model='m') == 'a still'
+        assert vo.describe_frames_ollama([b'jpeg'], 'describe', model='m', think=False) == 'a still'
+        assert vo.describe_frames_ollama([b'jpeg'], 'describe', model='m') == 'a still'
+    assert seen[0]['think'] is False and 'think' not in seen[0]['options']
+    assert 'think' not in seen[1]
+    assert seen[2]['think'] is False and 'think' not in seen[3]

@@ -114,6 +114,7 @@ def describe_image(image_bytes: bytes, prompt: str, **kw) -> str:
             # rather than being dropped: eight call sites parse the answer.
             as_json=(kw.get('fmt') == 'json') or bool(kw.get('prefer_json')),
             strict=bool(kw.get('strict') or kw.get('auto_start_local')),
+            think=kw.get('think'),
             timeout=kw.get('timeout', (10, 180)))
     from . import vision_ollama
     return vision_ollama.describe_image_ollama(image_bytes, prompt, **kw)
@@ -135,6 +136,7 @@ def describe_frames(frames, prompt, **kw) -> str:
             url=kw.get('url') or kw.get('ollama_url'),
             model=kw.get('model'),
             num_predict=kw.get('num_predict', 600),
+            think=kw.get('think'),
             timeout=kw.get('timeout', (10, 300)))
     from . import vision_ollama
     return vision_ollama.describe_frames_ollama(frames, prompt, **kw)
@@ -162,6 +164,7 @@ def generate_text(prompt: str, **kw) -> str:
             temperature=kw.get('temperature', 0.2),
             top_p=kw.get('top_p'),
             stop=kw.get('stop'),
+            think=kw.get('think'),
             timeout=kw.get('timeout', (10, 120)))
     from . import vision_ollama
     return vision_ollama.generate_text_ollama(prompt, **kw)

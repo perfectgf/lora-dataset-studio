@@ -366,3 +366,49 @@ def _point_at_a_fixture_server(app):
     with app.app_context():
         config.save_config({'lmstudio': {'url': 'http://127.0.0.1:1299'}})
     yield
+
+
+# --- the reasoning switch on the wire (2026-09-06) --------------------------------
+
+class _Answer:
+    status_code = 200
+    text = ''
+
+    def json(self):
+        return {'choices': [{'message': {'content': 'A slow turn toward the window.'}}]}
+
+
+def test_the_reasoning_switch_lands_at_the_root_only_when_asked(app, monkeypatch):
+    """Measured on 0.4.23: the root-level `reasoning_effort: "none"` is the one
+    spelling a hybrid model honours. Sent only when a caller asked, so the
+    captioners keep the payload they were measured on."""
+    seen = []
+    monkeypatch.setattr(lms.requests, 'post', lambda url, json=None, headers=None, timeout=None: seen.append(json) or _Answer())
+    messages = [{'role': 'user', 'content': 'write it'}]
+    with app.app_context():
+        lms._chat(messages, model='m', max_tokens=10, temperature=0.2, timeout=5, url='http://127.0.0.1:1', think=False)
+        lms._chat(messages, model='m', max_tokens=10, temperature=0.2, timeout=5, url='http://127.0.0.1:1')
+        lms._chat(messages, model='m', max_tokens=10, temperature=0.2, timeout=5, url='http://127.0.0.1:1', think=True)
+    assert seen[0]['reasoning_effort'] == 'none'
+    assert 'reasoning_effort' not in seen[1] and 'reasoning_effort' not in seen[2]
+
+
+def test_the_text_door_forwards_the_switch_like_the_image_doors(app, monkeypatch):
+    """The writer step (Auto/Enrich) sends think=False through
+    vision_llm.generate_text: it must reach LM Studio's text door — it did not
+    before 2026-09-06, and a hybrid model there reasoned its whole budget away."""
+    from app.services import vision_llm
+    seen = []
+    monkeypatch.setattr(lms, 'resolve_model', lambda *a, **kw: 'm')
+    monkeypatch.setattr(lms, 'ensure_model_loaded', lambda *a, **kw: (True, ''))
+    monkeypatch.setattr(lms, '_admit', lambda *a, **kw: None, raising=False)
+    monkeypatch.setattr(lms.requests, 'post', lambda url, json=None, headers=None, timeout=None: seen.append(json) or _Answer())
+    with app.app_context():
+        assert lms.generate_text('write it', think=False, model='m')
+    assert seen[-1]['reasoning_effort'] == 'none'
+    forwarded = {}
+    monkeypatch.setattr(lms, 'generate_text', lambda prompt, **kw: forwarded.update(kw) or 'ok')
+    monkeypatch.setattr(vision_llm, 'provider', lambda: 'lmstudio')
+    with app.app_context():
+        assert vision_llm.generate_text('write it', think=False, model='m') == 'ok'
+    assert forwarded['think'] is False

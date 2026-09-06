@@ -519,7 +519,7 @@ def _json_response_format(kind: str) -> dict:
 
 
 def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_json=False,
-          top_p=None, stop=None):
+          top_p=None, stop=None, think=None):
     """POST one chat completion. Retries ONCE on a rejected JSON-mode spelling.
 
     Ollama's `format='json'` has an OpenAI-compatible equivalent, and it is not
@@ -545,6 +545,13 @@ def _chat(messages, *, model, max_tokens, temperature, timeout, url=None, as_jso
         payload['top_p'] = float(top_p)
     if stop:
         payload['stop'] = list(stop)
+    # Reasoning off for a caller that asked (`think=False`): measured on
+    # 0.4.23, the root-level `reasoning_effort: "none"` is the one spelling a
+    # hybrid model honours — `enable_thinking`, a low effort and `/no_think`
+    # are ignored and the model burns max_tokens reasoning into an empty
+    # answer. Sent only on request: the captioners keep their measured payload.
+    if think is False:
+        payload['reasoning_effort'] = 'none'
     headers = {'Content-Type': 'application/json', **_headers()}
     target = f'{url or base_url()}/v1/chat/completions'
     if not as_json:
@@ -577,6 +584,7 @@ def describe_frames(frames, prompt, *,
                     url: str | None = None,
                     model: str | None = None,
                     num_predict: int = 600,
+                    think: bool | None = None,
                     timeout: tuple[float, float] | float = (10, 300)) -> str:
     """N frames of one shot -> a caption, or '' best-effort — the video door of
     :func:`describe_image`: one chat call, one image part per frame.
@@ -618,7 +626,7 @@ def describe_frames(frames, prompt, *,
             _admit(endpoint, target)
             resp = _chat(messages, model=target, max_tokens=num_predict,
                          temperature=0, timeout=timeout, url=endpoint,
-                         as_json=False)
+                         as_json=False, think=think)
         except LocalLmStudioFenceError:
             raise
         except Exception as exc:  # noqa: BLE001 - reported below
@@ -646,6 +654,7 @@ def describe_image(image_bytes: bytes, prompt: str, *,
                    num_predict: int = 800,
                    as_json: bool = False,
                    strict: bool = False,
+                   think: bool | None = None,
                    timeout: tuple[float, float] | float = (10, 180)) -> str:
     """Describe an image through LM Studio. "" best-effort, or raises if strict.
 
@@ -691,7 +700,7 @@ def describe_image(image_bytes: bytes, prompt: str, *,
             _admit(endpoint, target)
             resp = _chat(messages, model=target, max_tokens=num_predict,
                          temperature=0.2, timeout=timeout, url=endpoint,
-                         as_json=as_json)
+                         as_json=as_json, think=think)
         except LocalLmStudioFenceError:
             raise                          # the fence speaks for itself, 409 upstream
         except Exception as exc:           # noqa: BLE001 - reported below
@@ -724,6 +733,7 @@ def generate_text(prompt: str, *,
                   temperature: float = 0.2,
                   top_p: float | None = None,
                   stop: list[str] | None = None,
+                  think: bool | None = None,
                   timeout: tuple[float, float] | float = (10, 120)) -> str:
     """Text-only generation through the same loaded model. Mirrors the Ollama seam."""
     endpoint = _suffix_free(url) if url else base_url()
@@ -744,7 +754,7 @@ def generate_text(prompt: str, *,
         _admit(endpoint, target)
         resp = _chat([{'role': 'user', 'content': prompt}], model=target,
                      max_tokens=num_predict, temperature=float(temperature),
-                     top_p=top_p, stop=stop, timeout=timeout, url=endpoint)
+                     top_p=top_p, stop=stop, think=think, timeout=timeout, url=endpoint)
     except LocalLmStudioFenceError:
         raise                              # the fence speaks for itself, 409 upstream
     except Exception as exc:               # noqa: BLE001 - reported below

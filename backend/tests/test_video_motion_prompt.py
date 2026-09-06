@@ -183,10 +183,11 @@ def test_auto_looks_first_and_composes_second(app, tmp_path, monkeypatch):
     assert len(calls['vision']) == 1 and len(calls['text']) == 1
     look = calls['vision'][0].lower()
     assert 'frozen still' in look
-    assert 'do not invent or imply any motion' in look
-    # And the eye is told to describe THIS scene: asked for a still, a vision
-    # model has been measured answering with an invented one.
-    assert 'never replace it with a different, invented scene' in look
+    assert 'do not invent any motion' in look
+    # And the eye is told to describe THIS scene, explicit content included:
+    # asked for a still, a vision model has been measured answering with an
+    # invented one, and softening an explicit one (2026-09-06).
+    assert 'swap the scene for another one' in look and 'explicit content included' in look
     assert vmp._H3_CRAFT not in calls['vision'][0], 'the eye was asked to compose'
     # And the writer works from what the eye said, not from the file.
     assert 'A woman kneels on a bed' in calls['text'][0]
@@ -1087,3 +1088,39 @@ def test_a_prompt_has_motion_when_something_is_left_once_the_picture_talk_is_set
                               '[Shot 1] ' + vmp._IDENTITY_SENTENCE)
     assert not vmp.has_motion('integrated_multimodal_description: [Shot 1]\noverall_soundscape: rain')
     assert not vmp.has_motion('')
+
+
+# --- the still, read as it is (2026-09-06) ------------------------------------------
+
+def test_the_still_is_read_without_reasoning_and_a_leaked_block_is_dropped(app, tmp_path, monkeypatch):
+    """A hybrid model asked for the still without the switch spent its budget
+    thinking aloud INSIDE the answer (measured 2026-09-06 on a Qwen3.8-27B:
+    1 726 characters of trace where 2-3 sentences were asked, and the writer
+    read the trace as the still). So the vision read carries `think` off,
+    and a block a provider hands back inline is scrubbed, as the writer's own
+    answer is."""
+    from app.services import vision_llm
+    seen = {}
+
+    def describe(data, prompt, **kw):
+        seen.update(prompt=prompt, kw=kw)
+        return '<think>Let me look carefully at the frame...</think> A woman stands by a window.'
+
+    monkeypatch.setattr(vision_llm, 'describe_image', describe)
+    (tmp_path / 'f.png').write_bytes(b'PNG')
+    monkeypatch.setattr('app.config.comfyui_dir', lambda *a, **k: str(tmp_path))
+    with app.app_context():
+        still = vmp.describe_still('f.png')
+    assert still == 'A woman stands by a window.'
+    assert seen['kw']['think'] is False and seen['prompt'] == vmp._VISION_STILL
+    assert seen['kw']['num_predict'] == vmp.STILL_TOKENS
+
+
+def test_the_still_prompt_asks_for_what_is_there_explicit_included():
+    """Worded like a JoyCaption still prompt: what is THERE, explicit content
+    included, never softened or swapped, no reasoning — the earlier wording
+    let a vision model soften or replace an explicit frame."""
+    p = vmp._VISION_STILL
+    for phrase in ('explicit content included', 'never soften', 'swap the scene',
+                   'nothing is moving', 'no reasoning', 'viewer-left', 'plain anatomical words'):
+        assert phrase in p, phrase
