@@ -38,6 +38,10 @@ COMFYUI_STALLED_MESSAGE = (
     'this Test Studio batch.'
 )
 POLL_STALLED = object()
+COMFYUI_CANCEL_INTERRUPTING_MESSAGE = (
+    'Cancelling — ComfyUI was asked to stop this render. The queue resumes as soon as '
+    'it lets go; a render that pages can take a minute or two to notice.'
+)
 COMFYUI_UNKNOWN_SUBMIT_MESSAGE = (
     'ComfyUI /prompt result was lost. Restart ComfyUI before cancelling or resuming '
     'this batch; LDS cannot safely identify the remote prompt.'
@@ -216,6 +220,23 @@ class ComfyBarrierProbe(NamedTuple):
     link: str | None = None
 
 
+# A cancelled render ComfyUI could not be asked to stop (a /queue read that
+# timed out under a paging GPU is not a verdict) is asked again by the probe
+# while it still runs — at most once per this many seconds (2026-09-06).
+INTERRUPT_RETRY_SECONDS = 20.0
+_last_interrupt_retry_at = 0.0
+
+
+def _retry_cancel_interrupt(job_id, prompt_id) -> bool:
+    global _last_interrupt_retry_at
+    now = time.monotonic()
+    if now - _last_interrupt_retry_at < INTERRUPT_RETRY_SECONDS:
+        return False
+    _last_interrupt_retry_at = now
+    with GPU_ARBITER_LOCK:
+        return queue_manager._interrupt_stalled_prompt(job_id, prompt_id)
+
+
 def probe_comfyui_barrier() -> ComfyBarrierProbe:
     """Clear the recovery barrier when the remote prompt is PROVABLY gone, and
     report what ComfyUI answered while being asked.
@@ -243,6 +264,10 @@ def probe_comfyui_barrier() -> ComfyBarrierProbe:
         # any extra request; None means LDS got nothing it could read.
         link = COMFYUI_LINK_UNREACHABLE if absent is None else COMFYUI_LINK_REACHABLE
         if absent is not True:
+            # Still listed: ask again to stop a render a person cancelled when
+            # the first ask was not answered (2026-09-06).
+            if absent is False and owner.get('cancel_requested') and not owner.get('interrupted'):
+                _retry_cancel_interrupt(owner['job_id'], prompt_id)
             return ComfyBarrierProbe(None, link)
         # reconcile_stalled_comfy_job re-verifies queue absence on both sides of
         # a /history read and refuses an unhealthy history. This is its only
@@ -1527,6 +1552,9 @@ class JobQueueManager:
                 db.session.commit()
                 return 'retry'
             prompt_id = job.comfyui_prompt_id
+            # Read at entry: the stall below commits, which reloads the row
+            # as 'stalled' — a row that was live here has just been asked.
+            was_stalled = job.status == 'stalled'
             if job.status in ('sent_to_comfy', 'cancel_requested'):
                 if prompt_id:
                     paused = self._stall_comfy_job(
@@ -1538,6 +1566,12 @@ class JobQueueManager:
                         detail='cancellation requested before /prompt was durably mapped')
                 if not paused:
                     return 'retry'
+                if prompt_id:
+                    # The person asked for this render to stop: ComfyUI is
+                    # asked too, when the running prompt is exactly ours
+                    # (2026-09-06 — a cancelled render that paged kept the
+                    # card for an hour with nothing able to stop it).
+                    self._interrupt_stalled_prompt(job.job_id, prompt_id)
                 if not prompt_id:
                     logger.warning(
                         'job_queue: %s needs an external ComfyUI restart before '
@@ -1551,10 +1585,106 @@ class JobQueueManager:
                     'job_queue: %s has an unknown /prompt barrier; do not clear it '
                     'without an externally verified ComfyUI restart', job.job_id)
                 return 'restart_required'
+            if was_stalled:
+                # A Cancel on a paused row — the second press after an ask
+                # that went unanswered: the intent is recorded and ComfyUI
+                # asked to stop it again (found in review, 2026-09-06: a
+                # second Cancel used to reconcile only, so one starved
+                # /queue read put the person back behind the wall).
+                self._interrupt_stalled_prompt(job.job_id, job.comfyui_prompt_id)
             # Targeted delete / fresh absence checks happen while the exact raw
             # ownership barrier remains present.
             return ('cancelled' if self.reconcile_stalled_comfy_job(job.job_id)
                     else 'retry')
+
+    def _interrupt_stalled_prompt(self, job_id, prompt_id) -> bool:
+        """A person wants this paused render gone: the barrier records the
+        intent (`cancel_requested`, what the probe's retry reads) and ComfyUI
+        is asked to stop the prompt when it is exactly ours (prompt id AND
+        client id); once asked, the row and the barrier say so. Called under
+        the arbiter lock. True when ComfyUI was asked."""
+        from .utils.comfyui import interrupt_own_prompt
+        asked = interrupt_own_prompt(prompt_id, job_id) == 'interrupted'
+        # What the POST said, kept for the caller that cannot read it back
+        # from the barrier (a failed flag commit must not turn an interrupt
+        # that was sent into "did not answer" — found in review).
+        self._last_interrupt_ask = (str(job_id), asked)
+        row, _raw, owner, valid = self._read_comfyui_stalled_barrier()
+        if row is not None and valid and owner is not None and str(owner.get('job_id')) == str(job_id):
+            owner['cancel_requested'] = True
+            if asked:
+                owner['interrupted'] = True
+                owner['reason'] = COMFYUI_CANCEL_INTERRUPTING_MESSAGE
+                (ImageGenerationQueue.query.filter_by(job_id=str(job_id), status='stalled')
+                 .update({'error_message': COMFYUI_CANCEL_INTERRUPTING_MESSAGE}, synchronize_session=False))
+            row.value = self._encode_comfyui_stalled_barrier(owner)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+        return asked
+
+    def own_running_job(self):
+        """What ComfyUI is running, seen from LDS: ('idle', None), ('own', row)
+        when the running prompt is exactly one of LDS's queue rows (prompt id
+        AND client id), ('foreign', None) for another client's prompt, and
+        ('unknown', None) when ComfyUI could not be asked."""
+        from .utils.comfyui import running_prompt_identity
+        identity = running_prompt_identity()
+        if identity is None:
+            return ('unknown', None)
+        prompt_id, client_id = identity
+        if not prompt_id:
+            return ('idle', None)
+        live = ('processing', 'sent_to_comfy', 'cancel_requested', 'stalled')
+        job = (ImageGenerationQueue.query.filter_by(comfyui_prompt_id=str(prompt_id))
+               .filter(ImageGenerationQueue.status.in_(live)).first())
+        if job is not None and str(job.job_id) == str(client_id or ''):
+            return ('own', job)
+        if client_id:
+            # Our client id on a prompt no row knows: the /prompt answer was
+            # lost (an unknown-submit barrier). Ours, but not interruptible
+            # by prompt id — the recovery banner is the way out, and the
+            # refusal must not call it "not LDS's" (found in review).
+            unmapped = (ImageGenerationQueue.query.filter_by(job_id=str(client_id))
+                        .filter(ImageGenerationQueue.comfyui_prompt_id.is_(None))
+                        .filter(ImageGenerationQueue.status.in_(live)).first())
+            if unmapped is not None:
+                return ('unmapped', unmapped)
+        return ('foreign', None)
+
+    def interrupt_own_running(self, expected_job_id=None):
+        """Stop the render ComfyUI runs for LDS, as a person asked: the job is
+        cancelled (its result dropped) and ComfyUI interrupted. Bound to the
+        job the person was told about: `expected_job_id` must be the running
+        job, or nothing is touched and its id travels back so the offer can
+        be made again for it (found in review: within the minute, the next
+        queued render could have been dropped instead).
+
+        Returns (verdict, job_id): 'interrupted'; 'idle'; 'foreign';
+        'unmapped' (ours, unknown-submit: not interruptible); 'other' (an own
+        job that is not the expected one); 'unknown' (ComfyUI mute, or a job
+        still being sent — nothing to interrupt yet)."""
+        state, job = self.own_running_job()
+        if state != 'own':
+            return (state, job.job_id if job is not None else None)
+        if not expected_job_id or str(job.job_id) != str(expected_job_id):
+            return ('other', job.job_id)
+        if job.status == 'stalled':
+            with GPU_ARBITER_LOCK:
+                asked = self._interrupt_stalled_prompt(job.job_id, job.comfyui_prompt_id)
+            return ('interrupted' if asked else 'unknown', job.job_id)
+        if job.status in ('sent_to_comfy', 'cancel_requested'):
+            self._last_interrupt_ask = None
+            if self.cancel_job_outcome(job.job_id) == 'cancelled':
+                return ('interrupted', job.job_id)   # ComfyUI no longer has it
+            if self._last_interrupt_ask == (str(job.job_id), True):
+                return ('interrupted', job.job_id)
+            owner = self.get_comfyui_stalled_barrier() or {}
+            if str(owner.get('job_id')) == str(job.job_id) and owner.get('interrupted'):
+                return ('interrupted', job.job_id)
+            return ('unknown', job.job_id)
+        return ('unknown', job.job_id)
 
     def cancel_job(self, job_id, user_id=None, job_type='image', *, commit=True) -> bool:
         """Compatibility boolean: only a proven cancellation is ``True``."""

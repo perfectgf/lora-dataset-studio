@@ -4,6 +4,8 @@ config-driven listers (empty/None-safe when ComfyUI isn't configured), and
 the LoRA-chain injectors (allowed-whitelist respected)."""
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.utils.comfyui import (
     trained_lora_group, format_trained_lora_label, family_of_lora,
     inject_zimage_loras, _trained_lora_trigger,
@@ -465,3 +467,105 @@ def test_load_workflow_local_caches_by_mtime_but_hands_out_private_copies(app, t
         os.utime(wf, (0, 0))                       # force a different mtime stamp
         assert load_workflow_local(str(wf))['1']['inputs']['seed'] == 42
         assert load_workflow_local(str(tmp_path / 'nope.json')) is None
+
+
+# ── interrupt_own_prompt / running_prompt_identity (2026-09-06) ──────────────
+# `/interrupt` is global: it stops whatever ComfyUI runs. It is sent only when
+# the running prompt is exactly LDS's — prompt id AND client id — and never
+# on a queue ComfyUI could not describe.
+
+def _running(*entries):
+    return {'queue_running': list(entries), 'queue_pending': []}
+
+
+@pytest.mark.comfyui_http
+def test_interrupt_own_prompt_stops_exactly_ours(app):
+    from app.utils.comfyui import interrupt_own_prompt, running_prompt_identity
+    ours = [1, 'target-prompt', {}, {'client_id': 'target-job'}, []]
+    with app.app_context(), \
+         patch('app.utils.comfyui.requests.get', return_value=_response(_running(ours))), \
+         patch('app.utils.comfyui.requests.post', return_value=_response({})) as post:
+        assert running_prompt_identity() == ('target-prompt', 'target-job')
+        assert interrupt_own_prompt('target-prompt', 'target-job') == 'interrupted'
+    assert post.call_count == 1 and post.call_args.args[0].endswith('/interrupt')
+    # The targeted form: ComfyUI (≥ 2025-09-02) then interrupts ONLY when that
+    # id is the one executing — the GET→POST window cannot hit a successor.
+    assert post.call_args.kwargs['json'] == {'prompt_id': 'target-prompt'}
+    # Timeouts tolerant of a starved HTTP loop (a paging GPU), on both calls.
+    assert post.call_args.kwargs['timeout'] == (3, 10)
+
+
+@pytest.mark.comfyui_http
+def test_only_the_head_of_the_running_queue_counts_as_what_runs(app):
+    """One prompt worker executes one prompt: the head of `queue_running` is
+    what /interrupt would stop, and both readers look at the same entry."""
+    from app.utils.comfyui import interrupt_own_prompt, running_prompt_identity
+    ours = [2, 'target-prompt', {}, {'client_id': 'target-job'}, []]
+    other = [1, 'other-prompt', {}, {'client_id': 'other-job'}, []]
+    with app.app_context(), \
+         patch('app.utils.comfyui.requests.get', return_value=_response(_running(other, ours))) as get, \
+         patch('app.utils.comfyui.requests.post') as post:
+        assert running_prompt_identity() == ('other-prompt', 'other-job')
+        assert interrupt_own_prompt('target-prompt', 'target-job') == 'foreign'
+    post.assert_not_called()
+    assert get.call_args.kwargs['timeout'] == (3, 10)
+
+
+@pytest.mark.comfyui_http
+@pytest.mark.parametrize('entry', [
+    [1, 'target-prompt', {}, {'client_id': 'other-job'}, []],   # our prompt id under another client
+    [1, 'other-prompt', {}, {'client_id': 'target-job'}, []],   # our client id on another prompt
+    [1, 'other-prompt', {}, {'client_id': 'other-job'}, []],
+])
+def test_a_prompt_that_is_not_exactly_ours_is_never_interrupted(app, entry):
+    from app.utils.comfyui import interrupt_own_prompt
+    with app.app_context(), \
+         patch('app.utils.comfyui.requests.get', return_value=_response(_running(entry))), \
+         patch('app.utils.comfyui.requests.post') as post:
+        assert interrupt_own_prompt('target-prompt', 'target-job') == 'foreign'
+    post.assert_not_called()
+
+
+@pytest.mark.comfyui_http
+def test_an_idle_or_mute_comfyui_gets_no_interrupt(app):
+    import requests
+    from app.utils.comfyui import interrupt_own_prompt, running_prompt_identity
+    ours = [1, 'target-prompt', {}, {'client_id': 'target-job'}, []]
+    with app.app_context():
+        with patch('app.utils.comfyui.requests.get', return_value=_response(_running())), \
+             patch('app.utils.comfyui.requests.post') as post:
+            assert interrupt_own_prompt('target-prompt', 'target-job') == 'not_running'
+            assert running_prompt_identity() == (None, None)
+        post.assert_not_called()
+        with patch('app.utils.comfyui.requests.get', return_value=_response({}, status_code=500)), \
+             patch('app.utils.comfyui.requests.post') as post:
+            assert interrupt_own_prompt('target-prompt', 'target-job') == 'unknown'
+            assert running_prompt_identity() is None
+        post.assert_not_called()
+        with patch('app.utils.comfyui.requests.get', side_effect=requests.ConnectionError('down')), \
+             patch('app.utils.comfyui.requests.post') as post:
+            assert interrupt_own_prompt('target-prompt', 'target-job') == 'unknown'
+            assert running_prompt_identity() is None
+        post.assert_not_called()
+        # The interrupt was sent but not acknowledged: not claimed.
+        with patch('app.utils.comfyui.requests.get', return_value=_response(_running(ours))), \
+             patch('app.utils.comfyui.requests.post', return_value=_response({}, status_code=500)):
+            assert interrupt_own_prompt('target-prompt', 'target-job') == 'unknown'
+        # Without both ids nothing is even asked.
+        with patch('app.utils.comfyui.requests.get') as get, patch('app.utils.comfyui.requests.post') as post:
+            assert interrupt_own_prompt('', 'target-job') == 'unknown'
+            assert interrupt_own_prompt('target-prompt', None) == 'unknown'
+        get.assert_not_called()
+        post.assert_not_called()
+
+
+def test_the_suite_never_reaches_a_real_comfyui_queue_for_the_interrupt(app):
+    """The autouse guard: without the marker the seam answers 'unknown' and no
+    socket is opened (the tests above opt in and drive `requests` themselves)."""
+    from app.utils.comfyui import interrupt_own_prompt, running_prompt_identity
+    with app.app_context(), patch('app.utils.comfyui.requests.get') as get, \
+         patch('app.utils.comfyui.requests.post') as post:
+        assert interrupt_own_prompt('target-prompt', 'target-job') == 'unknown'
+        assert running_prompt_identity() is None
+    get.assert_not_called()
+    post.assert_not_called()

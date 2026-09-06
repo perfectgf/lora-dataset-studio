@@ -86,6 +86,27 @@ def _no_live_comfyui_vram_release(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_live_comfyui_queue_interrupt(request, monkeypatch):
+    """A cancel now asks ComfyUI to stop LDS's own running prompt
+    (`interrupt_own_prompt`, 2026-09-06), and the memory button reads what
+    ComfyUI runs (`running_prompt_identity`). Both go through one seam,
+    `_running_entries` — a live GET /queue on 127.0.0.1:8188, followed by a
+    POST /interrupt when the running prompt is exactly the caller's. On a
+    developer machine the GET is a dependency on someone else's ComfyUI, the
+    same undeclared dependency the fixture above names; the POST could never
+    match a fixture id, but the suite must not be one typo away from stopping
+    a real render. The seam answers "could not be asked", the path a machine
+    without ComfyUI takes, so every caller keeps running its own logic.
+
+    Tests that are ABOUT the two functions opt back in with
+    @pytest.mark.comfyui_http and drive `requests` themselves; tests of the
+    callers patch the functions, and a later setattr wins."""
+    if request.node.get_closest_marker('comfyui_http'):
+        return
+    monkeypatch.setattr('app.utils.comfyui._running_entries', lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_nvidia_smi_vram_reading(request, monkeypatch):
     """Every local training launch reads the card twice around its ComfyUI /free
     (`system_stats.gpu_vram_used_gb`, one fresh nvidia-smi fork each). Where the

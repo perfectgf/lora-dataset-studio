@@ -298,10 +298,18 @@ def free_memory():
     actually happened, and `comfyui: offline` when there was nothing to free
     there (that is not a failure)."""
     from ..services import memory_release
+    data = request.get_json(silent=True) or {}
+    interrupt = data.get('interrupt', False) if isinstance(data, dict) else False
+    job_id = data.get('job_id') if isinstance(data, dict) else None
+    if not isinstance(interrupt, bool) or not (job_id is None or isinstance(job_id, str)):
+        return jsonify({'ok': False, 'error': 'interrupt must be true or false, and job_id the id the offer named.'}), 400
     try:
-        return jsonify(memory_release.free_memory())
+        return jsonify(memory_release.free_memory(interrupt=interrupt, job_id=job_id or None))
     except memory_release.MemoryReleaseBusy as e:
-        return jsonify({'ok': False, 'error': str(e)}), 409
+        # `can_interrupt`: the obstacle is a render of LDS's own — the button
+        # may be pressed again to interrupt it (2026-09-06).
+        return jsonify({'ok': False, 'error': str(e), 'can_interrupt': e.can_interrupt,
+                        'job_id': e.job_id}), 409
 
 
 @bp.get('/ollama-fence')

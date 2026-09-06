@@ -727,3 +727,217 @@ def test_failed_job_reason_reaches_dataset_tile(app):
         refreshed = db.session.get(FaceDatasetImage, img.id)
         assert refreshed.status == 'failed'
         assert 'mat1 and mat2' in refreshed.fail_reason
+
+
+# ── a cancel interrupts LDS's own RUNNING prompt (2026-09-06) ────────────────
+# Until then a cancelled render ComfyUI was already running was left to end
+# on its own — an hour, when it paged — with nothing able to stop it.
+
+def _sent_job(prompt_id):
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    from app.extensions import db
+    jid = queue_manager.add_job(workflow_data={'1': {}})
+    row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+    row.update_status('sent_to_comfy', comfyui_prompt_id=prompt_id)
+    db.session.commit()
+    return jid
+
+
+def test_cancelling_a_running_prompt_asks_comfyui_to_stop_it_and_says_so(app):
+    from app.job_queue import COMFYUI_CANCEL_INTERRUPTING_MESSAGE, COMFYUI_STALLED_MESSAGE, queue_manager
+    from app.models import ImageGenerationQueue
+    from app.utils.comfyui import ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-running')
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='interrupted') as interrupt, \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert queue_manager.cancel_job_outcome(jid) == 'retry'
+        interrupt.assert_called_once_with('prompt-running', jid)
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        owner = queue_manager.get_comfyui_stalled_barrier()
+        assert row.status == 'stalled'
+        assert row.error_message == COMFYUI_CANCEL_INTERRUPTING_MESSAGE != COMFYUI_STALLED_MESSAGE
+        assert owner['interrupted'] is True
+        assert owner['reason'] == COMFYUI_CANCEL_INTERRUPTING_MESSAGE
+
+
+@pytest.mark.parametrize('verdict', ['foreign', 'not_running', 'unknown'])
+def test_when_comfyui_cannot_be_asked_the_cancel_keeps_its_stalled_sentence(app, verdict):
+    from app.job_queue import COMFYUI_STALLED_MESSAGE, queue_manager
+    from app.models import ImageGenerationQueue
+    from app.utils.comfyui import ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-' + verdict)
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value=verdict), \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert queue_manager.cancel_job_outcome(jid) == 'retry'
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        owner = queue_manager.get_comfyui_stalled_barrier()
+        assert row.status == 'stalled' and row.error_message == COMFYUI_STALLED_MESSAGE
+        assert not owner.get('interrupted')
+
+
+def test_an_interrupted_barrier_still_reconciles_once_comfyui_lets_go(app):
+    """The flag is an extra key on the barrier owner: the reconcile compares
+    owners by identity (kind and ids), so the interrupted render is imported
+    as cancelled the way an un-interrupted one is."""
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    from app.utils.comfyui import ComfyHistoryHealth, ComfyHistoryProbe, ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-let-go')
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='interrupted'), \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert queue_manager.cancel_job_outcome(jid) == 'retry'
+        assert queue_manager.get_comfyui_stalled_barrier()['interrupted'] is True
+        probe = ComfyHistoryProbe(ComfyHistoryHealth.READY, history={
+            'prompt-let-go': {'status': {'status_str': 'error', 'completed': False}}})
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.ABSENT), \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=True), \
+             patch('app.utils.comfyui.get_comfyui_history_probe', return_value=probe):
+            assert queue_manager.reconcile_stalled_comfy_job(jid) is True
+        assert ImageGenerationQueue.query.filter_by(job_id=jid).one().status == 'cancelled'
+        assert queue_manager.get_comfyui_stalled_barrier() is None
+
+
+def test_what_comfyui_runs_is_ours_only_by_prompt_and_client_id(app):
+    from app.job_queue import queue_manager
+    with app.app_context():
+        jid = _sent_job('prompt-mine')
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=None):
+            assert queue_manager.own_running_job() == ('unknown', None)
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=(None, None)):
+            assert queue_manager.own_running_job() == ('idle', None)
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-mine', 'someone-else')):
+            assert queue_manager.own_running_job() == ('foreign', None)
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-other', jid)):
+            assert queue_manager.own_running_job() == ('foreign', None)
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-mine', jid)):
+            state, row = queue_manager.own_running_job()
+        assert state == 'own' and row.job_id == jid
+
+
+def test_interrupt_own_running_cancels_the_live_job_and_reports_the_interrupt(app):
+    from app.job_queue import COMFYUI_CANCEL_INTERRUPTING_MESSAGE, queue_manager
+    from app.models import ImageGenerationQueue
+    from app.utils.comfyui import ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-live')
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-live', jid)), \
+             patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='interrupted') as interrupt, \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            # Bound to the job the person was told about: another id, or none,
+            # touches nothing and names the job that runs.
+            assert queue_manager.interrupt_own_running('someone-else') == ('other', jid)
+            assert queue_manager.interrupt_own_running() == ('other', jid)
+            interrupt.assert_not_called()
+            assert queue_manager.interrupt_own_running(jid) == ('interrupted', jid)
+        interrupt.assert_called_once_with('prompt-live', jid)
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        assert row.status == 'stalled' and row.error_message == COMFYUI_CANCEL_INTERRUPTING_MESSAGE
+        # Pressed again while the same, now stalled, row still runs: asked again, no new cancel.
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-live', jid)), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='interrupted') as again:
+            assert queue_manager.interrupt_own_running(jid) == ('interrupted', jid)
+        again.assert_called_once_with('prompt-live', jid)
+        # A mute ComfyUI: said as such, nothing claimed.
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-live', jid)), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='unknown'):
+            assert queue_manager.interrupt_own_running(jid) == ('unknown', jid)
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-x', 'other')):
+            assert queue_manager.interrupt_own_running(jid) == ('foreign', None)
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=(None, None)):
+            assert queue_manager.interrupt_own_running(jid) == ('idle', None)
+
+
+def test_a_live_job_whose_interrupt_was_not_sent_is_not_reported_interrupted(app):
+    from app.job_queue import queue_manager
+    from app.utils.comfyui import ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-quiet')
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-quiet', jid)), \
+             patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='unknown'), \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert queue_manager.interrupt_own_running(jid) == ('unknown', jid)
+        assert not queue_manager.get_comfyui_stalled_barrier().get('interrupted')
+
+
+# ── review follow-ups (2026-09-06): the ask is repeated ──────────────────────
+
+def test_a_second_cancel_on_a_paused_row_asks_comfyui_again(app):
+    """A starved /queue read is not a verdict: when the first ask went
+    unanswered, the next Cancel asks again instead of only reconciling
+    (found in review — the person was back behind the wall)."""
+    from app.job_queue import COMFYUI_CANCEL_INTERRUPTING_MESSAGE, COMFYUI_STALLED_MESSAGE, queue_manager
+    from app.models import ImageGenerationQueue
+    from app.utils.comfyui import ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-paging')
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='unknown'), \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert queue_manager.cancel_job_outcome(jid) == 'retry'
+        assert ImageGenerationQueue.query.filter_by(job_id=jid).one().error_message == COMFYUI_STALLED_MESSAGE
+        owner = queue_manager.get_comfyui_stalled_barrier()
+        assert owner['cancel_requested'] is True and not owner.get('interrupted')
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='interrupted') as again, \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert queue_manager.cancel_job_outcome(jid) == 'retry'
+        again.assert_called_once_with('prompt-paging', jid)
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        owner = queue_manager.get_comfyui_stalled_barrier()
+        assert row.status == 'stalled' and row.error_message == COMFYUI_CANCEL_INTERRUPTING_MESSAGE
+        assert owner['interrupted'] is True and owner['cancel_requested'] is True
+
+
+def test_the_probe_asks_again_while_a_cancelled_render_it_could_not_ask_still_runs(app, monkeypatch):
+    from app import job_queue as jq
+    from app.utils.comfyui import ComfyPromptState
+    with app.app_context():
+        jid = _sent_job('prompt-paging')
+        with patch('app.utils.comfyui.cancel_comfyui_prompt_state', return_value=ComfyPromptState.RUNNING), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='unknown'), \
+             patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False):
+            assert jq.queue_manager.cancel_job_outcome(jid) == 'retry'
+        monkeypatch.setattr(jq, '_last_interrupt_retry_at', 0.0)
+        with patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='unknown') as again:
+            assert jq.probe_comfyui_barrier().resolved is None
+            again.assert_called_once_with('prompt-paging', jid)
+            # Rate-limited: a probe right after asks nothing more.
+            assert jq.probe_comfyui_barrier().resolved is None
+            again.assert_called_once()
+        monkeypatch.setattr(jq, '_last_interrupt_retry_at', 0.0)
+        with patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False), \
+             patch('app.utils.comfyui.interrupt_own_prompt', return_value='interrupted') as asked:
+            assert jq.probe_comfyui_barrier().resolved is None
+            asked.assert_called_once_with('prompt-paging', jid)
+        assert jq.queue_manager.get_comfyui_stalled_barrier()['interrupted'] is True
+        # Once asked, the probe leaves it to ComfyUI.
+        monkeypatch.setattr(jq, '_last_interrupt_retry_at', 0.0)
+        with patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=False), \
+             patch('app.utils.comfyui.interrupt_own_prompt') as untouched:
+            assert jq.probe_comfyui_barrier().resolved is None
+        untouched.assert_not_called()
+
+
+def test_our_own_render_whose_prompt_id_was_lost_is_unmapped_not_foreign(app):
+    from app.job_queue import queue_manager
+    from app.models import ImageGenerationQueue
+    from app.extensions import db
+    with app.app_context():
+        jid = queue_manager.add_job(workflow_data={'1': {}})
+        row = ImageGenerationQueue.query.filter_by(job_id=jid).one()
+        row.update_status('sent_to_comfy')
+        db.session.commit()
+        with patch('app.utils.comfyui.running_prompt_identity', return_value=('prompt-lost', jid)):
+            state, found = queue_manager.own_running_job()
+            assert state == 'unmapped' and found.job_id == jid
+            assert queue_manager.interrupt_own_running(jid) == ('unmapped', jid)

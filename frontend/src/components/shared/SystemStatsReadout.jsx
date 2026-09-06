@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, postJson } from '../../api/fetchClient';
 import { useToast } from '../common/Toast';
 import { HelpBadge } from '../../help/HelpMode';
+import { OFFER_TOAST_MS, armFrom, armedUntil, consume } from './maintenanceArming';
 import {
   POLL_MS, freeMemorySummary, machineLoadSummary, readMachineLoadPref, shouldPoll,
   systemStatsSegments, writeMachineLoadPref,
@@ -106,14 +107,35 @@ export default function SystemStatsReadout({
      captioning — neither returns it by itself. The server pulls both levers,
      refuses while something renders or trains, and answers with what the OS
      measured; the toast repeats THAT, then the readout re-polls at once. */
+  /* A refusal is not a wall (2026-09-06): when the obstacle is a render of
+     LDS's own, the server says so (`can_interrupt`, with the job's id) and
+     the SAME button pressed again within a minute sends the forced form for
+     THAT job — the render is interrupted and dropped, then the memory is
+     freed. The arming lives in `maintenanceArming` (one store for every
+     mount, exercised by its own tests): it comes only from such a refusal,
+     ignores a press that follows the refusal too closely to be a decision
+     (a double-click), is spent by the next press and expires. While armed,
+     the button itself says so — the toast dies long before the offer does. */
+  const [armedKind, setArmedKind] = useState(null);
+  useEffect(() => {
+    if (!armedKind) return undefined;
+    const t = setTimeout(() => setArmedKind(null), Math.max(0, armedUntil(armedKind) - Date.now()));
+    return () => clearTimeout(t);
+  }, [armedKind]);
+  const refused = (kind, body) => { if (armFrom(kind, body)) setArmedKind(kind); };
+  const forcedBody = (forced, flag) => (forced ? { [flag]: true, ...(forced.jobId ? { job_id: forced.jobId } : {}) } : {});
+
   const freeMemory = async () => {
     if (freeing) return;
     setFreeing(true);
+    const forced = consume('free');
+    setArmedKind((k) => (k === 'free' ? null : k));
     try {
-      const d = await postJson('/api/system/free-memory', {});
-      toast.success(freeMemorySummary(d));
+      const d = await postJson('/api/system/free-memory', forcedBody(forced, 'interrupt'));
+      toast.success((d?.interrupted ? 'The render was interrupted as asked. ' : '') + freeMemorySummary(d));
     } catch (err) {
-      toast.error(err?.message || 'Could not free the memory');
+      refused('free', err?.body);
+      toast.error(err?.message || 'Could not free the memory', err?.body?.can_interrupt ? OFFER_TOAST_MS : undefined);
     } finally {
       setFreeing(false);
       poll();
@@ -148,11 +170,15 @@ export default function SystemStatsReadout({
           button nobody asked for. Same 40 px target rule as ▾. */}
       {enabled && (
         <button type="button" onClick={freeMemory} disabled={freeing}
-          data-testid={`${testId}-free`} aria-busy={freeing}
-          title="Free memory: unload the models ComfyUI keeps cached in RAM and VRAM, and the vision model LDS loaded. They reload on the next job. Refused while something is rendering or training."
-          aria-label="Free memory"
-          className="flex h-10 items-center rounded border border-border bg-app/40 px-1.5 text-content-subtle/70 text-[0.625rem] hover:text-content disabled:cursor-wait disabled:opacity-60 lg:h-6 lg:px-1">
+          data-testid={`${testId}-free`} aria-busy={freeing} data-armed={armedKind === 'free' || undefined}
+          title={armedKind === 'free'
+            ? "Press again to interrupt LDS's render and free the memory; the render is dropped. The offer expires after a minute."
+            : "Free memory: unload the models ComfyUI keeps cached in RAM and VRAM, and the vision model LDS loaded. They reload on the next job. Refused while something is rendering or training; when the render is LDS's own, press again within a minute to interrupt it and free."}
+          aria-label={armedKind === 'free' ? "Free memory — press again to interrupt LDS's render" : 'Free memory'}
+          className={`flex h-10 items-center gap-1 rounded border px-1.5 text-[0.625rem] hover:text-content disabled:cursor-wait disabled:opacity-60 lg:h-6 lg:px-1 ${
+            armedKind === 'free' ? 'border-amber-400 bg-amber-400/15 text-amber-200' : 'border-border bg-app/40 text-content-subtle/70'}`}>
           {freeing ? '…' : '🧹'}
+          {armedKind === 'free' && <span className="whitespace-nowrap">press again</span>}
         </button>
       )}
       <button type="button" onClick={toggle} aria-pressed={enabled}
