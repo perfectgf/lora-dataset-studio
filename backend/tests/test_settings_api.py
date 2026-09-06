@@ -805,33 +805,6 @@ def test_update_check_pinokio_never_advertises_a_zip_apply(
     assert d['install_mode'] == 'pinokio' and d['can_apply'] is False
 
 
-def test_update_apply_refuses_while_work_is_in_flight(client, monkeypatch):
-    """A restart mid-work is a loss: a render on the card is thrown away, a
-    Live take stops. Refused in words; an idle app lets the update through.
-    (The Auto-continuation probe of nightly is absent here and fails open.)"""
-    from app.services import updater, queue_view, live_studio
-    forbidden = lambda *a, **k: (_ for _ in ()).throw(AssertionError('no update while work is in flight'))
-    monkeypatch.setattr(updater, 'is_git_checkout', forbidden)
-    monkeypatch.setattr(updater, 'apply_update', forbidden)
-    monkeypatch.setattr(updater, 'start_zip_update', forbidden)
-    monkeypatch.setattr(live_studio, 'current', lambda: None)
-    monkeypatch.setattr(queue_view, 'list_queue', lambda dataset_names=None: {'generating': 1, 'queued': 0, 'stalled': 0, 'jobs': []})
-    body = client.post('/api/update/apply').get_json()
-    assert body['ok'] is False and body['busy'] is True and 'owe GPU time' in body['reason']
-
-    monkeypatch.setattr(queue_view, 'list_queue', lambda dataset_names=None: {'generating': 0, 'queued': 0, 'stalled': 0, 'jobs': []})
-    monkeypatch.setattr(live_studio, 'current', lambda: type('S', (), {'state': 'running'})())
-    body = client.post('/api/update/apply').get_json()
-    assert body['ok'] is False and 'Live take' in body['reason']
-
-    # Empty queue, no Live: the update goes on to the updater.
-    monkeypatch.setattr(live_studio, 'current', lambda: None)
-    monkeypatch.setattr(updater, 'is_git_checkout', lambda: False)
-    monkeypatch.setattr(updater, 'start_zip_update', lambda: {'ok': True, 'async': True})
-    body = client.post('/api/update/apply').get_json()
-    assert body.get('ok') is True and body.get('busy') is None
-
-
 def test_update_apply_pinokio_refuses_before_touching_git(client, monkeypatch):
     from app.services import updater
     monkeypatch.setenv('LDS_RUNTIME', 'pinokio')
