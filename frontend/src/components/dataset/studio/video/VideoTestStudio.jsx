@@ -46,6 +46,7 @@ import VideoSourcePicker from './VideoSourcePicker';
 import NeuralRenderDialog from '../../../videobank/NeuralRenderDialog';
 import SideBySideVideo from '../../../videobank/SideBySideVideo';
 import { shortLoraName } from './videoLoraGroups';
+import { readPromptDraft, writePromptDraft } from './videoPromptDraft';
 import {
   addFrames, failureNotice, generateLabel, perImagePrompts, queueClips, queuedNotice, releasePreview,
   removeFrame,
@@ -109,7 +110,10 @@ export default function VideoTestStudio() {
      a proposal from the picture alone. Written before anything is queued:
      the writer's window shuts once a clip sits in the queue. */
   const [promptMode, setPromptMode] = useState('same');
-  const [prompt, setPrompt] = useState('');
+  // Kept in this browser (2026-09-06): a reload, or a trip to another page,
+  // gives the field back as it was typed.
+  const [prompt, setPrompt] = useState(readPromptDraft);
+  useEffect(() => { writePromptDraft(prompt); }, [prompt]);
   const [opts, setOpts] = useState(DEFAULT_OPTIONS);
   const [clips, setClips] = useState([]);
   const [busy, setBusy] = useState(false);

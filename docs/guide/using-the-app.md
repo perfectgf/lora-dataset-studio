@@ -3811,6 +3811,11 @@ picture alone when the field is empty — the button counting *Writing prompt 2
 of 3…*; a picture the writer could not answer for launches with the prompt as
 typed, and the notice says which.
 
+The motion you typed is kept in this browser: a reload, or a trip to another
+page and back, gives the field back as it was — in every mode. Clearing the
+field clears what is kept; **↻ Reuse** and the ✨ writers write into the same
+field and are kept the same way.
+
 All of that writing happens in **one pass**, and the reason is worth knowing
 because it is the difference between a batch that takes a minute and one that
 takes twenty. Looking at a picture needs the GPU, and taking it means asking
