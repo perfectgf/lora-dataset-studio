@@ -83,6 +83,19 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-07-training-speed-levers',
+    date: '2026-09-07',
+    title: 'Trade memory back for time: batch size, quantisation backend, checkpointing and compile',
+    blurb:
+      'Local training was tuned to FIT — a 12B model in 24 GB — and four of those choices were '
+      + 'frozen where you could not reach them. Advanced options gains a Speed group: train 2 or 4 '
+      + 'images per step, switch gradient checkpointing off, pick the quantisation backend (the '
+      + 'default saves memory but cannot go faster; convrot8 quantises the activations too and does '
+      + 'the maths in int8), and try compiling the model. Defaults are unchanged, and each control '
+      + 'says what it costs.',
+    to: '/datasets?section=training',
+  },
+  {
     // Same-day ids sort the feed (date, then id): 'zzzzz' keeps this one above
     // the day's earlier entries, so the badge counts it (2026-09-06).
     id: '2026-09-06-zzzzz-comfyui-interrupt-second-press',

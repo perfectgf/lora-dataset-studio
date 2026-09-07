@@ -789,6 +789,34 @@ Defaults for new runs, plus everything about the optional cloud training lane.
 
 - **Default training family** → `training.default_family`. The model family preselected when you start a new run. One of `zimage`, `sdxl`, `krea`, `flux`, `flux2klein`, `anima`. Default **`zimage`**. Purely a starting point — you can switch family per run. `anima` trains the open [Anima](https://huggingface.co/circlestone-labs/Anima-Base-v1.0-Diffusers) anime model on its public base (no gated download); it is **local-only** for now (needs an up-to-date ai-toolkit + diffusers — cloud training arrives once the GPU pod image is verified). **Anima is the one family with hybrid prompting:** booru tags *and* natural language are both first-class on it, so the caption-style guard says nothing there — prose is merely the preselected default, and a booru-captioned Anima dataset trains without being flagged or forced. Every other family keeps its single expected form (SDXL = booru tags, the rest = prose).
 
+### Speed: what a step costs, and what it costs you to make it cheaper
+
+*Advanced options ▸ Speed.* The recipes are calibrated so a 12 billion parameter
+model fits in 24 GB. Fitting is not free, and until now the price was not yours
+to refuse. Four controls, all of them defaulting exactly where they were:
+
+- **Batch size** — images per optimizer step. Default **1**, which is what fits.
+  2 or 4 trains more images per step and is strictly faster per image when the
+  card has the room. It is not the same as *gradient accumulation*, which fakes a
+  bigger batch without the memory and without the speed.
+- **Quantisation backend** — only meaningful while quantisation is on above.
+  `qfloat8` (the default), `float8` and `int8` quantise the **weights only**: the
+  weight is promoted back to the compute type before every matrix multiply, so
+  they buy memory and cost a little speed. **`convrot8`** quantises the
+  activations too and performs the multiply in int8 on the tensor cores, which is
+  the one that can be genuinely faster. It needs an Ampere card or newer.
+- **Gradient checkpointing** — on by default. It recomputes activations instead of
+  keeping them: that is what makes a 12B model fit, and it costs compute on every
+  backward pass. Switching it off gives the time back and spends VRAM.
+- **Compile the model (experimental)** — passes `compile` to ai-toolkit. It is what
+  makes an 8-bit path pay, because the compiler can fuse those kernels. Treat it as
+  experimental here: ai-toolkit removed compilation from its own Krea 2 model file
+  because it fights gradient checkpointing and adapter swapping. If a run dies at
+  the first step, this is the first thing to turn off.
+
+A run records which of these it used, so two runs of the same dataset that differ
+only by speed settings stay comparable afterwards.
+
 ### Training base & variant are per FAMILY
 
 The **Base** and **variant** chosen in *Advanced training options* belong to the

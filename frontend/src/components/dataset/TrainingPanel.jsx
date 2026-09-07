@@ -684,6 +684,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // Non-null only when a saver THIS family's recipe relies on is switched off.
   // The server decides (one rule, shared with the preflight); the panel renders.
   const advMemRiskLine = memoryRiskLine(adv?.memory_risk, adv?.family_label);
+  // Speed levers — the other half of the memory group above. Those three were
+  // frozen at the values that make a 12B model fit in 24 GB; these decide what
+  // a step COSTS. The server sends the effective value, so the controls show
+  // what the next run will do rather than what happens to be stored.
+  const advBatch = adv?.batch_size ?? 1;
+  const advBatchChoices = adv?.batch_size_choices ?? [1, 2, 4];
+  const advGradCkpt = adv?.gradient_checkpointing !== false;
+  const advCompile = adv?.compile === true;
+  const advQtype = adv?.qtype ?? '';
+  const advQtypeChoices = adv?.qtype_choices ?? ['qfloat8', 'float8', 'int8', 'convrot8'];
+  const advQuantOn = Boolean(advMemEff.quantize || advMemEff.quantize_te);
   const LR_SCHED_LABELS = { constant: 'Constant (default)', constant_with_warmup: 'Warmup → constant', linear: 'Linear decay', cosine: 'Cosine decay', cosine_with_restarts: 'Cosine + restarts' };
   // The resolution the next run will actually train at. Slider mode defaults to
   // 768 only (the slider loss makes several prediction passes per step — much
@@ -3071,6 +3082,83 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   24 GB — quantisation costs precision and low-VRAM loading costs start-up time. If your card is
                   bigger than the target, you are paying for nothing.
                   <b className="text-content-muted font-medium"> How:</b> {advMemAdviceText}
+                </span>
+              </div>
+              {/* Speed — the other half of the memory group above. Same shape,
+                  same promise: defaults unchanged, the cost of each choice said
+                  out loud. These four decide what a STEP costs; the three above
+                  decide what it costs in memory. */}
+              <div className="flex flex-col gap-1" data-testid="adv-speed">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-content text-[0.75rem] w-28 shrink-0 inline-flex items-center gap-1">
+                    Speed<HelpBadge topic="training.speed" />
+                  </span>
+                  <span className="text-content-subtle text-[0.6875rem]">
+                    batch {advBatch}{advGradCkpt ? '' : ' · no checkpointing'}{advCompile ? ' · compiled' : ''}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-content-muted text-[0.75rem] w-28 shrink-0">Batch size</span>
+                    <select value={String(advBatch)}
+                      onChange={(e) => saveAdv({ batch_size: Number(e.target.value) })}
+                      aria-label="Training batch size"
+                      className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem]">
+                      {advBatchChoices.map((b) => (
+                        <option key={b} value={String(b)}>{b === 1 ? '1 (default)' : b}</option>
+                      ))}
+                    </select>
+                    <span className="text-content-subtle text-[0.625rem]">images per step</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-content-muted text-[0.75rem] w-28 shrink-0">Quantisation</span>
+                    <select value={advQtype} disabled={!advQuantOn}
+                      onChange={(e) => saveAdv({ qtype: e.target.value || 'auto' })}
+                      aria-label="Quantisation backend"
+                      className="px-2 py-1 rounded-lg border border-border bg-surface text-content text-[0.75rem] disabled:opacity-50">
+                      <option value="">Auto (qfloat8)</option>
+                      {advQtypeChoices.map((q) => (
+                        <option key={q} value={q}>
+                          {q === 'convrot8' ? 'convrot8 — int8, can be faster' : `${q} — weights only`}
+                        </option>
+                      ))}
+                    </select>
+                    {!advQuantOn && (
+                      <span className="text-content-subtle text-[0.625rem]">quantisation is off above</span>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer min-w-0">
+                    <input type="checkbox" checked={advGradCkpt}
+                      onChange={(e) => saveAdv({ gradient_checkpointing: e.target.checked })}
+                      aria-label="Gradient checkpointing"
+                      className="h-4 w-4 shrink-0 rounded border-border bg-surface accent-indigo-500" />
+                    <span className="text-content-muted text-[0.75rem] truncate">Gradient checkpointing</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer min-w-0">
+                    <input type="checkbox" checked={advCompile}
+                      onChange={(e) => saveAdv({ compile: e.target.checked })}
+                      aria-label="Compile the model (experimental)"
+                      className="h-4 w-4 shrink-0 rounded border-border bg-surface accent-indigo-500" />
+                    <span className="text-content-muted text-[0.75rem] truncate">
+                      Compile the model <span className="text-amber-300">(experimental)</span>
+                    </span>
+                  </label>
+                </div>
+                <span className="text-content-subtle text-[0.6875rem] leading-relaxed">
+                  <b className="text-content-muted font-medium">Why:</b> the recipes are tuned to FIT, not to be
+                  fast. Three of the four defaults here are the price of fitting a 12B model in 24 GB, and on a
+                  bigger card you are paying it for nothing.
+                  <b className="text-content-muted font-medium"> How:</b> <b className="text-content-muted font-medium">Batch size</b> 2
+                  or 4 trains more images per step — strictly faster per image when the card has room.
+                  {' '}<b className="text-content-muted font-medium">Quantisation</b>: the three weights-only backends
+                  save memory and cost a little speed (the weight is promoted back before every matrix multiply);
+                  <b> convrot8</b> quantises the activations too and runs the multiply in int8, which is the one that
+                  can be faster — it needs an Ampere card or newer.
+                  {' '}<b className="text-content-muted font-medium">Gradient checkpointing</b> off gives the time
+                  back and costs VRAM. <b className="text-content-muted font-medium">Compile</b> is what makes the
+                  8-bit paths pay, but ai-toolkit itself dropped compilation from its Krea 2 model because it fights
+                  checkpointing and adapter swapping — expect it to fail on some families, and turn it off if a run
+                  dies at the first step.
                 </span>
               </div>
               {/* Decoupled alpha */}
