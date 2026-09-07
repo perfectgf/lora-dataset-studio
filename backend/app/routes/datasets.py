@@ -949,8 +949,8 @@ def dataset_import(dataset_id):
     files = [f.read() for f in request.files.getlist('files') if f and f.filename]
     if not files:
         return jsonify({'error': 'no files'}), 400
-    if len(files) > 20:
-        return jsonify({'error': 'max 20 images per import'}), 400
+    if len(files) > svc.IMPORT_MAX_FILES:
+        return jsonify({'error': f'max {svc.IMPORT_MAX_FILES} images per import'}), 400
     # Head-crop OPTIONNEL (form field crop='0' → OFF) : un plan buste/corps importé
     # doit pouvoir rester tel quel — le crop tête carré systématique transformait
     # tout import en gros plan. Dataset CONCEPT ou STYLE : jamais de head-crop

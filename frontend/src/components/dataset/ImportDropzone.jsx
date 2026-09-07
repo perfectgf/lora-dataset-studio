@@ -17,6 +17,7 @@ import {
   importPolicyLine,
   preservesOriginalFiles,
 } from './importPolicy.js';
+import { importBatchLimits } from './importBatches.js';
 
 export default function ImportDropzone({ onImport, busy, visionBusy = false, cropOption = false, defaultCrop = true }) {
   const { caps } = useCapabilities();
@@ -31,9 +32,13 @@ export default function ImportDropzone({ onImport, busy, visionBusy = false, cro
   const [crop, setCrop] = useState(defaultCrop);
   const autoCropEnabled = cropOption && crop && !visionBusy;
 
+  const { maxFiles } = importBatchLimits(importPolicy);
+
   const handle = (files) => {
     if (busy) return; // drop events bypass pointer-events-none — guard here too (I2)
-    if (files && files.length) onImport(files, { crop: cropOption ? crop && !visionBusy : false });
+    // `policy` rides along so the hook can split the drop by the SERVER's two
+    // limits (files and bytes per request) instead of a copy kept here.
+    if (files && files.length) onImport(files, { crop: cropOption ? crop && !visionBusy : false, policy: importPolicy });
   };
 
   return (
@@ -62,6 +67,7 @@ export default function ImportDropzone({ onImport, busy, visionBusy = false, cro
           <span>WebP normalization resizes and re-encodes eligible imports.</span>
         )}
         <span>Files larger than {inputLimit} are rejected — resize before importing, or raise the budget.</span>
+        <span>A big drop is sent in batches of {maxFiles} files.</span>
         <SettingsLink section="captioning" focus="dataset-import-encoding">Change storage mode</SettingsLink>
         <SettingsLink section="captioning" focus="image-input-max-pixels">Change size budget</SettingsLink>
       </span>

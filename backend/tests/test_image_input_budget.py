@@ -315,3 +315,24 @@ def _restore_pillow_bomb_threshold():
     saved = Image.MAX_IMAGE_PIXELS
     yield
     Image.MAX_IMAGE_PIXELS = saved
+
+
+def test_the_capabilities_payload_publishes_the_request_limits_the_dropzone_batches_by(client):
+    """A drop used to go up as ONE request and meet a bare 413 from five to
+    eight high-resolution photos (_nofaceman, Discord). The dropzone now splits
+    a drop by the server's two limits — and reads them from here, never from a
+    copy kept in the front."""
+    from app.services import face_dataset_service as fds
+    capability = client.get('/api/capabilities').get_json()['dataset_import']
+    assert capability['max_files_per_request'] == fds.IMPORT_MAX_FILES == 20
+    assert capability['max_request_bytes'] == 64 * 1024 * 1024
+
+
+def test_the_import_route_and_the_capability_share_one_file_cap(app):
+    """The route's refusal and the published limit cannot drift apart: both
+    read IMPORT_MAX_FILES."""
+    import inspect
+    from app.routes import datasets as routes
+    from app import capabilities
+    assert 'svc.IMPORT_MAX_FILES' in inspect.getsource(routes.dataset_import)
+    assert '_fds.IMPORT_MAX_FILES' in inspect.getsource(capabilities._dataset_import_policy)

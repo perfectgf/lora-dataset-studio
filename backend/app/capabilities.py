@@ -267,12 +267,22 @@ def _dataset_import_policy() -> dict:
     config, not capabilities."""
     from .services import face_dataset_service as _fds
     p = _fds.import_encode_policy()
+    # The two halves of "how big a drop can one request carry": the dropzone
+    # splits a drop by both BEFORE sending, so a stack of high-resolution
+    # photos never meets the bare 413 it used to (_nofaceman, Discord). Read
+    # from the app config when a context is up; the shipped default otherwise,
+    # so a probe from a background thread still publishes the number.
+    max_request_bytes = (int(current_app.config['MAX_CONTENT_LENGTH'])
+                         if has_app_context() and current_app.config.get('MAX_CONTENT_LENGTH')
+                         else 64 * 1024 * 1024)
     return {'max_side': p['max_side'], 'encoding': p['encoding'],
             'capped': p['capped'], 'ceiling': p['ceiling'],
             'input_max_side': p['input_max_side'],
             'input_max_pixels': p['input_max_pixels'],
             'preserve_max_side': p['preserve_max_side'],
-            'preserve_max_pixels': p['preserve_max_pixels']}
+            'preserve_max_pixels': p['preserve_max_pixels'],
+            'max_files_per_request': _fds.IMPORT_MAX_FILES,
+            'max_request_bytes': max_request_bytes}
 
 
 def comfyui_down_message(status, waited) -> str:

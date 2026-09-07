@@ -71,7 +71,10 @@ test('the dropzone reads the live policy, filters exactly the supported formats,
 test('manual import makes server-side file refusals actionable instead of silently succeeding', () => {
   const importFiles = datasetHook.slice(datasetHook.indexOf('const importFiles ='),
     datasetHook.indexOf('// Concept only'));
-  assert.match(importFiles, /if \(d\.failed\) toast\.warning\(/);
+  // `failed` is summed across the batches a drop is sent in (one request per
+  // 20 files / ~64 MiB), so the refusal count is the drop's, not one batch's.
+  assert.match(importFiles, /if \((?:d\.)?failed\) toast\.warning\(/);
+  assert.match(importFiles, /failed \+= d\.failed \|\| 0/);
   assert.match(importFiles, /JPEG, PNG, WebP or BMP/);
   // No literal limit here any more: the budget is a setting, so the toast points
   // at it instead of carrying a copy that goes stale the moment it is changed.

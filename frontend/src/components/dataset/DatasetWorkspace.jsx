@@ -1414,7 +1414,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <div id="gf-reference" className="scroll-mt-20 flex flex-col gap-2">
                 {scrapeLink}
                 <div id="ds-add-import" tabIndex={-1} className="scroll-mt-20">
-                  <ImportDropzone onImport={(f) => ds.importFiles(f)} busy={importBusy} visionBusy={visionImportBusy} />
+                  <ImportDropzone onImport={(f, o) => ds.importFiles(f, { policy: o?.policy })} busy={importBusy} visionBusy={visionImportBusy} />
                 </div>
                 {bankImport}
               </div>

@@ -6772,6 +6772,12 @@ def import_dataset_folder(user_id, dataset_id, folder, stats=None):
 # porté (cette app ne scrape que pour construire des datasets concept). Filtres :
 # dedup perceptuel + résolution + ratio = les 3 filtres « toujours rentables » ;
 # flou/watermark restent une décision HUMAINE (la sélection dans la grille de scan).
+# Files per /import request. Published in the `dataset_import` capability so the
+# dropzone splits a big drop into batches of this size BEFORE sending — the
+# request ceiling (MAX_CONTENT_LENGTH, 64 MiB) is the other half of that split:
+# five to eight high-resolution body shots in one request answered a bare 413
+# "upload too large", with nothing saying why (_nofaceman, Discord).
+IMPORT_MAX_FILES = 20
 SCRAPE_IMPORT_MAX = 60             # cap par import (download synchrone parallélisé)
 SCRAPE_IMPORT_MIN_SIDE = 768       # ai-toolkit ne fait que downscaler : 768 reste exploitable
 SCRAPE_IMPORT_MAX_RATIO = 3.0      # au-delà de 3:1, aucun bucket trainer ne gère proprement

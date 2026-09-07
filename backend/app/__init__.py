@@ -693,7 +693,16 @@ def create_app(config_object=None):
                 'ok': False,
                 'error': f'archive too large (maximum {limit // (1024 * 1024)} MiB)',
             }), 413
-        return jsonify({'ok': False, 'error': 'upload too large'}), 413
+        # Name the numbers: "upload too large" alone sent people resizing
+        # single photos when the whole DROP was the problem — five to eight
+        # high-resolution body shots in one request (_nofaceman, Discord). The
+        # dropzone now batches by these same figures; this is the belt.
+        size, limit = request.content_length, request.max_content_length
+        detail = ''
+        if size and limit:
+            detail = (f': this request is {size / (1024 * 1024):.1f} MiB, the server takes '
+                      f'{limit / (1024 * 1024):.1f} MiB per request — drop fewer files at a time')
+        return jsonify({'ok': False, 'error': 'upload too large' + detail}), 413
 
     with app.app_context():
         from . import models  # noqa: F401

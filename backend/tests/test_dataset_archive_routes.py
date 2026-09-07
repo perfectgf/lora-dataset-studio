@@ -259,7 +259,12 @@ def test_ordinary_endpoints_keep_the_plain_ceiling(app, client, monkeypatch):
     response = client.post('/api/ordinary-upload', data=b'x' * 1024)
 
     assert response.status_code == 413
-    assert response.get_json()['error'] == 'upload too large'
+    error = response.get_json()['error']
+    assert error.startswith('upload too large')
+    # …and it names the numbers: a bare "too large" sent people resizing single
+    # photos when the whole drop was over the ceiling (_nofaceman, Discord).
+    assert 'this request is 0.0 MiB' in error and 'the server takes 0.0 MiB per request' in error
+    assert 'drop fewer files' in error
 
 
 def test_backup_metadata_cap_is_checked_before_inflation(app, monkeypatch):
