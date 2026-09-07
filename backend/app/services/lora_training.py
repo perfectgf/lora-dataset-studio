@@ -720,12 +720,14 @@ def assert_interpreter_ready() -> None:
     would be a worse bug than the one this fixes. RuntimeError -> 409 (a backend
     availability problem, not a bad request).
 
-    The second question is asked with the same rule: torch imports, but can it
-    SEE the card? A CPU-only wheel, a CUDA build the driver cannot serve or a
-    hidden card all answer `torch.cuda.is_available()` False, and ai-toolkit —
-    whose device comes from Hugging Face Accelerate, not from the job config —
-    then trains on the CPU in silence: three runs of Krea 2 on an RTX 3090 that
-    never put a byte on the card, ETA 300 hours (acontentsheltie, Discord)."""
+    The second question is asked with the same rule: torch imports, but will
+    the run land on the card? ai-toolkit takes its device from Hugging Face
+    Accelerate, not from the job config, and Accelerate falls back to the CPU
+    in silence when torch cannot see a card (CPU-only wheel, CUDA build the
+    driver cannot serve, hidden card) or when its own switches point there —
+    three runs of Krea 2 on an RTX 3090 that never put a byte on the card, ETA
+    300 hours (acontentsheltie, Discord). The probe asks Accelerate itself, in
+    the ai-toolkit folder, with its `.env` loaded, exactly as `run.py` does."""
     from .. import capabilities
     from .training_diagnostics import fix_line, interpreter_verdict, torch_cuda_verdict
     try:

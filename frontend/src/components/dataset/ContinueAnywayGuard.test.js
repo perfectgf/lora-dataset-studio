@@ -39,7 +39,9 @@ test('the preflight gate lets a bypassable blocker through only with the ack', (
   // the launch buttons (nothing is open to show it in), the still-open ▶ Continue
   // dialog when it passes onRefused — so a refused continuation no longer throws
   // away the lane, the checkpoint and the settings that were picked.
-  assert.match(panel, /if \(onRefused\) onRefused\(msg\); else toast\.error\(msg\);/);
+  // (The toast may carry a duration: a blocker that ends with a pip line to
+  // paste stays 20 s instead of 6 — the refusal is still SAID, on the same path.)
+  assert.match(panel, /if \(onRefused\) onRefused\(msg\); else toast\.error\(msg(?:, [^)]+)?\);/);
 });
 
 test('every launch lane carries allow_not_ready when acknowledged', () => {

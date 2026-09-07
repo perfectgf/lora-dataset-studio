@@ -1421,7 +1421,11 @@ export function useDataset() {
     else if (!String(d.error || '').includes('MISMATCH_CAPTION')
              && !String(d.error || '').includes('UNCAPTIONED')
              && !String(d.error || '').includes('CAPTION_QUALITY')) {
-      toast.error(d.error || 'Unexpected error');
+      // A refusal that carries its own fix (the interpreter and torch gates
+      // end with a pip line to paste) needs longer than the 6 s default: it
+      // has to be read AND copied. Short refusals keep the default.
+      const msg = d.error || 'Unexpected error';
+      toast.error(msg, msg.length > 200 ? 20000 : undefined);
     }
     return d;
   }, [currentId, toast]);

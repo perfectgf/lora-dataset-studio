@@ -1017,7 +1017,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         // impossibility (can_override false) always stops here.
         if (!(d.can_override && allowNotReady)) {
           const msg = d.blockers.join('\n');
-          if (onRefused) onRefused(msg); else toast.error(msg);
+          // A blocker that carries its own fix (a pip line to paste) needs
+          // longer than the 6 s default — it has to be read and copied.
+          if (onRefused) onRefused(msg); else toast.error(msg, msg.length > 200 ? 20000 : undefined);
           return false;
         }
       }

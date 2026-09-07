@@ -813,9 +813,12 @@ def probe_aitoolkit_test() -> dict:
     # (acontentsheltie, Discord, RTX 3090). Same rule as above: an UNKNOWN probe
     # keeps the green — a machine with no NVIDIA card has nothing to miss, and
     # a cold-import timeout is not a verdict.
-    from .services.training_diagnostics import fix_line, torch_cuda_verdict
-    cuda = torch_cuda_verdict(aitoolkit_torch_info(),
-                              venv_python=cfg.aitoolkit_path('venv_python'))
+    try:
+        from .services.training_diagnostics import fix_line, torch_cuda_verdict
+        cuda = torch_cuda_verdict(aitoolkit_torch_info(),
+                                  venv_python=cfg.aitoolkit_path('venv_python'))
+    except Exception:
+        return result      # a probe that broke is not a red Test — same rule as the launch gate
     if cuda and not cuda['available']:
         return {**result, 'ok': False, 'detail': cuda['message'] + fix_line(cuda['command'])}
     return result
@@ -1561,57 +1564,99 @@ def gpu_vram_gb():
 #  * whether it can see the GPU AT ALL: a CPU-only wheel (a plain `pip install
 #    torch` on Windows), a CUDA build newer than the NVIDIA driver, or a card
 #    hidden by CUDA_VISIBLE_DEVICES all answer `is_available()` False — and
-#    ai-toolkit takes its device from Hugging Face Accelerate, which then picks
-#    the CPU without a word (the `device: cuda:0` in the job config decides
-#    nothing). The run "works": the card stays empty, system RAM fills, the
-#    ETA reads in the hundreds of hours. Reported by acontentsheltie (Discord,
-#    RTX 3090): three logs with block quantisation at 3.6 s/block instead of
-#    about one, latent caching never past 0/26, VRAM at 0.8 GB throughout.
+#    ai-toolkit takes its device from Hugging Face Accelerate (since 5e663746,
+#    2025-01-25, before Krea 2 existed), which then picks the CPU without a
+#    word (the `device: cuda:0` in the job config decides nothing). The run
+#    "works": the card stays empty, system RAM fills, the ETA reads in the
+#    hundreds of hours. Reported by acontentsheltie (Discord, RTX 3090): three
+#    logs where latent caching never got past image 1 and VRAM sat at 0.8 GB
+#    throughout. (The 3.6 s per quantised block in those logs is NOT a tell:
+#    measured, the device changes that loop by 0.06 s — it is the safetensors
+#    paging in from disk, 0.2 GB/s there against 0.7 GB/s on our bench.)
+#
+# The probe asks the venv the exact question ai-toolkit asks, in the exact
+# conditions: `run.py` loads `<ai-toolkit>/.env` before anything else, so a
+# `CUDA_VISIBLE_DEVICES=-1` or an `ACCELERATE_USE_CPU=1` kept there hides the
+# card from the run and from nothing else — the probe runs from that folder
+# and loads the same file, then reads `Accelerator().device` itself, because
+# three environment variables send Accelerate to the CPU while
+# `is_available()` still answers True (measured, 2026-09-07).
 #
 # COST DISCIPLINE. `import torch` in a cold venv costs seconds, so the probe is
 # gated behind a ~100 ms nvidia-smi read: a machine with no NVIDIA card seen has
 # nothing the venv's torch could miss and pays nothing. The second trap is
 # card-agnostic, so every card with a configured ai-toolkit pays the import —
-# ONCE: the answer is cached 10 min, and a venv does not change between two
-# runs. (Until 2026-09-07 the gate skipped everything below compute 10.0, so a
-# 3090 training on its CPU for days was never noticed by the app.)
+# ONCE: a venv that sees the card is remembered 10 min (a venv does not change
+# between two runs); anything else only _UNKNOWN_TTL, see _torch_probe_ttl.
+# (Until 2026-09-07 the gate skipped everything below compute 10.0, so a 3090
+# training on its CPU for days was never noticed by the app.)
 _cc_cache = {'ts': 0.0, 'cc': None}
 _TORCH_PROBE_TTL = 600
-_torch_probe_cache = {}   # interpreter path -> (ts, info)
+_torch_probe_cache = {}   # interpreter path -> (ts, info | None)
 
 # The probe captures torch's OWN reason when the card cannot be opened ("The
 # NVIDIA driver on your system is too old…"): torch says it as a warning at the
 # first `is_available()`, and quoting it beats guessing. `torchvision` is read
-# so a remedy can pin the pair the venv already resolved everything else
-# against; it is best-effort (None when absent or broken).
+# from the dist-info (importlib.metadata), never imported: a torchvision built
+# against another torch dies at import, and one process death would silence
+# BOTH verdicts (this one and the Blackwell one). `accelerator_device` is what
+# ai-toolkit will actually train on; best-effort (None when accelerate is not
+# importable), and an Accelerator() with no distributed setup costs ~0.1 s.
 _TORCH_PROBE_CODE = (
-    'import json, warnings, torch\n'
-    'cap = name = tv = None\n'
+    'import json, warnings\n'
+    'try:\n'
+    '    from dotenv import load_dotenv\n'
+    '    load_dotenv()\n'
+    'except Exception:\n'
+    '    pass\n'
+    'import torch\n'
+    'cap = name = tv = accel = None\n'
     'avail = False\n'
     'reason = ""\n'
     'with warnings.catch_warnings(record=True) as caught:\n'
     '    warnings.simplefilter("always")\n'
     '    try:\n'
-    '        avail = bool(torch.cuda.is_available())\n'
+    '        avail = bool(torch.cuda.is_available()) and torch.cuda.device_count() > 0\n'
     '        if avail:\n'
     '            cap = list(torch.cuda.get_device_capability(0))\n'
     '            name = torch.cuda.get_device_name(0)\n'
     '    except Exception as e:\n'
+    '        avail = False\n'
     '        reason = str(e)\n'
     '    if not avail and not reason:\n'
     '        reason = " ".join(str(w.message) for w in caught\n'
     '                          if "CUDA" in str(w.message))[:400]\n'
     'try:\n'
-    '    import torchvision\n'
-    '    tv = torchvision.__version__\n'
+    '    from importlib.metadata import version\n'
+    '    tv = version("torchvision")\n'
+    'except Exception:\n'
+    '    pass\n'
+    'try:\n'
+    '    from accelerate import Accelerator\n'
+    '    accel = str(Accelerator().device)\n'
     'except Exception:\n'
     '    pass\n'
     'print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda,\n'
     '                  "cuda_available": avail, "cuda_reason": reason,\n'
     '                  "capability": cap, "device_name": name,\n'
     '                  "arch_list": list(torch.cuda.get_arch_list()),\n'
-    '                  "torchvision": tv}))\n'
+    '                  "torchvision": tv, "accelerator_device": accel}))\n'
 )
+
+
+def _torch_probe_ttl(info) -> float:
+    """How long a probe answer is trusted. A venv that SEES the card, with
+    Accelerate resolving to it, is remembered _TORCH_PROBE_TTL (a venv does not
+    change between two runs). Everything else — an unanswered probe, a torch
+    that cannot open the card, an Accelerate pointed at the CPU — only
+    _UNKNOWN_TTL: an unknown is never a fact, and a refusal must not outlive a
+    transient CUDA hiccup (a driver reset after an update) by ten minutes
+    while telling someone to reinstall torch. The short TTL still spares the
+    caller a fresh cold import on every preflight of the same minute."""
+    if not isinstance(info, dict) or not info.get('cuda_available'):
+        return _UNKNOWN_TTL
+    dev = str(info.get('accelerator_device') or 'cuda')
+    return _TORCH_PROBE_TTL if dev.startswith('cuda') else _UNKNOWN_TTL
 
 
 def gpu_compute_capability():
@@ -1636,12 +1681,14 @@ def gpu_compute_capability():
     return cc
 
 
-def _torch_probe(python: str, timeout=90):
+def _torch_probe(python: str, timeout=90, cwd=None):
     """Raw torch facts from `python`, as a dict, or None. None is UNKNOWN — torch
-    not importable, interpreter broken, cold-import timeout — never a claim."""
+    not importable, interpreter broken, cold-import timeout — never a claim.
+    `cwd` is the ai-toolkit folder when known, so the probe's `load_dotenv()`
+    finds the same `.env` that `run.py` loads before training."""
     try:
         proc = subprocess.run([python, '-c', _TORCH_PROBE_CODE],
-                              capture_output=True, text=True, timeout=timeout,
+                              capture_output=True, text=True, timeout=timeout, cwd=cwd,
                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except Exception:
         return None
@@ -1668,11 +1715,13 @@ def aitoolkit_torch_info():
     key = str(python)
     now = time.time()
     hit = _torch_probe_cache.get(key)
-    if hit and (now - hit[0]) < _TORCH_PROBE_TTL:
+    if hit and (now - hit[0]) < _torch_probe_ttl(hit[1]):
         return hit[1]
-    info = _torch_probe(key)
-    if info is None:
-        return None      # a cold-import timeout must not be cached as a fact
+    aitk_dir = cfg.aitoolkit_path('dir')
+    info = _torch_probe(key, cwd=str(aitk_dir) if aitk_dir and Path(aitk_dir).is_dir() else None)
+    # None (a cold-import timeout) is remembered too — briefly, never as a
+    # fact: two callers in one preflight, or two preflights in one minute, must
+    # not each pay a fresh 90 s import for the same unanswered question.
     _torch_probe_cache[key] = (now, info)
     return info
 

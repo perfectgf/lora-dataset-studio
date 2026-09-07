@@ -137,7 +137,7 @@ def test_cloud_verdict_ignores_a_machine_only_complaint(app, tmp_path):
 # see the card. Same probe, same lane rule as the two rows above.
 CPU_ONLY = {'torch': '2.13.0+cpu', 'cuda': None, 'cuda_available': False, 'cuda_reason': '',
             'capability': None, 'device_name': None, 'arch_list': [],
-            'torchvision': '0.28.0+cpu'}
+            'torchvision': '0.28.0+cpu', 'accelerator_device': 'cpu'}
 
 
 def test_the_cpu_only_torch_row_blocks_locally_and_vanishes_in_the_cloud(app, tmp_path):

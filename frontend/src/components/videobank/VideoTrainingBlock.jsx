@@ -159,7 +159,10 @@ export default function VideoTrainingBlock({ ds, onSaveCount, refreshKey = 0 }) 
           return startLocal(true)
         }
       } else {
-        toast.error(e?.message || 'Could not start training.')
+        // A refusal that carries its own fix (a pip line to paste) needs
+        // longer than the 6 s default — it has to be read and copied.
+        const msg = e?.message || 'Could not start training.'
+        toast.error(msg, msg.length > 200 ? 20000 : undefined)
       }
     } finally {
       setBusyLocal(false)

@@ -458,11 +458,12 @@ def test_the_test_button_stays_green_on_an_unanswered_probe(app, tmp_path):
 
 _CPU_ONLY_TORCH = {'torch': '2.13.0+cpu', 'cuda': None, 'cuda_available': False,
                    'cuda_reason': '', 'capability': None, 'device_name': None,
-                   'arch_list': [], 'torchvision': '0.28.0+cpu'}
+                   'arch_list': [], 'torchvision': '0.28.0+cpu', 'accelerator_device': 'cpu'}
 _AMPERE_TORCH = {'torch': '2.9.1+cu128', 'cuda': '12.8', 'cuda_available': True,
                  'cuda_reason': '', 'capability': [8, 6],
                  'device_name': 'NVIDIA GeForce RTX 3090',
-                 'arch_list': ['sm_80', 'sm_86', 'sm_90'], 'torchvision': '0.24.1+cu128'}
+                 'arch_list': ['sm_80', 'sm_86', 'sm_90'], 'torchvision': '0.24.1+cu128',
+                 'accelerator_device': 'cuda'}
 
 def test_the_test_button_goes_red_when_torch_cannot_see_the_card(app, tmp_path):
     """torch imports, and that used to be the whole test — while the venv's torch
