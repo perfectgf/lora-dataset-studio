@@ -29,13 +29,30 @@ test('the limits come from the capability, with the shipped defaults as a rollin
   assert.equal(importBatchLimits({ max_files_per_request: 'x', max_request_bytes: -1 }).maxFiles, 20);
 });
 
-test('the reported case: eight 12 MiB body shots go up as two requests, not one 413', () => {
+test('the reported case goes up in ONE request against a backend that raised its import ceiling', () => {
+  // 8 × 12 = 96 MiB. The import route takes 512 MiB — a photo drop is a local
+  // file copy, not a stranger's upload — so nothing is split by bytes here.
+  const drop = Array.from({ length: 8 }, (_, i) => file(`body${i}.jpg`, 12));
+  const { batches, oversized } = planImportBatches(drop, { max_request_bytes: 512 * MiB });
+  assert.equal(oversized.length, 0);
+  assert.deepEqual(batches.map((b) => b.length), [8]);
+});
+
+test('against an OLD backend that publishes no ceiling, the same drop is split rather than refused', () => {
   const drop = Array.from({ length: 8 }, (_, i) => file(`body${i}.jpg`, 12));
   const { batches, oversized } = planImportBatches(drop);
   assert.equal(oversized.length, 0);
   // 63 MiB budget: 5 × 12 = 60 fits, the 6th would make 72.
   assert.deepEqual(batches.map((b) => b.length), [5, 3]);
   assert.deepEqual(names(batches[0]), ['body0.jpg', 'body1.jpg', 'body2.jpg', 'body3.jpg', 'body4.jpg']);
+});
+
+test('the file count still closes a batch at the raised ceiling: the vision pass is the real bound', () => {
+  // 30 small photos, 512 MiB of room: the split is 20 + 10, because with auto
+  // head-crop each image costs a vision pass that holds ComfyUI for the batch.
+  const drop = Array.from({ length: 30 }, (_, i) => file(`p${i}.jpg`, 2));
+  const { batches } = planImportBatches(drop, { max_request_bytes: 512 * MiB });
+  assert.deepEqual(batches.map((b) => b.length), [20, 10]);
 });
 
 test('a batch also closes on the file count, and order is preserved across batches', () => {

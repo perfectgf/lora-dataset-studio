@@ -118,6 +118,18 @@ _DATASET_ARCHIVE_UPLOAD_ENDPOINTS = frozenset({
     'backup.full_restore',
 })
 
+# Photos dropped into a dataset are the same kind of legitimately large upload,
+# and this app is not a public service: the files come off the user's own disk,
+# on their own machine. The generic 64 MiB ceiling is a web default written for
+# a stranger's client, and applying it here refused five to eight body shots
+# with "upload too large" (_nofaceman, Discord). What DOES bound this route is
+# its own rule — 20 files per import, because with auto head-crop each image
+# goes through a vision pass that holds ComfyUI for the whole batch. So the
+# ceiling only has to cover twenty photographs: 512 MiB is 25 MiB each, past
+# any camera master, and the env var is there for someone who shoots bigger.
+_DEFAULT_DATASET_IMPORT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+_DATASET_IMPORT_UPLOAD_ENDPOINTS = frozenset({'datasets.dataset_import'})
+
 
 class ArchiveAwareRequest(Request):
     """Give the archive-upload endpoints — and only them — a raised ceiling.
@@ -151,6 +163,8 @@ class ArchiveAwareRequest(Request):
             overhead = max(0, int(
                 current_app.config['DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES']))
             return archive_max + overhead
+        if self.endpoint in _DATASET_IMPORT_UPLOAD_ENDPOINTS and current_app:
+            return int(current_app.config['DATASET_IMPORT_MAX_UPLOAD_BYTES'])
         return super().max_content_length
 
     @max_content_length.setter
@@ -653,6 +667,11 @@ def create_app(config_object=None):
             _DEFAULT_DATASET_ARCHIVE_MAX_UPLOAD_BYTES),
         DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES=(
             _DEFAULT_DATASET_ARCHIVE_MULTIPART_OVERHEAD_BYTES),
+        # The photo-import ceiling (see _DEFAULT_DATASET_IMPORT_MAX_UPLOAD_BYTES):
+        # a local drop of twenty photographs, not a stranger's request.
+        DATASET_IMPORT_MAX_UPLOAD_BYTES=_positive_env_int(
+            'LDS_DATASET_IMPORT_MAX_UPLOAD_BYTES',
+            _DEFAULT_DATASET_IMPORT_MAX_UPLOAD_BYTES),
         DATASET_ARCHIVE_SPOOL_MEMORY_BYTES=8 * 1024 * 1024,
     )
     app.config.update(config_object or {})

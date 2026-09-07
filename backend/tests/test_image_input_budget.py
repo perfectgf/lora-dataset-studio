@@ -325,7 +325,7 @@ def test_the_capabilities_payload_publishes_the_request_limits_the_dropzone_batc
     from app.services import face_dataset_service as fds
     capability = client.get('/api/capabilities').get_json()['dataset_import']
     assert capability['max_files_per_request'] == fds.IMPORT_MAX_FILES == 20
-    assert capability['max_request_bytes'] == 64 * 1024 * 1024
+    assert capability['max_request_bytes'] == 512 * 1024 * 1024   # the IMPORT ceiling, not the generic web default
 
 
 def test_the_import_route_and_the_capability_share_one_file_cap(app):

@@ -14,7 +14,12 @@
  * .jsx, and the packing rule is the whole point, so it gets locked by a test.
  */
 export const IMPORT_FALLBACK_MAX_FILES = 20;                         // = IMPORT_MAX_FILES server-side
-export const IMPORT_FALLBACK_MAX_REQUEST_BYTES = 64 * 1024 * 1024;   // = MAX_CONTENT_LENGTH server-side
+// The ceiling of a backend that does NOT publish its own — i.e. one from before
+// the import route got a raised ceiling, where the generic 64 MiB applied. A
+// current backend publishes `max_request_bytes` (512 MiB by default, because a
+// photo drop is a local file copy, not a stranger's upload) and that is what
+// gets used; this value only ever serves a rolling update.
+export const IMPORT_FALLBACK_MAX_REQUEST_BYTES = 64 * 1024 * 1024;
 // Multipart framing (boundaries, part headers, file names) rides in the same
 // request: leave it room under the ceiling rather than measuring it.
 export const IMPORT_MULTIPART_HEADROOM_BYTES = 1024 * 1024;

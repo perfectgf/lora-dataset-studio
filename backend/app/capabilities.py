@@ -272,9 +272,14 @@ def _dataset_import_policy() -> dict:
     # photos never meets the bare 413 it used to (_nofaceman, Discord). Read
     # from the app config when a context is up; the shipped default otherwise,
     # so a probe from a background thread still publishes the number.
-    max_request_bytes = (int(current_app.config['MAX_CONTENT_LENGTH'])
-                         if has_app_context() and current_app.config.get('MAX_CONTENT_LENGTH')
-                         else 64 * 1024 * 1024)
+    # The ceiling of the IMPORT route, not the app-wide one: photos coming off
+    # the user's own disk get a raised ceiling (like archive imports do), and a
+    # dropzone told the generic 64 MiB would split a drop the app would have
+    # taken whole. Falls back to the shipped default outside an app context.
+    max_request_bytes = (int(current_app.config['DATASET_IMPORT_MAX_UPLOAD_BYTES'])
+                         if has_app_context()
+                         and current_app.config.get('DATASET_IMPORT_MAX_UPLOAD_BYTES')
+                         else 512 * 1024 * 1024)
     return {'max_side': p['max_side'], 'encoding': p['encoding'],
             'capped': p['capped'], 'ceiling': p['ceiling'],
             'input_max_side': p['input_max_side'],
