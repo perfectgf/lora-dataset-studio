@@ -813,13 +813,11 @@ def probe_aitoolkit_test() -> dict:
     # (acontentsheltie, Discord, RTX 3090). Same rule as above: an UNKNOWN probe
     # keeps the green — a machine with no NVIDIA card has nothing to miss, and
     # a cold-import timeout is not a verdict.
-    from .services.training_diagnostics import torch_cuda_verdict
+    from .services.training_diagnostics import fix_line, torch_cuda_verdict
     cuda = torch_cuda_verdict(aitoolkit_torch_info(),
                               venv_python=cfg.aitoolkit_path('venv_python'))
     if cuda and not cuda['available']:
-        return {**result, 'ok': False,
-                'detail': cuda['message'] + (f' Fix: {cuda["command"]}'
-                                             if cuda['command'] else '')}
+        return {**result, 'ok': False, 'detail': cuda['message'] + fix_line(cuda['command'])}
     return result
 
 

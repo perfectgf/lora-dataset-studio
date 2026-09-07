@@ -223,8 +223,9 @@ its device from Hugging Face Accelerate, which falls back to the CPU without a
 word when `torch.cuda.is_available()` is False — the `device: cuda:0` line in
 the job config decides nothing.
 
-**Check it in one line**, with the venv's own Python (the interpreter shown on
-the ai-toolkit card in Settings ▸ Local tools):
+**Check it in one line**, with the venv's own Python. Replace
+`<ai-toolkit venv python>`, angle brackets included, with the interpreter path
+shown on the ai-toolkit card in Settings ▸ Local tools:
 
 ```
 <ai-toolkit venv python> -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
@@ -235,7 +236,9 @@ False` is the CPU-only wheel; `+cu130 13.0 False` is a CUDA build the driver
 cannot serve (update the driver, or install the cu128 build below).
 
 **Fix.** Install the CUDA build of the same PyTorch, keeping the versions the
-venv already has:
+venv already has (the two `<version>` are the ones the check printed for torch,
+and the matching torchvision from `pip show torchvision`, both without the
+`+cpu` / `+cu130` tag):
 
 ```
 <ai-toolkit venv python> -m pip install --force-reinstall --no-deps torch==<version> torchvision==<version> --index-url https://download.pytorch.org/whl/cu128
@@ -245,10 +248,12 @@ Keep `--no-deps`: the PyTorch index replaces PyPI for that command, and without
 it pip re-resolves numpy from there and breaks every extension compiled against
 numpy 2 (`numpy.dtype size changed`).
 
-The app now asks this question before every local run: the readiness list
-shows a red **PyTorch can see the GPU** row with that pip line, the launch is
-refused with the same sentence, and Settings ▸ Local tools ▸ ai-toolkit ▸
-**Test** says it too. Reported by acontentsheltie (Discord, RTX 3090).
+The app now asks this question before every local run. Unfold the readiness
+card and a red **PyTorch can see the GPU** row names the problem; the launch
+is refused with the full explanation and a pip line ready to paste (the
+versions filled in, the path written for PowerShell); and Settings ▸ Local
+tools ▸ ai-toolkit ▸ **Test** says it too. Reported by acontentsheltie
+(Discord, RTX 3090).
 
 ## ai-toolkit isn't detected (conda / uv / no venv)
 

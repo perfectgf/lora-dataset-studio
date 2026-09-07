@@ -11,7 +11,7 @@ harmless huggingface_hub `FutureWarning`. Hours lost on a deprecation notice.
 from unittest.mock import patch
 
 from app.services.training_diagnostics import (
-    CU128_INDEX_URL, MAX_EXCERPT_LINES, extract_error_excerpt, gated_repo_verdict,
+    CU128_INDEX_URL, MAX_EXCERPT_LINES, extract_error_excerpt, fix_line, gated_repo_verdict,
     torch_arch_verdict, torch_cuda_verdict, torch_reinstall_command,
 )
 
@@ -168,6 +168,10 @@ def test_blackwell_on_a_stable_wheel_is_diagnosed_with_the_cu128_remedy():
     # the PyTorch index and breaks every extension compiled against numpy 2.
     assert '--no-deps' in v['command']
     assert 'somebody' not in v['command']       # paste-safe like everything else
+    # …and RUNNABLE: a venv under the profile is spelled the way PowerShell
+    # both hides the account name and executes it (a bare "<path>" is a parse
+    # error there, and no Windows shell expands the `~` of the redaction).
+    assert v['command'].startswith('& "$env:USERPROFILE\\ai-toolkit\\venv\\Scripts\\python.exe" -m pip')
 
 
 # --- torch_cuda_verdict ---------------------------------------------------
@@ -186,6 +190,40 @@ def test_a_cpu_only_wheel_is_named_and_gets_the_cuda_build_of_the_same_torch():
     # `+cpu` tag names the build being replaced and never reaches pip.
     assert 'torch==2.13.0 torchvision==0.28.0' in cmd and '+cpu' not in cmd
     assert 'somebody' not in cmd and 'somebody' not in v['message']
+    assert cmd.startswith('& "$env:USERPROFILE\\ai-toolkit\\venv\\Scripts\\python.exe" -m pip')
+
+
+def test_the_pip_line_is_one_the_shell_actually_runs():
+    """Measured on a live machine: PowerShell parses `"<path>" -m pip` as an
+    expression and stops on `-m`; cmd and PowerShell both choke on the `~` of
+    the redaction. The forms below are the ones that ran."""
+    home_win = torch_reinstall_command('C:\\Users\\somebody\\ai-toolkit\\venv\\Scripts\\python.exe')
+    assert home_win.startswith('& "$env:USERPROFILE\\ai-toolkit\\venv\\Scripts\\python.exe" -m pip')
+    assert 'somebody' not in home_win and '~' not in home_win
+    bare_win = torch_reinstall_command('C:\\ai-toolkit\\venv\\Scripts\\python.exe')
+    assert bare_win.startswith('C:\\ai-toolkit\\venv\\Scripts\\python.exe -m pip')   # pwsh, cmd, bash
+    spaced_win = torch_reinstall_command('D:\\My Tools\\ai-toolkit\\venv\\Scripts\\python.exe')
+    assert spaced_win.startswith('& "D:\\My Tools\\ai-toolkit\\venv\\Scripts\\python.exe" -m pip')
+    home_posix = torch_reinstall_command('/home/somebody/ai-toolkit/venv/bin/python')
+    assert home_posix.startswith('~/ai-toolkit/venv/bin/python -m pip')        # unquoted: bash expands ~
+    assert 'somebody' not in home_posix
+    spaced_posix = torch_reinstall_command('/opt/my tools/venv/bin/python')
+    assert spaced_posix.startswith('"/opt/my tools/venv/bin/python" -m pip')
+    assert torch_reinstall_command(None).startswith('<ai-toolkit venv python> -m pip')
+
+
+def test_the_fix_sentence_names_powershell_only_when_the_line_needs_it():
+    assert fix_line('& "$env:USERPROFILE\\x\\python.exe" -m pip').startswith(' Fix (PowerShell): & "')
+    assert fix_line('C:\\ai-toolkit\\venv\\Scripts\\python.exe -m pip').startswith(' Fix: C:\\')
+    assert fix_line('') == ''
+
+
+def test_an_unknown_torch_version_reads_as_english_not_as_a_placeholder():
+    v = torch_cuda_verdict({**CPU_ONLY, 'torch': ''})
+    assert v['message'].startswith('The PyTorch installed in the ai-toolkit venv is a CPU-only build')
+    assert 'the installed PyTorch' not in v['message'] and 'venv ()' not in v['message']
+    d = torch_cuda_verdict({**DRIVER_TOO_OLD, 'torch': None})
+    assert d['message'].startswith('The PyTorch installed in the ai-toolkit venv (built for CUDA 13.0)')
 
 
 def test_a_cuda_build_the_driver_cannot_serve_quotes_torch_and_offers_both_ways_out():
@@ -418,11 +456,26 @@ def test_the_preflight_blocks_a_run_that_would_train_on_the_cpu(app):
     assert 'CPU' in row['detail'] and '2.13.0+cpu' in row['detail']
     assert len(row['detail']) < 110, 'the row sits in a list on a phone — keep it short'
     assert r['verdict'] == 'blocked' and r['can_override'] is False
-    # The warning line carries the whole story and the paste-safe pip line.
-    assert any('CPU-only' in w and '--no-deps' in w and CU128_INDEX_URL in w
-               for w in r['warnings'])
+    # The BLOCKER carries the whole story and the paste-safe pip line: that is
+    # what the launch button reads, so the refusal is said once, before the
+    # amber "Start anyway" modal could offer a run the server would refuse.
+    assert any('CPU-only' in b and '--no-deps' in b and CU128_INDEX_URL in b
+               for b in r['blockers'])
+    assert any('CPU-only' in w for w in r['warnings'])
     # And the arch row has nothing to add: there is no card seen to have kernels for.
     assert not any(c['id'] == 'torch_arch' for c in r['checks'])
+
+
+def test_the_row_reads_as_english_when_the_probe_gave_no_version(app):
+    from app.config import LOCAL_USER
+    from app import capabilities
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds = _dataset(app)
+        with patch.object(capabilities, 'aitoolkit_torch_info', return_value={**CPU_ONLY, 'torch': ''}):
+            r = lt.training_preflight(LOCAL_USER, ds.id)
+    row = next(c for c in r['checks'] if c['id'] == 'torch_cuda')
+    assert row['detail'].startswith("the ai-toolkit venv's PyTorch cannot see the GPU")
 
 
 def test_the_preflight_says_nothing_about_cuda_when_torch_sees_the_card(app):
@@ -468,6 +521,7 @@ def test_a_launch_is_refused_when_torch_cannot_see_the_card(app):
     text = str(err.value)
     assert 'CPU-only' in text and 'trains on the CPU' in text
     assert '--no-deps' in text and CU128_INDEX_URL in text
+    assert ' Fix' in text
 
 
 def test_a_launch_goes_through_when_torch_sees_the_card_or_nobody_knows(app):

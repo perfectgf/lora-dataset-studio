@@ -473,12 +473,52 @@ def torch_reinstall_command(venv_python=None, torch_version=None,
     CUDA flavour) when the probe read both; with either unknown, nothing is
     pinned and pip takes the newest pair on the index, which at least agrees
     with itself — pinning one half alone would be the worst of both."""
-    python = redact_user_paths(str(venv_python).strip()) if venv_python else ''
-    exe = f'"{python}"' if python else '<ai-toolkit venv python>'
     tv, tvv = _pypi_version(torch_version), _pypi_version(torchvision_version)
     pair = f'torch=={tv} torchvision=={tvv}' if (tv and tvv) else 'torch torchvision'
-    return (f'{exe} -m pip install --force-reinstall --no-deps {pair} '
-            f'--index-url {index_url}')
+    return (f'{_shell_interpreter(venv_python)} -m pip install --force-reinstall --no-deps '
+            f'{pair} --index-url {index_url}')
+
+
+def _shell_interpreter(venv_python) -> str:
+    """The interpreter as ONE token a shell actually runs, account name hidden.
+
+    Two things were wrong with the obvious `"<path>"`: PowerShell — the default
+    shell of Windows Terminal, so the shell the Windows audience pastes into —
+    parses a quoted string in command position as an EXPRESSION and stops on
+    the next token ("Unexpected token '-m'"); and the `~` that redact_user_paths
+    substitutes for the profile is expanded by no Windows shell at all (cmd:
+    "syntax incorrect"; PowerShell: "module '~' could not be loaded"). Both
+    measured on a live machine. What runs, also measured:
+
+    * Windows, venv under the profile: `& "$env:USERPROFILE\\…"` — the call
+      operator makes the string a command, the variable hides the account name
+      and PowerShell expands it inside double quotes. PowerShell only, which the
+      "Fix (PowerShell)" label says.
+    * Windows, anywhere else: the bare path (PowerShell, cmd and bash alike),
+      or `& "…"` when it holds a space.
+    * POSIX: `~/…` UNQUOTED, so the shell expands it; quoted only for a space.
+    """
+    raw = str(venv_python or '').strip()
+    if not raw:
+        return '<ai-toolkit venv python>'
+    path = redact_user_paths(raw)
+    windows = '\\' in path or bool(re.match(r'^[A-Za-z]:', path))
+    if windows:
+        if path.startswith('~'):
+            return f'& "$env:USERPROFILE{path[1:]}"'
+        return f'& "{path}"' if ' ' in path else path
+    if path.startswith('~') or ' ' not in path:
+        return path
+    return f'"{path}"'
+
+
+def fix_line(command: str) -> str:
+    """' Fix: <line>' to append to a message — or ' Fix (PowerShell): <line>'
+    when the line only runs there (the `&` call-operator form). '' when there
+    is no command to name."""
+    if not command:
+        return ''
+    return (' Fix (PowerShell): ' if command.startswith('& ') else ' Fix: ') + command
 
 
 def torch_cuda_verdict(info, venv_python=None) -> dict | None:
@@ -505,14 +545,18 @@ def torch_cuda_verdict(info, venv_python=None) -> dict | None:
     about one, latent caching never past image 1, VRAM at 0.8 GB throughout."""
     if not isinstance(info, dict) or info.get('error') or 'cuda_available' not in info:
         return None
-    torch_version = (info.get('torch') or '').strip() or 'the installed PyTorch'
+    torch_version = (info.get('torch') or '').strip()
+    # '' when the probe did not say: every sentence below drops the version
+    # fragment rather than reading "torch the installed PyTorch".
+    versioned = f' ({torch_version})' if torch_version else ''
     cuda = (str(info.get('cuda') or '').strip()) or None
     verdict = {'available': bool(info.get('cuda_available')), 'cpu_build': cuda is None,
                'torch': torch_version, 'cuda': cuda, 'reason': '', 'message': '',
                'command': ''}
     if verdict['available']:
         gpu = (info.get('device_name') or '').strip() or 'the GPU'
-        verdict['message'] = f'PyTorch {torch_version} in the ai-toolkit venv sees {gpu}.'
+        verdict['message'] = (f'PyTorch{" " + torch_version if torch_version else ""} in the '
+                              f'ai-toolkit venv sees {gpu}.')
         return verdict
     consequence = ('ai-toolkit picks its device with torch.cuda.is_available() and, '
                    'when that answers False, trains on the CPU without saying so: the '
@@ -523,7 +567,7 @@ def torch_cuda_verdict(info, venv_python=None) -> dict | None:
     verdict['reason'] = reason
     if cuda is None:
         verdict['message'] = (
-            f'The PyTorch installed in the ai-toolkit venv ({torch_version}) is a '
+            f'The PyTorch installed in the ai-toolkit venv{versioned} is a '
             f'CPU-only build: it has no CUDA at all, so it cannot see the GPU. '
             f'{consequence} Install the CUDA build of the same PyTorch, then launch '
             'again.')
@@ -531,11 +575,12 @@ def torch_cuda_verdict(info, venv_python=None) -> dict | None:
         why = (f' torch says: "{reason}".' if reason else
                ' Usually the NVIDIA driver is older than that CUDA release, or the '
                'card is hidden from this process (CUDA_VISIBLE_DEVICES).')
+        built = (f' ({torch_version}, built for CUDA {cuda})' if torch_version
+                 else f' (built for CUDA {cuda})')
         verdict['message'] = (
-            f'The PyTorch installed in the ai-toolkit venv ({torch_version}, built for '
-            f'CUDA {cuda}) cannot open the GPU on this machine.{why} {consequence} '
-            'Update the NVIDIA driver, or install the CUDA 12.8 build of the same '
-            'PyTorch, then launch again.')
+            f'The PyTorch installed in the ai-toolkit venv{built} cannot open the GPU '
+            f'on this machine.{why} {consequence} Update the NVIDIA driver, or install '
+            'the CUDA 12.8 build of the same PyTorch, then launch again.')
     verdict['command'] = torch_reinstall_command(
         venv_python, torch_version=info.get('torch'),
         torchvision_version=info.get('torchvision'))

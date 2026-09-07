@@ -727,7 +727,7 @@ def assert_interpreter_ready() -> None:
     then trains on the CPU in silence: three runs of Krea 2 on an RTX 3090 that
     never put a byte on the card, ETA 300 hours (acontentsheltie, Discord)."""
     from .. import capabilities
-    from .training_diagnostics import interpreter_verdict, torch_cuda_verdict
+    from .training_diagnostics import fix_line, interpreter_verdict, torch_cuda_verdict
     try:
         report = capabilities.aitoolkit_interpreter_report()
     except Exception:
@@ -742,8 +742,7 @@ def assert_interpreter_ready() -> None:
     except Exception:
         return                                   # a broken probe never blocks a run
     if cuda and not cuda['available']:
-        raise RuntimeError(cuda['message']
-                           + (f' Fix: {cuda["command"]}' if cuda['command'] else ''))
+        raise RuntimeError(cuda['message'] + fix_line(cuda['command']))
 
 
 def _aitoolkit_supports_krea() -> bool:
@@ -7781,7 +7780,7 @@ def _pf_vram(ds, ttype, label, _machine_warn, _check):
         pass   # an advisory VRAM note must never block the preflight it decorates
 
 
-def _pf_torch_cuda(_machine_warn, _check):
+def _pf_torch_cuda(lane, _machine_warn, blockers, _check):
     """7 bis) torch in the ai-toolkit venv cannot see the GPU — the silent-CPU trap.
 
     A blocker, not a warning, and not a bypassable one: the launch gate
@@ -7790,20 +7789,32 @@ def _pf_torch_cuda(_machine_warn, _check):
     (acontentsheltie, Discord, RTX 3090: three Krea 2 runs, ETA 300 hours, the
     card at 0.8 GB throughout). The verdict is a read of the venv's OWN torch
     answering the exact question ai-toolkit asks (`torch.cuda.is_available()`),
-    and an unknown probe (None) says nothing at all."""
+    and an unknown probe (None) says nothing at all.
+
+    It goes into `blockers`, which is what the launch button reads: a fail row
+    alone travels only with the warning line, and the launch path then opens
+    the amber "Before training… Start anyway" modal for a run the server is
+    about to refuse — the same paragraph twice, first as advice, then as a
+    refusal. A cloud launch skips the whole question (and the torch import):
+    a rented pod brings its own torch."""
+    if (lane or 'local') == 'cloud':
+        return
     try:
         from .. import capabilities
-        from .training_diagnostics import torch_cuda_verdict
+        from .training_diagnostics import fix_line, torch_cuda_verdict
         cuda = torch_cuda_verdict(capabilities.aitoolkit_torch_info(),
                                   venv_python=cfg.aitoolkit_path('venv_python'))
         if cuda and not cuda['available']:
-            _machine_warn(cuda['message']
-                          + (f' Fix: {cuda["command"]}' if cuda['command'] else ''))
-            # Keep the row SHORT (a one-line list, on a phone too); the warning
+            message = cuda['message'] + fix_line(cuda['command'])
+            blockers.append(message)
+            _machine_warn(message)
+            # Keep the row SHORT (a one-line list, on a phone too); the blocker
             # carries the full sentence and the pip line.
+            what = (f'torch {cuda["torch"]} in the ai-toolkit venv' if cuda['torch']
+                    else "the ai-toolkit venv's PyTorch")
             _check('torch_cuda', 'PyTorch can see the GPU', 'fail',
-                   f'torch {cuda["torch"]} in the ai-toolkit venv cannot see the GPU — '
-                   'the run would train on the CPU', bypassable=False, scope='machine')
+                   f'{what} cannot see the GPU — the run would train on the CPU',
+                   bypassable=False, scope='machine')
     except Exception:
         pass   # a probe failure must never block or fake a diagnosis
 
@@ -7818,12 +7829,11 @@ def _pf_torch_arch(_machine_warn, _check):
     # read of the venv, and an unknown probe (None) says nothing at all.
     try:
         from .. import capabilities
-        from .training_diagnostics import torch_arch_verdict
+        from .training_diagnostics import fix_line, torch_arch_verdict
         arch = torch_arch_verdict(capabilities.aitoolkit_torch_info(),
                                   venv_python=cfg.aitoolkit_path('venv_python'))
         if arch and not arch['supported']:
-            _machine_warn(arch['message']
-                          + (f' Fix: {arch["command"]}' if arch['command'] else ''))
+            _machine_warn(arch['message'] + fix_line(arch['command']))
             # Keep the row SHORT — it sits in a one-line list next to ten other
             # checks, on a phone too. The full explanation + fix is the warning.
             _check('torch_arch', 'PyTorch supports this GPU', 'warn',
@@ -8040,7 +8050,7 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
 
     _pf_vram(ds, ttype, label, _machine_warn, _check)
 
-    _pf_torch_cuda(_machine_warn, _check)
+    _pf_torch_cuda(lane, _machine_warn, blockers, _check)
 
     _pf_torch_arch(_machine_warn, _check)
 

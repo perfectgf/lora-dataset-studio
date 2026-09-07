@@ -154,8 +154,10 @@ def test_the_cpu_only_torch_row_blocks_locally_and_vanishes_in_the_cloud(app, tm
             cloud = lt.training_preflight(LOCAL_USER, ds.id, lane='cloud')
     assert 'torch_cuda' in _ids(local)
     assert local['verdict'] == 'blocked' and local['can_override'] is False
+    assert any('CPU-only' in b for b in local['blockers'])     # what the launch button reads
     assert any('CPU-only' in w for w in local['warnings'])
     assert 'torch_cuda' not in _ids(cloud)
+    assert cloud['blockers'] == []
     assert not any('CPU-only' in w for w in cloud['warnings'])
     assert cloud['verdict'] == 'ready'
 
