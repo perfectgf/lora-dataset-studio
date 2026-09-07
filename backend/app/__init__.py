@@ -719,8 +719,11 @@ def create_app(config_object=None):
         size, limit = request.content_length, request.max_content_length
         detail = ''
         if size and limit:
-            detail = (f': this request is {size / (1024 * 1024):.1f} MiB, the server takes '
-                      f'{limit / (1024 * 1024):.1f} MiB per request — drop fewer files at a time')
+            # "the app", not "the server": this runs on the user's own machine,
+            # and calling it a server invites them to look for one (the
+            # maintainer made the same objection about our own wording).
+            detail = (f': this request is {size / (1024 * 1024):.1f} MiB, the app accepts '
+                      f'{limit / (1024 * 1024):.1f} MiB at a time — drop fewer files at once')
         return jsonify({'ok': False, 'error': 'upload too large' + detail}), 413
 
     with app.app_context():

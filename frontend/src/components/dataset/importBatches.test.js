@@ -68,7 +68,8 @@ test('a single file above the budget is named, never sent, and never sinks the o
   assert.deepEqual(names(oversized), ['huge.png']);
   assert.deepEqual(batches.map(names), [['ok1.jpg', 'ok2.jpg']]);
   const msg = oversizedFilesMessage(oversized, limits);
-  assert.match(msg, /^1 file larger than the 64 MiB the server takes per request was not sent: huge\.png \(80 MiB\)\./);
+  // "the app accepts", never "the server takes": LDS runs on the user's machine.
+  assert.match(msg, /^1 file larger than the 64 MiB the app accepts at a time was not sent: huge\.png \(80 MiB\)\./);
   assert.match(msg, /Resize or re-encode/);
 });
 

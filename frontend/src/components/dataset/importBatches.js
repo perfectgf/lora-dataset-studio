@@ -78,7 +78,9 @@ export function oversizedFilesMessage(oversized, limits) {
     .map((f) => `${f.name || 'a file'} (${formatMiB(f.size)})`).join(', ');
   const more = oversized.length > 3 ? ` and ${oversized.length - 3} more` : '';
   const n = oversized.length;
-  return `${n} file${n === 1 ? '' : 's'} larger than the ${formatMiB(limits.maxBytes)} the server takes `
-    + `per request ${n === 1 ? 'was' : 'were'} not sent: ${named}${more}. `
+  // "the app accepts", not "the server takes": this runs on the user's own
+  // machine, and naming a server sends them looking for one.
+  return `${n} file${n === 1 ? '' : 's'} larger than the ${formatMiB(limits.maxBytes)} the app accepts `
+    + `at a time ${n === 1 ? 'was' : 'were'} not sent: ${named}${more}. `
     + 'Resize or re-encode them, then drop them again.';
 }
