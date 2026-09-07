@@ -718,9 +718,16 @@ def assert_interpreter_ready() -> None:
     Refuses ONLY on a proven False. An unknown probe (cold-import timeout) lets
     the launch through: blocking a real training run on an answer we do not have
     would be a worse bug than the one this fixes. RuntimeError -> 409 (a backend
-    availability problem, not a bad request)."""
+    availability problem, not a bad request).
+
+    The second question is asked with the same rule: torch imports, but can it
+    SEE the card? A CPU-only wheel, a CUDA build the driver cannot serve or a
+    hidden card all answer `torch.cuda.is_available()` False, and ai-toolkit —
+    whose device comes from Hugging Face Accelerate, not from the job config —
+    then trains on the CPU in silence: three runs of Krea 2 on an RTX 3090 that
+    never put a byte on the card, ETA 300 hours (acontentsheltie, Discord)."""
     from .. import capabilities
-    from .training_diagnostics import interpreter_verdict
+    from .training_diagnostics import interpreter_verdict, torch_cuda_verdict
     try:
         report = capabilities.aitoolkit_interpreter_report()
     except Exception:
@@ -729,6 +736,14 @@ def assert_interpreter_ready() -> None:
                                   alternative=report['alternative'])
     if verdict:
         raise RuntimeError(verdict['message'])
+    try:
+        cuda = torch_cuda_verdict(capabilities.aitoolkit_torch_info(),
+                                  venv_python=cfg.aitoolkit_path('venv_python'))
+    except Exception:
+        return                                   # a broken probe never blocks a run
+    if cuda and not cuda['available']:
+        raise RuntimeError(cuda['message']
+                           + (f' Fix: {cuda["command"]}' if cuda['command'] else ''))
 
 
 def _aitoolkit_supports_krea() -> bool:
@@ -7766,6 +7781,33 @@ def _pf_vram(ds, ttype, label, _machine_warn, _check):
         pass   # an advisory VRAM note must never block the preflight it decorates
 
 
+def _pf_torch_cuda(_machine_warn, _check):
+    """7 bis) torch in the ai-toolkit venv cannot see the GPU — the silent-CPU trap.
+
+    A blocker, not a warning, and not a bypassable one: the launch gate
+    (`assert_interpreter_ready`) refuses the same run with the same sentence,
+    because ai-toolkit would not fail — it would train on the CPU for days
+    (acontentsheltie, Discord, RTX 3090: three Krea 2 runs, ETA 300 hours, the
+    card at 0.8 GB throughout). The verdict is a read of the venv's OWN torch
+    answering the exact question ai-toolkit asks (`torch.cuda.is_available()`),
+    and an unknown probe (None) says nothing at all."""
+    try:
+        from .. import capabilities
+        from .training_diagnostics import torch_cuda_verdict
+        cuda = torch_cuda_verdict(capabilities.aitoolkit_torch_info(),
+                                  venv_python=cfg.aitoolkit_path('venv_python'))
+        if cuda and not cuda['available']:
+            _machine_warn(cuda['message']
+                          + (f' Fix: {cuda["command"]}' if cuda['command'] else ''))
+            # Keep the row SHORT (a one-line list, on a phone too); the warning
+            # carries the full sentence and the pip line.
+            _check('torch_cuda', 'PyTorch can see the GPU', 'fail',
+                   f'torch {cuda["torch"]} in the ai-toolkit venv cannot see the GPU — '
+                   'the run would train on the CPU', bypassable=False, scope='machine')
+    except Exception:
+        pass   # a probe failure must never block or fake a diagnosis
+
+
 def _pf_torch_arch(_machine_warn, _check):
     """8) torch wheels vs GPU architecture — the RTX 50 / sm_120 trap."""
     # 8) torch build vs GPU architecture — the RTX 50 (Blackwell) trap. Stable
@@ -7997,6 +8039,8 @@ def training_preflight(user_id, dataset_id, train_type=None, variant=None,
     _pf_memory_savers(ds, ttype, label, lane, warnings, _check)
 
     _pf_vram(ds, ttype, label, _machine_warn, _check)
+
+    _pf_torch_cuda(_machine_warn, _check)
 
     _pf_torch_arch(_machine_warn, _check)
 

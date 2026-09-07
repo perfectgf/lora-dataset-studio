@@ -133,6 +133,33 @@ def test_cloud_verdict_ignores_a_machine_only_complaint(app, tmp_path):
     assert not cloud['warnings']
 
 
+# The silent-CPU trap (acontentsheltie, Discord, RTX 3090): a torch that cannot
+# see the card. Same probe, same lane rule as the two rows above.
+CPU_ONLY = {'torch': '2.13.0+cpu', 'cuda': None, 'cuda_available': False, 'cuda_reason': '',
+            'capability': None, 'device_name': None, 'arch_list': [],
+            'torchvision': '0.28.0+cpu'}
+
+
+def test_the_cpu_only_torch_row_blocks_locally_and_vanishes_in_the_cloud(app, tmp_path):
+    """Locally it is a blocker the ack cannot waive — ai-toolkit would not fail,
+    it would train on the CPU for days. A rented pod brings its own torch: the
+    row, its warning line and the verdict all drop."""
+    from app import capabilities
+    from app.services import lora_training as lt
+    with app.app_context():
+        ds = _dataset(tmp_path)
+        with patch.object(capabilities, 'gpu_vram_gb', return_value=24), \
+             patch.object(capabilities, 'aitoolkit_torch_info', return_value=CPU_ONLY):
+            local = lt.training_preflight(LOCAL_USER, ds.id)
+            cloud = lt.training_preflight(LOCAL_USER, ds.id, lane='cloud')
+    assert 'torch_cuda' in _ids(local)
+    assert local['verdict'] == 'blocked' and local['can_override'] is False
+    assert any('CPU-only' in w for w in local['warnings'])
+    assert 'torch_cuda' not in _ids(cloud)
+    assert not any('CPU-only' in w for w in cloud['warnings'])
+    assert cloud['verdict'] == 'ready'
+
+
 def test_every_row_declares_its_scope(app, tmp_path):
     from app.services import lora_training as lt
     with app.app_context():

@@ -19,16 +19,26 @@ with plain strings and simulated probe payloads:
   FIRST real kernel launch dies with "no kernel image is available for
   execution on the device" and ai-toolkit exits 1 with nothing useful said.
 
+* `torch_cuda_verdict` answers the question BEFORE that one: can the installed
+  PyTorch see the GPU at all? A CPU-only wheel (a plain `pip install torch` on
+  Windows), a CUDA build newer than the NVIDIA driver, or a card hidden by
+  CUDA_VISIBLE_DEVICES all make `torch.cuda.is_available()` False — and
+  ai-toolkit, which takes its device from Hugging Face Accelerate, then trains
+  on the CPU without saying so: the card stays empty, RAM fills up, the ETA
+  reads in the hundreds of hours. Nothing fails, which is the whole problem.
+
 * `interpreter_verdict` (+ `missing_module_in_log`, `is_windows_store_python`)
   answers the question the panel never used to answer: WHICH Python was used.
   An interpreter that exists and runs but has no torch is the worst shape of
   all — everything looks configured, and the failure blames something else.
 
-Both return "I don't know" (kind `none` / `None`) rather than guessing: the
-absence of information is never reported as a diagnosis.
+All of them return "I don't know" (kind `none` / `None`) rather than guessing:
+the absence of information is never reported as a diagnosis.
 
-Surfaced by the failure block in TrainingPanel and by the training preflight.
-The Blackwell trap was reported by wannadecryptor (Discord, RTX 5070).
+Surfaced by the failure block in TrainingPanel, by the training preflight, by
+the launch gate and by the Settings ▸ Local tools Test button. The Blackwell
+trap was reported by wannadecryptor (Discord, RTX 5070); the silent-CPU trap by
+acontentsheltie (Discord, RTX 3090).
 """
 import re
 
@@ -437,8 +447,96 @@ def torch_arch_verdict(info, venv_python=None) -> dict | None:
         'normally, then dies at the first real GPU computation with "no kernel image is '
         'available for execution on the device".')
     if major >= BLACKWELL_MAJOR:
-        python = redact_user_paths(str(venv_python).strip()) if venv_python else ''
-        exe = f'"{python}"' if python else '<ai-toolkit venv python>'
-        verdict['command'] = (f'{exe} -m pip install --force-reinstall torch torchvision '
-                              f'--index-url {CU128_INDEX_URL}')
+        verdict['command'] = torch_reinstall_command(venv_python)
+    return verdict
+
+
+def _pypi_version(raw) -> str:
+    """'2.13.0+cpu' -> '2.13.0': the local tag names the build being replaced."""
+    v = str(raw or '').strip()
+    return v.split('+', 1)[0] if v else ''
+
+
+def torch_reinstall_command(venv_python=None, torch_version=None,
+                            torchvision_version=None, index_url=CU128_INDEX_URL) -> str:
+    """The one paste-safe pip line that swaps the venv's torch for a CUDA build.
+
+    `--no-deps` is not optional. `--index-url` REPLACES PyPI, and together with
+    `--force-reinstall` pip re-resolves torch's whole dependency tree from the
+    PyTorch index — numpy included, which that index serves in versions old
+    enough to break every extension compiled against numpy 2 ("numpy.dtype size
+    changed, expected 96, got 88"). Learned on the first Blackwell remedy the
+    day after it went out (wannadecryptor).
+
+    Versions are pinned to the pair the venv already resolved everything else
+    against (torchcodec, torchvision and quanto match a torch VERSION, not a
+    CUDA flavour) when the probe read both; with either unknown, nothing is
+    pinned and pip takes the newest pair on the index, which at least agrees
+    with itself — pinning one half alone would be the worst of both."""
+    python = redact_user_paths(str(venv_python).strip()) if venv_python else ''
+    exe = f'"{python}"' if python else '<ai-toolkit venv python>'
+    tv, tvv = _pypi_version(torch_version), _pypi_version(torchvision_version)
+    pair = f'torch=={tv} torchvision=={tvv}' if (tv and tvv) else 'torch torchvision'
+    return (f'{exe} -m pip install --force-reinstall --no-deps {pair} '
+            f'--index-url {index_url}')
+
+
+def torch_cuda_verdict(info, venv_python=None) -> dict | None:
+    """Can the PyTorch installed in the ai-toolkit venv see the GPU at all?
+
+    `info` is the raw probe payload (see capabilities.aitoolkit_torch_info).
+    Returns None whenever the answer is UNKNOWN — probe absent, an older payload
+    without the `cuda_available` field, a probe that errored. None is never a
+    claim: on a machine with no NVIDIA card the probe does not even run.
+
+    Otherwise {'available', 'cpu_build', 'torch', 'cuda', 'reason', 'message',
+    'command'}. `available` False is the silent-CPU trap: ai-toolkit takes its
+    device from Hugging Face Accelerate, which picks the CPU when
+    `torch.cuda.is_available()` answers False and says nothing about it (the
+    job config's `device: cuda:0` decides nothing), so the run starts, the card
+    stays empty, system RAM fills and the ETA reads in the hundreds of hours.
+    `command` is the pip line that installs the CUDA build of the same torch;
+    for a CUDA build the driver cannot serve, updating the driver is the other
+    way out and the message says so. `reason` quotes torch's own words when it
+    gave any (the driver-too-old warning), path- and token-redacted.
+
+    Reported by acontentsheltie (Discord, RTX 3090): three training logs where
+    nothing ever touched the card — quantisation at 3.6 s per block instead of
+    about one, latent caching never past image 1, VRAM at 0.8 GB throughout."""
+    if not isinstance(info, dict) or info.get('error') or 'cuda_available' not in info:
+        return None
+    torch_version = (info.get('torch') or '').strip() or 'the installed PyTorch'
+    cuda = (str(info.get('cuda') or '').strip()) or None
+    verdict = {'available': bool(info.get('cuda_available')), 'cpu_build': cuda is None,
+               'torch': torch_version, 'cuda': cuda, 'reason': '', 'message': '',
+               'command': ''}
+    if verdict['available']:
+        gpu = (info.get('device_name') or '').strip() or 'the GPU'
+        verdict['message'] = f'PyTorch {torch_version} in the ai-toolkit venv sees {gpu}.'
+        return verdict
+    consequence = ('ai-toolkit picks its device with torch.cuda.is_available() and, '
+                   'when that answers False, trains on the CPU without saying so: the '
+                   'card stays empty, system RAM fills up and the ETA runs into the '
+                   'hundreds of hours.')
+    reason = redact_user_paths(redact_tokens(
+        ' '.join(str(info.get('cuda_reason') or '').split())))
+    verdict['reason'] = reason
+    if cuda is None:
+        verdict['message'] = (
+            f'The PyTorch installed in the ai-toolkit venv ({torch_version}) is a '
+            f'CPU-only build: it has no CUDA at all, so it cannot see the GPU. '
+            f'{consequence} Install the CUDA build of the same PyTorch, then launch '
+            'again.')
+    else:
+        why = (f' torch says: "{reason}".' if reason else
+               ' Usually the NVIDIA driver is older than that CUDA release, or the '
+               'card is hidden from this process (CUDA_VISIBLE_DEVICES).')
+        verdict['message'] = (
+            f'The PyTorch installed in the ai-toolkit venv ({torch_version}, built for '
+            f'CUDA {cuda}) cannot open the GPU on this machine.{why} {consequence} '
+            'Update the NVIDIA driver, or install the CUDA 12.8 build of the same '
+            'PyTorch, then launch again.')
+    verdict['command'] = torch_reinstall_command(
+        venv_python, torch_version=info.get('torch'),
+        torchvision_version=info.get('torchvision'))
     return verdict

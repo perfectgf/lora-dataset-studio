@@ -205,6 +205,51 @@ latents are cached, and the step-0 preview images are rendered before step 1 (a
 video run skips the previews). Read the ETA after five minutes of steps, not
 before.
 
+### The card never fills at all: the run is on the CPU
+
+A cousin of the crawl above, with the opposite readout: **VRAM stays under a
+gigabyte for the whole run** while system RAM climbs by 30 GB or more. The
+tells are all in `training.log` (📂 Run folder): the 28 transformer blocks
+quantise at 3-4 s each instead of about one, `Caching latents to disk` never
+gets past `0/N`, and when steps do tick they take minutes each — an ETA of 300
+hours for a recipe that runs at a few seconds per step on any 24 GB card.
+
+**What it is.** The PyTorch inside the ai-toolkit venv cannot see the GPU.
+Three ways to get there: a CPU-only wheel (a plain `pip install torch` on
+Windows installs one), a CUDA build newer than the NVIDIA driver (the cu130
+wheels need a recent driver), or a card hidden from the process
+(`CUDA_VISIBLE_DEVICES`). ai-toolkit does not fail on any of them: it takes
+its device from Hugging Face Accelerate, which falls back to the CPU without a
+word when `torch.cuda.is_available()` is False — the `device: cuda:0` line in
+the job config decides nothing.
+
+**Check it in one line**, with the venv's own Python (the interpreter shown on
+the ai-toolkit card in Settings ▸ Local tools):
+
+```
+<ai-toolkit venv python> -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+```
+
+A healthy venv prints something like `2.9.1+cu128 12.8 True`. `+cpu None
+False` is the CPU-only wheel; `+cu130 13.0 False` is a CUDA build the driver
+cannot serve (update the driver, or install the cu128 build below).
+
+**Fix.** Install the CUDA build of the same PyTorch, keeping the versions the
+venv already has:
+
+```
+<ai-toolkit venv python> -m pip install --force-reinstall --no-deps torch==<version> torchvision==<version> --index-url https://download.pytorch.org/whl/cu128
+```
+
+Keep `--no-deps`: the PyTorch index replaces PyPI for that command, and without
+it pip re-resolves numpy from there and breaks every extension compiled against
+numpy 2 (`numpy.dtype size changed`).
+
+The app now asks this question before every local run: the readiness list
+shows a red **PyTorch can see the GPU** row with that pip line, the launch is
+refused with the same sentence, and Settings ▸ Local tools ▸ ai-toolkit ▸
+**Test** says it too. Reported by acontentsheltie (Discord, RTX 3090).
+
 ## ai-toolkit isn't detected (conda / uv / no venv)
 
 **Why:** the app auto-detects ai-toolkit's Python from a `venv/` or `.venv/`

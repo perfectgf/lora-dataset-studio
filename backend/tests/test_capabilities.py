@@ -456,6 +456,39 @@ def test_the_test_button_stays_green_on_an_unanswered_probe(app, tmp_path):
         with patch.object(capabilities, '_cached_import_state', return_value=None):
             assert capabilities.probe_aitoolkit_test()['ok'] is True
 
+_CPU_ONLY_TORCH = {'torch': '2.13.0+cpu', 'cuda': None, 'cuda_available': False,
+                   'cuda_reason': '', 'capability': None, 'device_name': None,
+                   'arch_list': [], 'torchvision': '0.28.0+cpu'}
+_AMPERE_TORCH = {'torch': '2.9.1+cu128', 'cuda': '12.8', 'cuda_available': True,
+                 'cuda_reason': '', 'capability': [8, 6],
+                 'device_name': 'NVIDIA GeForce RTX 3090',
+                 'arch_list': ['sm_80', 'sm_86', 'sm_90'], 'torchvision': '0.24.1+cu128'}
+
+def test_the_test_button_goes_red_when_torch_cannot_see_the_card(app, tmp_path):
+    """torch imports, and that used to be the whole test — while the venv's torch
+    was a CPU-only wheel and every local run trained on the CPU for days
+    (acontentsheltie, Discord, RTX 3090). The Test button is where that venv is
+    configured, so it is where the answer belongs, pip line included."""
+    with app.app_context():
+        from app import capabilities, config
+        root, _stray = _explicit_and_venv(tmp_path)
+        config.save_config({'aitoolkit': {'dir': str(root)}})
+        with patch.object(capabilities, '_cached_import_state', return_value=True), \
+             patch.object(capabilities, 'aitoolkit_torch_info', return_value=_CPU_ONLY_TORCH):
+            result = capabilities.probe_aitoolkit_test()
+    assert result['ok'] is False
+    assert 'CPU-only' in result['detail'] and '--no-deps' in result['detail']
+
+def test_the_test_button_stays_green_when_torch_sees_the_card_or_nobody_knows(app, tmp_path):
+    with app.app_context():
+        from app import capabilities, config
+        root, _stray = _explicit_and_venv(tmp_path)
+        config.save_config({'aitoolkit': {'dir': str(root)}})
+        for info in (_AMPERE_TORCH, None):
+            with patch.object(capabilities, '_cached_import_state', return_value=True), \
+                 patch.object(capabilities, 'aitoolkit_torch_info', return_value=info):
+                assert capabilities.probe_aitoolkit_test()['ok'] is True, info
+
 def test_probe_comfyui_unreachable(app):
     with app.app_context():
         from app import capabilities

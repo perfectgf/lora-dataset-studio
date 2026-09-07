@@ -808,6 +808,18 @@ def probe_aitoolkit_test() -> dict:
                                   alternative=report['alternative'])
     if verdict:
         return {**result, 'ok': False, 'detail': verdict['message']}
+    # torch imports — but can it see the card? A CPU-only wheel, or a CUDA build
+    # the driver cannot serve, makes ai-toolkit train on the CPU in silence
+    # (acontentsheltie, Discord, RTX 3090). Same rule as above: an UNKNOWN probe
+    # keeps the green — a machine with no NVIDIA card has nothing to miss, and
+    # a cold-import timeout is not a verdict.
+    from .services.training_diagnostics import torch_cuda_verdict
+    cuda = torch_cuda_verdict(aitoolkit_torch_info(),
+                              venv_python=cfg.aitoolkit_path('venv_python'))
+    if cuda and not cuda['available']:
+        return {**result, 'ok': False,
+                'detail': cuda['message'] + (f' Fix: {cuda["command"]}'
+                                             if cuda['command'] else '')}
     return result
 
 
@@ -1543,38 +1555,64 @@ def gpu_vram_gb():
 
 # --- ai-toolkit torch probe (what actually trains) -----------------------------
 # ai-toolkit runs in ITS OWN venv, which LDS never installs — it only reads the
-# interpreter the user pointed at. Whether that venv's torch carries kernels for
-# the local GPU is invisible from here, and getting it wrong is silent: RTX 50
-# (Blackwell, sm_120) + a stable wheel = `is_available()` True, then a hard
-# "no kernel image is available for execution on the device" at the first real
-# computation. So: probe the venv, but only when it can matter.
+# interpreter the user pointed at. Two things about that venv's torch are
+# invisible from here, and getting either wrong is silent:
+#  * whether it carries kernels for the local GPU: RTX 50 (Blackwell, sm_120) +
+#    a stable wheel = `is_available()` True, then a hard "no kernel image is
+#    available for execution on the device" at the first real computation;
+#  * whether it can see the GPU AT ALL: a CPU-only wheel (a plain `pip install
+#    torch` on Windows), a CUDA build newer than the NVIDIA driver, or a card
+#    hidden by CUDA_VISIBLE_DEVICES all answer `is_available()` False — and
+#    ai-toolkit takes its device from Hugging Face Accelerate, which then picks
+#    the CPU without a word (the `device: cuda:0` in the job config decides
+#    nothing). The run "works": the card stays empty, system RAM fills, the
+#    ETA reads in the hundreds of hours. Reported by acontentsheltie (Discord,
+#    RTX 3090): three logs with block quantisation at 3.6 s/block instead of
+#    about one, latent caching never past 0/26, VRAM at 0.8 GB throughout.
 #
-# COST DISCIPLINE. `import torch` in a cold venv costs seconds, so the expensive
-# probe is gated behind a ~100 ms nvidia-smi capability read: a GPU below
-# compute 10.0 (everything up to Ada / RTX 40) can never hit the trap and pays
-# nothing at all. What we do run is cached 10 min — a venv does not change
-# between two runs.
+# COST DISCIPLINE. `import torch` in a cold venv costs seconds, so the probe is
+# gated behind a ~100 ms nvidia-smi read: a machine with no NVIDIA card seen has
+# nothing the venv's torch could miss and pays nothing. The second trap is
+# card-agnostic, so every card with a configured ai-toolkit pays the import —
+# ONCE: the answer is cached 10 min, and a venv does not change between two
+# runs. (Until 2026-09-07 the gate skipped everything below compute 10.0, so a
+# 3090 training on its CPU for days was never noticed by the app.)
 _cc_cache = {'ts': 0.0, 'cc': None}
 _TORCH_PROBE_TTL = 600
 _torch_probe_cache = {}   # interpreter path -> (ts, info)
 
-# First capability major that stable wheels may not cover (Blackwell = 12).
-# 10 is deliberately lower than 12: it keeps the gate honest if a future
-# generation lands before the wheels do.
-_RISKY_CC_MAJOR = 10
-
+# The probe captures torch's OWN reason when the card cannot be opened ("The
+# NVIDIA driver on your system is too old…"): torch says it as a warning at the
+# first `is_available()`, and quoting it beats guessing. `torchvision` is read
+# so a remedy can pin the pair the venv already resolved everything else
+# against; it is best-effort (None when absent or broken).
 _TORCH_PROBE_CODE = (
-    'import json, torch\n'
-    'cap = name = None\n'
+    'import json, warnings, torch\n'
+    'cap = name = tv = None\n'
+    'avail = False\n'
+    'reason = ""\n'
+    'with warnings.catch_warnings(record=True) as caught:\n'
+    '    warnings.simplefilter("always")\n'
+    '    try:\n'
+    '        avail = bool(torch.cuda.is_available())\n'
+    '        if avail:\n'
+    '            cap = list(torch.cuda.get_device_capability(0))\n'
+    '            name = torch.cuda.get_device_name(0)\n'
+    '    except Exception as e:\n'
+    '        reason = str(e)\n'
+    '    if not avail and not reason:\n'
+    '        reason = " ".join(str(w.message) for w in caught\n'
+    '                          if "CUDA" in str(w.message))[:400]\n'
     'try:\n'
-    '    if torch.cuda.is_available():\n'
-    '        cap = list(torch.cuda.get_device_capability(0))\n'
-    '        name = torch.cuda.get_device_name(0)\n'
+    '    import torchvision\n'
+    '    tv = torchvision.__version__\n'
     'except Exception:\n'
     '    pass\n'
     'print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda,\n'
+    '                  "cuda_available": avail, "cuda_reason": reason,\n'
     '                  "capability": cap, "device_name": name,\n'
-    '                  "arch_list": list(torch.cuda.get_arch_list())}))\n'
+    '                  "arch_list": list(torch.cuda.get_arch_list()),\n'
+    '                  "torchvision": tv}))\n'
 )
 
 
@@ -1620,12 +1658,12 @@ def _torch_probe(python: str, timeout=90):
 
 def aitoolkit_torch_info():
     """torch/GPU facts from the ai-toolkit venv — the interpreter that TRAINS —
-    or None when we cannot know (no ai-toolkit, no NVIDIA GPU, GPU old enough to
-    be covered by every wheel, torch not importable, probe timeout). Callers must
-    treat None as 'no information', never as a verdict."""
+    or None when we cannot know (no ai-toolkit, no NVIDIA GPU seen by
+    nvidia-smi, torch not importable, probe timeout). Callers must treat None
+    as 'no information', never as a verdict."""
     cc = gpu_compute_capability()
-    if cc is None or cc[0] < _RISKY_CC_MAJOR:
-        return None                       # cheap exit: no torch import at all
+    if cc is None:
+        return None      # no NVIDIA card seen: nothing the venv's torch could miss
     python = cfg.aitoolkit_path('venv_python')
     if not python or not Path(python).is_file():
         return None
