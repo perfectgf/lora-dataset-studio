@@ -466,10 +466,24 @@ export function aitoolkitVerdict(step, dir) {
     // on Windows gets a CPU-only wheel that Accelerate then honours in silence.
     // ai-toolkit's own manager reads the driver and installs the matching build.
     body: "The app doesn't know which Python to run it with. Two ways forward, both "
-      + 'fine. Create a venv inside that folder: running `python -m manager install` '
-      + "from there is ai-toolkit's own installer, and it picks the PyTorch build "
-      + 'that matches your NVIDIA driver instead of the CPU-only wheel a plain pip '
-      + 'install gives on Windows. Or keep the Python you already run ai-toolkit '
+      + 'fine. Create a venv inside that folder: '
+      // `manager/` landed upstream on 2026-07-27. Naming its command on a
+      // checkout that predates it hands over "No module named manager" — and
+      // those are precisely the oldest installs, the ones most likely to have a
+      // half-built venv. So the sentence follows what is ON DISK (has_manager),
+      // and the older checkout is told to update first rather than given a dead
+      // command.
+      + (s.hasManager
+        ? 'running `python -m manager install` from there is '
+          + "ai-toolkit's own installer, and it picks the PyTorch build that "
+          + 'matches your NVIDIA driver instead of the CPU-only wheel a plain pip '
+          + 'install gives on Windows. '
+        : "then install ai-toolkit's requirements into it, following its README. "
+          + 'Worth updating ai-toolkit first: since July 2026 it ships its own '
+          + 'installer, `python -m manager install`, which also picks the PyTorch '
+          + 'build matching your NVIDIA driver — a plain pip install gives a '
+          + 'CPU-only one on Windows, and training then runs on the CPU in silence. ')
+      + 'Or keep the Python you already run ai-toolkit '
       + 'with — a conda or uv environment, your system Python, or the python.exe of '
       + 'a portable / embedded build (python_embeded) — and tell the app where it is.',
     action: `Set the interpreter in ${AITOOLKIT_PYTHON_SETTING}`,
@@ -596,6 +610,9 @@ function trainingStep(caps) {
     // WHICH of the two problems it hit instead of one blanket sentence.
     dirValid: !!a.dir_valid,
     pythonCandidates: Array.isArray(a.python_candidates) ? a.python_candidates : [],
+    // Read off THIS checkout, never off a date: `manager/` landed upstream on
+    // 2026-07-27 and the verdict below only names its command when it is there.
+    hasManager: !!a.has_manager,
   }
 }
 

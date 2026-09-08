@@ -45,6 +45,7 @@ trap was reported by wannadecryptor (Discord, RTX 5070); the silent-CPU trap by
 acontentsheltie (Discord, RTX 3090).
 """
 import re
+from pathlib import Path
 
 from ..utils.redact import redact_tokens, redact_user_paths
 
@@ -260,6 +261,22 @@ WINDOWS_STORE_NOTE = (
 
 INTERPRETER_TITLE = 'The Python configured for ai-toolkit cannot import torch'
 
+# The title above was a CONSTANT, shown for whatever module the log named: a
+# venv missing `dotenv` or `oyaml` was announced as "cannot import torch" while
+# torch imported fine. The headline is the first thing the failure panel renders
+# and the only line most people read, so it stated the one thing that was not
+# true. Two shapes now, because the two failures have different remedies:
+# torch missing is the interpreter (GitHub #19, strouder — a Windows Store stub
+# configured while a working venv sat next to run.py); anything else missing is
+# the RIGHT interpreter with an incomplete install, and no amount of repointing
+# fixes it.
+DEPENDENCY_TITLE = 'The ai-toolkit venv is missing a package ai-toolkit needs'
+
+
+def interpreter_title(module='torch') -> str:
+    """Which of the two headlines this missing module deserves."""
+    return INTERPRETER_TITLE if (module or 'torch') == 'torch' else DEPENDENCY_TITLE
+
 
 def missing_module_in_log(log_text) -> str:
     """The module named by the LAST `ModuleNotFoundError` in a training log, or
@@ -279,7 +296,8 @@ def is_windows_store_python(path) -> bool:
     return bool(path) and bool(_WINDOWS_STORE_RE.search(str(path).replace('/', '\\')))
 
 
-def interpreter_verdict(python, torch_ok, alternative='', module='torch') -> dict | None:
+def interpreter_verdict(python, torch_ok, alternative='', module='torch',
+                        aitoolkit_dir=None) -> dict | None:
     """Why a training run cannot start with the interpreter that is configured.
 
     Returns None whenever `torch_ok` is not a proven False — True (fine) and
@@ -311,20 +329,36 @@ def interpreter_verdict(python, torch_ok, alternative='', module='torch') -> dic
             f'imports {module} fine. Put that path in Settings ▸ Local tools ▸ '
             '"Python interpreter", or clear that field entirely and the app will '
             'find it by itself.')
-    else:
+    elif module == 'torch':
         parts.append(
             'Point Settings ▸ Local tools ▸ "Python interpreter" at the Python you '
             'actually installed ai-toolkit\'s requirements into (its venv, or your '
             'conda / uv / portable environment), or clear that field to let the app '
             'auto-detect a venv next to run.py.')
+    else:
+        # NOT the interpreter. `import torch` works in this very Python, so it is
+        # the one ai-toolkit was installed into — it is the install that is
+        # short. The old copy sent these users to the interpreter setting, which
+        # is a dead end when there is no other interpreter to name, and never
+        # printed the one line that fixes it. Reported by acontentsheltie
+        # (Discord): three PowerShell commands from another chatbot to get a run
+        # to start at all.
+        parts.append(
+            f'This is not the wrong interpreter: torch imports in that same Python, so '
+            f'it is the one ai-toolkit was installed into — the install is incomplete, '
+            f'and `{module}` is simply not in it. Reinstalling ai-toolkit\'s '
+            f'dependencies into that venv is the fix; changing the interpreter is not.')
     # Said in every shape, because the OPPOSITE used to be said: the panel offered
     # "the base model needs a Hugging Face token" for this exact failure, and the
     # search went everywhere but the setting at fault.
     parts.append('This is not a Hugging Face token problem and not a missing base '
                  'model — nothing was downloaded, the interpreter never got that far.')
+    command = ('' if module == 'torch'
+               else dependency_repair_command(aitoolkit_dir, python))
     return {'python': shown, 'module': module, 'windows_store': store,
-            'alternative': alt, 'title': INTERPRETER_TITLE,
-            'message': ' '.join(parts)}
+            'alternative': alt, 'title': interpreter_title(module),
+            'command': command,
+            'message': ' '.join(parts) + fix_line(command)}
 
 
 # --- the Hugging Face fast-download accelerator --------------------------------
@@ -563,7 +597,51 @@ def fix_line(command: str) -> str:
     return (' Fix (PowerShell): ' if command.startswith('& ') else ' Fix: ') + command
 
 
-def torch_cuda_verdict(info, venv_python=None) -> dict | None:
+# ai-toolkit's own installer, added upstream on 2026-07-27. It reads the NVIDIA
+# driver and installs the CUDA build that driver can serve, so it repairs a
+# half-installed venv AND a CPU-only torch in one pass.
+_MANAGER_ENTRY = ('manager', '__main__.py')
+
+
+def has_aitoolkit_manager(aitoolkit_dir) -> bool:
+    """Does this checkout carry `python -m manager`? Presence on disk, never a
+    date: a checkout older than 2026-07-27 has no `manager/`, and naming the
+    command there would answer "No module named manager" — a dead remedy handed
+    to exactly the oldest installs, the ones most likely to be incomplete."""
+    raw = str(aitoolkit_dir or '').strip()
+    if not raw:
+        return False
+    try:
+        return (Path(raw) / _MANAGER_ENTRY[0] / _MANAGER_ENTRY[1]).is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def dependency_repair_command(aitoolkit_dir=None, venv_python=None) -> str:
+    """One line that puts ai-toolkit's own dependencies back into its venv.
+
+    With the manager: `python -m manager install`, run FROM the checkout. It is
+    the only remedy that also gets the torch build right.
+
+    Without it, `pip install -r requirements.txt` — and that line is deliberately
+    NOT sold as the whole answer by the callers, because it is the very command
+    that produces the silent-CPU trap on Windows: `torch` is absent from
+    ai-toolkit's requirements yet pulled in by five of them (open_clip_torch,
+    lycoris-lora, optimum-quanto, pytorch-wavelets, pytorch_fid), and the wheel
+    PyPI serves on Windows is CPU-only. The CPU-only branch of
+    torch_cuda_verdict catches that on the next launch and hands over the pip
+    line for the CUDA build, so the loop still closes — but the message says so
+    rather than letting the user discover it."""
+    if has_aitoolkit_manager(aitoolkit_dir):
+        return 'python -m manager install'
+    raw = str(aitoolkit_dir or '').strip()
+    if not raw:
+        return ''
+    req = redact_user_paths(str(Path(raw) / 'requirements.txt'))
+    return f'{_shell_interpreter(venv_python)} -m pip install -r "{req}"'
+
+
+def torch_cuda_verdict(info, venv_python=None, aitoolkit_dir=None) -> dict | None:
     """Can the PyTorch installed in the ai-toolkit venv see the GPU at all?
 
     `info` is the raw probe payload (see capabilities.aitoolkit_torch_info).
@@ -603,6 +681,12 @@ def torch_cuda_verdict(info, venv_python=None) -> dict | None:
     versioned = f' ({torch_version})' if torch_version else ''
     cuda = (str(info.get('cuda') or '').strip()) or None
     accel = str(info.get('accelerator_device') or '').strip()
+    # '' on a payload from before this field existed (a cached probe answer, an
+    # older install): the branch below never fires then, and the old
+    # "unknown keeps the green" behaviour is what remains.
+    accel_error = redact_user_paths(redact_tokens(
+        ' '.join(str(info.get('accelerator_error') or '').split())))[:300]
+    repair = dependency_repair_command(aitoolkit_dir, venv_python)
     verdict = {'available': bool(info.get('cuda_available')), 'cpu_build': cuda is None,
                'torch': torch_version, 'cuda': cuda, 'reason': '', 'message': '',
                'command': ''}
@@ -620,6 +704,34 @@ def torch_cuda_verdict(info, venv_python=None) -> dict | None:
             f'{consequence} Something points Accelerate away from the card: '
             'ACCELERATE_USE_CPU or ACCELERATE_TORCH_DEVICE in the environment, or a '
             'line in the .env file of the ai-toolkit folder. Remove it, then launch again.')
+        return verdict
+    if verdict['available'] and not accel and accel_error:
+        # Accelerate did not answer AND said why. Until this branch existed the
+        # payload carried `accelerator_device: null` for both "accelerate is not
+        # installed" and "Accelerator() raises", the empty string fell through as
+        # nothing-to-say, and a venv that cannot train was declared ready — Test
+        # green, launch gate open (measured on a venv with a working torch and no
+        # accelerate). UNKNOWN keeps the green everywhere else in this file
+        # because there the unknown is harmless; here it IS the symptom, so it is
+        # only ever raised on a reason the probe brought back.
+        verdict['available'] = False
+        verdict['reason'] = accel_error
+        remedy = ('Reinstall ai-toolkit\'s dependencies in that venv.' if repair
+                  else 'Reinstall ai-toolkit\'s dependencies in that venv, following '
+                       'its README.')
+        if repair and not repair.startswith('python -m manager'):
+            # The pip fallback is the command that CREATES the CPU-only wheel on
+            # Windows; say so here rather than let the next launch teach it.
+            remedy += (' That line installs the packages only — on Windows it also '
+                       'pulls a CPU-only PyTorch, and the app will hand you the CUDA '
+                       'line on the next launch.')
+        verdict['command'] = repair
+        verdict['message'] = (
+            f'The PyTorch installed in the ai-toolkit venv{versioned} sees the GPU, but '
+            f'Hugging Face Accelerate cannot be asked which device to use in that '
+            f'environment: {accel_error}. ai-toolkit reads its device from '
+            f'`Accelerator()` and from nothing else, so the run would die on that same '
+            f'call. {remedy}')
         return verdict
     if verdict['available']:
         gpu = (info.get('device_name') or '').strip() or 'the GPU'

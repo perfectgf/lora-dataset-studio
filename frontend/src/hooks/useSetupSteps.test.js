@@ -692,6 +692,29 @@ test('the no-interpreter verdict names that installer too, both doors still open
   assert.match(v.body, /already run ai-toolkit with/i);
 });
 
+// `manager/` landed upstream on 2026-07-27. On an older checkout the command is
+// dead ("No module named manager") — and those are the installs most likely to
+// have a half-built venv, so that is the worst possible audience for a dead
+// remedy. The sentence follows what the backend found ON DISK, never a date.
+test('the manager command is presented as live only on a checkout that has it', () => {
+  const withIt = aitoolkitVerdict(
+    trainStep({ valid: false, dir_valid: true, has_manager: true }), DIR);
+  const without = aitoolkitVerdict(
+    trainStep({ valid: false, dir_valid: true, has_manager: false }), DIR);
+  assert.notEqual(withIt.body, without.body, 'the flag must change what is said');
+  // Present: run it. Absent: update first, and never an unqualified "run this".
+  assert.match(withIt.body, /running `python -m manager install` from there/);
+  assert.doesNotMatch(without.body, /running `python -m manager install` from there/);
+  assert.match(without.body, /updating ai-toolkit first/i);
+  assert.match(without.body, /since July 2026/);
+  // Both keep the peer route and the reason the choice matters at all.
+  for (const body of [withIt.body, without.body]) {
+    assert.match(body, /driver/i);
+    assert.match(body, /already run ai-toolkit with/i);
+    assert.match(body, /python_embeded/);
+  }
+});
+
 test('SetupPage renders the verdict instead of hardcoding the old sentence', () => {
   const page = fs.readFileSync(new URL('../pages/SetupPage.jsx', import.meta.url), 'utf8');
   assert.doesNotMatch(page, /set up its Python venv per the README/);

@@ -736,13 +736,19 @@ def probe_aitoolkit() -> dict:
         # Python runs it (conda/uv/system/portable installs all land here).
         # State the finding and hand over both ways out.
         found = aitoolkit_python_candidates(d)
+        # Does this checkout carry ai-toolkit's own installer? The wizard names
+        # `python -m manager install` as the way to give it a Python, and that
+        # module landed upstream on 2026-07-27: on an older checkout the command
+        # answers "No module named manager". Presence on disk, never a date.
+        from .services.training_diagnostics import has_aitoolkit_manager
         detail = (f'ai-toolkit found at {d} but no Python interpreter found '
                   'inside — create a venv there, or set its Python interpreter '
                   'in Settings → Local tools')
         if found:
             detail += f' (candidate: {found[0]})'
         return {'ok': False, 'detail': detail, 'has_run': True,
-                'python_candidates': found}
+                'python_candidates': found,
+                'has_manager': has_aitoolkit_manager(d)}
     return {'ok': False, 'detail': f'invalid aitoolkit dir: {d}',
             'has_run': False, 'python_candidates': []}
 
@@ -820,7 +826,8 @@ def probe_aitoolkit_test() -> dict:
     from .services.training_diagnostics import interpreter_verdict
     report = aitoolkit_interpreter_report()
     verdict = interpreter_verdict(report['python'], report['torch'],
-                                  alternative=report['alternative'])
+                                  alternative=report['alternative'],
+                                  aitoolkit_dir=cfg.aitoolkit_path('dir'))
     if verdict:
         return {**result, 'ok': False, 'detail': verdict['message']}
     # torch imports — but can it see the card? A CPU-only wheel, or a CUDA build
@@ -831,7 +838,8 @@ def probe_aitoolkit_test() -> dict:
     try:
         from .services.training_diagnostics import fix_line, torch_cuda_verdict
         cuda = torch_cuda_verdict(aitoolkit_torch_info(),
-                                  venv_python=cfg.aitoolkit_path('venv_python'))
+                                  venv_python=cfg.aitoolkit_path('venv_python'),
+                                  aitoolkit_dir=cfg.aitoolkit_path('dir'))
     except Exception:
         return result      # a probe that broke is not a red Test — same rule as the launch gate
     if cuda and not cuda['available']:
@@ -1646,16 +1654,26 @@ _TORCH_PROBE_CODE = (
     '    tv = version("torchvision")\n'
     'except Exception:\n'
     '    pass\n'
+    # Why Accelerate did not answer, kept instead of swallowed. `Accelerator()`
+    # here is byte-for-byte what ai-toolkit runs (toolkit/accelerator.py:
+    # `get_accelerator()` is a bare `Accelerator()`), so an exception on this
+    # line is an exception on that one. Folding it into `accelerator_device:
+    # null` made "accelerate is not installed" and "its config raises"
+    # indistinguishable from silence, and torch_cuda_verdict read the empty
+    # string as nothing-to-say: a venv with a working torch and no accelerate
+    # was declared ready by the Test button and by the launch gate.
+    'accel_error = ""\n'
     'try:\n'
     '    from accelerate import Accelerator\n'
     '    accel = str(Accelerator().device)\n'
-    'except Exception:\n'
-    '    pass\n'
+    'except Exception as e:\n'
+    '    accel_error = type(e).__name__ + ": " + str(e)\n'
     'print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda,\n'
     '                  "cuda_available": avail, "cuda_reason": reason,\n'
     '                  "capability": cap, "device_name": name,\n'
     '                  "arch_list": list(torch.cuda.get_arch_list()),\n'
-    '                  "torchvision": tv, "accelerator_device": accel}))\n'
+    '                  "torchvision": tv, "accelerator_device": accel,\n'
+    '                  "accelerator_error": accel_error}))\n'
 )
 
 
@@ -2621,6 +2639,11 @@ def _probe_uncached():
             # can see" are different problems with different fixes.
             'dir_valid': bool(aitoolkit.get('has_run')),
             'python_candidates': list(aitoolkit.get('python_candidates') or []),
+            # Whether `python -m manager install` is a live command in THIS
+            # checkout. The wizard names it as the way to build the training
+            # environment; ai-toolkit only grew that module on 2026-07-27, so on
+            # an older clone the line would answer "No module named manager".
+            'has_manager': bool(aitoolkit.get('has_manager')),
         },
         'cloud_training': bool(cfg.secret('VAST_API_KEY')),
         # Publish-to-HF is gated purely on the HF_TOKEN secret being present (the

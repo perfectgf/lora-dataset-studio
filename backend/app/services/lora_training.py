@@ -735,12 +735,14 @@ def assert_interpreter_ready() -> None:
     except Exception:
         return                                   # a broken probe never blocks a run
     verdict = interpreter_verdict(report['python'], report['torch'],
-                                  alternative=report['alternative'])
+                                  alternative=report['alternative'],
+                                  aitoolkit_dir=cfg.aitoolkit_path('dir'))
     if verdict:
         raise RuntimeError(verdict['message'])
     try:
         cuda = torch_cuda_verdict(capabilities.aitoolkit_torch_info(),
-                                  venv_python=cfg.aitoolkit_path('venv_python'))
+                                  venv_python=cfg.aitoolkit_path('venv_python'),
+                                  aitoolkit_dir=cfg.aitoolkit_path('dir'))
     except Exception:
         return                                   # a broken probe never blocks a run
     if cuda and not cuda['available']:
@@ -7903,7 +7905,8 @@ def _pf_torch_cuda(lane, _machine_warn, blockers, _check):
         from .. import capabilities
         from .training_diagnostics import fix_line, torch_cuda_verdict
         cuda = torch_cuda_verdict(capabilities.aitoolkit_torch_info(),
-                                  venv_python=cfg.aitoolkit_path('venv_python'))
+                                  venv_python=cfg.aitoolkit_path('venv_python'),
+                                  aitoolkit_dir=cfg.aitoolkit_path('dir'))
         if cuda and not cuda['available']:
             message = cuda['message'] + fix_line(cuda['command'])
             blockers.append(message)
@@ -8291,7 +8294,8 @@ def _crash_payload(log_path, dataset_id, rc) -> dict:
             report = capabilities.aitoolkit_interpreter_report()
             verdict = interpreter_verdict(
                 report['python'] or cfg.aitoolkit_path('venv_python'),
-                False, alternative=report['alternative'], module=module)
+                False, alternative=report['alternative'], module=module,
+                aitoolkit_dir=cfg.aitoolkit_path('dir'))
             if verdict:
                 payload['interpreter'] = {k: verdict[k] for k in (
                     'python', 'module', 'windows_store', 'alternative',
