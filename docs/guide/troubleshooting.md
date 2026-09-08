@@ -261,6 +261,21 @@ found", the pinned version is not on that index (a nightly build, or a cu128
 pin on a version newer than 2.11): drop the two `==<version>` pins and let pip
 take the newest pair.
 
+**Or let ai-toolkit rebuild the environment.** That command is the surgical fix
+— it swaps torch and nothing else. If you would rather not choose versions and
+indexes at all, ai-toolkit ships an installer that makes the choice from your
+driver:
+
+```
+python -m manager install
+```
+
+Run it from the ai-toolkit folder. It reads the NVIDIA driver, installs the
+CUDA build of PyTorch that driver can serve, and syncs the rest of ai-toolkit's
+requirements into the venv next to `run.py` (it reuses an existing `venv` or
+`.venv`). Use `install`, not `run_windows.bat`: that script ends by starting
+ai-toolkit's own web UI on port 8675, which this app never talks to.
+
 Two more things those logs say. The seconds per quantised block measure your
 disk, not your GPU: 3-4 s per block is about 0.2 GB/s, a mechanical drive
 reading a 26 GB model — every launch spends minutes on that alone, and an SSD
