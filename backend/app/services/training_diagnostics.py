@@ -273,9 +273,16 @@ INTERPRETER_TITLE = 'The Python configured for ai-toolkit cannot import torch'
 DEPENDENCY_TITLE = 'The ai-toolkit venv is missing a package ai-toolkit needs'
 
 
-def interpreter_title(module='torch') -> str:
-    """Which of the two headlines this missing module deserves."""
-    return INTERPRETER_TITLE if (module or 'torch') == 'torch' else DEPENDENCY_TITLE
+def interpreter_title(module='torch', torch_imports=None) -> str:
+    """Which of the two headlines this missing module deserves.
+
+    The module name alone does not decide it: an interpreter with nothing in it
+    dies naming `dotenv`, run.py's first third-party import, while torch is
+    missing too. A PROVEN missing torch keeps the interpreter headline whatever
+    the log named."""
+    if (module or 'torch') == 'torch' or torch_imports is False:
+        return INTERPRETER_TITLE
+    return DEPENDENCY_TITLE
 
 
 def missing_module_in_log(log_text) -> str:
@@ -297,7 +304,7 @@ def is_windows_store_python(path) -> bool:
 
 
 def interpreter_verdict(python, torch_ok, alternative='', module='torch',
-                        aitoolkit_dir=None) -> dict | None:
+                        aitoolkit_dir=None, torch_imports=None) -> dict | None:
     """Why a training run cannot start with the interpreter that is configured.
 
     Returns None whenever `torch_ok` is not a proven False — True (fine) and
@@ -308,10 +315,25 @@ def interpreter_verdict(python, torch_ok, alternative='', module='torch',
     `venv/` next to run.py that an explicit `aitoolkit.python` is shadowing);
     pass '' when there is none. Both paths are home-redacted for pasting.
 
+    `torch_imports` is the EVIDENCE, three-valued like the probe that produces it
+    (True / False / None = did not find out). It decides which story is told,
+    because the module name alone cannot: run.py imports `dotenv` before torch,
+    so an interpreter with nothing installed at all — the Windows Store stub of
+    GitHub #19, an empty venv — dies naming a module that is not torch while
+    torch is missing too. Branching on the name alone made the app state, as a
+    fact, that torch imported there.
+
     Returns {'python', 'module', 'windows_store', 'alternative', 'title',
-    'message'}."""
+    'command', 'message'}."""
     if torch_ok is not False:
         return None
+    # Is this the interpreter's problem, or an install that is merely short?
+    # False = the interpreter provably has no torch, whatever module the log
+    # happened to name. True = proven fine, so it is the packages. None = not
+    # established, and the copy below says only what is known.
+    dependency = None if torch_imports is None else bool(torch_imports)
+    if module == 'torch':
+        dependency = False
     raw = str(python or '').strip()
     store = is_windows_store_python(raw)
     shown = redact_user_paths(raw) or '(no interpreter configured)'
@@ -329,34 +351,43 @@ def interpreter_verdict(python, torch_ok, alternative='', module='torch',
             f'imports {module} fine. Put that path in Settings ▸ Local tools ▸ '
             '"Python interpreter", or clear that field entirely and the app will '
             'find it by itself.')
-    elif module == 'torch':
+    elif dependency is False:
         parts.append(
             'Point Settings ▸ Local tools ▸ "Python interpreter" at the Python you '
             'actually installed ai-toolkit\'s requirements into (its venv, or your '
             'conda / uv / portable environment), or clear that field to let the app '
             'auto-detect a venv next to run.py.')
-    else:
-        # NOT the interpreter. `import torch` works in this very Python, so it is
-        # the one ai-toolkit was installed into — it is the install that is
-        # short. The old copy sent these users to the interpreter setting, which
-        # is a dead end when there is no other interpreter to name, and never
-        # printed the one line that fixes it. Reported by acontentsheltie
-        # (Discord): three PowerShell commands from another chatbot to get a run
-        # to start at all.
+    elif dependency is True:
+        # NOT the interpreter, and the probe PROVED it: torch imports in this very
+        # Python, so it is the one ai-toolkit was installed into and the install is
+        # merely short. The old copy sent these users to the interpreter setting, a
+        # dead end when there is no other interpreter to name, and never printed the
+        # line that fixes it. Reported by acontentsheltie (Discord): three
+        # PowerShell commands from another chatbot to get a run to start at all.
         parts.append(
             f'This is not the wrong interpreter: torch imports in that same Python, so '
             f'it is the one ai-toolkit was installed into — the install is incomplete, '
             f'and `{module}` is simply not in it. Reinstalling ai-toolkit\'s '
             f'dependencies into that venv is the fix; changing the interpreter is not.')
+    else:
+        # The probe did not answer, so the sentence above would be an assertion —
+        # and the shape that makes it false is a common one, not a twisted log.
+        # Say what the log proves and nothing more, keep the repair line, and name
+        # the observation that would settle it.
+        parts.append(
+            f'What the log proves is narrow: that interpreter could not `import '
+            f'{module}`. Whether ai-toolkit\'s other packages are there was not '
+            f'established, so start by putting them back — and if the run then dies '
+            f'on torch itself, it is the interpreter that needs looking at.')
     # Said in every shape, because the OPPOSITE used to be said: the panel offered
     # "the base model needs a Hugging Face token" for this exact failure, and the
     # search went everywhere but the setting at fault.
     parts.append('This is not a Hugging Face token problem and not a missing base '
                  'model — nothing was downloaded, the interpreter never got that far.')
-    command = ('' if module == 'torch'
+    command = ('' if dependency is False
                else dependency_repair_command(aitoolkit_dir, python))
     return {'python': shown, 'module': module, 'windows_store': store,
-            'alternative': alt, 'title': interpreter_title(module),
+            'alternative': alt, 'title': interpreter_title(module, torch_imports),
             'command': command,
             'message': ' '.join(parts) + fix_line(command)}
 

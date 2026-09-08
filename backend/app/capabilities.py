@@ -682,6 +682,13 @@ def clear_import_cache() -> None:
         # The encoder verdict is a probe too (it RUNS ffmpeg), cached the same
         # way, so a fresh install must drop its pre-install verdict as well.
         ffmpeg_tools.clear_cache()
+        # So is the ai-toolkit torch probe, and it was the one exception: this
+        # function is what "↻ Check again" calls — the button a user presses
+        # right after installing a package by hand — yet the answer that says
+        # their venv cannot build an Accelerator survived it, refusing a launch
+        # on an install that had just been repaired. Nothing else in the app
+        # ever emptied that cache; expiry was the only way out.
+        _torch_probe_cache.clear()
         _cache = None
         _cache_ts = 0.0
 
@@ -1687,6 +1694,16 @@ def _torch_probe_ttl(info) -> float:
     while telling someone to reinstall torch. The short TTL still spares the
     caller a fresh cold import on every preflight of the same minute."""
     if not isinstance(info, dict) or not info.get('cuda_available'):
+        return _UNKNOWN_TTL
+    # An Accelerate that could not be asked is the THIRD refusal, and it nearly
+    # inherited the long TTL: `accelerator_device` is None on that payload, the
+    # `or 'cuda'` below substitutes the string, and the refusal read as a card
+    # that answers. Ten minutes of a remembered NO is exactly what the docstring
+    # above forbids — the user runs the Fix line this refusal printed, presses
+    # Test, and is refused again with no way to tell that the remedy worked.
+    # Gated on the REASON and never on a falsy device, so a payload cached
+    # before this field existed keeps the TTL it has today.
+    if info.get('accelerator_error'):
         return _UNKNOWN_TTL
     dev = str(info.get('accelerator_device') or 'cuda')
     return _TORCH_PROBE_TTL if dev.startswith('cuda') else _UNKNOWN_TTL

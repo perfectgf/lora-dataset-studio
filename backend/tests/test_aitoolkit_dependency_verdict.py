@@ -19,12 +19,18 @@ acontentsheltie (Discord, RTX 3090):
 Pure units: no GPU, no ai-toolkit, no network. The only filesystem touched is a
 tmp_path standing in for a checkout.
 """
+import io
+
 from app.services.training_diagnostics import (
     DEPENDENCY_TITLE, INTERPRETER_TITLE, dependency_repair_command,
     has_aitoolkit_manager, interpreter_verdict, torch_cuda_verdict,
 )
 
 VENV = 'C:\\ai-toolkit\\venv\\Scripts\\python.exe'
+# The App Execution Alias Windows 11 puts on PATH: it runs, and nothing can be
+# installed into it. GitHub #19 (strouder) configured exactly this while a
+# working venv sat next to run.py.
+STORE_STUB = 'C:\\Users\\somebody\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe'
 
 
 def _seeing_payload(**over):
@@ -126,6 +132,53 @@ def test_no_checkout_means_no_invented_command():
     assert dependency_repair_command('', VENV) == ''
 
 
+# --- how long the new NO is remembered -----------------------------------------
+
+def test_the_new_refusal_is_not_cached_for_ten_minutes():
+    """The probe cache trusts a green for _TORCH_PROBE_TTL and everything else
+    for _UNKNOWN_TTL, because "a refusal must not outlive a transient CUDA
+    hiccup by ten minutes while telling someone to reinstall torch".
+
+    The new refusal nearly inherited the long one: its payload carries
+    `accelerator_device: None`, and `str(None or 'cuda')` reads as a card that
+    answered. Ten minutes of remembered NO means the user runs the Fix line the
+    message printed, presses Test, and is refused again."""
+    from app.capabilities import _TORCH_PROBE_TTL, _UNKNOWN_TTL, _torch_probe_ttl
+
+    green = _seeing_payload(accelerator_device='cuda:0')
+    assert _torch_probe_ttl(green) == _TORCH_PROBE_TTL
+
+    for reason in ("ModuleNotFoundError: No module named 'accelerate'",
+                   'ValueError: invalid distributed_type'):
+        assert _torch_probe_ttl(_seeing_payload(accelerator_error=reason)) == _UNKNOWN_TTL, (
+            'a refusal must not be remembered for the long TTL')
+
+    # The pre-existing red keeps its short TTL, unchanged.
+    assert _torch_probe_ttl(_seeing_payload(accelerator_device='cpu')) == _UNKNOWN_TTL
+
+
+def test_check_again_actually_drops_the_remembered_refusal():
+    """`clear_import_cache()` is what the "Check again" button calls — the click
+    a user makes right after installing a package by hand. It emptied every probe
+    cache except this one, so the answer refusing their launch survived the very
+    gesture meant to re-ask the question."""
+    from app import capabilities
+
+    capabilities._torch_probe_cache['/some/python'] = (1.0, {'torch': 'x'})
+    capabilities.clear_import_cache()
+    assert capabilities._torch_probe_cache == {}
+
+
+def test_a_payload_cached_before_this_field_keeps_the_ttl_it_has_today():
+    """The gate is the REASON, never a falsy device: an answer memoised before
+    `accelerator_error` existed must not have its lifetime changed under it."""
+    from app.capabilities import _TORCH_PROBE_TTL, _torch_probe_ttl
+
+    legacy = _seeing_payload()
+    legacy.pop('accelerator_error')
+    assert _torch_probe_ttl(legacy) == _TORCH_PROBE_TTL
+
+
 # --- 3. the headline and the remedy for a missing package ----------------------
 
 def test_a_missing_package_is_not_announced_as_a_torch_problem():
@@ -138,10 +191,54 @@ def test_a_missing_package_is_not_announced_as_a_torch_problem():
 def test_a_missing_package_gets_a_command_and_not_a_repointing():
     """The dead end: "point Settings at the Python you installed the
     requirements into" — when that IS the Python, and no other exists."""
-    v = interpreter_verdict(VENV, False, module='oyaml', aitoolkit_dir='C:\\ai-toolkit')
+    v = interpreter_verdict(VENV, False, module='oyaml', aitoolkit_dir='C:\\ai-toolkit',
+                            torch_imports=True)
     assert 'not the wrong interpreter' in v['message']
     assert 'Fix' in v['message'], 'the line that repairs it must be printed'
     assert v['command']
+
+
+def test_a_missing_package_on_a_torchless_interpreter_is_the_interpreter_story():
+    """The false claim that started this: run.py imports `dotenv` BEFORE torch,
+    so an interpreter with nothing in it (the Windows Store stub of GitHub #19,
+    an empty venv) dies naming `dotenv` while torch is missing too. Branching on
+    the module NAME told that user torch imported fine in that Python."""
+    v = interpreter_verdict(STORE_STUB, False, module='dotenv',
+                            aitoolkit_dir='C:\ai-toolkit', torch_imports=False)
+    assert v['title'] == INTERPRETER_TITLE, 'a proven missing torch is the interpreter'
+    assert 'torch imports in that same Python' not in v['message']
+    assert v['command'] == '', 'reinstalling packages is not the answer there'
+
+
+def test_an_unanswered_probe_states_only_what_the_log_proves():
+    """None is not True. The probe did not find out, so the message must not
+    claim torch imports — it says what is known and keeps the repair line."""
+    v = interpreter_verdict(VENV, False, module='dotenv',
+                            aitoolkit_dir='C:\ai-toolkit', torch_imports=None)
+    assert 'torch imports in that same Python' not in v['message']
+    assert 'What the log proves is narrow' in v['message']
+    assert v['command'], 'the repair line survives an unknown'
+
+
+def test_a_proven_torch_keeps_the_dependency_story():
+    v = interpreter_verdict(VENV, False, module='dotenv',
+                            aitoolkit_dir='C:\ai-toolkit', torch_imports=True)
+    assert v['title'] == DEPENDENCY_TITLE
+    assert 'not the wrong interpreter' in v['message']
+    assert v['command']
+
+
+def test_the_crash_payload_hands_over_the_evidence_it_already_has():
+    """The caller computed report['torch'] one line above and passed a hardcoded
+    False, throwing the three-valued answer away. A source-level contract: the
+    call must forward it."""
+    src = io.open('backend/app/services/lora_training.py', encoding='utf-8').read()
+    # The crash-payload call is the one that forwards the module read off the
+    # log; the other call site is the launch gate, where the module is torch.
+    i = src.index('module=module')
+    call = src[max(0, i - 400):i + 900]
+    assert "torch_imports=report['torch']" in call, (
+        'the crash payload must pass the probe answer, not branch on the module name')
 
 
 def test_torch_itself_keeps_the_interpreter_story():

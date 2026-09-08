@@ -8295,7 +8295,13 @@ def _crash_payload(log_path, dataset_id, rc) -> dict:
             verdict = interpreter_verdict(
                 report['python'] or cfg.aitoolkit_path('venv_python'),
                 False, alternative=report['alternative'], module=module,
-                aitoolkit_dir=cfg.aitoolkit_path('dir'))
+                aitoolkit_dir=cfg.aitoolkit_path('dir'),
+                # The evidence was already in hand and thrown away: the report
+                # above ran the cached `import torch` seam, so this costs the
+                # watcher thread nothing. Without it the verdict branched on the
+                # module NAME, and told users torch imported fine in a venv that
+                # had never got as far as trying.
+                torch_imports=report['torch'])
             if verdict:
                 payload['interpreter'] = {k: verdict[k] for k in (
                     'python', 'module', 'windows_store', 'alternative',
