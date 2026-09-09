@@ -1,19 +1,19 @@
 # LoRA Dataset Studio
 
-[![CI](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml) [![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/perfectgf) [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/perfectgf)
+[![CI](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/perfectgf/lora-dataset-studio/actions/workflows/ci.yml) [![Join our Discord](https://img.shields.io/discord/1525908170331914411?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/j6hnJBFtXE) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/perfectgf)
 
 **A complete, self-hosted training workflow in one browser tab:** source or generate a Character, Concept or Style dataset, curate it, caption it, clean watermarks, then train — a LoRA on five model families, locally or in the cloud, or a full Krea 2 model on a rented GPU — and compare checkpoints before export.
 
 No account, paid tier or telemetry. API engines and rented GPUs are optional; local and manual workflows remain available.
 
-<h3 align="center">☕ Keep the project in development</h3>
+<h3 align="center">❤ Keep the project in development</h3>
 
 <p align="center">
-  <a href="https://ko-fi.com/perfectgf"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support LoRA Dataset Studio on Ko-fi" height="44"></a>
+  <a href="https://github.com/sponsors/perfectgf"><img src="https://img.shields.io/badge/Sponsor%20this%20project-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge" alt="Sponsor LoRA Dataset Studio on GitHub Sponsors" height="44"></a>
 </p>
 
 <p align="center">
-  <strong><a href="https://ko-fi.com/perfectgf">ko-fi.com/perfectgf</a></strong> — one-off, no account needed, from the price of a coffee.<br>
+  <strong><a href="https://github.com/sponsors/perfectgf">github.com/sponsors/perfectgf</a></strong> — one-off or monthly, and 100% reaches the project (GitHub takes no platform fee).<br>
   No paid tier, now or ever, so this is what funds the work: the API credits and rented GPUs every release is tested on, and the hours that go into the next one. <a href="#support-the-project">What it pays for →</a>
 </p>
 
@@ -308,7 +308,7 @@ Directions, not dates. These are discussed openly on the project's Discord, and 
 - **🎬 Video LoRAs** — *the dataset half exists, training launches from the app and the result is tested in-app* (see **Video Bank** and **🎬 Video Test Studio** above): shot detection, quality measures (motion, exposure, freeze, audio), captions that describe the action, keyword search across shots, target-aware cutting into a trainable folder, a ▶ Train button that runs the set through your local ai-toolkit or a rented pod, and a 🎬 Video Test Studio that renders the resulting LoRA, one clip per start frame on a fixed seed. What remains is proving the targets beyond Wan 2.2 with a finished run each. Community-driven.
 - **🧩 More base models** — additional Flux-family bases (Chroma, Qwen-Image…) with the same one-click flow as Krea 2.
 
-These are built on personal time, and how fast they arrive depends on how much of it there is. [**Support the project on Ko-fi ☕**](https://ko-fi.com/perfectgf) if you want to see them sooner.
+These are built on personal time, and how fast they arrive depends on how much of it there is. [**Support the project ❤**](https://github.com/sponsors/perfectgf) if you want to see them sooner.
 
 ## Why this instead of ai-toolkit?
 
@@ -550,7 +550,7 @@ Still stuck? **Guide → Getting help** generates a paste-safe diagnostic report
 ## Support the project
 
 <p align="center">
-  <a href="https://ko-fi.com/perfectgf"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Support LoRA Dataset Studio on Ko-fi" height="44"></a>
+  <a href="https://github.com/sponsors/perfectgf"><img src="https://img.shields.io/badge/Sponsor%20this%20project-%E2%9D%A4-EA4AAA?logo=githubsponsors&logoColor=white&style=for-the-badge" alt="Sponsor LoRA Dataset Studio on GitHub Sponsors" height="44"></a>
 </p>
 
 LoRA Dataset Studio is free, open source, and has no paid tier, no telemetry and
@@ -561,10 +561,9 @@ built and maintained by one person, on personal time — every feature in the
 list above came out of somebody's evenings.
 
 If the app saves you an afternoon of sorting, captioning and re-running failed
-trainings, consider giving a little of that time back:
-
-- [**Ko-fi**](https://ko-fi.com/perfectgf) — one-off, no account needed, from the price of a coffee.
-- [**GitHub Sponsors**](https://github.com/sponsors/perfectgf) — one-off or monthly, and 100% reaches the project (GitHub takes no platform fee).
+trainings, consider giving a little of that time back through
+[**GitHub Sponsors**](https://github.com/sponsors/perfectgf) — one-off or monthly,
+and 100% reaches the project (GitHub takes no platform fee).
 
 **Where it goes.** Not into anyone's pocket: the API credits used to test the
 paid generation engines, the rented cloud GPUs used to verify the training lanes
