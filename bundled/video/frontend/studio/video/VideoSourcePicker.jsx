@@ -39,11 +39,13 @@
  * resolves from the prompt onto that picture — the row under the containers
  * shows it, and removes it, in both modes.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image as ImageIcon, Upload, Film, Type, Sparkles, SkipForward, ZoomIn } from 'lucide-react';
 import { apiFetch, postJson, postForm } from '@lds/plugin-sdk';
 import { useToast } from '@lds/plugin-sdk';
 import { HelpBadge } from '@lds/plugin-sdk';
+import { datasetThumbUrl } from '@lds/plugin-sdk/canvas';
+import VideoPickerGrid from './VideoPickerGrid';
 import { datasetClipPoster } from '../../videobank/videoDatasetClips';
 import { appendImages, datasetClips, galleryPage } from './videoPickerFeeds';
 import { clampTile, gridBoxHeight, readTile, writeTile, TILE_MAX, TILE_MIN, TILE_STEP } from './videoPickerTile';
@@ -78,7 +80,7 @@ function Poster({ src, className, fallback }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); }, [src]);
   if (!src || broken) return fallback;
-  return <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className={className} />;
+  return <img src={src} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} className={className} />;
 }
 
 export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, onRemove, onClear, aspect, onAspect,
@@ -98,11 +100,12 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
   // second name.
   // …or by the library row a staged frame was given when it was opened: the
   // Gallery tab must not offer a picture the strip already holds.
+  const selectedKeys = useMemo(() => new Set(frames.flatMap((f) =>
+    f.galleryImageId ? [f.key, `gallery:${f.galleryImageId}`] : [f.key])), [frames]);
   const held = (key) => (effTarget === 'end'
     ? !!(endFrame && (endFrame.key === `end:${key}`
       || (endFrame.galleryImageId && key === `gallery:${endFrame.galleryImageId}`)))
-    : frames.some((f) => f.key === key
-      || (f.galleryImageId && key === `gallery:${f.galleryImageId}`)));
+    : selectedKeys.has(key));
   // The picks whose staging is in flight: a tile is not in the strip until
   // its POST answers, so a second click in that gap would stage it again.
   const inFlight = useRef(new Set());
@@ -432,8 +435,10 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
               {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             {bankId && (
-              <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
-                {images.map((im) => {
+              <VideoPickerGrid key={bankId} count={images.length} tile={tile} label="Bank images"
+                itemKey={(index) => images[index].id}>
+                {(index) => {
+                  const im = images[index];
                   const key = `bank:${bankId}:${im.id}`;
                   return (
                     <button key={im.id} type="button" title={im.filename} aria-pressed={held(key)}
@@ -442,14 +447,14 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
                         preview: `/api/bank/${bankId}/thumb/${im.id}`,
                         send: () => postJson(sourceUrl(), { bank_id: bankId, image_id: im.id }),
                       })}
-                      className={`aspect-square overflow-hidden rounded-md border hover:border-primary ${
+                      className={`h-full w-full overflow-hidden rounded-md border hover:border-primary ${
                         held(key) ? 'border-primary ring-2 ring-primary' : 'border-border'}`}>
                       <img src={`/api/bank/${bankId}/thumb/${im.id}`} alt=""
-                        loading="lazy" className="h-full w-full object-cover" />
+                        loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     </button>
                   );
-                })}
-              </div>
+                }}
+              </VideoPickerGrid>
             )}
           </div>
         )}
@@ -462,8 +467,10 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
                 checkpoint show up here, newest first.
               </p>
             ) : (
-              <div className="grid gap-1 overflow-y-auto" style={gridStyle}>
-                {gallery.map((g) => {
+              <VideoPickerGrid count={gallery.length} tile={tile} label="Gallery images"
+                itemKey={(index) => gallery[index].id}>
+                {(index) => {
+                  const g = gallery[index];
                   const key = `gallery:${g.id}`;
                   return (
                     <button key={g.id} type="button" aria-pressed={held(key)}
@@ -473,14 +480,14 @@ export default function VideoSourcePicker({ mode, onMode, frames = [], onAdd, on
                         preview: g.url,
                         send: () => postJson(sourceUrl(), { gallery_image_id: g.id }),
                       })}
-                      className={`aspect-square overflow-hidden rounded-md border hover:border-primary ${
+                      className={`h-full w-full overflow-hidden rounded-md border hover:border-primary ${
                         held(key) ? 'border-primary ring-2 ring-primary' : 'border-border'}`}>
-                      <img src={g.url} alt="" loading="lazy"
+                      <img src={datasetThumbUrl(g.url)} alt="" loading="lazy" decoding="async"
                         className="h-full w-full object-cover" />
                     </button>
                   );
-                })}
-              </div>
+                }}
+              </VideoPickerGrid>
             )}
             {/* How much of the feed is on screen, and the way to the rest.
                 Without this the newest 60 read as the whole Gallery. */}

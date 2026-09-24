@@ -619,18 +619,6 @@ def link_completed_clip(job_id, filename, failed=False, reason=None, *, render_s
     postprocess_completed_clip(clip_id)
 
 
-def _collect_last_frame_quietly(clip_id):
-    """`collect_last_frame` from the completion callback: a clip that landed
-    is done whatever happens to its frame, so nothing raised here reaches the
-    monitor thread — it is logged, and the clip is a clip. A missing ffmpeg
-    is the usual reason (the video extra is not installed)."""
-    try:
-        collect_last_frame(clip_id)
-    except Exception as exc:                      # noqa: BLE001
-        logger.warning('video studio: the last frame of clip %s was not collected '
-                       'into the Gallery: %s', clip_id, exc)
-
-
 def _run_ffmpeg(cmd, timeout=600):
     """The app's subprocess convention for ffmpeg (video_bank_service has the
     same): no console window in the frozen Windows build, utf-8 stderr with
@@ -642,7 +630,6 @@ def _run_ffmpeg(cmd, timeout=600):
 
 STAGED_FRAME_NAME = re.compile(r'^lds_vstudio_[0-9a-f]{10}\.png$')
 FRAME_CHECKPOINT = 'start frame'
-LAST_FRAME_CHECKPOINT = 'last frame'   # the same sentinel for a clip's collected last frame
 FRAMES_DATASET_NAME = 'Video Test Studio · frames'
 FRAMES_DATASET_LEGACY_NAMES = ('Video Test Studio · start frames',)
 FRAME_COPIES_MAX = 100
@@ -939,7 +926,7 @@ def last_frame_png(clip_id) -> str:
     if not ffmpeg:
         raise ValueError('ffmpeg is needed to read the last frame — install the video extra from Setup')
     # Extracted under a name of its own, then published in one rename: the
-    # completion hook and the Rendered clip tab's preview both ask for this
+    # continuation and the Rendered clip tab's preview can ask for this
     # picture within a second of each other, and two ffmpegs writing the
     # same path could leave a half-written PNG in the Gallery for good
     # (found in verification, 2026-09-04). Same extension, so ffmpeg still
@@ -957,61 +944,6 @@ def last_frame_png(clip_id) -> str:
             except OSError:
                 pass
     return dst
-
-
-def collected_frame_name(clip_id, job_id) -> str:
-    """The Gallery copy of a clip's last frame: `vslast_<clip id>_<job head>.png`.
-    The job head (the first 8 hex of the queue's uuid) is what makes the name
-    survive SQLite handing the clip's id to a later clip."""
-    head = re.sub(r'[^0-9a-zA-Z]', '', str(job_id or ''))[:8]
-    return f'vslast_{int(clip_id)}_{head}.png' if head else f'vslast_{int(clip_id)}.png'
-
-
-def collect_last_frame(clip_id, user_id='local'):
-    """🖼 The last frame of a finished clip, given to the Gallery — ONCE per clip.
-
-    "The last frames collected must end up in the Gallery" (the maintainer,
-    2026-09-04): a rendered clip's last image is the picture the next clip can
-    start from or end on, and the Rendered clip tab is one place to find it — but the
-    Gallery is where every picture of the app is offered, viewed and improved.
-    So when a clip lands, its last frame is extracted (`last_frame_png`) and
-    copied into the holding dataset (`frames_dataset_id`) as one library row,
-    `derivation_kind` VIDEO_LAST_FRAME: blank LoRA facts in every viewer, filed
-    with the renders, never a cell of the Test Studio.
-
-    ONE ROW PER CLIP, keyed by the copy's NAME (`collected_frame_name`: the clip
-    id AND the head of its queue job id), not by content like `adopt_frame`: a
-    ⏭ join rewrites the clip's file behind it and re-encodes the same last
-    picture into slightly different bytes, and a content key would file one
-    frame twice. The clip id alone is not a key either: SQLite hands a deleted
-    clip's id to the next one (the delete route already knows, for the
-    sidecar), and a name built on it alone kept the deleted clip's picture
-    while the new clip's frame was never collected (found in verification,
-    2026-09-04). The job id is the queue's uuid and never comes back. The copy is taken on the FIRST
-    collection and left alone after — a ✦ Repair on the Gallery copy is the
-    user's, and a later re-extraction must not undo it. A row whose file went
-    missing gets its file back and stays one row.
-
-    Raises what `last_frame_png` raises (not done, file gone, no ffmpeg): the
-    completion hook logs it and moves on — the clip is a clip, its frame simply
-    not in the Gallery.
-    """
-    from lds_sdk import video_frames
-    from lds_video.models import VideoTestClip
-    png = last_frame_png(clip_id)
-    ds_id = frames_dataset_id(user_id)
-    clip = VideoTestClip.query.filter_by(id=int(clip_id)).first()
-    name = collected_frame_name(clip_id, getattr(clip, 'job_id', None))
-    target = os.path.join(str(video_frames.dataset_directory(user_id, ds_id)), name)
-    existing = video_frames.existing(user_id, ds_id, name)
-    if existing is None or not os.path.isfile(target):
-        shutil.copy2(png, target)
-    if existing is not None:
-        return existing
-    return video_frames.create_frame(user_id, ds_id, filename=name,
-        checkpoint=LAST_FRAME_CHECKPOINT,
-        prompt=f'Last frame of clip #{int(clip_id)} — collected by the Video Test Studio when the clip finished.',
-        derivation_kind='video_last_frame')
 
 
 def _probe_media(ffmpeg, path) -> dict:
@@ -1249,19 +1181,15 @@ def _bring_clip_home(filename):
 
 
 def postprocess_completed_clip(clip_id):
-    """Join and collect a committed render, without holding a rental lock."""
+    """Join a committed continuation, without extracting unused last frames."""
     from lds_video.models import db
     from lds_video.models import VideoTestClip
     clip = db.session.get(VideoTestClip, clip_id)
     if clip is None or clip.status != 'done':
         return
     continues = getattr(clip, 'continues_of', None)
-    copy_of = getattr(clip, 'vfi_of', None) or getattr(clip, 'nr_of', None)
     if continues:
         # ⏭ The part becomes the whole: parent, then this render.
         _join_continuation(clip_id)
-    if not copy_of:
-        # 🖼 The last frame collected into the Gallery — after the join, so a
-        # continued clip's frame is read off the whole; not for a copy, whose
-        # last picture the Gallery already has from its source.
-        _collect_last_frame_quietly(clip_id)
+    # last_frame_png remains lazy: Continue, an explicit frame preview or
+    # frame selection extracts it when needed, without adding Gallery rows.

@@ -2,6 +2,8 @@
 // entries. Keep ids and published copy stable; new video updates belong here.
 // Data only: release tooling reads this export without loading the application.
 export const WHATS_NEW = [
+  { id: '2026-09-24-video-gallery-performance', date: '2026-09-24', title: 'Browse large image selections with less overhead',
+    blurb: 'The Video Studio Bank and Gallery pickers keep only nearby image tiles mounted and use cached Gallery thumbnails. All loaded images stay reachable, including by keyboard. Finished videos no longer extract and add a last-frame image to the Gallery automatically; Continue and frame previews prepare it on demand.', to: '/studio?lane=video' },
   { id: '2026-09-24-video-clipproj', date: '2026-09-24', title: 'Use a smaller H3 prompt encoder',
     blurb: 'H3 generation now uses Qwen3-VL 4B FP8 with ClipProj v3.1 in place of the 32B prompt encoder. Setup prepares the encoder, projection and nodes, reusing existing files. Restart ComfyUI after installing the nodes. The smaller encoder does not represent the total memory needed to render a video.', to: '/studio?lane=video' },
   { id: '2026-09-23-video-official-int8-vae', date: '2026-09-23', title: 'Prepare the smaller official H3 INT8 VAE',
