@@ -340,7 +340,7 @@ def _comfy_input_dir() -> str:
 
 def enqueue_camera_view(user_id, source_filename, source_path, pose_prompt,
                         extra_metadata=None, seed=None,
-                        model_name='qwen_camera_angle'):
+                        model_name='qwen_camera_angle', standalone_job_id=None):
     """Stage the source, point the graph at the installed weights, enqueue ONE
     view. Returns the app job_id.
 
@@ -419,7 +419,7 @@ def enqueue_camera_view(user_id, source_filename, source_path, pose_prompt,
     # lane — four different prompts all saved as ..._00002_.png).
     workflow['9']['inputs']['filename_prefix'] = f'{user_id}_CameraAngle_{uid}'
 
-    job_id = str(uuid.uuid4())
+    job_id = standalone_job_id or str(uuid.uuid4())
     # Two stamps for one workflow, because the completion routes ON THIS NAME:
     # 'qwen_camera_angle' rides `is_lora_test` back to the gallery table, while
     # 'qwen_camera_dataset' is in DATASET_IMAGE_JOB_NAMES and lands as a
@@ -429,6 +429,11 @@ def enqueue_camera_view(user_id, source_filename, source_path, pose_prompt,
     if extra_metadata:
         meta.update(extra_metadata)
     meta['staged_inputs'] = staged_inputs
-    queue_manager.add_job(job_type='image', user_id=str(user_id), workflow_data=workflow,
-                          prompt=pose_prompt, job_id=job_id, metadata=meta)
+    if standalone_job_id:
+        comfy_fs.add_plugin_job('camera_angles', 'is_camera_studio',
+                                user_id=str(user_id), workflow_data=workflow,
+                                prompt=pose_prompt, job_id=job_id, metadata=meta)
+    else:
+        queue_manager.add_job(job_type='image', user_id=str(user_id), workflow_data=workflow,
+                              prompt=pose_prompt, job_id=job_id, metadata=meta)
     return job_id

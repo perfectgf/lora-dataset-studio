@@ -2,9 +2,9 @@
   "id": "camera_angles",
   "bundled": true,
   "name": "Camera angles",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "api": 1,
-  "description": "Re-shoot a picture from other camera positions with Qwen-Image-Edit and the Multiple-Angles LoRA — the subject stays put, the backdrop moves with the camera. On Gallery images and dataset images; the views land next to their source.",
+  "description": "Import an image into the Camera angles workspace and re-shoot it from other camera positions with Qwen-Image-Edit and the Multiple-Angles LoRA. Preview and download each view, or use the same controls on Gallery and dataset images.",
   "requires": [],
   "python_package": "lds_camera_angles",
   "frontend": "frontend/index.js",
@@ -35,6 +35,7 @@
     ],
     "tables": [],
     "whats_new_ids": [
+      "2026-09-24-camera-standalone",
       "2026-08-28-camera-model-choice",
       "2026-08-26-camera-angles-dataset",
       "2026-08-26-camera-setup-card",
@@ -42,6 +43,9 @@
     ],
     "model_slots": [
       "camera_unet"
+    ],
+    "job_kinds": [
+      "is_camera_studio"
     ]
   },
   "models": [],
@@ -55,6 +59,10 @@
   "experience": {
     "entrypoints": [
       {
+        "label": "Open Camera angles",
+        "path": "/camera-angles"
+      },
+      {
         "label": "Open Gallery",
         "path": "/gallery"
       },
@@ -67,15 +75,16 @@
       "label": "Configure",
       "path": "/plugins/camera_angles/settings"
     },
-    "setup_hint": "Requires a configured ComfyUI and Camera model weights. Open an original image and choose Camera angles.",
+    "setup_hint": "Requires a configured ComfyUI and Camera model weights. Open Camera angles and import an image, then choose your viewpoints.",
     "surfaces": [
+      "Camera angles",
       "Gallery",
       "Dataset",
       "Camera setup"
     ]
   },
   "compatibility": {
-    "api": ">=1.12,<2"
+    "api": ">=1.16,<2"
   },
   "guide_ownership": {
     "chapters": [],

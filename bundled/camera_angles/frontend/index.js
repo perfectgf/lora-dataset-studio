@@ -11,8 +11,8 @@ import { cameraCatalogItems, cameraSetupRows } from './lib/cameraInstall.js'
 export default {
   guide: GUIDE,
   id: 'camera_angles',
-  nav: [],
-  routes: [],
+  nav: [{ to: '/camera-angles', label: '📷 Camera angles' }],
+  routes: [{ path: '/camera-angles', page: () => import('./panels/CameraStudio.jsx') }],
   slots: {
     'settings.group': [{ id: 'camera-models', section: 'engines',
       title: 'Camera model preferences', blurb: 'Choose installed model files or keep automatic selection.',
@@ -50,7 +50,7 @@ export default {
         'side view', 'three-quarter', 'low angle', 'high angle', 'from below',
         'from above', 'turntable', 'coverage', 'sks', 'qwen', 'why did it turn the person',
         'background did not move', 'same scene different angle'],
-      '/gallery', 'using-the-app', 'the-gallery-every-image-you-generated',
+      '/camera-angles', 'using-the-app', 're-shoot-an-image-with-camera-angles',
       { trigger: 'camera-angles-picker',
         text: 'Pick axes, not pictures: the sides you tick times the heights times '
           + 'the distances is the run — the count under the button is what it will cost.' }),

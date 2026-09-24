@@ -3,14 +3,14 @@
 Re-shoots ONE picture from other camera positions with Qwen-Image-Edit and
 the Multiple-Angles LoRA: the subject stays put and the backdrop reprojects
 with the camera, which no edit model does by prompting harder (the
-measurement is in ``camera_angles.py``). Two surfaces carry the verb — a
-Gallery image (a Test Studio render) and a dataset image — and each lands
-its views next to its source.
+measurement is in ``camera_angles.py``). The standalone workspace imports
+images and keeps their views in plugin storage. Gallery and dataset actions
+also keep their existing results beside the source.
 
 What the plugin registers through ``lds.api``:
 
-* the three routes the screens call (``/api/canvas/image/<id>/camera``,
-  ``/api/dataset/image/<id>/camera``, ``/api/camera/catalog``);
+* the Gallery/dataset camera routes, catalog and standalone workspace routes;
+* standalone job completion and durable imported images/results;
 * the four weight files Setup downloads, as Setup actions, and the one-click
   ``camera`` install group (the Qwen VAE is the Krea 2 lane's download —
   one file, one button — so the group names ``krea_vae`` as a member);
@@ -26,7 +26,7 @@ never moves) and is declared in the manifest's ``owns`` table.
 """
 from . import qwen_camera_helper as qch
 
-__version__ = '1.0.4'
+__version__ = '1.1.0'
 
 # The weights that move the CAMERA rather than the subject.
 #
@@ -116,8 +116,14 @@ def _camera_ready():
 def register(ctx):
     from .routes import bp
     from .views import with_camera_pose_phrase
+    from . import studio
 
+    ctx.app.extensions['camera_angles.context'] = ctx
     ctx.register_blueprint(bp, url_prefix='/api')     # the URLs the screens already call
+    ctx.register_job_handler('is_camera_studio', studio.completed, presentation={
+        'title': 'Camera view', 'surface': 'Camera angles', 'engine': 'Qwen-Image-Edit',
+        'cancel_scope': 'job',
+    })
     for key, spec in DOWNLOADS.items():
         ctx.register_model_download(key, **spec)
     # No integrity lane yet (`camera_invalid` is not a capability): named

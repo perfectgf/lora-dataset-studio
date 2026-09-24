@@ -1,8 +1,7 @@
-"""The three routes of the lane, at the URLs the screens already call —
-registered under ``/api`` by the plugin's ``register``."""
+"""Camera actions, catalog and imported-image workspace under ``/api``."""
 import os
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
 from lds_sdk import config as cfg, setup as setup_installer
 from lds_sdk.http import map_error as _map_error, require_idle_comfy as _require_no_stalled_comfyui
@@ -10,8 +9,66 @@ from lds_sdk.http import map_error as _map_error, require_idle_comfy as _require
 from . import camera_angles as ca
 from . import qwen_camera_helper as qch
 from . import views
+from . import studio
 
 bp = Blueprint('camera_angles', __name__)
+
+
+@bp.get('/camera/studio/images')
+def studio_images():
+    return jsonify(images=studio.listing(cfg.local_user()))
+
+
+@bp.post('/camera/studio/images')
+def studio_import():
+    upload = request.files.get('image')
+    if not upload:
+        return jsonify(error='Choose an image to import.'), 400
+    try:
+        return jsonify(image=studio.import_image(cfg.local_user(), upload)), 201
+    except Exception as exc:
+        return _map_error(exc)
+
+
+@bp.get('/camera/studio/images/<ident>')
+def studio_image(ident):
+    try:
+        return jsonify(image=studio.detail(cfg.local_user(), ident))
+    except LookupError:
+        return jsonify(error='Camera image not found.'), 404
+    except Exception as exc:
+        return _map_error(exc)
+
+
+@bp.get('/camera/studio/images/<ident>/original')
+@bp.get('/camera/studio/images/<ident>/views/<view_id>')
+def studio_media(ident, view_id=None):
+    try:
+        path = studio.media_path(cfg.local_user(), ident, view_id)
+        return send_file(path, mimetype='image/png', as_attachment=request.args.get('download') == '1',
+                         download_name='camera-' + (view_id or ident) + '.png')
+    except LookupError:
+        return jsonify(error='Camera image not found.'), 404
+    except Exception as exc:
+        return _map_error(exc)
+
+
+@bp.post('/camera/studio/images/<ident>/shoot')
+def studio_shoot(ident):
+    gate = _require_no_stalled_comfyui()
+    if gate:
+        return gate
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(error='Expected camera positions.'), 400
+    try:
+        return jsonify(ok=True, **studio.shoot(cfg.local_user(), ident, data.get('poses')))
+    except qch.CameraModelsMissing as exc:
+        return _camera_missing_response(exc)
+    except LookupError:
+        return jsonify(error='Camera image not found.'), 404
+    except Exception as exc:
+        return _map_error(exc)
 
 
 def _camera_missing_response(e):

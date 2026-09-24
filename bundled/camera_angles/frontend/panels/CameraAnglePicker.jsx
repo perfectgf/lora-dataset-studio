@@ -101,7 +101,7 @@ function AzimuthDial({ picked, onToggle }) {
  * chrome that ate the fold.
  */
 export default function CameraAnglePicker({ onShoot, onClose, modelResident = false,
-  busy = false }) {
+  busy = false, inline = false, disabled = false }) {
   const [azimuths, setAzimuths] = useState(['front', 'right', 'back', 'left']);
   const [elevations, setElevations] = useState(['eye']);
   const [distances, setDistances] = useState(['medium']);
@@ -140,7 +140,7 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
   const active = sending || busy;
 
   const run = async () => {
-    if (refusal || active) return;
+    if (refusal || active || disabled) return;
     setSending(true);
     try {
       await onShoot(poses);
@@ -160,8 +160,9 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
   );
 
   return (
-    <div data-probe-layer className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 p-3 sm:p-6"
-      role="dialog" aria-modal="true" aria-label="Choose camera positions"
+    <div data-probe-layer={inline ? undefined : true}
+      className={inline ? 'min-w-0' : 'fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 p-3 sm:p-6'}
+      role={inline ? 'region' : 'dialog'} aria-modal={inline ? undefined : true} aria-label="Choose camera positions"
       /* stopPropagation ALWAYS, then the backdrop test. This picker mounts in
          two hosts, and one of them (the dataset lightbox) closes ITSELF on any
          click that reaches its root — without the stop, every tap on a dial
@@ -185,7 +186,7 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
       }}>
       {/* `bg-surface-overlay`, not `bg-surface`: the latter is 4 % alpha and the
           page would read through the card. The contract test enforces it. */}
-      <div className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-white/10 bg-surface-overlay shadow-2xl">
+      <div className={`flex w-full flex-col overflow-hidden rounded-xl border border-white/10 bg-surface-overlay ${inline ? '' : 'max-h-full max-w-3xl shadow-2xl'}`}>
 
         <header className="flex items-start gap-3 border-b border-white/10 px-4 py-3">
           <Camera className="mt-0.5 size-5 shrink-0 text-indigo-300" aria-hidden />
@@ -193,10 +194,10 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
             <h2 className="font-sans text-base font-semibold text-gray-100">Camera angles</h2>
             <p className="mt-0.5 text-[0.78rem] leading-snug text-gray-400">{CAMERA_INTRO}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" ref={closeRef}
+          {!inline && <button type="button" onClick={onClose} aria-label="Close" ref={closeRef}
             className="min-h-10 lg:min-h-0 -mr-1 rounded-lg px-2 text-gray-400 hover:bg-white/5 hover:text-gray-200">
             <X className="size-4" aria-hidden />
-          </button>
+          </button>}
         </header>
 
         <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-4 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
@@ -307,11 +308,11 @@ export default function CameraAnglePicker({ onShoot, onClose, modelResident = fa
               </span>
             )}
           </p>
-          <button type="button" onClick={onClose}
+          {!inline && <button type="button" onClick={onClose}
             className="min-h-10 lg:min-h-0 rounded-lg border border-white/10 px-3 py-1.5 text-[0.78rem] text-gray-300 hover:border-white/25">
             Cancel
-          </button>
-          <button type="button" onClick={run} disabled={!!refusal || active}
+          </button>}
+          <button type="button" onClick={run} disabled={!!refusal || active || disabled}
             aria-busy={active}
             className="min-h-10 lg:min-h-0 rounded-lg bg-gradient-primary px-4 py-1.5 text-[0.8rem] font-semibold text-gray-950 disabled:cursor-not-allowed disabled:opacity-40">
             {active ? 'Queueing…' : `Shoot ${poses.length || ''} view${poses.length === 1 ? '' : 's'}`.trim()}

@@ -1,5 +1,12 @@
 // Historical IDs and dates are preserved when ownership moves out of the core feed.
 export const MIGRATED_NEWS = [
+  {
+    id: '2026-09-24-camera-standalone',
+    date: '2026-09-24',
+    title: 'Camera angles has its own workspace',
+    blurb: 'Open Camera angles from the navigation, import an image and choose your viewpoints directly. Originals and generated views stay in the workspace, with previews and downloads for each result.',
+    to: '/camera-angles',
+  },
 {
     id: '2026-08-28-camera-model-choice',
     date: '2026-08-28',
