@@ -1351,6 +1351,8 @@ export const GUIDE = {
         "the motion of the clip being continued and of the two before it, most",
         "recent first, and asked to write what happens NEXT — same people, wardrobe,",
         "setting and camera language, no restart, no repeat.",
+        "Continue keeps the references you selected for the next shot. When none",
+        "are selected, it restores the references saved with the parent clip.",
         "Last frames are extracted **on demand** when you Continue, preview or pick",
         "one in Rendered clip. Finishing a video adds no image to the Gallery.",
         "Open a selected frame in the viewer to add it to the image library and",

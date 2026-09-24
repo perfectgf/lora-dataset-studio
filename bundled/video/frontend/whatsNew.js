@@ -2,6 +2,8 @@
 // entries. Keep ids and published copy stable; new video updates belong here.
 // Data only: release tooling reads this export without loading the application.
 export const WHATS_NEW = [
+  { id: '2026-09-25-video-continue-references', date: '2026-09-25', title: 'Keep your selected references when continuing a clip',
+    blurb: 'Continue keeps the references selected for the next shot, restoring the parent clip\'s references only when the selection is empty. Reuse restores prompt tags with the matching images. If a removed reference still appears in Motion, a direct action selects that mention for editing.', to: '/studio?lane=video' },
   { id: '2026-09-24-video-gallery-performance', date: '2026-09-24', title: 'Browse large image selections with less overhead',
     blurb: 'The Video Studio Bank and Gallery pickers keep only nearby image tiles mounted and use cached Gallery thumbnails. All loaded images stay reachable, including by keyboard. Finished videos no longer extract and add a last-frame image to the Gallery automatically; Continue and frame previews prepare it on demand.', to: '/studio?lane=video' },
   { id: '2026-09-24-video-clipproj', date: '2026-09-24', title: 'Use a smaller H3 prompt encoder',

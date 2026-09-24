@@ -638,7 +638,8 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
     if (clip.mode === 'ref2va') reference.restore(clip);
     else {
       reference.setSettings({ refmods: clip.generation_settings?.refmods === true });
-      reference.setReferences(referenceDescriptors(clip.references));
+      // Reuse supplies its own prompt, already numbered for this clip's refs.
+      reference.setReferences(referenceDescriptors(clip.references), { remapPrompt: false });
     }
     setOpts({
       ...performanceSettings(clip.generation_settings),
@@ -697,7 +698,14 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
   const referenceProfileMissing = isReference && (
     referenceBaseMissing(options?.reference?.bases?.find((b) => b.id === reference.settings.base), reference.settings, options?.performance)
     || options?.reference?.accelerations?.find((a) => a.id === reference.settings.accel)?.available === false);
-  const removedReference = /\[removed (?:Picture|Video|Audio) \d+\]/.test(prompt);
+  const removedReference = /\[removed (?:Picture|Video|Audio) \d+\]/.exec(prompt);
+  const editRemovedReference = () => {
+    const field = document.getElementById('vs-motion-text');
+    if (!field || !removedReference) return;
+    field.focus();
+    field.setSelectionRange(removedReference.index, removedReference.index + removedReference[0].length);
+    field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   // ✨ Written per picture needs no typed motion: an empty field asks the
   // writer for a proposal from each picture alone — a gate on the field
   // refused exactly the case the mode promises (found in verification).
@@ -705,7 +713,7 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
   const blocked = invalidRefmods || busy || !!motionBusy || reference.staging || needsImage || needsReferences || referenceProfileMissing || removedReference || (!prompt.trim() && !perPictureReady);
   const reason = invalidRefmods ? 'RefMods accept identity images only. Remove video or audio references.' : needsReferences ? (useRefmods ? 'Add an identity image.' : 'Add an image, video or audio reference.')
     : referenceProfileMissing ? 'Install the selected reference profile from Setup, then refresh this panel.'
-      : removedReference ? 'Update the removed reference mentions in the motion before generating.' : needsImage
+      : removedReference ? `The motion contains ${removedReference[0]}. Edit this mention before generating.` : needsImage
     ? 'Pick a start frame, add an identity reference, or switch to text-only.'
     : (!prompt.trim() && !perPictureReady ? 'Describe the motion first.' : null);
 
@@ -770,13 +778,13 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
      the picture alone drops that identity at the seam — and so does what
      decides the LOOK of the seam: the base, its acceleration, the reference
      size and the shape. The dials that pace the new part (length, megapixels,
-     seed) stay yours. Through setReferences, so the tags already in the motion
-     field are remapped to the cast that comes back.
+     seed) stay yours. A selection made for the next shot stays selected;
+     the parent's cast is restored only when there is no current selection.
      One function for the full click and for the repair below: the repair used
      to arm the guide WITHOUT the cast, which is the very loss this feature
      exists to prevent (verification, 2026-09-07). */
   const armAsReference = (clip, image, { fresh = true } = {}) => {
-    reference.setReferences(referenceDescriptors(clip.references));
+    if (!reference.references.length) reference.setReferences(referenceDescriptors(clip.references));
     reference.update({ active: true,
       settings: { ...reference.settings, ...performanceSettings(clip.generation_settings), base: clip.ref_base || 'official',
         accel: clip.accel || '', imageSize: clip.ref_image_size || 'match',
@@ -806,7 +814,9 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
        picture is already staged, so re-arming costs no request. */
     if (clip.mode !== 'ref2va') {
       reference.setSettings({ refmods: clip.generation_settings?.refmods === true });
-      reference.setReferences(referenceDescriptors(clip.references));
+      // Continue uses the selection for the NEXT shot. An older clip often has
+      // no saved refs; clearing the new selection also broke its prompt tags.
+      if (!reference.references.length) reference.setReferences(referenceDescriptors(clip.references));
       setOpts(o => ({ ...o, ...performanceSettings(clip.generation_settings), accel: clipAccel(clip), steps: clipAccel(clip) === 'taomate_3step' ? 3 : '', eros: !!clip.eros, light: !!clip.light }));
       setMode('i2v');
     }
@@ -863,7 +873,7 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
       }
       setMode(asReference ? 'ref2va' : 'i2v');
       toast.success(asReference
-        ? `Last frame of clip #${clip.id} staged as the first frame guide, with its ${clip.references.length} reference${clip.references.length === 1 ? '' : 's'} — write the next motion, then Generate. The result plays as clip #${clip.id} followed by the new one.`
+        ? `Last frame of clip #${clip.id} staged as the first frame guide, with the selected references — write the next motion, then Generate. The result plays as clip #${clip.id} followed by the new one.`
         : `Last frame of clip #${clip.id} staged — write the next motion, then Generate. The result plays as clip #${clip.id} followed by the new one.`);
       const el = document.getElementById('vs-motion');
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1182,6 +1192,12 @@ export default function VideoTestStudio({ datasetId = null } = {}) {
             {generateButton}
             {reason && (
               <p className="text-[0.6875rem] text-content-subtle">{reason}</p>
+            )}
+            {removedReference && (
+              <button type="button" onClick={editRemovedReference}
+                className="min-h-10 text-left text-xs text-primary underline lg:min-h-0">
+                Edit missing reference in Motion
+              </button>
             )}
           </div>
         </aside>

@@ -154,7 +154,7 @@ export default function VideoClipHistory({
                 {clip.status === 'done' && onContinue && (
                   <button type="button" onClick={() => onContinue(clip)} disabled={continueBusy === clip.id || continueDisabled}
                     title={continuesAsReference(clip)
-                      ? 'Continue this take with the same references, starting on its last frame — the result is this clip followed by the new one'
+                      ? 'Continue from the last frame with your selected references, or restore the saved references if none are selected'
                       : 'Use the last frame as the next start frame — the result is this clip followed by the new one'}
                     className={`${ACTION} border-border text-content-muted hover:text-content`}>
                     <SkipForward aria-hidden="true" className="h-3.5 w-3.5" />Continue

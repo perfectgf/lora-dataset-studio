@@ -9,10 +9,10 @@ export default function useVideoReferences(setPrompt, storageKey) {
   current.current = draft;
   useEffect(() => { writeReferenceDraft(draft, undefined, storageKey); }, [draft, storageKey]);
   const update = useCallback((patch) => setDraft((d) => ({ ...d, ...patch })), []);
-  const setReferences = useCallback((next) => {
+  const setReferences = useCallback((next, { remapPrompt = true } = {}) => {
     const before = current.current.references;
     const after = typeof next === 'function' ? next(before) : next;
-    setPrompt((p) => remapReferencePrompt(p, before, after));
+    if (remapPrompt) setPrompt((p) => remapReferencePrompt(p, before, after));
     current.current = { ...current.current, references: after };
     setDraft((d) => ({ ...d, references: after }));
   }, [setPrompt]);
