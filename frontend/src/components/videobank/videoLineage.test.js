@@ -31,7 +31,7 @@ test('a node becomes the group the list reasons about, a pill the step', () => {
     run_name: null, parent_run_id: 7, steps: CLOUD.checkpoints })
   assert.deepEqual(nodeGroup(LOCAL), { key: 'local', lane: 'local', run_id: null, active: false, status: null,
     run_name: 'video_x_ds9', parent_run_id: null, steps: LOCAL.checkpoints })
-  assert.deepEqual(pillStep(CLOUD.checkpoints[0]), { step: 100, final: false, deployed: true, files: CLOUD.checkpoints[0].files })
+  assert.deepEqual(pillStep(CLOUD.checkpoints[0]), { step: 100, final: false, deployed: true, files: CLOUD.checkpoints[0].files, civitai: null, best_settings: false })
   assert.equal(pillKey(CLOUD, CLOUD.checkpoints[1]), 'cloud-12:final')
   assert.equal(pillKey(LOCAL, LOCAL.checkpoints[0]), 'local:50')
 })

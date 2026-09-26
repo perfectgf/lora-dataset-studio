@@ -128,7 +128,7 @@ test('a pending row is not a missing one: own destination, own wording', () => {
   // own and never waits on ComfyUI, so it is not in this list.
   assert.deepEqual(pending.map((r) => r.label),
     ['Klein (local)', '🖼️ Test Studio (images)', '📷 Camera angles (local)',
-      'Video Test Studio', 'Smooth (frame interpolation)', 'Live — local generation'],
+      '🎬 Video Test Studio (beta)', '↗ Smooth (frame interpolation)', 'Live — local generation'],
     'ComfyUI down leaves Klein + Camera angles + the video rows + Test Studio pending')
   for (const row of pending) {
     assert.ok(row.note, `${row.label}: pending row must explain itself`)

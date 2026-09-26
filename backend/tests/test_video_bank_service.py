@@ -732,6 +732,10 @@ def test_a_stills_set_reuses_the_image_lane_exporter_and_registers_its_rows(
         id = 7
         name = 'kai'
         trigger_word = 'trig'
+        train_type = 'zimage'
+        kind = 'character'
+        ref_filename = None
+        subject_type = 'human'
 
     monkeypatch.setattr(lt, 'export_dataset_to_aitoolkit', fake_export)
     monkeypatch.setattr(svc.cfg, 'video_datasets_root', lambda: tmp_path / 'vd')

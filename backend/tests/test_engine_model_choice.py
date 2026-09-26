@@ -140,12 +140,12 @@ def test_a_blank_setting_keeps_the_historical_chatgpt_model(app, monkeypatch, bl
     from lds_api_engines import chatgpt_image
     with app.app_context():
         cfg.save_config({'engines': {'chatgpt_image_model': blank}})
-        assert chatgpt_image.get_image_model() == 'gpt-image-2' \
+        assert chatgpt_image.get_image_model() == 'gpt-image-2.5-sunburst' \
             == chatgpt_image.DEFAULT_IMAGE_MODEL
         with patch('lds_api_engines.chatgpt_image.requests.post',
                    return_value=_resp(200, _openai_ok())) as post:
             chatgpt_image.generate_variation(b'r', 'p')
-    assert post.call_args.kwargs['data']['model'] == 'gpt-image-2'
+    assert post.call_args.kwargs['data']['model'] == 'gpt-image-2.5-sunburst'
 
 
 def test_a_fresh_install_ships_the_two_model_settings_blank(app):
@@ -189,7 +189,7 @@ def test_nanobanana_precedence_is_setting_then_env_then_default(app, monkeypatch
     ('',                  'gpt-from-env', 'gpt-from-env'),
     ('   ',               'gpt-from-env', 'gpt-from-env'),
     ('gpt-from-settings', None,           'gpt-from-settings'),
-    ('',                  None,           'gpt-image-2'),
+    ('',                  None,           'gpt-image-2.5-sunburst'),
 ])
 def test_chatgpt_precedence_is_setting_then_env_then_default(app, monkeypatch,
                                                              setting, env, expected):

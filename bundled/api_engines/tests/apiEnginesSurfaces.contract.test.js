@@ -36,7 +36,10 @@ test('the ChatGPT spec carries the Setup lane panel and the key field describes 
 // rendered by one of the plugin's panels — a topic pointing at nothing is a
 // dead "Open in Settings" link.
 test('every focus id of the plugin help topics is a DOM id of a plugin panel', () => {
-  const panels = ['ApiEnginesSettingsGroup.jsx'].map((f) => read(`../frontend/panels/${f}`)).join('\n')
+  const settings = read('../frontend/panels/ApiEnginesSettingsGroup.jsx')
+  assert.match(settings, /import ChatgptSubscriptionModels from '\.\/ChatgptSubscriptionModels\.jsx'/)
+  assert.match(settings, /<ChatgptSubscriptionModels\s+caps=\{caps\} config=\{config\} setField=\{setField\}/)
+  const panels = settings + '\n' + read('../frontend/panels/ChatgptSubscriptionModels.jsx')
   const ids = new Set()
   for (const m of panels.matchAll(/id="([^"]+)"/g)) ids.add(m[1])
   for (const m of panels.matchAll(/\bkey:\s*'([^']+)'/g)) ids.add(m[1])

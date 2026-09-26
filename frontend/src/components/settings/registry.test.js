@@ -29,11 +29,12 @@ test('Pexels key and attribution markup stay wired without nested controls', () 
   const attributionSource = readFileSync(
     new URL('../dataset/PexelsAttribution.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const readmeSource = readFileSync(new URL('../../../../README.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const installationSource = readFileSync(new URL('../../../../docs/guide/installation.md', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const envSource = readFileSync(new URL('../../../../.env.example', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 
   assert.match(settingsSource, /key:\s*'PEXELS_API_KEY'/);
   for (const [label, source] of [
-    ['settings', settingsSource], ['README', readmeSource], ['env example', envSource],
+    ['settings', settingsSource], ['installation guide', installationSource], ['env example', envSource],
   ]) {
     assert.match(source, /https:\/\/www\.pexels\.com\/api\/key\//, `${label}: current key URL`);
     assert.doesNotMatch(source, /pexels\.com\/api\/new\//, `${label}: obsolete key URL`);
@@ -43,7 +44,8 @@ test('Pexels key and attribution markup stay wired without nested controls', () 
     assert.match(source, /Pexels\s+has explicitly authorized this use case/,
       `${label}: explicit authorization gate`);
   }
-  for (const source of [settingsSource, readmeSource]) {
+  assert.match(readmeSource, /Pexels requires explicit dataset\/ML authorization/);
+  for (const source of [settingsSource, installationSource]) {
     assert.match(source,
       /https:\/\/help\.pexels\.com\/hc\/en-us\/articles\/900005880463-What-are-the-Terms-and-Conditions/);
   }

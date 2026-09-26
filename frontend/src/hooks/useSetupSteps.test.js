@@ -413,7 +413,8 @@ const fullCaps = () => ({
   // reachable matters for the Krea node pack: an unreachable ComfyUI's node probe
   // fails open, so "nothing missing" from a stopped ComfyUI must not read as
   // "the pack is installed".
-  comfyui: { dir_valid: true, reachable: true, klein_missing: [], krea_missing: [] },
+  comfyui: { dir_valid: true, reachable: true, klein_missing: [], krea_missing: [],
+    video_studio_reference: { missing_weights: [], missing_nodes: [] } },
 });
 
 test('installAllPlan is empty when everything installable is present', () => {
@@ -477,8 +478,12 @@ test('installCatalog lists every app-installable component, present + available'
     ['face_scoring', 'masks', 'watermark_inpaint', 'video_text', 'ollama_model',
       'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora', 'klein_enhancement_lora',
       'krea_nodes', 'krea_model', 'krea_text_encoder', 'krea_vae', 'krea_identity_lora', 'lanpaint_nodes',
-      'video', 'video_host', 'shot_detect', 'h3_base', 'h3_text_encoder', 'h3_video_vae',
+      'video', 'video_host', 'shot_detect', 'h3_base', 'h3_text_encoder', 'h3_clip_projection',
+      'h3_clipproj_nodes', 'h3_video_vae', 'h3_video_vae_int8',
       'h3_audio_vae', 'h3_turbo_lora', 'h3_parasyte_lora', 'h3_dareties_lora',
+      'h3_base_light', 'h3_vdn_stage', 'h3_vdn_stage_int8', 'h3_ref_base', 'h3_ref_base_light',
+      'h3_ref_base_eros', 'h3_ref_turbo_4_lora', 'h3_ref_turbo_8_lora', 'h3_reference_nodes',
+      'h3_attention_nodes',
       'live_encoder', 'live_h3_base', 'live_h3_text_encoder', 'live_h3_video_vae',
       'live_h3_audio_vae', 'live_h3_turbo_lora',
       'camera_model', 'camera_lora', 'camera_speed_lora', 'camera_text_encoder'],
@@ -493,7 +498,8 @@ test('installCatalog lists every app-installable component, present + available'
 test('installCatalog stays fully available for reinstall when all is green', () => {
   // The menu must never collapse once installed — each item can always be repaired.
   const cat = installCatalog(fullCaps());
-  assert.ok(cat.length === 36 && cat.every((c) => c.available))   // core plus explicitly active independent products; shared OCR appears once.
+  assert.equal(cat.length, 49); // Core plus explicitly active products; shared OCR appears once.
+  for (const c of cat) assert.equal(c.available, true, `${c.action} available to reinstall`);
 });
 
 test('installCatalog marks missing ML extras not-present but still available', () => {
@@ -539,7 +545,7 @@ test('installCatalog gates the vision model on a reachable, named Ollama', () =>
 test('Video and Live expose their own preparation rows; DLSS has its own settings', () => {
   const row = (caps, label) => deriveCapabilitySummary(caps).find((s) => s.label === label);
   const DLSS = 'DLSS 5 neural rendering';
-  const SMOOTH = 'Smooth (frame interpolation)';
+  const SMOOTH = '↗ Smooth (frame interpolation)';
   const LIVE = 'Live — local generation';
   // Everything there.
   const on = { comfyui: { dir_valid: true, reachable: true, video_studio_ready: true,

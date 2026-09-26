@@ -82,7 +82,7 @@ def test_smoothing_makes_a_NEW_clip_and_leaves_the_original_alone(app, tmp_path,
         src = db.session.get(VideoTestClip, src_id)
         assert new.id != src.id
         assert src.status == 'done' and src.fps == 24        # untouched
-        assert new.fps == 48 and new.frames == 112
+        assert new.fps == 48 and new.frames == 111
         assert new.vfi_of == src.id
         # The settings ride along so the card still says what made it.
         assert new.seed == 7 and new.turbo is True

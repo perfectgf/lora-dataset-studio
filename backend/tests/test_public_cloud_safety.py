@@ -452,7 +452,7 @@ def test_video_local_checkpoints_work_with_cloud_off(host, monkeypatch):
     monkeypatch.setattr(vck.vtl, 'local_run_name', lambda _ds: 'fixture')
     monkeypatch.setattr(vck.vtl, 'save_root', lambda _ds: '/fixture')
     monkeypatch.setattr(vck.vtl, 'video_training_progress', lambda *_a: {'active': False})
-    ds = SimpleNamespace(id=1, user_id='local')
+    ds = SimpleNamespace(id=1, user_id='local', best_settings=None)
     with host[0].app_context():
         assert vck.local_group(ds, deployed={})['steps'][0]['step'] == 100
         assert facade.group_saves_by_step({'fixture_000000100.safetensors': '/fixture/local'})
@@ -491,7 +491,7 @@ def test_video_http_refuses_foreign_user_or_dataset_type(host, owner, table):
         assert ct.db.session.get(ct.CloudTrainingRun, run_id) is not None
 
 
-def test_video_http_off_refuses_cloud_mutation_but_serves_local_catalog(host):
+def test_video_http_off_can_delete_released_history_and_serve_local_catalog(host):
     activate(host, {'video'})
     from app.models import VideoDataset, CloudTrainingRun
     from app.extensions import db
@@ -506,7 +506,9 @@ def test_video_http_off_refuses_cloud_mutation_but_serves_local_catalog(host):
         route = f'/api/video-dataset/{video.id}/train/cloud/run/{run.id}'
     client = host[0].test_client()
     response = client.delete(route)
-    assert response.status_code == 409 and 'disabled' in response.json['error']
+    assert response.status_code == 200, response.get_data(as_text=True)
+    with host[0].app_context():
+        assert db.session.get(CloudTrainingRun, run.id) is None
     assert client.get('/api/video/targets').status_code == 200
 
 

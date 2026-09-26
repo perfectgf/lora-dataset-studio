@@ -655,10 +655,10 @@ def test_a_replayed_run_keeps_every_stamped_training_flag():
     copies - do_i2v was missed the day it shipped, and a retried i2v run would
     have silently trained t2v. Pinned here so the next flag cannot repeat it."""
     from lds_cloud_training.cloud_video_training import _relaunch_args
-    args = _relaunch_args({'base_model': '', 'low_vram': True, 'do_i2v': True,
+    args = _relaunch_args({'base_model': '', 'low_vram': True, 'do_i2v': True, 'rank': 32,
                            'sample_prompts': ['a wave'], 'distillation': 'off',
                            'requested_gpu': 'A100 SXM4'})
-    assert args == {'base_model': None, 'low_vram': True, 'do_i2v': True,
+    assert args == {'base_model': None, 'low_vram': True, 'do_i2v': True, 'rank': 32,
                     'sample_prompts': ['a wave'], 'distillation': 'off',
                     'gpu_name': 'A100 SXM4'}
 
@@ -666,8 +666,8 @@ def test_a_replayed_run_keeps_every_stamped_training_flag():
 def test_previews_and_the_distillation_override_ride_the_stamp(
         app, tmp_path, monkeypatch):
     """Two launch-time levers, both stamped so the pod rebuild minutes later
-    replays the launch and not the present: `sample_prompts` (capped at 4 -
-    each preview is a full video generation on the paid GPU) and
+    replays the launch and not the present: the complete `sample_prompts` list
+    (each preview is a full video generation on the paid GPU) and
     `distillation: off`, which exists for MEASUREMENT - it is the only way to
     run one dataset with and without upstream's de-distillation recipe and
     compare the previews. 'auto' stamps nothing and keeps the gated default."""
@@ -677,18 +677,16 @@ def test_previews_and_the_distillation_override_ride_the_stamp(
         vid = _video_dataset(tmp_path, 'surf clips')
         monkeypatch.setattr(cvt, '_start_pod', lambda run: calls.append(run))
         out = cvt.launch_cloud_video_training(
-            'local', vid.id, steps=100, sample_prompts=['a wave', '  ', 'a dog'],
+            'local', vid.id, steps=100, sample_prompts=['a wave', '  ', 'a dog', 'a boat', 'a surfer', 'a beach'],
             distillation='off', _provision=lambda run: calls.append(run))
         from app.models import CloudTrainingRun
         run = db.session.get(CloudTrainingRun, out['run_id'])
         p = json.loads(run.train_params)
-        assert p['sample_prompts'] == ['a wave', 'a dog']    # blanks dropped
+        assert p['sample_prompts'] == ['a wave', 'a dog', 'a boat', 'a surfer', 'a beach']
         assert p['distillation'] == 'off'
-        with pytest.raises(ValueError):
-            cvt.launch_cloud_video_training(
-                'local', vid.id, steps=100,
-                sample_prompts=['1', '2', '3', '4', '5'],
-                _provision=lambda run: None)
+        # Later calls exercise input validation, not an active-rental guard.
+        run.status = 'done'
+        db.session.commit()
         with pytest.raises(ValueError):
             cvt.launch_cloud_video_training(
                 'local', vid.id, steps=100, distillation='sideways',

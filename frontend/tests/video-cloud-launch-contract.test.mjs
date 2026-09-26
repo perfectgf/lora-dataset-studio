@@ -58,12 +58,12 @@ test('the launch window opens only after the cloud-lane preflight and its gate',
   // The licence question comes FIRST — before anything is fetched or spent.
   const licenceAt = open.indexOf('if (!confirmLicence()) return')
   assert.ok(licenceAt >= 0 && licenceAt < preflightAt, 'the licence ack must precede the preflight')
-  assert.match(video, /const confirmLicence = \(\) => ensureLicenceAck\(ds,/)
-  assert.match(video, /preflightUrl=\{`\/api\/video-dataset\/\$\{ds.id\}\/train\/preflight\?lane=cloud`\}/)
+  assert.match(video, /confirmLicence=\{\(\) => ensureLicenceAck\(ds,/)
+  assert.match(video, /preflightUrl=\{videoPreflightUrl\(ds.id, 'cloud'\)\}/)
 })
 
 test('the chosen GPU class rides on the launch body, and the dialog is what chooses it', () => {
-  assert.match(video, /cloudUrl=\{`\/api\/video-dataset\/\$\{ds.id\}\/train\/cloud`\}/)
+  assert.match(video, /cloudUrl=\{videoDatasetCloudUrl\(ds.id\)\}/)
   assert.match(block, /const launchCloud = \(gpuName\) => postCloud\(cloudUrl,/)
   assert.match(block, /\.\.\.\(gpuName \? \{ gpu_name: gpuName \} : \{\}\)/)
   assert.match(block, /<VideoCloudLaunchDialog ds=\{ds\} steps=\{steps\} cloudStatus=\{cloudStatus\}/)

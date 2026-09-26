@@ -7,6 +7,15 @@ from unittest.mock import patch, MagicMock
 import base64
 
 
+@pytest.fixture(autouse=True)
+def _subscription_catalog(monkeypatch):
+    # This suite exercises the generation transport. Account catalog discovery
+    # has its own contracts and must never make a live request from these fakes.
+    from lds_api_engines import chatgpt_models
+    monkeypatch.setattr(chatgpt_models, 'available_models',
+                        lambda **kwargs: [{'id': 'fixture-image-router'}])
+
+
 def test_size_for_aspect_three_sizes_only():
     from lds_api_engines.chatgpt_image import size_for_aspect
     assert size_for_aspect('1:1') == '1024x1024'

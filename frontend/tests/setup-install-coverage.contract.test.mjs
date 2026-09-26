@@ -126,6 +126,35 @@ function mlCardActions() {
 // row it is capable of listing.
 const FULL_CAPS = { comfyui: { dir_valid: true, reachable: true } }
 
+// Video's optional performance installers get their action IDs from its API,
+// rather than writing literals in JSX. Follow that contract through the mounted
+// panel and the backend status payload before counting those buttons as reachable.
+function videoPerformanceActions() {
+  const readVideo = file => fs.readFileSync(path.join(BUNDLED, 'video', file), 'utf8').replace(/\r\n/g, '\n')
+  const panel = readVideo('frontend/studio/video/VideoOptionsPanel.jsx')
+  const controls = readVideo('frontend/studio/video/VideoPerformanceOptions.jsx')
+  const route = readVideo('lds_video/routes/video_studio.py')
+  const backend = readVideo('lds_video/h3_performance.py')
+  assert.match(panel, /<VideoPerformanceOptions\s+options=\{options\}/)
+  assert.match(controls, /const status = options\?\.performance \|\| \{\}/)
+  assert.match(controls, /postJson\(`\/api\/setup\/install\/\$\{action\}`, \{\}\)/)
+  assert.match(controls, /<button[^>]*onClick=\{start\}/)
+  assert.match(route, /'performance': h3_performance\.status\(classes\)/)
+  const status = backend.match(/def status\(classes\):([\s\S]*?)\n\ndef /)?.[1]
+  assert.ok(status, 'Video performance status provider exists')
+  const actions = []
+  for (const match of controls.matchAll(/<Prepare action=\{status\.([a-z0-9_]+)\.action\}/g)) {
+    const entry = status.match(new RegExp(`'${match[1]}': \\{([\\s\\S]*?)(?=\\n {8}'|\\n {4}\\})`))?.[1]
+    assert.ok(entry, `${match[1]} preparation button has a backend status entry`)
+    const literal = entry.match(/'action': '([a-z0-9_]+)'/)?.[1]
+    // The attention action is a shared SDK constant and already has a catalog row.
+    if (literal) actions.push(literal)
+    else assert.match(entry, /'action': host\.BLOCK_ATTN_INSTALL_ACTION/)
+  }
+  assert.ok(actions.length, 'Video performance actions must resolve from the API')
+  return actions
+}
+
 test('every backend install action is reachable from a Setup surface', () => {
   const groups = backendGroups()
   const posted = postedGroups()
@@ -173,6 +202,9 @@ for (const product of products) {
     setEnabled([product.id])
     const rows = installCatalog(FULL_CAPS)
     const reachable = new Set(rows.map(row => row.action))
+    if (product.id === 'video') {
+      for (const action of videoPerformanceActions()) reachable.add(action)
+    }
     const files = fs.readdirSync(path.join(BUNDLED, product.id, 'frontend'), { recursive: true })
     const posted = new Set()
     for (const file of files.filter(name => /\.jsx?$/.test(name))) {

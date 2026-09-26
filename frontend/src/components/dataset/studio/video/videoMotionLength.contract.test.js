@@ -58,7 +58,7 @@ test('both ✨ gestures send the clip length the dials are set to', () => {
   }
   // And the length is the readback's number, derived from the same dial the
   // sampler renders — not a second constant that can drift from it.
-  assert.match(PANEL, /const seconds = clipSeconds\(opts\.frames, fps\)/)
+  assert.match(PANEL, /const seconds = clipSeconds\(renderOpts\.frames, fps\)/)
 })
 
 test('the launch carries the frame count the server paces the enrichment on', () => {
@@ -81,13 +81,13 @@ test('a click waiting on the fence is dropped when the mode or the frame changes
   // for. The hook's behaviour is RUN in tests/ollama-fence-hook-replay.test.mjs;
   // this pins the panel's call.
   assert.match(PANEL,
-    /useEffect\(\(\) => \{ stopWaiting\(\); \}, \[mode, source\.image, seconds, stopWaiting\]\)/)
+    /useEffect\(\(\) => \{ stopWaiting\(\); \}, \[mode, source\.image, seconds, reference\.signature, stopWaiting\]\)/)
   // And a switch while the click RUNS: the request cannot be stopped, so
   // each writer asks the guard's handle before writing — `keepAnswer(run,
   // setAside)` (RUN in src/utils/ollamaFence.test.js) sits on its own line
   // between the reply and the field on both ✨ actions, and what it says
   // when told no is the one notice.
-  assert.match(PANEL, /const suggest = async \(run\) =>[\s\S]*?\n[ \t]*if \(r\?\.prompt && keepAnswer\(run, setAside\)\) setPrompt\(r\.prompt\);/)
+  assert.match(PANEL, /const suggest = async \(run\) =>[\s\S]*?\n[ \t]*if \(r\?\.prompt && keepAnswer\(run, setAside\)\) \{\s*setPrompt\(r\.prompt\);/)
   assert.match(PANEL, /const enrich = async \(run\) =>[\s\S]*?\n[ \t]*if \(!keepAnswer\(run, setAside\)\) return;[\s\S]*?setPrompt\(r\.prompt\)/)
   assert.match(PANEL, /const setAside = \(\) => toast\.info\(SUPERSEDED_ANSWER_NOTICE\);/)
 })
@@ -101,7 +101,7 @@ test('the enrichment names the frame only when one will be animated', () => {
   // The ✨ button's call gates on the mode…
   const [button] = calls
   assert.match(button.body,
-    /image:\s*mode\s*===\s*'t2v'\s*\?\s*null\s*:\s*\(\s*source\.image\s*\|\|\s*null\s*\)/)
+    /image:\s*isReference \? reference\.firstFrame\?\.image : launchMode\s*===\s*'t2v'\s*\?\s*null\s*:\s*\(\s*source\.image\s*\|\|\s*null\s*\)/)
   // …and the per-picture writer still names the frame it writes for — it just
   // does it for the WHOLE strip in one request now (one vision window instead
   // of one per picture), so the naming moved into the batch body and is

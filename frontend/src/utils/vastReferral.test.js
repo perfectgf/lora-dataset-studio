@@ -184,8 +184,13 @@ test('README, the core and owned guides and .env.example keep the same disclosed
     }
   }
   const readme = read(README)
-  assert.match(readme, /\*\*Affiliate disclosure\.\*\*/)
-  assert.match(readme, /\*\*Affiliate disclosure\.\*\*[\s\S]{0,600}referral links/)
+  const disclosure = readme.match(/\*\*Affiliate disclosure[.:]\*\*[^\n]+/)?.[0]
+  assert.ok(disclosure, 'README keeps its visible affiliate disclosure')
+  assert.match(disclosure, /3% of referred users' spending/)
+  assert.match(disclosure, /lifetime of their account/)
+  assert.match(disclosure, /at no extra cost/)
+  assert.match(disclosure, /billed directly by vast\.ai/)
+  assert.ok(disclosure.includes(`ref_id=${VAST_REFERRAL_ID}`))
   const guide = read(GUIDE) + CLOUD_GUIDE.sections
     .filter(section => section.chapter === 'settings-reference')
     .map(section => section.markdown).join('\n')

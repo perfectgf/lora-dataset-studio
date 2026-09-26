@@ -387,7 +387,7 @@ def test_a_gallery_image_resolves_to_the_picture_the_user_is_looking_at(app, tmp
         Image.new('RGB', (64, 48), 'red').save(folder / 'gen_0001.png')
         row = LoraTestImage(dataset_id=ds.id, filename='gen_0001.png',
                             prompt='a woman', checkpoint='ckpt.safetensors',
-                            strength=1.0)
+                            strength=1.0, status='done')
         db.session.add(row)
         db.session.commit()
 
@@ -526,8 +526,10 @@ def test_launch_facts_never_raise_when_the_request_fails(app, monkeypatch):
 def _job(app, job_id='job-1', started=None, completed=None, status='completed'):
     from app.extensions import db
     from app.models import ImageGenerationQueue
+    import json
     row = ImageGenerationQueue(job_id=job_id, user_id='local', status=status,
-                               started_at=started, completed_at=completed)
+                               started_at=started, completed_at=completed,
+                               job_metadata=json.dumps({'is_video_test': True, 'model_name': 'video_lora_test'}))
     db.session.add(row)
     db.session.commit()
 
@@ -636,7 +638,7 @@ def test_the_render_time_survives_the_queues_real_completion_path(app, monkeypat
     with app.app_context():
         cid = _clip(app, job_id='job-real')
         job = ImageGenerationQueue(job_id='job-real', user_id='local', status='pending',
-                                   job_metadata=json.dumps({'is_video_test': True, 'clip_id': cid}))
+                                   job_metadata=json.dumps({'is_video_test': True, 'model_name': 'video_lora_test', 'clip_id': cid}))
         db.session.add(job)
         db.session.commit()
         job.update_status('processing')

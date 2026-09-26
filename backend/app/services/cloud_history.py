@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 from types import SimpleNamespace
@@ -32,18 +33,32 @@ def _rental_released(run):
     not proof that DELETE succeeded; only Cloud's observed cleanup can stamp
     this receipt. It is never copied from launch/import request parameters.
     """
-    if not run.vast_instance_id and not run.vast_label:
-        return True
     try:
         params = json.loads(run.train_params or '{}')
         receipt = params.get('_lds_rental_cleanup')
         context = params.get('_lds_rental_context')
+        if context is None:
+            return not run.vast_instance_id and not run.vast_label
         fingerprint = context.get('fingerprint')
     except (TypeError, ValueError, AttributeError):
         return False
-    return (isinstance(fingerprint, str) and len(fingerprint) == 64
-            and all(c in '0123456789abcdef' for c in fingerprint)
-            and context == {'version': 1, 'run_id': run.id, 'fingerprint': fingerprint}
+    if not isinstance(fingerprint, str) or not re.fullmatch(r'[a-f0-9]{64}', fingerprint):
+        return False
+    if context.get('version') == 2:
+        # Current Cloud writes its DELETE acknowledgement into the durable
+        # identity itself. Read it without importing the optional provider;
+        # pending CREATE/DELETE and mismatched run/label cannot prove release.
+        # `unique=False` is a valid, observed-and-migrated legacy rental.
+        return (type(context.get('version')) is int
+                and type(context.get('run_id')) is int and context['run_id'] == run.id
+                and isinstance(context.get('label'), str)
+                and re.fullmatch(r'lds-[0-9]+', context['label']) is not None
+                and context['label'] == run.vast_label
+                and type(context.get('unique')) is bool
+                and context.get('pending') is False
+                and context.get('released') is True
+                and context.get('delete_pending', False) is False)
+    return (context == {'version': 1, 'run_id': run.id, 'fingerprint': fingerprint}
             and receipt == {'version': 2, 'run_id': run.id,
                             'instance_id': run.vast_instance_id, 'label': run.vast_label,
                             'credential': fingerprint})

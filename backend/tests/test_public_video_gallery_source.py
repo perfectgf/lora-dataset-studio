@@ -32,7 +32,7 @@ def test_gallery_source_is_owned_present_and_confined(app, user_id, filename, wr
         if write_file:
             file.write_bytes(b'fixture content: resolver does not decode images')
         row = LoraTestImage(dataset_id=dataset.id, filename=filename,
-                            prompt='fixture', checkpoint='fixture.safetensors', strength=1.0)
+                            prompt='fixture', checkpoint='fixture.safetensors', strength=1.0, status='done')
         db.session.add(row)
         db.session.commit()
         if expected:

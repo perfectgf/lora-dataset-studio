@@ -28,7 +28,7 @@ function metaLine() {
 }
 
 test('the clip card prints the render time through renderTimeLabel, on the meta line', () => {
-  assert.match(src, /import \{[^}]*\brenderTimeLabel\b[^}]*\} from '\.\/videoStudioApi\.js'/);
+  assert.match(src, /import \{[^}]*\brenderTimeLabel\b[^}]*\} from '\.\/videoStudioApi(?:\.js)?'/);
   const line = metaLine();
   assert.match(line, /renderTimeLabel\(clip\.render_seconds\)/, 'the label comes from the shared helper');
   // The separator is the only thing between "0.5 MP" and the time: pinned.

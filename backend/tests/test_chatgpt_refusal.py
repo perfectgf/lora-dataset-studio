@@ -70,6 +70,14 @@ def _openai_err(message, code=None, param=None, status=400):
     return _resp(status, {'error': err})
 
 
+@pytest.fixture(autouse=True)
+def _subscription_catalog(monkeypatch):
+    # Refusal fixtures cover generation responses, independently of discovery.
+    from lds_api_engines import chatgpt_models
+    monkeypatch.setattr(chatgpt_models, 'available_models',
+                        lambda **kwargs: [{'id': 'fixture-image-router'}])
+
+
 def _sub_connected(monkeypatch):
     from lds_api_engines import chatgpt_oauth
     monkeypatch.setattr(chatgpt_oauth, 'access_token', lambda force_refresh=False: TOKEN)

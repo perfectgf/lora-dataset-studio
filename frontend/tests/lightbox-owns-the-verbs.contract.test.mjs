@@ -107,9 +107,8 @@ test('no host re-wires a viewer verb', () => {
   }
 });
 
-test('the picker has exactly two mounts, contributed to this viewer and the dataset lightbox', async () => {
-  // Two id spaces, two mounts — lora_test_image here, face_dataset_image in
-  // DatasetLightbox. A third mount is a copy about to drift.
+test('the shared picker serves both lightboxes and the standalone camera workspace', async () => {
+  // All three surfaces use the same picker instead of maintaining separate controls.
   const all = [];
   const walk = (dir) => {
     for (const e of fs.readdirSync(path.join(process.cwd(), dir), { withFileTypes: true })) {
@@ -124,6 +123,7 @@ test('the picker has exactly two mounts, contributed to this viewer and the data
     if (entry.isDirectory() && fs.existsSync(path.join(process.cwd(), dir))) walk(dir);
   }
   assert.deepEqual(all.sort(), [
+    '../bundled/camera_angles/frontend/panels/CameraStudio.jsx',
     '../bundled/camera_angles/frontend/panels/DatasetCameraAction.jsx',
     '../bundled/camera_angles/frontend/panels/GalleryCameraAction.jsx',
   ]);

@@ -73,8 +73,8 @@ test('every declared screenshot exists, and is an image', () => {
 
 // Rule 2 of the doctrine in whatsNew.js, enforced rather than trusted: the
 // maintainer's own images are NSFW and out of bounds for anything public. Only
-// the curated, generated showcase set is publishable, and it lives in one place.
-test('screenshots come from the tracked showcase folder, never from anywhere else', () => {
+// the curated showcase and pinned, reviewed public plugin images are publishable.
+test('screenshots retain reviewed showcase bytes within their public owner', () => {
   const curated = curatedImageDigests();
   for (const e of publicNews()) {
     if (e.image === undefined) continue;
@@ -223,6 +223,13 @@ test('every seed entry target is a valid, navigable in-app route', () => {
     if (e.to === undefined) continue; // optional — reliability entries omit it
     assert.equal(isValidTarget(e.to), true, `${e.id} → ${e.to}`);
   }
+});
+
+test('plugin routes are valid only while their owner is enabled', () => {
+  assert.equal(isValidTarget('/camera-angles'), true);
+  setEnabled([]);
+  assert.equal(isValidTarget('/camera-angles'), false);
+  assert.equal(isValidTarget('/unregistered-plugin-page'), false);
 });
 
 test('seed section/panel targets resolve against the LIVE navigation registries', () => {

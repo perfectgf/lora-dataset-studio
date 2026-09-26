@@ -46,7 +46,7 @@ def _local_saves(tmp_path, monkeypatch, names):
     d.mkdir(exist_ok=True)
     for n in names:
         (d / n).write_bytes(b'L' * 16)
-    monkeypatch.setattr(vtl, 'save_root', lambda ds: d)
+    monkeypatch.setattr(vtl, 'save_root', lambda ds, **_kwargs: d)
     monkeypatch.setattr(vtl, 'video_training_progress',
                         lambda dataset_id, user_id=None: {'active': False})
     return d

@@ -15,7 +15,7 @@ import { SETUP_DEEP_LINK_STEPS } from '../src/hooks/useSetupSteps.js'
 import { getWorkspacePanel } from '../src/components/dataset/workspaceNavigation.js'
 import { buildGuideTextIndex, matchGuideAnchors } from '../src/help/guideTextIndex.js'
 import { shouldShowTip, markTipSeen } from '../src/help/helpTips.js'
-import { guideChapters, setEnabled } from '../src/plugins/registry.js'
+import { guideChapters, setEnabled, routes as pluginRoutes } from '../src/plugins/registry.js'
 import { mountPublicPlugins, PUBLIC_DESCRIPTORS, PUBLIC_PLUGIN_IDS } from './support/publicPluginFixtures.mjs'
 
 mountPublicPlugins()
@@ -59,7 +59,7 @@ const STATIC_ROUTES = new Set(['/datasets', '/bank', '/video-bank', '/setup', '/
 const routeValid = (route) => {
   const [path, qs] = route.split('?')
   if (!qs) {
-    if (STATIC_ROUTES.has(path)) return true
+    if (STATIC_ROUTES.has(path) || pluginRoutes().some(route => route.path === path)) return true
     const pluginSettings = path.match(/^\/plugins\/([^/]+)\/settings$/)
     if (pluginSettings) return PUBLIC_PLUGIN_IDS.includes(pluginSettings[1])
     const m = path.match(/^\/settings\/([a-z0-9-]+)$/)

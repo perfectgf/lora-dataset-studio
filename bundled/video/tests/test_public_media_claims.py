@@ -20,9 +20,9 @@ def manifest(pid):
     return json.loads((ROOT / 'bundled' / pid / 'plugin.json').read_text(encoding='utf-8'))
 
 
-def test_video_claims_its_public_decoding_and_shot_settings():
+def test_video_claims_its_product_settings_and_leaves_shared_decoders_to_host():
     assert set(manifest('video')['owns']['config_sections']) == {
-        'video', 'shot_detect', 'video_caption', 'video_bank'}
+        'custom_shots', 'video_caption', 'video_bank'}
     assert manifest('live')['owns']['config_sections'] == []
     for pid in ('video', 'live'):
         assert 'video_text' not in manifest(pid)['owns']['config_sections']
@@ -99,7 +99,10 @@ def test_video_off_skips_all_previously_registered_probes(host, monkeypatch):
     assert payload == {'video': False, 'video_detail': '', 'video_decode': False,
                        'video_detect': False, 'video_encode': False, 'video_host_ready': False,
                        'comfyui.video_studio_missing': [], 'comfyui.video_studio_ready': False,
-                       'comfyui.video_studio_options': {}, 'comfyui.video_studio_sage': {}}
+                       'comfyui.video_studio_options': {}, 'comfyui.video_studio_sage': {},
+                       'comfyui.video_studio_reference': {},
+                       'comfyui.h3_attention_nodes_installed': False,
+                       'comfyui.h3_attention_nodes_missing': []}
 
 
 @pytest.mark.parametrize('missing', [None, 'curl_cffi', 'gallery_dl', 'bs4', 'cloudscraper', 'instaloader', 'ddgs', 'yt_dlp'])

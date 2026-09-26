@@ -26,7 +26,7 @@ def test_registration_owns_only_public_video_and_never_live(monkeypatch):
         module.__dict__.update(attrs)
         monkeypatch.setitem(sys.modules, name, module)
     ctx = SimpleNamespace(dir=ROOT,
-        register_node_pack=lambda key: None,
+        register_node_pack=lambda key: installs.update({key: {'node_pack': True}}),
         register_request_limit=lambda *args: None,
         register_install_action=lambda key, **kw: installs.update({key: kw}),
         register_model_download=lambda key, **kw: downloads.update({key: kw}),

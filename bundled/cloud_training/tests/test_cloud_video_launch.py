@@ -263,10 +263,10 @@ def test_a_replayed_run_keeps_every_stamped_training_flag():
     copies - do_i2v was missed the day it shipped, and a retried i2v run would
     have silently trained t2v. Pinned here so the next flag cannot repeat it."""
     from lds_cloud_training.cloud_video_training import _relaunch_args
-    args = _relaunch_args({'base_model': '', 'low_vram': True, 'do_i2v': True,
+    args = _relaunch_args({'base_model': '', 'low_vram': True, 'do_i2v': True, 'rank': 32,
                            'sample_prompts': ['a wave'], 'distillation': 'off',
                            'requested_gpu': 'A100 SXM4'})
-    assert args == {'base_model': None, 'low_vram': True, 'do_i2v': True,
+    assert args == {'base_model': None, 'low_vram': True, 'do_i2v': True, 'rank': 32,
                     'sample_prompts': ['a wave'], 'distillation': 'off',
                     'gpu_name': 'A100 SXM4'}
 

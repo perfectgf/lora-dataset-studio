@@ -144,7 +144,7 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
                                 resume_ckpt_paths=None, resume_step=None,
                                 parent_run_id=None, auto_retry_of=None,
                                 auto_retry_count=0, allow_parallel_run=False,
-                                _provision=None) -> dict:
+                                _provision=None, rank=16) -> dict:
     """Rent a pod and train a LoRA on a built video dataset.
 
     `low_vram` defaults to FALSE here and True in the builder, and the asymmetry
@@ -165,6 +165,8 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     continuation carries every file of the chosen step, and `_seed_resume_checkpoint`
     ships all of them.
     """
+    if isinstance(rank, bool) or not isinstance(rank, int) or not 1 <= rank <= 256:
+        raise ValueError('LoRA rank must be an integer between 1 and 256')
     ds = db.session.get(VideoDataset, int(video_dataset_id))
     if ds is None or str(ds.user_id) != str(user_id):
         raise ValueError('video dataset not found')
@@ -205,6 +207,7 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
     video_training.build_job_config(
         ds, str(ds.output_dir), n_steps, training_folder='__POD__',
         base_model=base_model, low_vram=low_vram, do_i2v=bool(do_i2v),
+        rank=rank, sample_prompts=prompts,
         # The validation build needs the SHAPE, not the pod paths — local dirs
         # prove the target's precondition; the monitor rebuilds with pod names.
         control_dirs=[str(d) for d in _ref_dirs] or None)
@@ -224,6 +227,7 @@ def launch_cloud_video_training(user_id, video_dataset_id, steps=1000,
             train_params=json.dumps({
                 'train_type': fam,
                 'steps': n_steps,
+                'rank': rank,
                 'base_model': base_model or '',
                 'low_vram': bool(low_vram),
                 # Stamped like low_vram: the pod rebuild happens minutes later
@@ -300,6 +304,7 @@ def _relaunch_args(p) -> dict:
     today's target is a different training under the same name."""
     return {
         'base_model': p.get('base_model') or None,
+        'rank': p.get('rank', 16),
         'low_vram': bool(p.get('low_vram', False)),
         # Found by self-review the day i2v shipped: a retry that drops this flag
         # replays an i2v run as t2v — the exact silent retarget this function's

@@ -51,10 +51,10 @@ test('a browser without storage, or one that throws, neither crashes nor blocks 
 
 test('the studio reads the draft once at mount and writes the field on every change', () => {
   const src = readFileSync(new URL("../../../../../../bundled/video/frontend/studio/video/VideoTestStudio.jsx", import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  assert.match(src, /import \{ readPromptDraft, writePromptDraft \} from '\.\/videoPromptDraft\.js'/);
+  assert.match(src, /import \{ readPromptDraft, writePromptDraft \} from '\.\/videoPromptDraft(?:\.js)?'/);
   // The lazy initializer: React calls it with no argument, so it reads
   // globalThis.localStorage.
-  assert.match(src, /const \[prompt, setPrompt\] = useState\(readPromptDraft\)/);
+  assert.match(src, /const \[prompt, setPrompt\] = useState\(\(\) => readPromptDraft\(\)\)/);
   assert.match(src, /writePromptDraft\(prompt\)[\s\S]{0,40}\[prompt\]\)/);
   assert.doesNotMatch(src, /const \[prompt, setPrompt\] = useState\(''\)/);
 });

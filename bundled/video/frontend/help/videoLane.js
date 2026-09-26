@@ -11,7 +11,7 @@ export const VIDEO_LANE_TOPICS = [
   action('video-first-frame-refmods', 'Generate with identity RefMods and optional frames', ['RefMods', 'TaoMate', 'FastH3', 'Chimera', 'identity references'], '/studio?lane=video', 'using-the-app', 'first-frame-identity-refmods'),
 { id: 'video-civitai', requires: ['civitai_publish'], kind: 'action', title: 'Link or publish a video LoRA on Civitai',
     keywords: ['video civitai', 'publish video lora', 'wan pair', 'high noise', 'low noise', 'draft model', 'link video checkpoint'],
-    guide: { chapter: 'using-the-app', anchor: 'share-a-video-checkpoint-on-civitai' },
+    guide: { chapter: 'using-the-app', anchor: 'publish-a-lora-and-its-images-to-civitai' },
     app: { route: '/datasets' } },
 setupStep('setup-video-studio', 'install', 'Install 🎬 Video Test Studio',
     ['video studio', 'video test studio', 'install video', 'video weights',

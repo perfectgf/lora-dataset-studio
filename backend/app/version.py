@@ -5,6 +5,6 @@ update check just compares the latest GitHub release tag (stripped of a leading
 'v') against this. Bump it when cutting a release ZIP; the Windows source bundle
 picks it up automatically (backend/ is copied verbatim into the archive).
 """
-APP_VERSION = '2026.09.23'
+APP_VERSION = '2026.09.26'
 # Release tooling reads this marker from the tagged tree.
 APP_RELEASE_CHANNEL = 'v2'

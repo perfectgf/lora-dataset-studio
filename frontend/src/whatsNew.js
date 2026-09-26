@@ -1,4 +1,4 @@
-import { registeredDescriptors } from './plugins/registry.js';
+import { registeredDescriptors, routes as pluginRoutes } from './plugins/registry.js';
 // =====================================================================
 //  🎁 What's new — in-app changelog feed (source of truth)
 // =====================================================================
@@ -84,6 +84,20 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-09-26-windows-dataset-forge',
+    date: '2026-09-26',
+    title: 'Dataset Forge is available to Windows ZIP installations',
+    blurb: 'Update LDS, then install the free Dataset Forge plugin from Plugins to generate dataset variations locally with Qwen-Image 2.1. Prepare its models in the plugin settings and choose Qwen-Image 2.1 in Generate variations. This release brings the required plugin catalog and engine support to the Windows ZIP update path. Thanks to vitokorn (GitHub #71) for reporting the release gap.',
+    to: '/plugins',
+  },
+  {
+    id: '2026-09-26-cloud-video-release-compatibility',
+    date: '2026-09-26',
+    title: 'Start cloud video training with installed plugins',
+    blurb: 'Cloud video launches work with the default rank on existing Cloud training installations. Update Cloud training from Plugins to use another rank and preserve it when retrying or continuing a run. Released rental records can be removed from history while pending cleanup remains protected.',
+    to: '/plugins',
+  },
+  {
     id: '2026-09-23-zzzzzzzz-plugin-engine-settings-save',
     date: '2026-09-23',
     title: 'Save your enabled image engines from plugin settings',
@@ -110,7 +124,13 @@ export const WHATS_NEW = [
     blurb: 'Missing Qwen-Image 2.1, FLUX.1 or Anima files now come with download buttons, file sizes and progress. LDS installs them in the correct folders and refreshes the model list while keeping your prompt and checkpoints.',
     to: '/studio',
   },
-  {"id": "2026-09-23-generation-preset-library", "date": "2026-09-23", "title": "Keep every named LoRA preset", "blurb": "Klein and Krea settings let you save and duplicate more than twelve named presets. Every preset stays available in generation selectors instead of being silently dropped.", "to": "/settings/engines"},
+  {
+    id: '2026-09-23-generation-preset-library',
+    date: '2026-09-23',
+    title: 'Keep every named LoRA preset',
+    blurb: 'Klein and Krea settings let you save and duplicate more than twelve named presets. Every preset stays available in generation selectors instead of being silently dropped.',
+    to: '/settings/engines',
+  },
   {
     id: '2026-09-23-zzzzz-test-every-image-family',
     date: '2026-09-23',
@@ -1932,5 +1952,6 @@ export function isValidTarget(to) {
   }
 
   // Everything else must be a bare, param-less top-level route.
-  return TOP_LEVEL_ROUTES.has(path) && !section && !panel;
+  return (TOP_LEVEL_ROUTES.has(path) || pluginRoutes().some(route => route.path === path))
+    && !section && !panel;
 }

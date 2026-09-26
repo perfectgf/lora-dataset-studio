@@ -16,7 +16,7 @@ const PICKER = read("../../../../../../bundled/video/frontend/studio/video/Video
 
 /** The strip of staged frames follows the last tab: its guard is the end of
  * the clip tab's JSX. */
-const STRIP_GUARD = '{frames.length > 0 && ('
+const STRIP_GUARD = "{!libraryOnly && mode !== 't2v' && frames.length > 0 && ("
 
 /** The clip tab's JSX, from its guard to the strip that follows it. */
 function clipTab(src) {
@@ -36,7 +36,7 @@ test('the clip list is a scrolling grid, not a flex column that shrinks its rows
   assert.ok(!classes.includes('flex-col'), `a flex column shrinks its rows under a max height: ${scrollBox[1]}`)
 })
 
-test('one Preview size dial drives all three grids, and remembers itself', () => {
+test('one Preview size dial drives all four grids, and remembers itself', () => {
   // Asked for from the picker (2026-09-02): "a slider to enlarge the start
   // frame previews". One dial, not one per tab — a size chosen on the Bank
   // grid holds on the Gallery and the Dataset clip grids.
@@ -46,7 +46,12 @@ test('one Preview size dial drives all three grids, and remembers itself', () =>
   assert.match(ranges[0], /min=\{TILE_MIN\} max=\{TILE_MAX\} step=\{TILE_STEP\}/,
     'the dial\u2019s range comes from videoPickerTile, not from literals that can drift from it')
   const grids = PICKER.match(/className="grid gap-1 overflow-y-auto" style=\{gridStyle\}/g) || []
-  assert.equal(grids.length, 3, 'the Bank, Gallery and Dataset clip grids all take the one gridStyle')
+  assert.equal(grids.length, 2, 'Dataset clip and Rendered clip use the shared gridStyle')
+  const virtualGrids = PICKER.match(/<VideoPickerGrid[^>]*tile=\{tile\}/g) || []
+  assert.equal(virtualGrids.length, 2, 'Bank and Gallery pass the same tile size to their virtual grids')
+  const virtual = read('../../../../../../bundled/video/frontend/studio/video/VideoPickerGrid.jsx')
+  assert.match(virtual, /\(tile \+ GAP\)/)
+  assert.match(virtual, /gridBoxHeight\(tile\)\}px, 70vh/)
   assert.doesNotMatch(PICKER, /grid-cols-\d|sm:grid-cols-\d/,
     'a fixed column count would ignore the dial')
   assert.match(PICKER, /repeat\(auto-fill, minmax\(\$\{tile\}px, 1fr\)\)/)
@@ -107,11 +112,11 @@ test('several start frames: a pick appends to a strip, each frame has its ✕, a
   // Asked for from the picker (2026-09-02): "batch the image inputs". The
   // strip is the parent's list — what Generate walks — so the picker takes
   // it as a prop and hands additions up; it never keeps a frame of its own.
-  assert.match(PICKER, /export default function VideoSourcePicker\(\{ mode, onMode, frames = \[\], onAdd, onRemove, onClear, aspect, onAspect \}\)/)
+  assert.match(PICKER, /export default function VideoSourcePicker\(\{ mode, onMode, frames = \[\], onAdd, onRemove, onClear, aspect, onAspect,/)
   assert.doesNotMatch(PICKER, /onPicked|useState\(\{ image: null/)
   // The upload takes several files, and forgets the pick so the same file
   // can be chosen again after a removal (an unchanged value fires no change).
-  assert.match(PICKER, /<input type="file" accept="image\/\*" multiple className="hidden"\n\s*onChange=\{\(e\) => \{ onFiles\(e\.target\.files\); e\.target\.value = ''; \}\} \/>/)
+  assert.match(PICKER, /<input type="file" accept="image\/\*" multiple=\{!singleFrame\} className="hidden"\n\s*onChange=\{\(e\) => \{ onFiles\(e\.target\.files\); e\.target\.value = ''; \}\} \/>/)
   // "Drop images here" is now true: the label listens for the drop.
   assert.match(PICKER, /onDrop=\{\(e\) => \{ e\.preventDefault\(\); if \(!busy\) onFiles\(e\.dataTransfer\.files\); \}\}/)
   // Staging walks the WHOLE list in order — a refused pick is refused alone,
@@ -119,11 +124,11 @@ test('several start frames: a pick appends to a strip, each frame has its ✕, a
   // so five pictures with one bad file are four frames and one message that
   // counts them (refuted 2026-09-02: the first refusal used to end the walk
   // and say nothing of the rest).
-  const stage = PICKER.slice(PICKER.indexOf('const stage = useCallback(async (picks)'), PICKER.indexOf('}, [frames, onAdd, toast]);'))
+  const stage = PICKER.slice(PICKER.indexOf('const stage = useCallback(async (picks)'), PICKER.indexOf('}, [effTarget, endFrame, frames, onAdd, onSetEnd, toast]);'))
   assert.ok(stage.length > 0, 'the staging walk is gone')
   assert.match(stage, /for \(const pick of fresh\) \{\n\s*try \{\n\s*const r = await pick\.send\(\);/)
   assert.match(stage, /\} catch \(e\) \{\n\s*releasePreview\(pick\);\n\s*if \(!refusal\) refusal = e\?\.message/)
-  assert.match(stage, /\} finally \{\n\s*fresh\.forEach\(\(pick\) => inFlight\.current\.delete\(pick\.key\)\);\n\s*if \(staged\.length\) onAdd\(staged\);/)
+  assert.match(stage, /\} finally \{\n\s*fresh\.forEach\(\(pick\) => inFlight\.current\.delete\(pick\.key\)\);\n\s*if \(staged\.length\) \{[\s\S]*?\} else onAdd\(staged\);/)
   assert.match(stage, /`Staged \$\{staged\.length\} of \$\{fresh\.length\} — \$\{refusal\}`/)
   assert.equal((stage.match(/onAdd\(/g) || []).length, 1, 'the parent is handed the batch exactly once')
   // Dedupe is by ORIGIN, before any request: the server stages every pick
@@ -131,7 +136,7 @@ test('several start frames: a pick appends to a strip, each frame has its ✕, a
   // whose staging is in flight is skipped the same way (a double click on a
   // tile that is not pressed yet), and a pick that never stages lets go of
   // the blob URL the upload minted for it.
-  assert.match(stage, /const seen = new Set\(frames\.map\(\(f\) => f\.key\)\);/)
+  assert.match(stage, /const seen = new Set\(effTarget === 'end' \? \[\] : frames\.map\(\(f\) => f\.key\)\);/)
   assert.match(stage, /if \(inFlight\.current\.has\(pick\.key\)\) \{ releasePreview\(pick\); continue; \}/)
   assert.match(stage, /if \(seen\.has\(pick\.key\)\) \{ releasePreview\(pick\); dropped \+= 1; continue; \}/)
   assert.match(stage, /fresh\.forEach\(\(pick\) => inFlight\.current\.add\(pick\.key\)\);/)
@@ -147,8 +152,8 @@ test('several start frames: a pick appends to a strip, each frame has its ✕, a
     assert.ok(PICKER.includes(key), `a tile is not keyed by its origin: ${key}`)
   }
   // A tile in the strip reads as pressed and clicks OUT again.
-  assert.equal((PICKER.match(/aria-pressed=\{held\(key\)\}/g) || []).length, 3, 'the three grids mark a held tile')
-  assert.match(PICKER, /const toggle = \(pick\) => \(held\(pick\.key\) \? onRemove\(pick\.key\) : stage\(\[pick\]\)\);/)
+  assert.equal((PICKER.match(/aria-pressed=\{held\(key\)\}/g) || []).length, 4, 'all four grids mark a held tile')
+  assert.match(PICKER, /const toggle = \(pick\) => \{\s*if \(!held\(pick\.key\)\) return stage\(\[pick\]\);[\s\S]*?return onRemove\(pick\.key\);/)
   // The strip: one ✕ per frame, named for a screen reader, and Clear all
   // only when there is more than one to clear.
   const strip = PICKER.slice(PICKER.indexOf(STRIP_GUARD))

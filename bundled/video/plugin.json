@@ -3,7 +3,7 @@
   "id": "video",
   "bundled": true,
   "name": "Video lane",
-  "version": "1.3.18",
+  "version": "1.3.19",
   "api": 1,
   "publisher": {
     "id": "lds",
@@ -137,6 +137,7 @@
       "video_checkpoint_preview"
     ],
     "whats_new_ids": [
+      "2026-09-26-video-publishing-help",
       "2026-09-25-video-continue-references",
       "2026-09-24-video-gallery-performance",
       "2026-09-24-video-clipproj",

@@ -252,7 +252,13 @@ def test_the_child_counts_with_sentencepiece_first_and_on_the_prose():
     assert 'import _caption_fields' in code
     child_fields = INFER.with_name('_caption_fields.py').read_text(encoding='utf-8')
     parent_fields = WORKER.with_name('caption_fields.py').read_text(encoding='utf-8')
-    assert ast.dump(ast.parse(child_fields)) == ast.dump(ast.parse(parent_fields))
+    # The standalone copy documents its import path differently; executable
+    # parsing/token-counting code must still match exactly.
+    child_tree, parent_tree = ast.parse(child_fields), ast.parse(parent_fields)
+    assert ast.get_docstring(child_tree) and ast.get_docstring(parent_tree)
+    child_tree.body = child_tree.body[1:]
+    parent_tree.body = parent_tree.body[1:]
+    assert ast.dump(child_tree) == ast.dump(parent_tree)
     assert 'split_caption_fields(caption)[0]' in code
     assert "'tokens': tokens" in code
     assert "'token_counter': token_counter" in code

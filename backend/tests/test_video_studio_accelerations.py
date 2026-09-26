@@ -15,7 +15,7 @@ def _graph(**kw):
 
 
 def test_the_arena_podium_stays_at_six_steps_alongside_optional_vdn():
-    podium = [a for a in vts.ACCELERATIONS if a['id'] != 'vdn']
+    podium = [a for a in vts.ACCELERATIONS if a.get('arena')]
     assert [a['id'] for a in podium] == ['turbo', 'parasyte', 'dareties']
     assert all(a['steps'] == vts.TURBO_STEPS == 6 for a in podium)
     assert vts.accel_spec('turbo')['file'] == vts.TURBO_LORA
@@ -86,7 +86,7 @@ def test_every_optional_weight_with_a_button_is_a_download_setup_knows(app):
                 continue
             entry = setup_installer.model_download_spec(action)
             assert setup_installer.known_action(action)
-            assert entry['dest'] == (subs[0], filename), f'{action}: the file Setup writes is the file the graph loads'
+            assert '/'.join(entry['dest']) == '/'.join((subs[0], filename)), f'{action}: the file Setup writes is the file the graph loads'
             assert entry['url'].startswith('https://huggingface.co/') and '/resolve/' in entry['url']
             assert entry['license_url']
 

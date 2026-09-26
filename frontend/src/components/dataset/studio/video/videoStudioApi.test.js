@@ -169,7 +169,7 @@ test('the render time reads the way a person says it, and is null for anything e
 test('smooth offers whole factors of the source rate, with frames and relative cost', () => {
   const t = smoothTargets({ fps: 24, frames: 124 });
   assert.deepEqual(t.map((x) => [x.multiplier, x.fps, x.frames, x.cost]),
-    [[2, 48, 248, 1], [3, 72, 372, 2], [4, 96, 496, 3]]);
+    [[2, 48, 247, 1], [3, 72, 370, 2], [4, 96, 493, 3]]);
   // A clip that never stored its rate is an H3 clip: 24 fps authored.
   assert.deepEqual(smoothTargets({}).map((x) => x.fps), [48, 72, 96]);
   assert.equal(smoothTargets({ fps: 30 })[0].frames, null, 'no frame count → no count promised');
@@ -192,7 +192,7 @@ test('a poll keeps the loaded older clips: the boundary is the page proper, not 
 });
 
 test('the acceleration travels by name, and larryvrh keeps the older boolean beside it', () => {
-  assert.deepEqual(ACCELERATIONS.map((a) => a.id), ['turbo', 'parasyte', 'dareties']);
+  assert.deepEqual(ACCELERATIONS.map((a) => a.id), ['taomate_3step', 'fasth3_v02', 'turbo', 'parasyte', 'dareties', 'vdn']);
   const base = { prompt: 'p', mode: 't2v' };
   assert.equal(buildGeneratePayload({ ...base, accel: 'parasyte' }).accel, 'parasyte');
   assert.equal(buildGeneratePayload({ ...base, accel: 'parasyte' }).turbo, undefined);

@@ -1,4 +1,10 @@
 export const CLOUD_WHATS_NEW = [
+  {
+    id: '2026-09-26-cloud-video-rank',
+    date: '2026-09-26',
+    title: 'Keep your chosen rank in cloud video training',
+    blurb: 'Cloud video launches accept the rank selected in LDS, validate it before reserving a GPU, and retain it in the training configuration, retries and continuations.',
+  },
   {"id": "2026-09-23-cloud-video-sample-choice", "date": "2026-09-23", "title": "Keep all your video training sample prompts", "blurb": "Cloud video training preserves every requested sample prompt instead of refusing more than four. Each prompt adds a video generation at every sampling interval, so larger selections take longer on the rented GPU."},
   {
     id: '2026-09-23-cloud-test-family',

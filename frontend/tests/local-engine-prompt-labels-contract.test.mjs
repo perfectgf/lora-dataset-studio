@@ -14,9 +14,10 @@
    edit.
 
    The drift was not a mistake at the keyboard, it was a second consumer arriving
-   later. So the guard has to be mechanical: these assertions read LOCAL_ENGINES
-   and fail when a third local engine is wired up without the label following.
-   The server half of the same contract — every local engine really does send
+   later. So the guard has to be mechanical: these assertions read the core engine catalog
+   and fail when another core consumer is wired up without the label following.
+   Plugin engines compose their own prompts and do not inherit this lock.
+   The server half of the same contract — every core local engine really does send
    this text, and no API engine does — lives in
    backend/tests/test_identity_prompts_override.py. */
 import test, { beforeEach } from 'node:test'
@@ -27,11 +28,13 @@ import {
   API_PROMPT_ENGINES,
 } from '../src/components/common/promptOverride.js'
 import { localEngineIds, apiEngineIds, engineLabel } from '../src/components/dataset/engineSelection.js'
+import { CORE_ENGINE_CATALOG } from '../src/engines/catalog.js'
 import { setEnabled } from '../src/plugins/registry.js'
 import { mountPublicPlugins } from './support/publicPluginFixtures.mjs'
 
 beforeEach(() => mountPublicPlugins())
 
+const sharedPromptEngines = CORE_ENGINE_CATALOG.filter(engine => engine.kind === 'local').map(engine => engine.id)
 const kleinIdentity = (fields) => fields.find((f) => f.key === 'klein_identity')
 
 test('the two engine lists agree on which engines are APIs', () => {
@@ -47,29 +50,29 @@ test('disabling the API owner removes its choices and preserves both local engin
   assert.deepEqual(localEngineIds(), ['klein', 'krea'])
 })
 
-test('klein_identity is declared for EVERY local engine and no API engine', () => {
+test('klein_identity declares every core local consumer and no unrelated engine', () => {
   for (const subject of PROMPT_SUBJECT_TYPES) {
     const field = kleinIdentity(identityPromptFields(subject))
     assert.ok(field, `no klein_identity field for ${subject}`)
-    for (const engine of localEngineIds()) {
+    for (const engine of sharedPromptEngines) {
       assert.ok(field.engines.includes(engine),
         `${subject}: klein_identity does not declare the local engine ${engine}`)
     }
-    for (const engine of apiEngineIds()) {
+    for (const engine of [...apiEngineIds(), ...localEngineIds().filter(id => !sharedPromptEngines.includes(id))]) {
       assert.ok(!field.engines.includes(engine),
-        `${subject}: klein_identity must not claim the API engine ${engine}`)
+        `${subject}: klein_identity must not claim the unrelated engine ${engine}`)
     }
   }
 })
 
-test('its description NAMES every local engine, so no engine\'s users skip the box', () => {
+test('its description NAMES every core local consumer, so no engine\'s users skip the box', () => {
   // The failure this prevents, in one sentence: a Krea 2 user reading "Klein"
-  // concludes the box is not theirs. A third local engine would reintroduce it
-  // the day it ships, which is why the check is over LOCAL_ENGINES, not a list
+  // concludes the box is not theirs. Another core consumer would reintroduce it
+  // the day it ships, which is why the check is over the core catalog, not a list
   // of two names written here.
   for (const subject of PROMPT_SUBJECT_TYPES) {
     const { desc } = kleinIdentity(identityPromptFields(subject))
-    for (const engine of localEngineIds()) {
+    for (const engine of sharedPromptEngines) {
       assert.ok(desc.includes(engineLabel(engine)),
         `${subject}: the description never names ${engineLabel(engine)}`)
     }
@@ -82,8 +85,8 @@ test('the label belongs to the FAMILY — it never names one local engine alone'
   // the name left behind is Klein's or anyone else's.
   for (const subject of PROMPT_SUBJECT_TYPES) {
     const { label } = kleinIdentity(identityPromptFields(subject))
-    const named = localEngineIds().filter((e) => label.includes(engineLabel(e)))
-    const missing = localEngineIds().filter((e) => !named.includes(e))
+    const named = sharedPromptEngines.filter((e) => label.includes(engineLabel(e)))
+    const missing = sharedPromptEngines.filter((e) => !named.includes(e))
     assert.ok(named.length === 0 || missing.length === 0,
       `${subject}: the label "${label}" names ${named.map(engineLabel).join(', ')}`
       + ` and leaves out ${missing.map(engineLabel).join(', ')}`)

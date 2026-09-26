@@ -9,6 +9,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createElement, renderToStaticMarkup } from './support/mountJsx.mjs'
+import { installRuntimeHost } from './support/runtimeHost.mjs'
+
+test.beforeEach(installRuntimeHost)
 
 const { VideoCheckpointList } = await import("../../bundled/video/frontend/videobank/VideoCheckpointManager.jsx")
 const {
