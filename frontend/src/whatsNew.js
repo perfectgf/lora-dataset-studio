@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-18-z-docker-restart-port',
+    date: '2026-10-18',
+    title: 'Docker: LDS stays reachable after installing a plugin',
+    blurb: 'On the Docker GPU installation, Apply and restart could bring LDS back on a port Docker does not publish, which left the app unreachable. LDS now always restarts on its published port.',
+  },
+  {
     id: '2026-10-05-patreon-access',
     date: '2026-10-05',
     title: 'Early LDS versions and exclusive plugins on Patreon',
