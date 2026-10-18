@@ -9,7 +9,8 @@ import { productReadiness } from '../../plugins/readiness.js';
 import { pluginSettingsPath } from '../pluginSettings.js';
 import PluginAvatar from './PluginAvatar.jsx';
 import Presentation, { presentationImages } from './Presentation.jsx';
-import { isPatreonRelease } from '../../components/patreon/patreonModel.js';
+import { isPatreonRelease, membershipFeatures } from '../../components/patreon/patreonModel.js';
+import { PatreonJoin } from '../../components/patreon/PatreonUpdates.jsx';
 
 const BTN = 'min-h-10 rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-surface-raised disabled:opacity-50';
 
@@ -23,8 +24,28 @@ function stateClass(state) {
   return 'border-amber-400/25 bg-amber-400/10 text-amber-300';
 }
 
+/* What Patreon members get from this plugin and free users do not: what this
+   installation has, or what it would get, next to Connect / Join. */
+function MembershipFeatures({ name, membership, access, adminToken, onChanged }) {
+  const { whole, version, items, owned, needsCore } = membership;
+  const active = access?.patreon?.status === 'active';
+  const lead = whole
+    ? owned ? 'Included with your Patreon membership.'
+      : `This plugin is available to Patreon members (LDS Member)${needsCore ? ', with the members version of LDS' : ''}.`
+    : owned ? `Version ${version} is included with your members version of LDS.`
+      : `Version ${version} is available to Patreon members (LDS Member) first, with the members version of LDS.`;
+  return <section aria-label={`Membership features of ${name}`} className="space-y-2 rounded-lg border border-primary/40 p-3 text-sm" data-membership-features>
+    <p className="font-medium text-primary">Membership features</p>
+    <p className="text-content-muted">{lead}</p>
+    {items.length > 0 && <ul className="list-disc space-y-1 pl-5">{items.map((item, index) => <li key={index}>{item}</li>)}</ul>}
+    {active && needsCore && <p className="text-xs text-content-muted">Install the members version of LDS from Settings › Maintenance › Updates.</p>}
+    {access && !owned && !active && <PatreonJoin access={access} onChanged={onChanged} adminToken={adminToken} />}
+  </section>;
+}
+
 export default function PluginCard({ plugin, release, mediaKey, updateAvailable, storeActions, reinstallAction,
-  onToggle, onRemove, onInstalled, busy, caps, capsKnown = false }) {
+  onToggle, onRemove, onInstalled, busy, caps, capsKnown = false, membersReleases, patreonAccess = null,
+  onPatreonChanged, adminToken = '' }) {
   const installed = plugin;
   plugin = plugin || release.manifest;
   const requires = plugin.requires || [];
@@ -38,6 +59,7 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
   const experience = installed && pluginActive(plugin) ? plugin.package_contract?.experience : null;
   const details = installed ? plugin.package_contract?.experience : plugin.experience;
   const patreonProduct = isPatreonRelease(release);
+  const membership = membershipFeatures({ release, membersReleases, access: patreonAccess });
   return (
     <article data-store-product={plugin.id} id={'plugin-row-' + plugin.id} data-plugin-id={installed ? plugin.id : undefined} aria-labelledby={'plugin-title-' + plugin.id}
       className="flex min-w-0 scroll-mt-6 flex-col rounded-xl border border-border-strong bg-surface shadow-sm">
@@ -67,6 +89,8 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
         {pending && <p className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-content" data-plugin-pending>{pending}</p>}
         {release?.compatibility_issues?.length > 0 && <p className="text-sm text-amber-500">{release.compatibility_issues[0].message}</p>}
         {plugin.description && <p className="text-sm leading-relaxed text-content-muted">{plugin.description}</p>}
+        {membership && <MembershipFeatures name={plugin.name} membership={membership} access={patreonAccess}
+          adminToken={adminToken} onChanged={onPatreonChanged} />}
         <div className="flex flex-wrap items-center gap-2">
           {experience?.entrypoints?.length > 0 && <div className="flex flex-wrap gap-2">
             {experience.entrypoints.map((entry, index) => <Link key={entry.path} to={entry.path}

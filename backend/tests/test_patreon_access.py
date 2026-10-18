@@ -13,7 +13,7 @@ from flask_wtf.csrf import generate_csrf
 import pytest
 
 from app.plugins.store import commerce, patreon, service
-from app.plugins.store.catalog import parse_catalog
+from app.plugins.store.catalog import members_releases, parse_catalog
 from app.plugins.store.client import StoreConfig, StoreError, StoreNotConfigured, patreon_source
 from public_store_fixtures import contract
 
@@ -458,6 +458,37 @@ def test_plan_asks_patreon_only_for_products_of_the_patreon_catalog(monkeypatch,
     # A purchase recorded by ANOTHER service never unlocks a Patreon product.
     assert plan['patreon_required'] == ['manga'] and plan['purchase_required'] == ['manga']
     assert plan['patreon_access'] == {'status': 'ready', 'patreon': inactive}
+
+
+def _release(version, lds, issues=(), changelog=('Line',), patreon_product=False):
+    price = ({'kind': 'paid', 'product': 'patreon_lds', 'provider': 'patreon'} if patreon_product
+             else {'kind': 'free'})
+    return {'manifest': {'version': version, 'compatibility': {'lds': lds}}, 'price': price,
+            'changelog': list(changelog), 'compatibility_issues': [{'field': field} for field in issues]}
+
+
+def test_membership_features_are_the_releases_only_the_members_core_installs():
+    members = ('2026.10.18.3', '2026.10.18.2', '2026.10.18.1')
+    cloud = [_release('1.0.9', '<2027,>=2026.10.18.1', ['compatibility.lds'], ['MOSS cloud training']),
+             _release('1.0.7', '<2027,>=2026.9.4'), _release('1.0.6', '<2027,>=2026.9.4')]
+    reserved = {'version': '1.0.9', 'changelog': ['MOSS cloud training'], 'available': False}
+    # The public core: only core requirements (LDS range, plugin API) refuse them.
+    assert members_releases(cloud, members, current='2026.10.18') == [reserved]
+    forge = [_release('1.2.0', '>=2026.10.18.3', ['compatibility.lds', 'compatibility.api']),
+             _release('1.0.0', '>=2026.9.4')]
+    assert [item['version'] for item in members_releases(forge, members, current='2026.10.18')] == ['1.2.0']
+    # A published members version builds on the public release of its date: it has them.
+    installed = [{**cloud[0], 'compatibility_issues': []}, *cloud[1:]]
+    assert members_releases(installed, members, current='2026.10.18.3') == [{**reserved, 'available': True}]
+    # Nothing is claimed without the channel, for an unpublished members core,
+    # for another refusal, or for a members-only plugin (reserved as a whole).
+    assert members_releases(cloud, (), current='2026.10.18') == []
+    assert members_releases([_release('2.0.0', '>=2026.11.2.1', ['compatibility.lds']), *cloud[1:]],
+                            members, current='2026.10.18') == []
+    assert members_releases([_release('1.0.9', '>=2026.10.18.1', ['compatibility.lds', 'compatibility.python']),
+                             *cloud[1:]], members, current='2026.10.18') == []
+    assert members_releases([_release('1.0.3', '>=2026.10.11', ['compatibility.api'], patreon_product=True)],
+                            members, current='2026.10.18') == []
 
 
 def test_update_all_leaves_locked_patreon_plugins_out_of_the_batch(monkeypatch, tmp_path):

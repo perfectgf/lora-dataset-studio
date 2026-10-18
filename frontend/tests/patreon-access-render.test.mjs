@@ -121,6 +121,35 @@ test('a Patreon product is labelled and promises no screenshots', () => {
   assert.doesNotMatch(html, /Screenshots coming soon/)
 })
 
+test('a plugin card lists its membership features: what members have, or would get', () => {
+  const release = { manifest: { id: 'cloud_training', name: 'Cloud training', version: '1.0.7', description: 'Train.' },
+    price: { kind: 'free' }, changelog: [], presentation: { schema_version: 1, images: [] }, compatibility_issues: [] }
+  const reserved = [{ version: '1.0.9', changelog: ['Train MOSS-Image LoRAs in the cloud.'], available: false }]
+  const free = render(PluginCard, { plugin: null, release, membersReleases: reserved, patreonAccess: UNLINKED })
+  assert.match(free, /Membership features/)
+  assert.match(free, /Version 1\.0\.9 is available to Patreon members \(LDS Member\) first/)
+  assert.match(free, /Train MOSS-Image LoRAs in the cloud\./)
+  assert.match(free, />Connect Patreon</)
+  assert.match(free, /Join on Patreon/)
+  const members = render(PluginCard, { plugin: null, release, patreonAccess: PRO,
+    membersReleases: [{ ...reserved[0], available: true }] })
+  assert.match(members, /Version 1\.0\.9 is included with your members version of LDS\./)
+  assert.doesNotMatch(members, /Connect Patreon|Join on Patreon/)
+  const library = { ...release, manifest: { ...release.manifest, id: 'local.creative_library', name: 'Creative Library' },
+    price: { kind: 'paid', product: 'patreon_lds', provider: 'patreon' }, changelog: ['Batch boxes.'],
+    compatibility_issues: [{ field: 'compatibility.api', message: 'This plugin requires the plugin API >=1.26.' }] }
+  const locked = render(PluginCard, { plugin: null, release: library, patreonAccess: UNLINKED })
+  assert.match(locked, /This plugin is available to Patreon members \(LDS Member\), with the members version of LDS\./)
+  assert.match(locked, /Batch boxes\./)
+  assert.match(locked, /Join on Patreon/)
+  const member = render(PluginCard, { plugin: null, release: library, patreonAccess: PRO })
+  assert.match(member, /Included with your Patreon membership\./)
+  assert.match(member, /Install the members version of LDS from Settings › Maintenance › Updates\./)
+  assert.doesNotMatch(member, /Join on Patreon/)
+  // Nothing reserved, or the channel unread: no block at all.
+  assert.doesNotMatch(render(PluginCard, { plugin: null, release, membersReleases: [] }), /Membership features/)
+})
+
 test('the announcement names the LDS Member tier and no price', () => {
   const html = render(() => createElement(MemoryRouter, null, createElement(SupportProjectNotice)))
   assert.match(html, /New LDS versions reach Patreon members first/)

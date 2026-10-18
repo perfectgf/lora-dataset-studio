@@ -4,9 +4,10 @@ import { PatreonAccessActions, usePatreonAccess } from './PatreonAccess'
 import { PATREON_ACCESS_SUMMARY, membershipLabel } from './patreonModel'
 
 /* Patreon channel without an active membership: say a release exists, offer
-   Connect / Join, and leave the installed version alone. */
-function PatreonJoin({ access, onChanged }) {
-  const state = usePatreonAccess('', access)
+   Connect / Join, and leave the installed version alone. The plugin cards'
+   membership features reuse it, with the Store's plugin-admin token. */
+export function PatreonJoin({ access, onChanged, adminToken = '' }) {
+  const state = usePatreonAccess(adminToken, access)
   // A refresh or a confirmed code can make the update available: re-read the channel.
   const confirm = async (code) => {
     const done = await state.confirm(code)

@@ -167,15 +167,19 @@ def parse_core_releases(value):
     return sorted(result, key=lambda release: updater.version_key(release.version), reverse=True)
 
 
+def _read_releases(session):
+    path, _ = session.target(CORE_RELEASES_TARGET, maximum=MAX_CATALOG_BYTES)
+    try:
+        value = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        raise StoreError('The Patreon core release list is invalid.') from None
+    return parse_core_releases(value)
+
+
 def read_channel():
     """Latest Patreon core release and its TUF target infos, from one fresh session."""
     with StoreSession(patreon_core_source()) as session:
-        path, _ = session.target(CORE_RELEASES_TARGET, maximum=MAX_CATALOG_BYTES)
-        try:
-            value = json.loads(path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            raise StoreError('The Patreon core release list is invalid.') from None
-        releases = parse_core_releases(value)
+        releases = _read_releases(session)
         if not releases:
             return None
         latest = releases[0]
@@ -245,12 +249,30 @@ def _fast_forward_blocker(root, release, *, fetch=False):
 
 
 _status_cache = {'ts': 0.0, 'data': None}
+_members_cache = {'ts': 0.0, 'data': None}
 _installed = {}
 _apply_lock = threading.Lock()
 
 
 def forget_status():
     _status_cache.update(ts=0.0, data=None)
+
+
+def members_versions():
+    """Published members core versions, newest first, for the Plugins page's
+    membership features. Empty when the channel cannot be read, so nothing is
+    then presented as reserved; like the status, only a complete answer is
+    reused."""
+    now = time.time()
+    if _members_cache['data'] is not None and now - _members_cache['ts'] < STATUS_TTL_SECONDS:
+        return _members_cache['data']
+    try:
+        with StoreSession(patreon_core_source()) as session:
+            versions = tuple(release.version for release in _read_releases(session))
+    except (StoreError, OSError, ValueError):
+        return ()
+    _members_cache.update(ts=now, data=versions)
+    return versions
 
 
 def status(root=None, *, force=False):

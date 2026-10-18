@@ -105,3 +105,21 @@ export function patreonActions(access) {
 export function isPatreonRelease(release) {
   return release?.price?.provider === 'patreon';
 }
+
+/* What a plugin card lists under "Membership features", or null. A members-only
+   plugin (Patreon catalog) is reserved as a whole: its release changelog. An
+   official plugin lists its releases that need the members version of LDS
+   (`members_releases` of the catalog, decided by the backend from the signed
+   catalogs). `owned`: this installation has them, through an active membership
+   for a members-only plugin, through the members version of LDS for an
+   official one. `needsCore`: the release still needs that version here. */
+export function membershipFeatures({ release, membersReleases, access }) {
+  if (isPatreonRelease(release)) {
+    return { whole: true, version: release.manifest?.version || '', items: release.changelog || [],
+      owned: access?.patreon?.status === 'active', needsCore: Boolean(release.compatibility_issues?.length) };
+  }
+  if (!Array.isArray(membersReleases) || !membersReleases.length) return null;
+  const owned = membersReleases[0].available === true;
+  return { whole: false, version: membersReleases[0].version, owned, needsCore: !owned,
+    items: [...new Set(membersReleases.flatMap(item => item.changelog || []))] };
+}

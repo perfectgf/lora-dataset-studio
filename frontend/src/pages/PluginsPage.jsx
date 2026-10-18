@@ -323,7 +323,7 @@ export default function PluginsPage() {
           onUpdateAll={ids => planInstall(ids, undefined, true)} pendingRestart={pendingRestart}
           loading={catalogLoading} onRetry={loadCatalog}
           onToggle={toggle} onRemove={remove} onInstalled={() => { load(); refreshCaps(true); }} caps={caps} capsKnown={capsKnown}
-          onUnlock={() => document.getElementById('plugin-admin-token')?.focus()}
+          onUnlock={() => document.getElementById('plugin-admin-token')?.focus()} adminToken={adminToken}
           selectedId={requestedPlugin} onClearSelection={() => {
             const next = new URLSearchParams(searchParams); next.delete('plugin'); next.set('tab', 'plugins'); next.set('filter', 'all'); setSearchParams(next, { replace: true });
           }} />

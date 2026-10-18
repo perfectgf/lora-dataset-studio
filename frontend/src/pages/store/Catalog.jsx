@@ -10,7 +10,9 @@ const UPDATE_BTN = 'min-h-10 rounded-md border border-primary bg-primary px-3 py
 
 export default function Catalog({ catalog, installed, filter = 'all', onFilterChange, busy, onPlan, onUnlock,
   selectedId = '', onClearSelection, loading = false, onRetry, onToggle, onRemove, onInstalled, caps, capsKnown,
-  onUpdateAll, pendingRestart = false }) {
+  onUpdateAll, pendingRestart = false, adminToken = '' }) {
+  // One membership read words every card's membership features.
+  const patreon = usePatreonAccess(adminToken);
   const [search, setSearch] = useState('');
   const [selection, setSelection] = useState([]);
   const entries = useMemo(() => catalogEntries(catalog?.products, installed), [catalog, installed]);
@@ -86,6 +88,8 @@ export default function Catalog({ catalog, installed, filter = 'all', onFilterCh
         return <PluginCard key={id} plugin={plugin} release={release}
           mediaKey={`${manifest?.version}:${catalog?.checked_at || ''}`} updateAvailable={product?.update_available}
           busy={busy} onToggle={onToggle} onRemove={onRemove} onInstalled={onInstalled} caps={caps} capsKnown={capsKnown}
+          membersReleases={product?.members_releases} patreonAccess={patreon.access}
+          onPatreonChanged={() => patreon.load()} adminToken={adminToken}
           reinstallAction={plugin && release && !product?.update_available ? action(true) : null}
           storeActions={release && (!plugin || product?.update_available) && <>
             {selectable.includes(id) && <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm">

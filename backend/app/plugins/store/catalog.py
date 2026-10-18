@@ -95,6 +95,46 @@ def _satisfies(version, ranges, *, installed=False):
     return all(SpecifierSet(spec).contains(version, prereleases=SpecifierSet(spec).prereleases is True) for spec in ranges)
 
 
+# Requirements that the members version of LDS changes. Python or platform
+# issues would refuse a release on every core.
+_CORE_REQUIREMENTS = ('compatibility.lds', 'compatibility.api', 'host_dependencies.')
+
+
+def members_releases(releases, members, *, current):
+    """The releases of a public-catalog plugin that need the members version of LDS.
+
+    ``releases`` are ``Release.payload()`` values, newest first. ``members``
+    are the published members core versions (Patreon ``core-releases.json``),
+    newest first; when they cannot be read, nothing is claimed. A release
+    qualifies while its LDS range refuses the public core but admits the latest
+    members core, and only core requirements refuse it here. The public core is
+    this one (``current``), unless this one is itself a published members
+    version: that one builds on the public release of its date
+    (2026.10.18.3 on 2026.10.18). Members-only plugins (the Patreon catalog)
+    are reserved as a whole and list nothing here."""
+    if not members:
+        return []
+    public = current
+    if current in members:
+        parts = Version(current).release
+        if len(parts) < 4:
+            return []
+        public = '.'.join(map(str, parts[:3]))
+    found = []
+    for release in releases:
+        if release['price'].get('provider') == 'patreon':
+            return []
+        lds = release['manifest']['compatibility']['lds']
+        if _satisfies(public, [lds]):
+            break  # The public core installs this release, and the older ones.
+        issues = release['compatibility_issues']
+        if (_satisfies(members[0], [lds])
+                and all(issue['field'].startswith(_CORE_REQUIREMENTS) for issue in issues)):
+            found.append({'version': release['manifest']['version'], 'changelog': release['changelog'],
+                          'available': not issues})
+    return found
+
+
 def resolve(catalog, requested, installed, *, version=None, active=None, enable_requested=True):
     """Backtrack the small reviewed catalog, preserving reverse dependencies.
 

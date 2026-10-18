@@ -2,10 +2,12 @@
 from flask import Blueprint, Response, jsonify, request
 from packaging.version import InvalidVersion, Version
 
+from ...version import APP_VERSION
 from ..admin import is_admin, require_admin
 from ..lifecycle import state_change_lock
 from ..routes import _change_blocker, _registry, restart_payload
 from . import service
+from .catalog import members_releases
 from .client import StoreError, StoreNotConfigured
 
 bp = Blueprint('plugin_store', __name__, url_prefix='/store')
@@ -51,7 +53,10 @@ def catalog():
                    else 'The store cache is unavailable.', 'products': []}
     payload['can_manage'] = is_admin()
     registry = _registry()
+    from ...services import patreon_core
+    members = patreon_core.members_versions() if payload['products'] else ()
     for product in payload['products']:
+        product['members_releases'] = members_releases(product['releases'], members, current=APP_VERSION)
         record = registry.records.get(product['id']) if registry else None
         release = next((r for r in product['releases'] if not r['compatibility_issues']), None)
         product['recommended'] = release
