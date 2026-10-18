@@ -165,7 +165,8 @@ function UpdatesCard() {
   }
   return (
     <Card title="Updates" help={dockerMode
-      ? 'Docker installs are updated by pulling the host checkout and rebuilding the image.'
+      ? 'Docker installs are updated from the host: update-docker.bat downloads the new version and '
+        + 'rebuilds the image (a Git checkout is pulled by hand).'
       : pinokioMode
         ? 'Pinokio starts and stops this app, so it also owns the update: Stop, Update, Start.'
         : 'Pull the latest version from GitHub and restart — without leaving the app.'}>

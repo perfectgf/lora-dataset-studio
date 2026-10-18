@@ -1,12 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { Heart, X } from 'lucide-react';
-import { PATREON_ACCESS_SUMMARY } from '../patreon/patreonModel.js';
+import { ACCESS_NOTICE_DISMISSED_KEY as DISMISSED_KEY, PATREON_ACCESS_SUMMARY } from '../patreon/patreonModel.js';
 
-// A new key on purpose: this notice now announces Patreon access, so people
-// who dismissed the earlier support appeal ('lds:support-notice-dismissed')
-// see the announcement once. That older key is left untouched.
-const DISMISSED_KEY = 'lds:patreon-access-notice-dismissed';
 const PATREON_PAGE = 'https://www.patreon.com/c/Loraperfectgf';
 
 export default function SupportProjectNotice() {

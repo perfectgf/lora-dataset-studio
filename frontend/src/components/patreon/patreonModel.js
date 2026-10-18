@@ -7,6 +7,12 @@ export const PATREON_AUTHORIZE_PREFIX = 'https://www.patreon.com/oauth2/authoriz
 export const PATREON_ACCESS_SUMMARY = 'New LDS versions reach Patreon members (LDS Member) first, then everyone, '
   + 'and exclusive plugins stay members-only. The version you have stays free and keeps working.';
 
+// Dismissal of the Dataset page announcement (SupportProjectNotice). A new key
+// on purpose: people who dismissed the earlier support appeal
+// ('lds:support-notice-dismissed') see the announcement once. An active
+// membership sets it too: a member needs neither Join nor Connect.
+export const ACCESS_NOTICE_DISMISSED_KEY = 'lds:patreon-access-notice-dismissed';
+
 // Patreon offers no lookup by user: a linked non-member becomes active through
 // the creator's webhook, or by connecting again.
 export const JUST_JOINED_HINT = 'Just joined? Press Connect Patreon again if your membership does not appear.';

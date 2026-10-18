@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient.js';
 import {
-  ADMIN_HINT, CODE_PROMPT, JUST_JOINED_HINT, PATREON_ACCESS_SUMMARY, membershipLabel,
-  patreonActions, safeAuthorizeUrl, safeJoinUrl, safeRequestUrl,
+  ACCESS_NOTICE_DISMISSED_KEY, ADMIN_HINT, CODE_PROMPT, JUST_JOINED_HINT, PATREON_ACCESS_SUMMARY,
+  membershipLabel, patreonActions, safeAuthorizeUrl, safeJoinUrl, safeRequestUrl,
 } from './patreonModel.js';
 
 const ENDPOINT = '/api/plugins/store/patreon';
@@ -23,7 +23,14 @@ export function usePatreonAccess(adminToken = '', initial = null) {
   const load = useCallback(async (signal) => {
     try {
       const value = await apiFetch(ENDPOINT, { headers, signal, cache: 'no-store', background: true });
-      if (!signal?.aborted) { setAccess(value); setError(''); }
+      if (!signal?.aborted) {
+        setAccess(value); setError('');
+        // A member needs neither link of the Dataset page announcement.
+        if (value?.patreon?.status === 'active') {
+          try { localStorage.setItem(ACCESS_NOTICE_DISMISSED_KEY, '1'); }
+          catch { /* It stays dismissible by hand. */ }
+        }
+      }
     } catch (failure) {
       if (signal?.aborted || failure?.name === 'AbortError') return;
       setAccess({ status: failure?.status === 403 ? 'not_permitted' : 'unavailable', patreon: null });
