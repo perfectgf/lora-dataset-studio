@@ -245,6 +245,19 @@ def client(app):
 
 
 @pytest.fixture(autouse=True)
+def _no_patreon_service_call(tmp_path_factory, monkeypatch):
+    """Keep the unit suite off the live Patreon service.
+
+    `store/patreon.json` ships the real service (https://lds.perfectgf.fr), so a
+    test that browsed the Store without its own Patreon configuration read the
+    live members catalog: the v2026.10.18 release run failed once the service
+    went online with two plugins (2026-10-18). A test that needs Patreon sets
+    LDS_STORE_PATREON_CONFIG itself; one that checks the shipped file removes it."""
+    monkeypatch.setenv('LDS_STORE_PATREON_CONFIG',
+                       str(tmp_path_factory.getbasetemp() / 'no-patreon-config.json'))
+
+
+@pytest.fixture(autouse=True)
 def _no_hugging_face_gate_call(request, monkeypatch):
     """Keep the unit suite off the public internet.
 
