@@ -1,6 +1,9 @@
 import socket
+import sys
+import time
+
 import pytest
-from port_utils import find_available_port
+from port_utils import find_available_port, startup_port
 
 
 def test_uses_available_preferred_port():
@@ -43,6 +46,48 @@ def test_a_wildcard_listener_makes_the_port_unavailable_for_a_specific_host():
         occupied = listener.getsockname()[1]
         listener.listen()
         assert find_available_port("127.0.0.1", occupied) > occupied
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"),
+                    reason="TIME_WAIT bind rules of Linux: Docker images and Linux installs")
+def test_a_port_left_in_time_wait_by_a_restarted_server_is_free():
+    """Right after a restart the previous server's accepted connections stay in
+    TIME_WAIT for about a minute. Werkzeug binds over them (SO_REUSEADDR), so
+    the probe must agree; otherwise the relaunch slides to the next port, which
+    in Docker nothing publishes (2026-10-18, "Apply and restart" on Docker GPU)."""
+    server = socket.socket()
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", 0))
+    port = server.getsockname()[1]
+    server.listen()
+    client = socket.create_connection(("127.0.0.1", port))
+    accepted, _ = server.accept()
+    accepted.close()          # the exiting server closes first...
+    time.sleep(0.1)
+    client.close()            # ...so its side of the connection enters TIME_WAIT
+    time.sleep(0.1)
+    server.close()
+    assert find_available_port("127.0.0.1", port) == port
+
+
+@pytest.mark.parametrize("environ", [{"LDS_BIND_MANAGED": "1"}, {"LDS_BIND_MANAGED": "true"},
+                                     {"LDS_AUTO_PORT": "0"}])
+def test_a_managed_bind_never_slides_off_the_requested_port(environ):
+    """A container publishes one fixed port: serving the next one leaves LDS
+    unreachable behind a healthy-looking supervisor."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        occupied = listener.getsockname()[1]
+        listener.listen()
+        assert startup_port("127.0.0.1", occupied, environ) == occupied
+
+
+def test_an_unmanaged_bind_still_slides_past_a_busy_port():
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        occupied = listener.getsockname()[1]
+        listener.listen()
+        assert startup_port("127.0.0.1", occupied, {}) > occupied
 
 
 @pytest.mark.parametrize("port", [0, -1, 65536])

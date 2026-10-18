@@ -1,5 +1,25 @@
 """Dependency-free helpers used while starting the LDS web server."""
+import os
 import socket
+import sys
+
+# Linux keeps the connections a closed server accepted in TIME_WAIT for about a
+# minute. Werkzeug binds with SO_REUSEADDR, which Linux accepts over TIME_WAIT
+# but never over a live listener; a probe without it called the port taken
+# right after every restart, and the startup slide moved LDS off the port its
+# container publishes (2026-10-18, Docker GPU: "Apply and restart" came back
+# on 5051 while Docker publishes 5050 only). Linux only: Windows probes with
+# SO_EXCLUSIVEADDRUSE below, and BSD lets SO_REUSEADDR bind a wildcard over a
+# specific listener, which would hide the collision _wildcard_is_free reports.
+_PROBE_REUSES_TIME_WAIT = sys.platform.startswith("linux")
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _prepare_probe(probe: socket.socket) -> None:
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    elif _PROBE_REUSES_TIME_WAIT:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 
 def _wildcard_is_free(port: int) -> bool:
@@ -26,8 +46,7 @@ def _wildcard_is_free(port: int) -> bool:
         except OSError:
             continue
         with probe:
-            if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-                probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            _prepare_probe(probe)
             try:
                 probe.bind(address)
             except OSError:
@@ -45,9 +64,7 @@ def can_bind(host: str, port: int) -> bool:
     for family, socktype, proto, _, sockaddr in addresses:
         try:
             with socket.socket(family, socktype, proto) as candidate:
-                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-                    candidate.setsockopt(socket.SOL_SOCKET,
-                                         socket.SO_EXCLUSIVEADDRUSE, 1)
+                _prepare_probe(candidate)
                 candidate.bind(sockaddr)
             bound_any = True
         except OSError:
@@ -69,3 +86,19 @@ def find_available_port(host: str, preferred_port: int, max_attempts: int = 100)
         if can_bind(host, port):
             return port
     raise OSError(f"No available TCP port found from {preferred_port} to {stop - 1}")
+
+
+def startup_port(host: str, requested_port: int, environ=None) -> int:
+    """The port the server binds at startup.
+
+    It slides past a busy port only when the bind belongs to the app. A
+    container publishes one fixed port (LDS_BIND_MANAGED, set by both Docker
+    images), and LDS_AUTO_PORT=0 asks for the same: there a slide leaves LDS
+    serving a port nothing publishes. Werkzeug then binds the requested port
+    itself, and a port that is really held fails the start, which the
+    container supervisor retries."""
+    environ = os.environ if environ is None else environ
+    if (environ.get("LDS_AUTO_PORT") == "0"
+            or environ.get("LDS_BIND_MANAGED", "").strip().lower() in _TRUTHY):
+        return requested_port
+    return find_available_port(host, requested_port)
