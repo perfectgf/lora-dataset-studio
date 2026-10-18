@@ -74,25 +74,29 @@ if errorlevel 1 (
 
 rem Keep the whole tail in one parsed block. The updater is then free to replace
 rem this BAT while it is running without making cmd.exe read half of a new file.
+rem Only the last command of the block may exit: an exit /b in a nested block
+rem that further commands follow left the process exit code at 0, so a caller
+rem saw a refused update as a success (2026-10-18). Both flags start empty, so
+rem only the code PowerShell returns inside the block can set them.
+set "LDS_UPDATE_CURRENT="
+set "LDS_UPDATE_STARTED="
 (
     powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\update-docker-gpu.ps1" -Channel "%LDS_UPDATE_CHANNEL%" -InstallRoot "%~dp0." %LDS_UPDATE_FORCE%
-    if errorlevel 3 if not errorlevel 4 (
-        popd
-        echo.
+    if errorlevel 3 if not errorlevel 4 set "LDS_UPDATE_CURRENT=1"
+    if errorlevel 0 if not errorlevel 1 set "LDS_UPDATE_STARTED=1"
+    popd
+    echo.
+    if defined LDS_UPDATE_CURRENT (
         echo LDS is already up to date. Nothing was changed.
         pause
         exit /b 0
-    )
-    if errorlevel 1 (
-        popd
-        echo.
+    ) else if defined LDS_UPDATE_STARTED (
+        echo Rebuild started. Check that the application becomes reachable.
+        pause
+        exit /b 0
+    ) else (
         echo The update did not complete. Your local data was preserved.
         pause
         exit /b 1
     )
-    popd
-    echo.
-    echo Rebuild started. Check that the application becomes reachable.
-    pause
-    exit /b 0
 )

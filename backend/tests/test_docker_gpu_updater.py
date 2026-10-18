@@ -1555,6 +1555,32 @@ def test_bat_forwards_patreon_and_reports_an_up_to_date_installation(tmp_path):
     assert (install / "bat-result.txt").read_text() == "patreon"
 
 
+@pytest.mark.skipif(not COMSPEC, reason="cmd.exe is required")
+@pytest.mark.parametrize("updater_code, returncode, message", [
+    (0, 0, "Rebuild started"),
+    (3, 0, "already up to date"),
+    (1, 1, "did not complete"),
+    (4, 1, "did not complete"),
+    (-1, 1, "did not complete"),
+])
+def test_bat_exit_code_follows_the_updater(tmp_path, updater_code, returncode, message):
+    """A caller reads the exit code, not the text. An exit /b inside a nested
+    block that more commands follow left the process code at 0: on a real
+    install (2026-10-18) a refused update printed "did not complete" and
+    returned 0."""
+    install = tmp_path / "bat exit é !"
+    (install / "scripts").mkdir(parents=True)
+    shutil.copy2(GPU_BAT, install / GPU_BAT.name)
+    shutil.copy2(GENERIC_BAT, install / GENERIC_BAT.name)
+    _write(install / "scripts" / UPDATER.name, f"exit {updater_code}\n")
+    completed = subprocess.run(
+        [COMSPEC, "/d", "/c", str(install / GENERIC_BAT.name), "stable"],
+        input="\n", capture_output=True, text=True, errors="replace",
+        timeout=BAT_TIMEOUT, check=False)
+    assert completed.returncode == returncode, completed.stdout + completed.stderr
+    assert message in completed.stdout
+
+
 # --- The channel marker: public channels never replace a Patreon release ----
 
 def _marker_bytes(version: str = PATREON) -> bytes:
