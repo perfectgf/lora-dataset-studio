@@ -8,7 +8,7 @@ Download **`LoRA-Dataset-Studio-windows.zip`** below, extract it into a new fold
 
 **Free public plugins are available through the Store.** Each plugin describes its features and preparation requirements. Paid API engines and rented GPUs still charge separately when you choose to use them.
 
-The core and these public plugins are available at no charge, with their source published under the project's PolyForm Noncommercial license. Additional optional paid plugins may be offered later. Usage statistics are optional and off by default; the app asks before sharing, and you can change your choice in **Settings → Maintenance**.
+The core and these public plugins are available at no charge, with their source published under the project's PolyForm Noncommercial license. New LDS versions reach [Patreon](https://www.patreon.com/c/Loraperfectgf) members (**LDS Member**) first, then everyone, and some plugins are members-only; the version you have stays free and keeps working. Usage statistics are optional and off by default; the app asks before sharing, and you can change your choice in **Settings → Maintenance**.
 
 ### Two ways to install and update
 
