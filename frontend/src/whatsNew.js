@@ -84,7 +84,7 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
-    id: '2026-10-18-zz-plugins-membership-features', date: '2026-10-18',
+    id: '2026-10-19-plugins-membership-features', date: '2026-10-19',
     title: 'See what Patreon members get in each plugin',
     blurb: 'Plugin cards now show their Membership features: members-only plugins, and the plugin versions that come with the members version of LDS. Members see what they already have.',
     to: '/plugins',

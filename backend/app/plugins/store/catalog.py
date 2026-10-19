@@ -98,6 +98,9 @@ def _satisfies(version, ranges, *, installed=False):
 # Requirements that the members version of LDS changes. Python or platform
 # issues would refuse a release on every core.
 _CORE_REQUIREMENTS = ('compatibility.lds', 'compatibility.api', 'host_dependencies.')
+# The core's own version requirements. A core dependency refused alone is this
+# installation's environment, which repairing the public core fixes.
+_CORE_VERSIONS = ('compatibility.lds', 'compatibility.api')
 
 
 def members_releases(releases, members, *, current):
@@ -105,16 +108,25 @@ def members_releases(releases, members, *, current):
 
     ``releases`` are ``Release.payload()`` values, newest first. ``members``
     are the published members core versions (Patreon ``core-releases.json``),
-    newest first; when they cannot be read, nothing is claimed. A release
-    qualifies while its LDS range refuses the public core but admits the latest
-    members core, and only core requirements refuse it here. The public core is
-    this one (``current``), unless this one is itself a published members
-    version: that one builds on the public release of its date
-    (2026.10.18.3 on 2026.10.18). Members-only plugins (the Patreon catalog)
-    are reserved as a whole and list nothing here."""
+    newest first; when they cannot be read, nothing is claimed.
+
+    On the public core (``current``), a release qualifies while only core
+    requirements refuse it (LDS range, plugin API, core dependencies), at least
+    one of them its LDS range or plugin API, and its LDS range admits the
+    latest members core. Assumption: the members core meets the plugin API and
+    the core dependencies, since it always carries the newest API and pins its
+    own dependencies; ``core-releases.json`` names only its version. The first
+    release the public core accepts ends the list.
+
+    A published members core cannot see what refuses the public one. It infers
+    the public version from its own date (2026.10.18.3 builds on 2026.10.18)
+    and lists the releases whose LDS range refuses that version, so a release
+    the public core refuses for its plugin API alone is not recognized there.
+    Members-only plugins (the Patreon catalog) are reserved as a whole and list
+    nothing here."""
     if not members:
         return []
-    public = current
+    public = None  # This core is the public one: its issues are the public refusals.
     if current in members:
         parts = Version(current).release
         if len(parts) < 4:
@@ -125,9 +137,11 @@ def members_releases(releases, members, *, current):
         if release['price'].get('provider') == 'patreon':
             return []
         lds = release['manifest']['compatibility']['lds']
-        if _satisfies(public, [lds]):
-            break  # The public core installs this release, and the older ones.
         issues = release['compatibility_issues']
+        refused = (any(issue['field'] in _CORE_VERSIONS for issue in issues) if public is None
+                   else not _satisfies(public, [lds]))
+        if not refused:
+            break  # The public core accepts this release, and the older ones.
         if (_satisfies(members[0], [lds])
                 and all(issue['field'].startswith(_CORE_REQUIREMENTS) for issue in issues)):
             found.append({'version': release['manifest']['version'], 'changelog': release['changelog'],

@@ -477,6 +477,16 @@ def test_membership_features_are_the_releases_only_the_members_core_installs():
     forge = [_release('1.2.0', '>=2026.10.18.3', ['compatibility.lds', 'compatibility.api']),
              _release('1.0.0', '>=2026.9.4')]
     assert [item['version'] for item in members_releases(forge, members, current='2026.10.18')] == ['1.2.0']
+    # Public 2026.10.19 meets these LDS ranges; the plugin API alone still refuses them.
+    for newest in (_release('1.2.0', '>=2026.10.18.3', ['compatibility.api']),
+                   _release('1.0.10', '<2027,>=2026.10.18.1', ['compatibility.api'])):
+        found = members_releases([newest, *cloud[1:]], members, current='2026.10.19')
+        assert [item['version'] for item in found] == [newest['manifest']['version']]
+    # What the public core installs is not reserved, even when only this
+    # environment's core dependencies refuse it (a repair fixes those).
+    assert members_releases([_release('1.2.0', '>=2026.10.18.3'), *cloud[1:]], members, current='2026.10.19') == []
+    assert members_releases([_release('1.0.7', '<2027,>=2026.9.4', ['host_dependencies.filelock'])],
+                            members, current='2026.10.19') == []
     # A published members version builds on the public release of its date: it has them.
     installed = [{**cloud[0], 'compatibility_issues': []}, *cloud[1:]]
     assert members_releases(installed, members, current='2026.10.18.3') == [{**reserved, 'available': True}]
