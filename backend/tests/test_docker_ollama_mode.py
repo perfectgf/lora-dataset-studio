@@ -197,7 +197,10 @@ def test_wait_is_bounded(tmp_path):
         capture_output=True,
         text=True,
         encoding='utf-8',
-        timeout=5,
+        # A hang guard, not the measurement: STATE=TIMEOUT after -TimeoutSeconds 1 is what
+        # proves the wait is bounded. Windows PowerShell 5.1 alone can take several seconds
+        # to start on a loaded CI runner (5 s failed the v2026.10.19 release run).
+        timeout=60,
         check=False,
     )
 
