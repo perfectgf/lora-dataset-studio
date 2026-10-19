@@ -134,6 +134,14 @@ def create_test_app(tmp_path, monkeypatch, enabled=(), config_object=None):
     if failed or unexpected or (not enabled and records):
         dispose_test_app(application)
         raise AssertionError(f'Explicit plugin boot failed: requested={failed}, unexpected={unexpected}')
+    if 'cloud_training' in enabled:
+        # public_api_v1 copies its functions from cloud_video_training when it is first imported,
+        # and product modules stay imported for the whole worker. Imported lazily by a test that had
+        # replaced cvt.launch_cloud_video_training (the continue-route test), it kept that stand-in
+        # for every later test of the worker: the v2026.10.19 release runs failed the preflight and
+        # video rank tests that way. Bind the real functions here, before any test body patches them.
+        import importlib
+        importlib.import_module('lds_cloud_training.public_api_v1')
     return application
 
 
