@@ -455,7 +455,9 @@ setup into a single file so you can move to a new machine — or recover from on
   still stands (the run is what marks it trained, not the file on disk). Nothing
   is ever overwritten — a dataset whose name already exists comes back with a
   \`(restored)\` suffix — and you get an honest final report of what was restored,
-  renamed or skipped.
+  renamed or skipped. There is no size limit: LDS only checks that the drives
+  receiving the backup have room for it, and tells you how much space is missing
+  when they don't.
 
 ## The image bank (triage a big folder)
 
