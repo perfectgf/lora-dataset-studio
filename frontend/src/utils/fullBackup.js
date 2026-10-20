@@ -25,6 +25,28 @@ export function describeProgress(status, verb = 'Backing up') {
   return `${verb} ${done} / ${total} datasets…`;
 }
 
+/*
+ * The caption while the archive itself is sent, before the server has a job to
+ * report on. A backup with its trained LoRAs can weigh tens of GB.
+ */
+export function describeUpload(status) {
+  if (!status || status.state !== 'uploading') return '';
+  return status.size > 0 ? `Sending ${formatBytes(status.size)}…` : 'Sending the backup…';
+}
+
+/*
+ * What the restore overlay says when the upload request failed. A dropped
+ * connection reaches the page as the browser's bare "Failed to fetch", which
+ * says neither what happened nor what to do (GitHub #76).
+ */
+export const RESTORE_CONNECTION_LOST =
+  'The upload stopped before LDS answered, so nothing was restored. Check that LDS is still running and that the drive holding its data folder has room for the backup, then try again.';
+
+export function restoreFailureMessage(response) {
+  if (response?.network) return RESTORE_CONNECTION_LOST;
+  return response?.error || 'The restore could not start.';
+}
+
 export function progressPercent(status) {
   const total = status?.total || 0;
   if (!total) return null;

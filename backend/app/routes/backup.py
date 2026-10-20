@@ -7,17 +7,20 @@ Endpoints (all under /api/backup):
     GET  /full/status           poll it {state, done, total, current, result|error}
     GET  /full/download?name=   download a produced archive (validated basename)
     POST /full/open-folder      reveal the backups folder in the file explorer
+    GET  /full/restore/space?size=  can the data drive receive an upload this big?
     POST /full/restore          upload a backup zip; a MASTER archive starts a
                                 background restore, a single-dataset backup is
                                 imported inline (one button restores both)
     GET  /full/restore/status   poll the restore job
 
-The restore upload reuses the dataset-archive request-size allowance (see
-``_DATASET_ARCHIVE_UPLOAD_ENDPOINTS`` in app/__init__.py — ``backup.full_restore``
-is listed there) so a large master archive isn't rejected by the ordinary ceiling.
+The restore upload is an archive upload (``_DATASET_ARCHIVE_UPLOAD_ENDPOINTS`` in
+app/__init__.py lists ``backup.full_restore``): no size ceiling, staged on the
+data drive after a free-space check. The UI asks /full/restore/space first,
+because a browser that is refused mid-upload reports a dropped connection, never
+the reason.
 """
+import io
 import os
-import shutil
 
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -53,7 +56,7 @@ class _SeekableProxy:
 
 
 def _uploaded_stream(file_storage):
-    """A rewound, seekable upload stream, enforcing the archive cap."""
+    """A rewound, seekable upload stream, enforcing an operator-set archive cap."""
     stream = file_storage.stream
     try:
         stream.seek(0, os.SEEK_END)
@@ -61,7 +64,8 @@ def _uploaded_stream(file_storage):
         stream.seek(0)
     except (AttributeError, OSError, ValueError) as exc:
         raise ValueError('uploaded archive is not seekable') from exc
-    if size > int(current_app.config['DATASET_ARCHIVE_MAX_UPLOAD_BYTES']):
+    cap = current_app.config.get('DATASET_ARCHIVE_MAX_UPLOAD_BYTES')
+    if cap and size > int(cap):
         raise RequestEntityTooLarge()
     if not callable(getattr(stream, 'seekable', None)):
         stream = _SeekableProxy(stream)
@@ -111,6 +115,18 @@ def full_open_folder():
     return jsonify({'ok': True})
 
 
+@bp.get('/full/restore/space')
+def full_restore_space():
+    """Asked by the UI before it sends a backup: the same free-space check the
+    upload itself runs, answered while a refusal can still reach the browser."""
+    try:
+        fb.ensure_free_space([(cfg.backups_dir(), request.args.get('size', 0, type=int))],
+                             'receive this upload')
+    except fb.DiskSpaceError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 507
+    return jsonify({'ok': True})
+
+
 @bp.post('/full/restore')
 def full_restore():
     """Restore from an uploaded backup zip. Auto-routes by manifest format so the
@@ -126,18 +142,15 @@ def full_restore():
 
     fmt = fb.detect_backup_format(stream)
     if fmt == fb.FULL_BACKUP_FORMAT:
-        # Persist the upload for the worker (the request ends before it finishes).
-        tmp = str(cfg.backups_dir() / f'.restore-{os.urandom(8).hex()}.zip')
-        with open(tmp, 'wb') as dst:
-            shutil.copyfileobj(stream, dst, 1024 * 1024)
+        # The upload is already a temporary file on the data drive. The worker
+        # takes it over as it is, instead of a second copy of a multi-GB archive,
+        # and closing it when the restore ends deletes it.
         try:
-            fb.start_restore(current_app._get_current_object(), LOCAL_USER, tmp)
+            fb.start_restore(current_app._get_current_object(), LOCAL_USER, stream)
         except fb.AlreadyRunning as exc:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
             return jsonify({'ok': False, 'error': str(exc)}), 409
+        # The request closes its uploads when it ends: detach this one first.
+        f.stream = io.BytesIO()
         return jsonify({'ok': True, 'kind': 'full', 'running': True})
 
     if fmt == svc.BACKUP_FORMAT:

@@ -18,7 +18,7 @@ import { useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FolderOpen, Loader2, Package, RefreshCw, Save } from 'lucide-react';
 import { HelpBadge } from '../../help/HelpMode';
 import {
-  describeProgress, progressPercent, summarizeBackupResult, summarizeRestoreReport,
+  describeProgress, describeUpload, progressPercent, summarizeBackupResult, summarizeRestoreReport,
 } from '../../utils/fullBackup';
 
 function ProgressBar({ status }) {
@@ -120,8 +120,18 @@ function RestoreOverlay({ job, onDismiss }) {
         {done ? <CheckCircle2 aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px] text-emerald-400" />
           : error ? <AlertTriangle aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px] text-amber-400" />
           : <RefreshCw aria-hidden="true" className="mr-1.5 inline h-4 w-4 align-[-2px]" />}
-        {done ? report.headline : error ? 'Restore failed' : 'Restoring your backup'}
+        {done ? report.headline : error ? 'Restore failed'
+          : job.state === 'uploading' ? 'Uploading your backup' : 'Restoring your backup'}
       </h2>
+      {job.state === 'uploading' && (
+        <>
+          <p className="text-sm text-content-muted">{describeUpload(job)}</p>
+          <ProgressBar status={job} />
+          <p className="text-xs text-content-subtle">
+            A large backup can take several minutes. Keep this tab open.
+          </p>
+        </>
+      )}
       {job.state === 'running' && (
         <>
           <p className="text-sm text-content-muted">

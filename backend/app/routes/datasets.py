@@ -45,10 +45,12 @@ _PRESET_NAMES = ('balanced_25', 'zimage_12', 'balanced_multiformat',
 
 
 def _uploaded_archive_stream(file_storage):
-    """Return a rewound, seekable upload stream after enforcing the file cap.
+    """Return a rewound, seekable upload stream after enforcing an operator-set
+    file cap (there is none by default).
 
-    Werkzeug already stores multipart files in a SpooledTemporaryFile.  Reading
-    the FileStorage here would needlessly copy the complete archive back into RAM.
+    The upload is already a temporary file on the data drive (see
+    ArchiveAwareRequest).  Reading the FileStorage here would needlessly copy the
+    complete archive back into RAM.
     """
     stream = file_storage.stream
     try:
@@ -57,7 +59,8 @@ def _uploaded_archive_stream(file_storage):
         stream.seek(0)
     except (AttributeError, OSError, ValueError) as exc:
         raise ValueError('uploaded archive is not seekable') from exc
-    if size > int(current_app.config['DATASET_ARCHIVE_MAX_UPLOAD_BYTES']):
+    cap = current_app.config.get('DATASET_ARCHIVE_MAX_UPLOAD_BYTES')
+    if cap and size > int(cap):
         raise RequestEntityTooLarge()
     return stream
 

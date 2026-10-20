@@ -329,9 +329,12 @@ def test_restore_rejects_malformed_datasets_manifest_before_config_save(
     assert saves == []
 
 
-def test_restore_rejects_compressed_oversized_dataset_before_opening_it(
+def test_restore_refuses_a_payload_the_drive_cannot_hold_before_any_write(
         app, tmp_path, monkeypatch):
-    """The outer member is validated before it can inflate into a staging file."""
+    """A restore has no fixed size ceiling any more (GitHub #76). What refuses a
+    master, compressed bomb included, is the free space of the receiving drives,
+    from the sizes its central directory declares: before a payload member is
+    opened, a staging file created or the config saved."""
     from app.config import LOCAL_USER
     from app.services import full_backup as fb
 
@@ -343,27 +346,33 @@ def test_restore_rejects_compressed_oversized_dataset_before_opening_it(
         z.writestr('datasets/1-bomb.zip', b'X' * 65,
                    compress_type=zipfile.ZIP_DEFLATED)
 
-    monkeypatch.setattr(fb, '_MAX_MASTER_DATASET_BYTES', 64)
-    opened = []
+    monkeypatch.setattr(fb, '_DISK_SAFETY_BYTES', 10 ** 18)  # more than any real disk
+    real_open = zipfile.ZipFile.open
 
-    def _unexpected_open(_self, member, *args, **kwargs):
-        opened.append(member)
-        pytest.fail('a master member was opened before size validation')
+    def _metadata_only(self, member, *args, **kwargs):
+        name = getattr(member, 'filename', member)
+        if not name.endswith('.json'):
+            pytest.fail(f'{name} was opened before the free-space check')
+        return real_open(self, member, *args, **kwargs)
 
-    monkeypatch.setattr(zipfile.ZipFile, 'open', _unexpected_open)
+    monkeypatch.setattr(zipfile.ZipFile, 'open', _metadata_only)
     monkeypatch.setattr(fb, '_new_temp',
                         lambda *args, **kwargs: pytest.fail('staging temp was created'))
     monkeypatch.setattr(fb.cfg, 'save_config',
                         lambda *args, **kwargs: pytest.fail('config was changed'))
 
-    with app.app_context(), pytest.raises(ValueError, match='too large'):
+    with app.app_context(), pytest.raises(fb.DiskSpaceError,
+                                          match='Not enough free disk space'):
         fb.restore_full_backup(LOCAL_USER, archive)
-    assert opened == []
 
 
-def test_restore_rejects_compressed_oversized_lora_before_any_write(
+def test_restore_checks_a_lora_above_the_old_ceiling_against_free_space(
         app, tmp_path, monkeypatch):
-    """A compressed LoRA bomb never reaches its deployment folder or .part file."""
+    """A LoRA declared at 3 GiB used to fail the whole restore against a fixed
+    2 GiB ceiling (GitHub #76). It is now checked against the free space of the
+    folder it goes to, where the restored settings put it: without room it is
+    reported skipped with the figures, and the datasets still come back."""
+    from types import SimpleNamespace
     from app.config import LOCAL_USER
     from app.services import face_dataset_service as svc
     from app.services import full_backup as fb
@@ -376,39 +385,41 @@ def test_restore_rejects_compressed_oversized_lora_before_any_write(
         clean = str(tmp_path / 'clean-master.zip')
         fb.build_full_backup(LOCAL_USER, clean)
 
-    lora_entry = f'loras/{alice.id}/sdxl/bomb.safetensors'
-    archive = str(tmp_path / 'lora-bomb.zip')
+    lora_entry = f'loras/{alice.id}/sdxl/big.safetensors'
+    archive = str(tmp_path / 'big-lora.zip')
     with zipfile.ZipFile(clean) as source, zipfile.ZipFile(archive, 'w') as target:
         for info in source.infolist():
             data = source.read(info.filename)
             if info.filename == fb._MANIFEST_NAME:
                 manifest = json.loads(data)
                 manifest['loras'] = [{
-                    'source_id': alice.id,
-                    'family': 'sdxl',
-                    'name': 'bomb.safetensors',
-                    'entry': lora_entry,
-                    'bytes': 65,
+                    'source_id': alice.id, 'family': 'sdxl',
+                    'name': 'big.safetensors', 'entry': lora_entry,
+                    'bytes': 3 * 2 ** 30,
                 }]
                 data = json.dumps(manifest).encode('utf-8')
             target.writestr(info, data)
-        target.writestr(lora_entry, b'Y' * 65, compress_type=zipfile.ZIP_DEFLATED)
+        target.writestr(lora_entry, b'Y' * 65)
+        # Declared in the central directory, never written out.
+        target.getinfo(lora_entry).file_size = 3 * 2 ** 30
 
-    monkeypatch.setattr(fb, '_MAX_MASTER_LORA_BYTES', 64)
-    opened = []
+    free = {'bytes': 2 * 2 ** 30}  # room for the dataset, not for 3 GiB more
+    monkeypatch.setattr(fb.shutil, 'disk_usage',
+                        lambda _path: SimpleNamespace(total=0, used=0, free=free['bytes']))
+    deployed = loras_root / 'sdxl' / 'big.safetensors'
+    with app.app_context():
+        short = fb.restore_full_backup(LOCAL_USER, archive)
+        assert not deployed.exists()
+        free['bytes'] = 8 * 2 ** 30
+        roomy = fb.restore_full_backup(LOCAL_USER, archive)
 
-    def _unexpected_open(_self, member, *args, **kwargs):
-        opened.append(member)
-        pytest.fail('a master member was opened before size validation')
-
-    monkeypatch.setattr(zipfile.ZipFile, 'open', _unexpected_open)
-    monkeypatch.setattr(fb, '_new_temp',
-                        lambda *args, **kwargs: pytest.fail('dataset staging started'))
-
-    with app.app_context(), pytest.raises(ValueError, match='too large'):
-        fb.restore_full_backup(LOCAL_USER, archive)
-    assert opened == []
-    assert not loras_root.exists()
+    assert short['restored'] == 1 and short['loras_restored'] == 0
+    [skip] = short['loras_skipped']
+    assert skip['name'] == 'big.safetensors'
+    assert skip['reason'].startswith('Not enough free disk space')
+    assert 'to restore this LoRA' in skip['reason']
+    assert roomy['restored'] == 1 and roomy['loras_restored'] == 1
+    assert deployed.read_bytes() == b'Y' * 65
 
 
 def test_master_validation_keeps_normal_restore_compatible(app, tmp_path):

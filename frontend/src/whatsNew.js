@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-20-restore-backups-of-any-size', date: '2026-10-20',
+    title: 'Restore a backup of any size',
+    blurb: 'Import backup refused archives over 2 GB, so a full backup with its trained LoRAs ended on "Failed to fetch". Any size now restores as long as the drive holding the LDS data folder has room, and LDS tells you how much space is missing when it does not. The upload stays on screen while it runs, and an interrupted upload says so plainly. Thanks to lunchingfriar (GitHub #76) for reporting this.',
+    to: '/datasets',
+  },
+  {
     id: '2026-10-19-plugins-membership-features', date: '2026-10-19',
     title: 'See what Patreon members get in each plugin',
     blurb: 'Plugin cards now show their Membership features: members-only plugins, and the plugin versions that come with the members version of LDS. Members see what they already have.',

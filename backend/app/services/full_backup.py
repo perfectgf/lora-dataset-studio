@@ -97,19 +97,14 @@ _DISK_HEADROOM_FACTOR = 1.10
 _MAX_DATASET_ENTRIES = 5000
 
 # Restore limits apply to the OUTER/master ZIP before a single member is opened.
-# Dataset archives are already protected by the portable-backup validator, but that
-# runs only after the master member has been copied to disk.  Keep the same 2 GiB
-# envelope for one embedded dataset archive, and give a (normally much smaller)
-# .safetensors the same ceiling.  The aggregate below intentionally matches the
-# full-restore upload envelope; a locally built master larger than that must be
-# split or handled outside this upload/restore path.
+# The payload members (dataset archives, LoRA files) have no fixed size ceiling:
+# this app runs on the user's own machine, and a library backed up with its LoRAs
+# reaches tens of GB (GitHub #76: a 43.6 GB backup could not be restored). What
+# bounds them is the space on the drives receiving them (check_restore_disk_space,
+# from the sizes the central directory declares) and the rule that no member may
+# yield more bytes than it declares (_MasterExtractionBudget).
 _MAX_MASTER_ENTRIES = 50_000
-_MAX_MASTER_DATASET_BYTES = svc._BACKUP_MAX_BYTES
-_MAX_MASTER_LORA_BYTES = svc._BACKUP_MAX_BYTES
-# The full-restore upload already uses this same 2 GiB archive envelope.  Applying
-# it to the aggregate *decompressed* master members is what prevents a tiny
-# DEFLATEd master from consuming arbitrary staging/destination disk.
-_MAX_MASTER_TOTAL_BYTES = svc._BACKUP_MAX_BYTES
+_NO_FIXED_LIMIT = sys.maxsize
 
 # Metadata is read into memory, unlike the large payloads which are streamed.  The
 # generous ceilings preserve v1/v2 backups while keeping a compressed config/runs
@@ -220,6 +215,78 @@ def check_disk_space() -> dict:
     return {'needed_bytes': needed, 'free_bytes': free}
 
 
+def _size_label(n: int) -> str:
+    return f'{n / 1e9:.1f} GB' if n >= 1e9 else f'{max(1, round(n / 1e6))} MB'
+
+
+def _nearest_existing(path: str) -> str:
+    """``path`` or its closest existing parent (a LoRA folder may not exist yet)."""
+    path = os.path.abspath(path)
+    while not os.path.exists(path):
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    return path
+
+
+def ensure_free_space(needs, action: str) -> None:
+    """Raise DiskSpaceError when a drive cannot take what is about to land on it.
+
+    ``needs`` pairs folders with the bytes that will be written there. Folders on
+    the same drive add up, and each drive keeps _DISK_SAFETY_BYTES free so the
+    database and the system never meet a full disk. A drive whose free space
+    cannot be read is not refused: the write itself reports a real failure.
+    """
+    drives = {}
+    for folder, nbytes in needs:
+        if (nbytes or 0) <= 0:
+            continue
+        probe = _nearest_existing(str(folder))
+        try:
+            key = os.stat(probe).st_dev
+        except OSError:
+            continue
+        drive = drives.setdefault(key, [probe, 0])
+        drive[1] += int(nbytes)
+    for probe, nbytes in drives.values():
+        try:
+            free = shutil.disk_usage(probe).free
+        except OSError:
+            continue
+        needed = nbytes + _DISK_SAFETY_BYTES
+        if free < needed:
+            # A drive letter only: a full path could carry a user name.
+            letter = os.path.splitdrive(probe)[0]
+            where = f' on {letter}' if len(letter) == 2 and letter[1] == ':' else ''
+            raise DiskSpaceError(
+                f'Not enough free disk space{where} to {action}: '
+                f'{_size_label(needed)} needed, {_size_label(free)} free.')
+
+
+def _datasets_root_after(incoming_config) -> str:
+    """Where restored datasets land once the archive's settings are merged: the
+    restore saves them first, and they may carry another datasets folder."""
+    paths = (incoming_config or {}).get('paths')
+    if isinstance(paths, dict) and 'dataset_images_root' in paths:
+        value = paths.get('dataset_images_root')
+        if isinstance(value, str):
+            return value or str(cfg.data_dir() / 'datasets')
+    return str(cfg.dataset_images_root())
+
+
+def check_restore_disk_space(entry_infos: dict, datasets_root: str) -> None:
+    """Refuse a restore whose datasets the receiving drives cannot hold, before
+    anything is written. Reads only the central directory: each dataset unpacks
+    under ``datasets_root`` after being copied alone into the backups folder (the
+    archive itself is already on disk). Bundled LoRAs are checked one by one
+    against their real folder as they are placed (see _restore_loras)."""
+    datasets = [info.file_size for name, info in entry_infos.items()
+                if _MASTER_DATASET_ENTRY_RE.fullmatch(name)]
+    ensure_free_space([(cfg.backups_dir(), max(datasets, default=0)),
+                       (datasets_root, sum(datasets))], 'restore this backup')
+
+
 def _new_temp(suffix: str = '.zip') -> str:
     """A temp path on the backups volume (same volume as the final archive, so
     staging costs no cross-volume copy)."""
@@ -232,26 +299,32 @@ class _MasterExtractionLimitError(ValueError):
     """The actual bytes emitted by a master ZIP exceeded its validated bounds."""
 
 
+def _overrun(entry: str) -> _MasterExtractionLimitError:
+    return _MasterExtractionLimitError(
+        f'full backup is damaged: {entry!r} holds more data than the archive declares')
+
+
 class _MasterExtractionBudget:
-    """Track actual bytes, independently of ZIP central-directory metadata."""
+    """Track actual bytes, independently of ZIP central-directory metadata.
+
+    Sized to the total the central directory declares: that total is what the
+    free-space check accepted, so a member yielding more is refused."""
 
     def __init__(self, maximum: int):
         self.remaining = maximum
 
     def consume(self, count: int, entry: str) -> None:
         if count > self.remaining:
-            raise _MasterExtractionLimitError(
-                f'full backup extraction exceeds the '
-                f'{_MAX_MASTER_TOTAL_BYTES // (1024 * 1024 * 1024)} GiB limit '
-                f'while reading {entry!r}')
+            raise _overrun(entry)
         self.remaining -= count
 
 
 def _master_entry_limit(name: str) -> Optional[int]:
     """Maximum uncompressed bytes for one allowed master-archive member.
 
-    ``None`` marks a name that a full backup never writes.  This is intentionally
-    based only on the central directory; callers run it before ``ZipFile.open``.
+    ``None`` marks a name that a full backup never writes; a payload member has
+    no fixed ceiling (see _NO_FIXED_LIMIT).  This is intentionally based only on
+    the central directory; callers run it before ``ZipFile.open``.
     """
     if name == _MANIFEST_NAME:
         return _MAX_MASTER_MANIFEST_BYTES
@@ -259,10 +332,8 @@ def _master_entry_limit(name: str) -> Optional[int]:
         return _MAX_MASTER_CONFIG_BYTES
     if name == _RUNS_NAME:
         return _MAX_MASTER_RUNS_BYTES
-    if _MASTER_DATASET_ENTRY_RE.fullmatch(name):
-        return _MAX_MASTER_DATASET_BYTES
-    if _MASTER_LORA_ENTRY_RE.fullmatch(name):
-        return _MAX_MASTER_LORA_BYTES
+    if _MASTER_DATASET_ENTRY_RE.fullmatch(name) or _MASTER_LORA_ENTRY_RE.fullmatch(name):
+        return _NO_FIXED_LIMIT
     return None
 
 
@@ -272,14 +343,14 @@ def _validate_master_archive(z: zipfile.ZipFile) -> dict:
     A hostile master can DEFLATE an otherwise huge nested dataset ZIP or LoRA.
     The inner dataset validator would then be too late, because copying the outer
     entry has already consumed temporary-disk space.  Names, duplicates, member
-    counts and declared uncompressed sizes are therefore checked up front.
+    counts and the metadata sizes are therefore checked up front; the declared
+    payload sizes then go through check_restore_disk_space.
     """
     infos = z.infolist()
     if len(infos) > _MAX_MASTER_ENTRIES:
         raise ValueError(f'too many entries in full backup (max {_MAX_MASTER_ENTRIES})')
 
     entries = {}
-    total = 0
     for info in infos:
         name = info.filename
         if name in entries:
@@ -295,11 +366,6 @@ def _validate_master_archive(z: zipfile.ZipFile) -> dict:
             raise ValueError(
                 f'full backup entry {name!r} is too large '
                 f'(max {maximum // (1024 * 1024)} MiB)')
-        total += info.file_size
-        if total > _MAX_MASTER_TOTAL_BYTES:
-            raise ValueError(
-                f'full backup uncompressed contents exceed the '
-                f'{_MAX_MASTER_TOTAL_BYTES // (1024 * 1024 * 1024)} GiB limit')
         entries[name] = info
 
     if _MANIFEST_NAME not in entries:
@@ -332,14 +398,8 @@ def _copy_master_entry_bounded(source, destination, *, entry: str, maximum: int,
         if not chunk:
             break
         copied += len(chunk)
-        if copied > maximum:
-            raise _MasterExtractionLimitError(
-                f'full backup entry {entry!r} exceeds its size limit')
-        if copied > budget.remaining:
-            raise _MasterExtractionLimitError(
-                f'full backup extraction exceeds the '
-                f'{_MAX_MASTER_TOTAL_BYTES // (1024 * 1024 * 1024)} GiB limit '
-                f'while reading {entry!r}')
+        if copied > maximum or copied > budget.remaining:
+            raise _overrun(entry)
         destination.write(chunk)
     budget.consume(copied, entry)
     return copied
@@ -609,9 +669,10 @@ def _dataset_entry_sources_from_manifest(manifest: dict) -> dict:
     return sources
 
 
-def restore_full_backup(user_id, master_path: str, *,
+def restore_full_backup(user_id, master_path, *,
                         progress: ProgressCb = None) -> dict:
-    """Rebuild config + datasets from a master archive. Config merges
+    """Rebuild config + datasets from a master archive (``master_path``: its path,
+    or the open uploaded file the restore route hands over). Config merges
     non-destructively (secrets are never present, so nothing entered on the new
     machine is overwritten). Each dataset is imported as a NEW dataset (import
     never merges/overwrites); a name that collides with an existing one gets a
@@ -628,7 +689,8 @@ def restore_full_backup(user_id, master_path: str, *,
         # restore.  The validator only inspects the central directory.
         entry_infos = _validate_master_archive(z)
         names = set(entry_infos)
-        budget = _MasterExtractionBudget(_MAX_MASTER_TOTAL_BYTES)
+        budget = _MasterExtractionBudget(
+            sum(info.file_size for info in entry_infos.values()))
         try:
             manifest = json.loads(_read_master_entry_bounded(
                 z, entry_infos[_MANIFEST_NAME],
@@ -650,7 +712,7 @@ def restore_full_backup(user_id, master_path: str, *,
         # configuration restore.
         entry_source = _dataset_entry_sources_from_manifest(manifest)
 
-        config_restored = False
+        sanitized = {}
         if _CONFIG_NAME in names:
             try:
                 incoming = json.loads(_read_master_entry_bounded(
@@ -661,9 +723,13 @@ def restore_full_backup(user_id, master_path: str, *,
             except (ValueError, UnicodeError):
                 incoming = None
             sanitized = _sanitize_incoming_config(incoming)
-            if sanitized:
-                cfg.save_config(sanitized)
-                config_restored = True
+        # Same reason: a drive that cannot hold the datasets is refused here, with
+        # the figures, before the settings change or anything is unpacked.
+        check_restore_disk_space(entry_infos, _datasets_root_after(sanitized))
+        config_restored = False
+        if sanitized:
+            cfg.save_config(sanitized)
+            config_restored = True
 
         entries = sorted(n for n in names if _MASTER_DATASET_ENTRY_RE.fullmatch(n))
         if len(entries) > _MAX_DATASET_ENTRIES:
@@ -684,7 +750,7 @@ def restore_full_backup(user_id, master_path: str, *,
                 with z.open(entry_infos[entry]) as src, open(tmp, 'wb') as dst:
                     _copy_master_entry_bounded(
                         src, dst, entry=entry,
-                        maximum=_MAX_MASTER_DATASET_BYTES, budget=budget)
+                        maximum=entry_infos[entry].file_size, budget=budget)
                 with open(tmp, 'rb') as fh:
                     ds = svc.import_backup_zip(user_id, fh)
                 name = (ds.name or '').strip()
@@ -905,12 +971,17 @@ def _restore_loras(user_id, z, manifest, id_map, entry_infos, budget):
         if os.path.isfile(dest):
             skipped.append({'name': str(name), 'reason': 'already present'})
             continue
+        try:
+            ensure_free_space([(dest_dir, info.file_size)], 'restore this LoRA')
+        except DiskSpaceError as exc:
+            skipped.append({'name': str(name), 'reason': str(exc)})
+            continue
         tmp = dest + '.part'
         try:
             os.makedirs(dest_dir, exist_ok=True)
             with z.open(info) as src, open(tmp, 'wb') as out:
                 _copy_master_entry_bounded(
-                    src, out, entry=entry, maximum=_MAX_MASTER_LORA_BYTES,
+                    src, out, entry=entry, maximum=info.file_size,
                     budget=budget)
             os.replace(tmp, dest)
             restored += 1
@@ -1038,7 +1109,7 @@ def _run_backup(app, user_id, include_loras: bool = False) -> None:
                     _runs['backup'].update(state='error', error=_friendly(exc))
 
 
-def start_restore(app, user_id, master_path: str) -> None:
+def start_restore(app, user_id, master_path) -> None:
     with _lock:
         st = _runs.get('restore')
         if st and st['state'] == 'running':
@@ -1048,7 +1119,7 @@ def start_restore(app, user_id, master_path: str) -> None:
                      daemon=True, name='full-restore').start()
 
 
-def _run_restore(app, user_id, master_path: str) -> None:
+def _run_restore(app, user_id, master_path) -> None:
     with app.app_context():
         try:
             result = restore_full_backup(
@@ -1064,7 +1135,16 @@ def _run_restore(app, user_id, master_path: str) -> None:
                 if _runs.get('restore'):
                     _runs['restore'].update(state='error', error=_friendly(exc))
         finally:
-            try:
-                os.remove(master_path)
-            except OSError:
-                pass
+            _discard_master(master_path)
+
+
+def _discard_master(master) -> None:
+    """Delete a restore's archive: a path is removed, while an uploaded archive
+    handed over as an open temporary file disappears when it is closed."""
+    try:
+        if isinstance(master, (str, os.PathLike)):
+            os.remove(master)
+        else:
+            master.close()
+    except OSError:
+        pass

@@ -22,6 +22,7 @@ import { retryRequestForReferenceEdit } from '../components/dataset/referenceEdi
 import { classifyResultMessage } from '../components/dataset/classifyFramingGate.js';
 import { captionResultSuffix, captionSkippedSuffix } from '../utils/captionEngines.js';
 import { importBatchProgress, oversizedFilesMessage, planImportBatches } from '../components/dataset/importBatches.js';
+import { restoreFailureMessage } from '../utils/fullBackup.js';
 
 function post(url, body, isForm) {
   // Routes through the shared fetchWithCsrfRetry: a token that aged out mid-session
@@ -52,6 +53,16 @@ async function getJsonSilent(url) {
   }
 }
 
+/** Same, but an error body is kept (a refusal that says why); null otherwise. */
+async function getJsonResult(url) {
+  try {
+    const r = await fetch(url, { credentials: 'include' });
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * POST + defensive JSON parse (I1 + I4). Never throws: returns the parsed
  * payload on success, `{ok:false, error}` on HTTP / network / non-JSON
@@ -76,7 +87,9 @@ export async function postJson(url, body, isForm) {
     }
     return d || { ok: true };
   } catch (e) {
-    return { ok: false, error: e.message || 'Network error' };
+    // `network`: no answer at all, so a caller can say more than the browser's
+    // bare "Failed to fetch".
+    return { ok: false, network: true, error: e.message || 'Network error' };
   }
 }
 
@@ -1673,10 +1686,22 @@ export function useDataset() {
   // background job with its own progress + honest final report) — so the one
   // "Import backup" button in the library accepts both.
   const importBackup = useCallback(async (file) => {
+    // Sending a big backup takes minutes: the overlay shows it from the start,
+    // and any failure stays in it until closed (GitHub #76: nothing showed for
+    // the whole upload, then a bare "Failed to fetch" toast).
+    clearTimeout(restoreTimer.current);
+    setRestoreJob({ state: 'uploading', size: file.size, done: 0, total: 0, current: null });
+    const fail = (error) => setRestoreJob({ state: 'error', error });
+    // Ask before sending: refused mid-upload, a browser only reports a dropped
+    // connection, never that the drive is full. No answer → the upload's own
+    // check still applies.
+    const space = await getJsonResult(`/api/backup/full/restore/space?size=${file.size}`);
+    if (space?.ok === false) { fail(space.error); return; }
     const fd = new FormData(); fd.append('file', file);
     const d = await postJson('/api/backup/full/restore', fd, true);
-    if (!d.ok) { toast.error(d.error || 'Unexpected error'); return; }
+    if (!d.ok) { fail(restoreFailureMessage(d)); return; }
     if (d.kind === 'single') {
+      setRestoreJob(null);
       toast.success(`Dataset “${d.name}” restored`);
       await fetchList();
       await open(d.id);

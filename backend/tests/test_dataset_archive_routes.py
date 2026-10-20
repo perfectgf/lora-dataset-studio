@@ -267,6 +267,82 @@ def test_ordinary_endpoints_keep_the_plain_ceiling(app, client, monkeypatch):
     assert 'drop fewer files at once' in error
 
 
+def _archive_upload_paths(app):
+    """The three archive uploads, with a dataset for the ZIP merge to target."""
+    from app.config import LOCAL_USER
+    from app.services import face_dataset_service as service
+
+    with app.app_context():
+        dataset_id = service.create_dataset(LOCAL_USER, 'Target', 'target').id
+    return ('/api/backup/full/restore', '/api/dataset/backup/import',
+            f'/api/dataset/{dataset_id}/import-zip')
+
+
+def test_archive_uploads_have_no_size_ceiling(app):
+    """GitHub #76: a 43.6 GB full backup hit a 2 GiB request ceiling while the
+    browser was still sending it, so the user only saw "Failed to fetch". An
+    archive comes off the user's own disk: no ceiling, free space guards it."""
+    from flask import request
+
+    declared = 43_600_000_000
+    for endpoint, path in (('backup.full_restore', '/api/backup/full/restore'),
+                           ('datasets.dataset_backup_import', '/api/dataset/backup/import'),
+                           ('datasets.dataset_import_zip', '/api/dataset/1/import-zip')):
+        with app.test_request_context(
+                path, method='POST', environ_overrides={'CONTENT_LENGTH': str(declared)}):
+            assert request.endpoint == endpoint
+            assert request.content_length == declared
+            assert request.max_content_length is None
+            request._raise_if_declared_body_is_too_large()
+
+
+def test_archive_uploads_are_staged_in_the_data_folder(app, client, monkeypatch):
+    """Werkzeug's default spools an upload into the system temp folder, usually
+    on C:, which can be far smaller than the drive holding the LDS data."""
+    import tempfile
+    from app import config as cfg
+
+    paths = _archive_upload_paths(app)
+    staged = []
+    real_temporary_file = tempfile.TemporaryFile
+
+    def recording(*args, **kwargs):
+        staged.append(kwargs.get('dir'))
+        return real_temporary_file(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, 'TemporaryFile', recording)
+    for path in paths:
+        client.post(path, data={'file': (io.BytesIO(b'not a zip'), 'x.zip')},
+                    content_type='multipart/form-data')
+
+    with app.app_context():
+        assert staged == [str(cfg.backups_dir())] * len(paths)
+
+
+def test_archive_uploads_refused_for_disk_space_with_a_clear_json_error(
+        app, client, monkeypatch):
+    """A drive that cannot take the archive gets a JSON error with the figures,
+    and the restore UI asks the same question before it sends anything."""
+    from app.services import full_backup as fb
+
+    paths = _archive_upload_paths(app)
+    assert client.get('/api/backup/full/restore/space?size=1024').get_json() == {'ok': True}
+    monkeypatch.setattr(fb, '_DISK_SAFETY_BYTES', 10 ** 18)  # more than any real disk
+
+    space = client.get('/api/backup/full/restore/space?size=43600000000')
+    assert space.status_code == 507
+    assert space.get_json()['ok'] is False
+    assert space.get_json()['error'].startswith('Not enough free disk space')
+    for path in paths:
+        response = client.post(path, data={'file': (io.BytesIO(b'archive'), 'backup.zip')},
+                               content_type='multipart/form-data')
+        assert response.status_code == 507, path
+        assert response.get_json()['ok'] is False
+        assert response.get_json()['error'].startswith(
+            'Not enough free disk space'), response.get_json()
+        assert 'to receive this upload' in response.get_json()['error']
+
+
 def test_backup_metadata_cap_is_checked_before_inflation(app, monkeypatch):
     from app.config import LOCAL_USER
     from app.services import face_dataset_service as service

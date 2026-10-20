@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import {
   formatBytes,
   describeProgress,
+  describeUpload,
   progressPercent,
+  restoreFailureMessage,
+  RESTORE_CONNECTION_LOST,
   summarizeBackupResult,
   summarizeRestoreReport,
   isSettled,
@@ -99,4 +102,23 @@ test('isSettled only for done/error', () => {
   assert.equal(isSettled({ state: 'done' }), true);
   assert.equal(isSettled({ state: 'error' }), true);
   assert.equal(isSettled(null), false);
+});
+
+test('describeUpload says how much is being sent while the archive uploads', () => {
+  assert.equal(describeUpload({ state: 'uploading', size: 43.6e9 }), 'Sending 43.6 GB…');
+  assert.equal(describeUpload({ state: 'uploading' }), 'Sending the backup…');
+  assert.equal(describeUpload({ state: 'running', size: 43.6e9 }), '');
+  assert.equal(describeUpload(null), '');
+});
+
+// GitHub #76: the restore of a 43.6 GB backup ended on the browser's bare
+// "Failed to fetch". A dropped connection must say what happened instead.
+test('restoreFailureMessage explains a dropped connection, keeps server errors', () => {
+  const dropped = restoreFailureMessage({ ok: false, network: true, error: 'Failed to fetch' });
+  assert.equal(dropped, RESTORE_CONNECTION_LOST);
+  assert.doesNotMatch(dropped, /Failed to fetch/);
+  assert.match(dropped, /nothing was restored/);
+  const full = 'Not enough free disk space on D: to receive this upload: 43.9 GB needed, 12.3 GB free.';
+  assert.equal(restoreFailureMessage({ ok: false, error: full }), full);
+  assert.equal(restoreFailureMessage({ ok: false }), 'The restore could not start.');
 });
