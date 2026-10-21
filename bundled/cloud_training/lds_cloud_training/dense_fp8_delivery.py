@@ -14,11 +14,9 @@ HOW THE CODE GETS THERE
 There is no shell in the ai-toolkit UI API, so this uses the two seams that do
 exist:
 
-* **write** — the pod's ``/api/datasets/upload`` route joins its ``datasetName``
-  onto DATASETS_FOLDER with Node's ``path.join`` (which normalises ``..``), so a
-  relative path lands a file in any directory. ``seed_checkpoint`` already
-  relies on this to pre-place a checkpoint for auto-resume; here it ships
-  ``fp8_export.py`` itself, byte for byte — the SAME file the unit tests
+* **write** — the pod's ``/api/datasets/upload`` route accepts a direct child
+  of DATASETS_FOLDER. ``seed_checkpoint`` ships ``fp8_export.py`` to the
+  ``_lds_fp8`` directory, byte for byte — the SAME file the unit tests
   exercise, so there is no second implementation to drift.
 * **execute** — vast's asynchronous instance-command endpoint
   (``vast_client.execute_command``), which returns a URL where the combined

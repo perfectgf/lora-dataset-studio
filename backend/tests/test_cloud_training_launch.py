@@ -1656,6 +1656,14 @@ def test_continue_seeds_checkpoint_in_monitor_flow(ct, app, seeded_dataset,
     ckpt.write_bytes(b'weights')
     fake = _FakeRemote({'TRAINING_FOLDER': '/root/ai-toolkit/output',
                         'DATASETS_FOLDER': '/root/ai-toolkit/datasets'})
+    from lds_cloud_training import pod_checkpoint_push
+
+    def push(remote, **kwargs):
+        remote.seed_checkpoint(kwargs['datasets_folder'], kwargs['dest_dir'],
+                               kwargs['remote_name'], kwargs['local_path'])
+        return {'sent_bytes': len(b'weights')}
+
+    monkeypatch.setattr(pod_checkpoint_push, 'push_checkpoint', push)
     # network + pod driver fully mocked
     monkeypatch.setattr(ct.vast_client, 'search_offers',
                         lambda **kw: [{'offer_id': 9, 'gpu_name': 'RTX 4090',

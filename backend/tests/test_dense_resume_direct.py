@@ -277,9 +277,6 @@ def test_a_big_local_seed_goes_through_the_resumable_push(
                 'sent_slices': 13, 'skipped_slices': 0, 'reused': False}
 
     monkeypatch.setattr(pod_checkpoint_push, 'push_checkpoint', _push)
-    # "Big" is a threshold, not a file: moving the threshold proves the same
-    # branch as writing a gigabyte, and costs nothing.
-    monkeypatch.setattr(ct, '_SLICED_PUSH_THRESHOLD_BYTES', 1000)
 
     class _Remote:
         def seed_checkpoint(self, *a, **k):
@@ -307,31 +304,38 @@ def test_a_big_local_seed_goes_through_the_resumable_push(
     assert calls['job_name'] == 'Krea_lds9_dense'
 
 
-def test_a_small_seed_still_goes_in_one_request(ct, app, dataset_id, tmp_path,
-                                                monkeypatch):
-    """A LoRA is seconds to redo. Slicing it would buy nothing and would cost
-    two pod round-trips it does not need."""
-    monkeypatch.setattr(pod_checkpoint_push, 'push_checkpoint',
-                        lambda *a, **k: pytest.fail('a LoRA must not be sliced'))
+def test_a_small_lora_uses_the_staged_push(ct, app, dataset_id, tmp_path,
+                                        monkeypatch):
+    """Small LoRAs must also respect the upload route's dataset boundary."""
     seen = {}
 
+    def push(remote, **kwargs):
+        seen.update(kwargs)
+        return {'bytes': 850_000, 'sent_bytes': 850_000}
+
+    monkeypatch.setattr(pod_checkpoint_push, 'push_checkpoint', push)
+
     class _Remote:
-        def seed_checkpoint(self, folder, dest, name, path):
-            seen.update({'dest': dest, 'name': name, 'path': path})
+        def seed_checkpoint(self, *args, **kwargs):
+            pytest.fail('a resume must not upload directly to the output folder')
 
     with app.app_context():
         src = tmp_path / 'lora.safetensors'
         src.write_bytes(b'l' * 85 * 10 ** 4)
         run = ct.CloudTrainingRun(
             dataset_id=dataset_id, status='provisioning', run_name='lora',
-            job_name='lds9_lora', staging_dir=str(tmp_path),
+            job_name='lds9_lora', vast_instance_id='pod-9', staging_dir=str(tmp_path),
             train_params=json.dumps({'resume_step': 500,
                                      'resume_ckpt_path': str(src)}))
         ct.db.session.add(run)
         ct.db.session.commit()
         ct._seed_resume_checkpoint(run, _Remote(), {
             'DATASETS_FOLDER': '/datasets', 'TRAINING_FOLDER': '/output'})
-    assert seen['name'] == 'lds9_lora_000000500.safetensors'
+    assert seen['remote_name'] == 'lds9_lora_000000500.safetensors'
+    assert seen['dest_dir'] == '/output/lds9_lora'
+    assert seen['datasets_folder'] == '/datasets'
+    assert seen['instance_id'] == 'pod-9'
+    assert seen['local_path'] == str(src)
 
 
 def test_a_resumed_push_does_not_record_a_fake_uplink_speed(
@@ -342,7 +346,6 @@ def test_a_resumed_push_does_not_record_a_fake_uplink_speed(
     monkeypatch.setattr(pod_checkpoint_push, 'push_checkpoint',
                         lambda *a, **k: {'bytes': 26 * 10 ** 9,
                                          'sent_bytes': 0, 'reused': True})
-    monkeypatch.setattr(ct, '_SLICED_PUSH_THRESHOLD_BYTES', 1000)
     recorded = []
     monkeypatch.setattr(pod_transfer_plan, 'record_uplink_sample',
                         lambda b, s, kind=None: recorded.append((b, s, kind)))

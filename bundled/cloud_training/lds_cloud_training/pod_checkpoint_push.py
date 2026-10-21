@@ -111,7 +111,8 @@ def pod_paths(datasets_folder: str, job_name: str) -> dict:
     root = str(datasets_folder or '').rstrip('/') or '/workspace/datasets'
     safe = ''.join(c if (c.isalnum() or c in '._-') else '_'
                    for c in str(job_name or 'run'))
-    return {'root': root, 'staging': f'{root}/{POD_DIR_NAME}/{safe}'}
+    # Current ai-toolkit images accept only a direct child of the dataset root.
+    return {'root': root, 'staging': f'{root}/{POD_DIR_NAME}_{safe}'}
 
 
 # -- the two pod-side programs -------------------------------------------------

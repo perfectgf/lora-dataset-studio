@@ -1413,10 +1413,12 @@ def test_remote_job_id_is_recorded_before_seeding_and_start(ct, app, client,
         params.update({'resume_ckpt_path': str(seed), 'resume_step': 500})
         ct._set(run, train_params=json.dumps(params))
 
-    def boom(datasets_folder, dest_dir, remote_name, local_path):
+    from lds_cloud_training import pod_checkpoint_push
+
+    def boom(*args, **kwargs):
         raise RuntimeError('app died while seeding')
 
-    remote.seed_checkpoint = boom
+    monkeypatch.setattr(pod_checkpoint_push, 'push_checkpoint', boom)
     with app.app_context():
         ct._monitor(app, run_id)
         run = db.session.get(ct.CloudTrainingRun, run_id)

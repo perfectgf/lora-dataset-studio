@@ -14,9 +14,13 @@ because they are the two that would fail silently in production:
 """
 
 from public_dense_test_io import no_dense_provider_io  # noqa: F401
+from email.parser import BytesParser
+from email.policy import default
 import http.server
 import json
 import os
+import posixpath
+import shlex
 import subprocess
 import sys
 import threading
@@ -256,8 +260,27 @@ class _Recorder(http.server.BaseHTTPRequestHandler):
                 break
             body += block
         self.server.seen.append({'headers': dict(self.headers), 'body': body})
-        payload = json.dumps(self.server.answer).encode()
-        self.send_response(self.server.status)
+        parts = BytesParser(policy=default).parsebytes(
+            b'Content-Type: ' + self.headers['Content-Type'].encode()
+            + b'\r\n\r\n' + body)
+        fields = {p.get_param('name', header='content-disposition'): p
+                  for p in parts.iter_parts()}
+        dataset = fields['datasetName'].get_payload(decode=True).decode()
+        destination = posixpath.normpath(posixpath.join('/datasets', dataset))
+        # Mirror the current upstream route, not the old path.join loophole.
+        if posixpath.dirname(destination) != '/datasets' or destination == '/datasets':
+            payload = b'{"error":"Invalid dataset name"}'
+            status = 400
+        else:
+            payload = json.dumps(self.server.answer).encode()
+            status = self.server.status
+            root = getattr(self.server, 'dataset_root', None)
+            if root is not None and status == 200:
+                folder = root / posixpath.basename(destination)
+                folder.mkdir(parents=True, exist_ok=True)
+                part = fields['files']
+                (folder / part.get_filename()).write_bytes(part.get_payload(decode=True))
+        self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(payload)))
         self.end_headers()
@@ -288,7 +311,7 @@ def test_a_slice_is_framed_by_content_length_never_chunked(pod_route, tmp_path):
     on a parser we do not control."""
     path = tmp_path / 'f.bin'
     path.write_bytes(os.urandom(300_000))
-    _remote(pod_route).upload_file_slice('/w/datasets', '/w/datasets/_lds_push/j',
+    _remote(pod_route).upload_file_slice('/w/datasets', '/w/datasets/_lds_push_j',
                                          'f.bin.p0001', str(path))
     head = pod_route.seen[0]['headers']
     assert head.get('Transfer-Encoding') is None
@@ -301,14 +324,13 @@ def test_a_slice_sends_exactly_its_own_bytes_and_the_right_destination(pod_route
     path = tmp_path / 'f.bin'
     path.write_bytes(payload)
     sent = _remote(pod_route).upload_file_slice(
-        '/w/datasets', '/w/datasets/_lds_push/job', 'f.bin.p0002', str(path),
+        '/w/datasets', '/w/datasets/_lds_push_job', 'f.bin.p0002', str(path),
         offset=20_000, length=10_000)
     assert sent == 10_000
     body = pod_route.seen[0]['body']
     assert payload[20_000:30_000] in body
     assert payload[:20_000] not in body
-    # The relative path is what lands the file in an arbitrary pod directory.
-    assert b'name="datasetName"' in body and b'_lds_push/job' in body
+    assert b'name="datasetName"' in body and b'_lds_push_job' in body
     assert b'filename="f.bin.p0002"' in body
 
 
@@ -329,17 +351,61 @@ def test_a_non_200_from_the_route_is_a_loud_failure(pod_route, tmp_path):
 
 
 def test_seed_checkpoint_still_sends_the_whole_file(pod_route, tmp_path):
-    """Three callers mean 'the whole file, in one request' by this name. It now
-    rides the streamed body like everything else, and must stay equivalent."""
+    """Whole-file uploads of helpers and tokens retain the streamed body."""
     payload = os.urandom(40_000)
     path = tmp_path / 'lora.safetensors'
     path.write_bytes(payload)
-    _remote(pod_route).seed_checkpoint('/w/datasets', '/w/training/job',
+    _remote(pod_route).seed_checkpoint('/w/datasets', '/w/datasets/_lds_hub',
                                        'job_000000500.safetensors', str(path))
     body = pod_route.seen[0]['body']
     assert payload in body
     assert b'filename="job_000000500.safetensors"' in body
-    assert b'../training/job' in body
+    assert b'_lds_hub' in body
+
+
+@pytest.mark.parametrize('dest', [
+    '/w/training/job', '/w/datasets/_lds_push/job', '/w/datasets',
+    '/w/datasets/../training/job',
+])
+def test_upload_rejects_destinations_outside_a_direct_child(pod_route, tmp_path, dest):
+    path = tmp_path / 'checkpoint.safetensors'
+    path.write_bytes(b'weights')
+    with pytest.raises(RemoteError, match='direct child'):
+        _remote(pod_route).upload_file_slice('/w/datasets', dest, path.name, str(path))
+    assert pod_route.seen == []
+
+
+def test_checkpoint_staging_is_an_allowed_dataset_directory():
+    paths = push.pod_paths('/w/datasets', 'lds9_lora')
+    assert posixpath.dirname(paths['staging']) == paths['root']
+
+
+@pytest.mark.parametrize('slice_bytes,expected_slices', [(10_000, 1), (1000, 3)])
+def test_checkpoint_reaches_training_folder_through_strict_upload_route(
+        pod_route, tmp_path, monkeypatch, slice_bytes, expected_slices):
+    """Real multipart HTTP plus the real pod programs, with disposable files."""
+    datasets = tmp_path / 'datasets'
+    pod_route.dataset_root = datasets
+    payload = os.urandom(2500)
+    source = tmp_path / 'source.safetensors'
+    source.write_bytes(payload)
+    output = tmp_path / 'output' / 'new_job'
+    remote_name = 'new_job_000002000.safetensors'
+
+    def run_on_test_pod(remote, *, command, **kwargs):
+        args = shlex.split(command(None))
+        assert args[:2] == ['python', '-c']
+        return _run_program(args[2], *args[3:])
+
+    monkeypatch.setattr(hub, 'run_program', run_on_test_pod)
+    result = push.push_checkpoint(
+        _remote(pod_route), instance_id='test-pod', local_path=str(source),
+        dest_dir=output.as_posix(), remote_name=remote_name,
+        datasets_folder=datasets.as_posix(), job_name='new_job',
+        tmp_dir=str(tmp_path), slice_bytes=slice_bytes)
+    assert result['sent_slices'] == expected_slices
+    assert len(pod_route.seen) == expected_slices
+    assert (output / remote_name).read_bytes() == payload
 
 
 def test_a_body_refuses_to_be_sent_twice(tmp_path):

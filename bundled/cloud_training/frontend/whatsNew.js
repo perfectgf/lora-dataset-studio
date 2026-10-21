@@ -1,5 +1,11 @@
 export const CLOUD_WHATS_NEW = [
   {
+    id: '2026-10-21-cloud-resume-upload',
+    date: '2026-10-21',
+    title: 'Resume cloud training on current AI Toolkit images',
+    blurb: 'Continuing from a saved checkpoint now works with AI Toolkit’s stricter upload rules. LoRAs and larger checkpoints are staged in an allowed folder, then placed in the new run’s output folder before training starts. This fixes the “Invalid dataset name” error without changing your dataset or restarting training from zero.',
+  },
+  {
     id: '2026-09-26-cloud-video-rank',
     date: '2026-09-26',
     title: 'Keep your chosen rank in cloud video training',

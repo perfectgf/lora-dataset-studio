@@ -1,6 +1,6 @@
 """Public image and video cloud training, dense delivery and rental supervision."""
 
-__version__ = '1.0.7'
+__version__ = '1.0.7.1'
 
 
 def _disable_blockers(reasons, plugin_id):

@@ -244,12 +244,10 @@ class RemoteAiToolkit:
         """Send BYTES [offset, offset+length) of a local file to the pod as
         ``dest_dir/remote_name``, without ever holding them in memory.
 
-        The addressing trick is ``seed_checkpoint``'s and is unchanged: the
-        /api/datasets/upload route joins its ``datasetName`` onto
-        DATASETS_FOLDER with Node's ``path.join`` (which normalises ``..``), so
-        a relative path lands the file EXACTLY in dest_dir, and the route
-        sanitises the FILENAME to [A-Za-z0-9._-]. What changed is only the body:
-        see ``_StreamedPart``.
+        The upload route accepts only a direct child of DATASETS_FOLDER.
+        Checkpoints destined for the training folder must first be staged
+        there, then placed by ``pod_checkpoint_push`` using the pod executor.
+        The route sanitises the filename to [A-Za-z0-9._-].
 
         The slice arguments are what make a 26 GB transfer RESUMABLE. A single
         request that dies at 80% has nothing to offer the next attempt; a
@@ -262,7 +260,13 @@ class RemoteAiToolkit:
         raising callback is disabled, never fatal.
 
         Returns the number of payload bytes sent."""
-        rel = posixpath.relpath(dest_dir, datasets_folder.rstrip('/'))
+        root = posixpath.normpath(datasets_folder)
+        dest = posixpath.normpath(dest_dir)
+        if dest == root or posixpath.dirname(dest) != root:
+            raise RemoteError('upload destination must be a direct child of '
+                              'the datasets folder; use the checkpoint push '
+                              'to place files in the training folder')
+        rel = posixpath.basename(dest)
         sent = [0]
         cb = [on_progress]
 
@@ -289,15 +293,12 @@ class RemoteAiToolkit:
 
     def seed_checkpoint(self, datasets_folder: str, dest_dir: str,
                         remote_name: str, local_path: str) -> None:
-        """Pre-place a WHOLE file into an ARBITRARY pod directory (dest_dir —
-        e.g. a job's save_root <TRAINING_FOLDER>/<job_name>) so ai-toolkit's
-        auto-resume picks it up on the next job start. Raises RemoteError on a
-        non-200 so a 'continue' that cannot seed fails loudly rather than
-        silently training from scratch.
+        """Upload a whole file into a direct child of the datasets folder.
+        Resume checkpoints use ``pod_checkpoint_push`` to reach the job's
+        save_root. Raises RemoteError if the destination or upload is refused.
 
-        Kept as its own name because three callers mean "the whole file, in one
-        request" by it (a LoRA save, the Hub token, the fp8 helper). It goes
-        through the streamed body like everything else: nothing about a small
+        Kept as its own name for whole-file callers (the Hub token and fp8
+        helper). It uses the streamed body: nothing about a small
         file needs the payload in memory either."""
         self.upload_file_slice(datasets_folder, dest_dir, remote_name, local_path)
 

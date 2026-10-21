@@ -6019,22 +6019,18 @@ def _seed_resume_checkpoint(run, remote, pod_settings):
     logger.info('run %s: seeded resume checkpoint %s -> %s',
                 run.id, os.path.basename(src), dest_dir)
 
-_SLICED_PUSH_THRESHOLD_BYTES = 1024 * 1024 * 1024
 
 def _push_resume_checkpoint(run, remote, pod_settings, src, dest_dir, remote_name):
     """Put a checkpoint from THIS COMPUTER into the pod's save_root.
 
-    Small file: one streamed request, as it always was. Big file: numbered
-    slices, a probe that skips whatever already landed, and a pod-side assembly
-    — see ``pod_checkpoint_push``. The byte counter is fed into the SAME
+    Every file uses an allowed dataset staging folder followed by pod-side
+    assembly. A small LoRA takes one slice; larger files keep resumable slices.
+    Uploading directly to save_root via '../output/job' is rejected by current
+    ai-toolkit images. The byte counter is fed into the SAME
     upload-progress file the dataset transfer writes, so the freeze watchdog
     reads a multi-hour checkpoint push exactly the way it reads a multi-hour
     dataset push, with no new watchdog input to teach it."""
     total = os.path.getsize(src)
-    if total < _SLICED_PUSH_THRESHOLD_BYTES:
-        remote.seed_checkpoint(pod_settings['DATASETS_FOLDER'], dest_dir,
-                               remote_name, src)
-        return
     from lds_cloud_training import pod_checkpoint_push, pod_transfer_plan
     dense = ((cfg.get('cloud') or {}).get('full_transformer') or {})
     started = time.monotonic()

@@ -1,6 +1,6 @@
 {
   "name": "@lds-plugins/cloud-training",
-  "version": "1.0.7",
+  "version": "1.0.7.1",
   "private": true,
   "type": "module",
   "lds": {
