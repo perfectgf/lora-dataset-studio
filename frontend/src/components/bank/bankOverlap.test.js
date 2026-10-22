@@ -118,11 +118,15 @@ test('the delete dialog blocks on a dataset conflict rather than warning about i
   assert.match(src, /datasetConflictBlock\(preview\?\.dataset_conflict\)/);
 });
 
-test('the workspace disables 🗑 Delete rejected on a bank that sits on a dataset', () => {
+test('the workspace disables 🗑 Delete rejected for dataset conflicts and protected sources', () => {
   // The banner promises "Delete rejected is disabled here". A button that still
   // opened the dialog, only to be refused inside it, would make that a lie.
   const src = bankTreeSource();
-  assert.match(src, /disabled=\{live \|\| !\(counts\?\.reject > 0\) \|\| !!payload\?\.dataset_conflict\}/);
+  const guard = src.match(/onClick=\{\(\) => setDeleteRejectedOpen\(true\)\}\s+disabled=\{([^}]+)\}/)?.[1];
+  assert.ok(guard, 'the destructive button has a disabled guard');
+  assert.match(guard, /!!payload\?\.dataset_conflict/);
+  assert.match(guard, /!!payload\?\.source_write_block/);
+  assert.match(guard, /savingReadOnly/);
   assert.match(src, /payload\?\.dataset_conflict && \(/);
 });
 
