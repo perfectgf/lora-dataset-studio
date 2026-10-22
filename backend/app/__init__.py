@@ -490,6 +490,7 @@ _SCHEMA_ADDITIONS = (
     ('face_dataset_image', 'caption_origin', 'VARCHAR(16)'),
     ('face_dataset_image', 'caption_short_origin', 'VARCHAR(16)'),
     ('image_bank', 'pipeline_report', 'TEXT'),
+    ('image_bank', 'read_only', 'BOOLEAN NOT NULL DEFAULT 0'),
     # When each pass last completed. A bank that predates it keeps NULL and
     # simply reports "never recorded" until its next pass writes a row.
     ('image_bank', 'last_passes', 'TEXT'),

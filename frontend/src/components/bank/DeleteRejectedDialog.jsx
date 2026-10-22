@@ -38,7 +38,9 @@ export default function DeleteRejectedDialog({ bankId, count, sourcePath, onClos
   // The one refusal that is not a warning: this bank's folder belongs to a
   // dataset, so these "rejects" are its training images. The server says no —
   // the button must never even arm.
-  const block = datasetConflictBlock(preview?.dataset_conflict)
+  const block = preview?.source_write_block
+    ? { blocked: true, title: 'Source files are protected', text: preview.source_write_block }
+    : datasetConflictBlock(preview?.dataset_conflict)
 
   const run = async () => {
     if (busy || !armed || !check.ready || block.blocked) return

@@ -47,7 +47,7 @@ import uuid
 import warnings
 from collections import OrderedDict, deque
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from functools import wraps
 from pathlib import Path
 
@@ -737,10 +737,64 @@ def _walk_image_relpaths(folder, *, onerror=None):
                 yield (head + os.sep + f) if head else f
 
 
-def create_bank(user_id, name, folder):
+class BankSourceReadOnly(PermissionError):
+    """A Bank's source files are protected from writes and removal."""
+
+
+def source_write_block(bank) -> str | None:
+    """Protect the source even when another Bank references the same tree."""
+    if bank.read_only:
+        return 'This bank is read-only. Source files cannot be added or deleted.'
+    protected_ids = {b.id for b in ImageBank.query.filter_by(
+        user_id=bank.user_id, read_only=True).all()}
+    if protected_ids and any(o['id'] in protected_ids
+                             for o in overlapping_banks(bank.user_id, bank.id)):
+        return ('This source folder overlaps a read-only bank. '
+                'Source files cannot be added or deleted.')
+    return None
+
+
+def _require_writable_source(bank):
+    # A preflight may have loaded this object before the mutation acquired its
+    # lease. Re-read the persisted choice at the actual write boundary.
+    db.session.refresh(bank, ['read_only'])
+    if reason := source_write_block(bank):
+        raise BankSourceReadOnly(reason)
+
+
+@contextmanager
+def _source_protection_change(bank):
+    """A successful protection change cannot race a writer in an overlapping Bank.
+
+    The caller owns this Bank (or has not committed its new row yet). Acquire
+    the other Banks' existing mutation leases until the setting is committed.
+    These leases refuse immediately when busy; they never wait on another job.
+    """
+    with ExitStack() as leases:
+        for other in overlapping_banks(bank.user_id, bank.id):
+            leases.enter_context(bank_jobs.mutation_lease(other['id'], 'source_protection'))
+        yield
+
+
+@_serialized_bank_mutation('source_protection')
+def set_read_only(user_id, bank_id, read_only, *, _bank_lease=None):
+    if not isinstance(read_only, bool):
+        raise ValueError('read_only must be a boolean')
+    bank = get_bank(user_id, bank_id)
+    if bank is None:
+        return None
+    with _source_protection_change(bank):
+        bank.read_only = read_only
+        db.session.commit()
+    return {'read_only': bool(bank.read_only), 'source_write_block': source_write_block(bank)}
+
+
+def create_bank(user_id, name, folder, *, read_only=False):
     """Register a folder as a bank: walk it recursively and create one row per
     image file. Instant (no decode) — scoring is the separate scan pass.
     Returns (bank, added). ValueError on a missing folder / too many files."""
+    if not isinstance(read_only, bool):
+        raise ValueError('read_only must be a boolean')
     name = (name or '').strip()
     # Windows "Copy as path" pastes the path quoted — unquote so
     # the direct paste works first try (same nicety as the dataset folder import).
@@ -766,11 +820,12 @@ def create_bank(user_id, name, folder):
             raise ValueError(
                 f'this folder holds more than {BANK_MAX_FILES:,} images '
                 '— point the bank at a subfolder, or split it in two')
-    bank = ImageBank(user_id=user_id, name=name, source_path=folder)
+    bank = ImageBank(user_id=user_id, name=name, source_path=folder, read_only=read_only)
     db.session.add(bank)
     db.session.flush()          # need bank.id for the child rows
     _insert_bank_images(bank.id, folder, rels)
-    db.session.commit()
+    with _source_protection_change(bank) if read_only else ExitStack():
+        db.session.commit()
     return bank, len(rels)
 
 
@@ -1106,7 +1161,8 @@ def relocate_bank(user_id, bank_id, folder, confirm=False, *,
         return out
     bank = get_bank(user_id, bank_id)
     bank.source_path = out['folder']
-    db.session.commit()
+    with _source_protection_change(bank) if bank.read_only else ExitStack():
+        db.session.commit()
     _folder_sync.pop(bank_id, None)     # next walk must see the new folder
     out['applied'] = True
     out['overlaps'] = overlapping_banks(user_id, bank_id)
@@ -1261,7 +1317,9 @@ def delete_bank(user_id, bank_id, *, _allow_busy=False,
     bank = get_bank(user_id, bank_id)
     if not bank:
         return False
-    imported_source = bank.source_path if _is_imported_source(bank.source_path) else None
+    db.session.refresh(bank, ['read_only'])
+    imported_source = (bank.source_path if _is_imported_source(bank.source_path)
+                       and not source_write_block(bank) else None)
     from . import folder_person
     folder_person.drop_for_bank(bank_id)   # children first — no relationship()
     folder_person.drop_probes_for_bank(bank_id)
@@ -2317,6 +2375,7 @@ def bank_payload(user_id, bank_id) -> dict | None:
         semantic['counts']['ok'] if semantic else 0)
     return {
         'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
+        'read_only': bool(bank.read_only), 'source_write_block': source_write_block(bank),
         'semantic_engine': (semantic['engine'] if semantic else
                             _selected_semantic_engine(bank)),
         'created_at': bank.created_at.isoformat() if bank.created_at else None,
@@ -2530,6 +2589,7 @@ def list_banks(user_id, dataset_id=None) -> list:
         base = BankImage.query.filter_by(bank_id=bank.id)
         row = {
             'id': bank.id, 'name': bank.name, 'source_path': bank.source_path,
+            'read_only': bool(bank.read_only),
             'created_at': bank.created_at.isoformat() if bank.created_at else None,
             'total': base.count(),
             'keep': base.filter_by(status='keep').count(),
@@ -6187,11 +6247,15 @@ def overlapping_banks(user_id, bank_id) -> list:
         return []
     out = []
     for other, theirs in _bank_folders(user_id, exclude_id=bank_id):
+        try:
+            common = os.path.commonpath([mine, theirs])
+        except ValueError:  # Different drives cannot share files.
+            continue
         if theirs == mine:
             relation = 'same'
-        elif mine.startswith(theirs + os.sep):
+        elif common == theirs:
             relation = 'parent'
-        elif theirs.startswith(mine + os.sep):
+        elif common == mine:
             relation = 'child'
         else:
             continue
@@ -6263,6 +6327,7 @@ def rejected_delete_preview(user_id, bank_id) -> dict | None:
             shared.append({'id': other['id'], 'name': other['name'],
                            'relation': other['relation'], 'files': n})
     return {'rejected': len(rows), 'mode': _delete_mode(), 'shared': shared,
+            'read_only': bool(bank.read_only), 'source_write_block': source_write_block(bank),
             # The hard stop, next to the soft warnings: another BANK losing files
             # is a warning the user may accept, a DATASET losing them is not.
             'dataset_conflict': bank_dataset_conflict(user_id, bank_id)}
@@ -6285,6 +6350,7 @@ def _delete_rejected_guard(user_id, bank_id, check_busy=True):
         raise ValueError('bank not found')
     if check_busy and bank_jobs.running(bank_id):
         raise RuntimeError('a job is running on this bank — stop it first')
+    _require_writable_source(bank)
     # An install that predates the create-time guard can still hold a bank whose
     # folder IS a dataset's. Here, and only here, that stops being cosmetic: these
     # "rejects" are the dataset's images. Refuse — never silently delete, never
@@ -6374,7 +6440,9 @@ def delete_rejected(user_id, bank_id, job=None, *, _bank_lease=None) -> dict:
     normal path — see start_delete_rejected): progress is reported per file and
     Stop is honoured between files.
     """
-    bank = _delete_rejected_guard(user_id, bank_id, check_busy=job is None)
+    # The decorator already owns the mutation lease, including for direct
+    # callers. Checking running() here would mistake our own lease for a rival.
+    bank = _delete_rejected_guard(user_id, bank_id, check_busy=False)
 
     # (id, relpath) tuples, not ORM rows, and ONE realpath for the whole batch:
     # the loop commits as it goes, which expires live ORM objects and would make
@@ -11787,6 +11855,7 @@ def scrape_import_to_bank(user_id, items, bank_id=None, name=None, *,
         bank = get_bank(user_id, bank_id)
         if bank is None:
             raise ValueError('bank not found')
+        _require_writable_source(bank)
         folder = bank.source_path
         if not folder or not os.path.isdir(folder):
             raise ValueError('this bank\'s folder is unavailable — relocate it first')

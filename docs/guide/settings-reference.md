@@ -616,6 +616,11 @@ deleted. Head-cropping a reference is unaffected: it runs on the vision model
 
 ### Image bank triage
 
+**Read-only source** is set per bank, in the bank creation form or beside an
+existing bank's name. It blocks deletion and imports into its source folder,
+while keeping curation and copies into datasets available. Existing banks
+default to off. See [Read-only bank sources](using-the-app.md#read-only-bank-sources).
+
 Thresholds for the **🗃️ Bank** quality flags. Every scanned image stores its
 **raw scores**, and the flags are recomputed against these values on every
 read — so changing a threshold re-sorts an already-scanned bank instantly,

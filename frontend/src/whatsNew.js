@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-22-bank-read-only-source', date: '2026-10-22',
+    title: 'Protect your image bank originals with read-only mode',
+    blurb: 'Enable Read-only source when adding a bank or in an existing bank to block source file deletion and new imports. Triage, captions, edits to working copies and copying into datasets still work. Protection also covers other banks pointing at the same folder tree. Thanks to kennhardy for the suggestion (GitHub #72).',
+    to: '/bank',
+  },
+  {
     id: '2026-10-20-restore-backups-of-any-size', date: '2026-10-20',
     title: 'Restore a backup of any size',
     blurb: 'Import backup refused archives over 2 GB, so a full backup with its trained LoRAs ended on "Failed to fetch". Any size now restores as long as the drive holding the LDS data folder has room, and LDS tells you how much space is missing when it does not. The upload stays on screen while it runs, and an interrupted upload says so plainly. Thanks to lunchingfriar (GitHub #76) for reporting this.',
