@@ -40,6 +40,7 @@ import {
 } from './bankLayout.js'
 import PromoteDialog from './PromoteDialog'
 import DeleteRejectedDialog from './DeleteRejectedDialog'
+import BankReadOnlyToggle from './BankReadOnlyToggle'
 import LaunchAllDialog from './LaunchAllDialog'
 import ScoringPythonDialog from './ScoringPythonDialog'
 import PipelineReport from './PipelineReport'
@@ -172,6 +173,7 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
   const coverageRequestRef = useRef(0)
   const textStatusRequestRef = useRef(0)
   const [payload, setPayload] = useState(null)
+  const [savingReadOnly, setSavingReadOnly] = useState(false)
   // The chip counters measured under the ACTIVE filter (null = nothing filtered,
   // so the payload's bank-wide numbers are the honest answer). See
   // bankFacetCounts.js for why these are two maps and not one.
@@ -867,6 +869,21 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
     return runPass('faces', {})
   }
   const startCaption = (run) => runPass('caption', run, captionRunOptions())
+  const changeReadOnly = async (readOnly) => {
+    if (savingReadOnly || live) return
+    if (!readOnly && !window.confirm('Turn off read-only protection?\n\nThis bank will allow source file deletion and new imports again.')) return
+    setSavingReadOnly(true)
+    try {
+      const result = await patchJson(`/api/bank/${bankId}/read-only`, { read_only: readOnly })
+      setPayload((current) => current ? { ...current, ...result } : current)
+      toast.success(readOnly ? 'Source files protected.' : 'Read-only protection turned off for this bank.')
+    } catch (e) {
+      toast.error(e?.message || 'Could not change source protection.')
+    } finally {
+      setSavingReadOnly(false)
+    }
+  }
+
   const cancelJob = () => act(() => postJson(`/api/bank/${bankId}/cancel`, {}), null)
 
   const changeSemanticEngine = async (engine) => {
@@ -1558,6 +1575,8 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             ← Banks
           </button>
           <h1 className="flex items-center gap-2 text-lg text-content"><Archive aria-hidden="true" className="h-4 w-4" /> {payload?.name || `Bank #${bankId}`}</h1>
+          <BankReadOnlyToggle checked={!!payload?.read_only} onChange={changeReadOnly}
+            disabled={!payload || !!live || savingReadOnly} />
           {payload?.source_path && (
             /* hidden below sm: opening or moving the folder is a gesture on the
                machine that serves the app, and on a 360-px screen this row alone
@@ -1642,12 +1661,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
               banner below says it is, and a button that still opened a dialog only
               to be refused there would make that sentence a lie. */}
           <button type="button" onClick={() => setDeleteRejectedOpen(true)}
-            disabled={live || !(counts?.reject > 0) || !!payload?.dataset_conflict}
-            title={payload?.dataset_conflict
+            disabled={live || savingReadOnly || !(counts?.reject > 0) || !!payload?.dataset_conflict || !!payload?.source_write_block}
+            title={payload?.source_write_block || (payload?.dataset_conflict
               ? 'This bank sits on a dataset’s image folder — deleting these files would delete the dataset’s images.'
               : (counts?.reject > 0)
                 ? 'Delete the rejected images from your disk (OS trash when available). Irreversible — asks you to type DELETE first. Kept images are untouched.'
-                : 'No rejected images to delete'}
+                : 'No rejected images to delete')}
             className="min-h-10 lg:min-h-0 rounded-md border border-rose-500/50 px-3 py-1.5 text-sm text-rose-300 disabled:opacity-40 hover:bg-rose-500/10">
             <Trash2 aria-hidden="true" className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />Delete rejected from disk{(counts?.reject > 0) ? ` (${counts.reject})` : ''}
           </button>

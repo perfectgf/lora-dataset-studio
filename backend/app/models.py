@@ -296,7 +296,9 @@ class ImageBank(db.Model):
     id = db.Column(Integer, primary_key=True)
     user_id = db.Column(String(36), nullable=False, index=True, default='local')
     name = db.Column(String(100), nullable=False)
-    source_path = db.Column(Text, nullable=False)     # absolute folder, read-only
+    source_path = db.Column(Text, nullable=False)     # absolute source folder
+    # Opt-in protection of source files; curation and app-owned edits still work.
+    read_only = db.Column(db.Boolean, nullable=False, default=False, server_default='0')
     created_at = db.Column(DateTime, default=db.func.current_timestamp())
     updated_at = db.Column(DateTime, default=db.func.current_timestamp(),
                            onupdate=db.func.current_timestamp())

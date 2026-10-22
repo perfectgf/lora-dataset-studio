@@ -50,6 +50,11 @@ def _busy_after_service_fence(e):
     return _busy(e)
 
 
+@bp.errorhandler(banks.BankSourceReadOnly)
+def _source_read_only(e):
+    return jsonify({'error': str(e), 'code': 'bank_source_read_only'}), 403
+
+
 _BUSY_WRITE_EXEMPT_ENDPOINTS = frozenset({
     # Read-only preview despite using POST (it carries unsaved thresholds).
     'bank.bank_flag_preview',
@@ -125,16 +130,31 @@ def banks_list():
 @bp.post('/bank/create')
 def bank_create():
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'request body must be an object'}), 400
     try:
         bank, added = banks.create_bank(LOCAL_USER, data.get('name'),
-                                        data.get('folder'))
+                                        data.get('folder'),
+                                        read_only=data.get('read_only', False))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     # Nested folders mean two banks over the same files: harmless while triaging
     # (statuses are per bank), but 🗑 Delete rejected in one amputates the other.
     # Say it now, once, rather than at the destructive click only.
     return jsonify({'ok': True, 'id': bank.id, 'added': added,
+                    'read_only': bool(bank.read_only),
                     'overlaps': banks.overlapping_banks(LOCAL_USER, bank.id)})
+
+
+@bp.patch('/bank/<int:bank_id>/read-only')
+def bank_read_only(bank_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get('read_only'), bool):
+        return jsonify({'error': 'read_only must be a boolean'}), 400
+    result = banks.set_read_only(LOCAL_USER, bank_id, data['read_only'])
+    if result is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({'ok': True, **result})
 
 
 @bp.post('/bank/from-dataset')
