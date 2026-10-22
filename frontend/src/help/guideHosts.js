@@ -27,6 +27,7 @@ export const CORE_GUIDE_ANCHORS = {
     "keeping-a-shot-you-wrote-by-hand",
     "back-up-everything",
     "the-image-bank-triage-a-big-folder",
+    "read-only-bank-sources",
     "choosing-where-a-bank-pass-runs",
     "when-a-folder-is-already-one-person",
     "the-app-asks-the-question-for-you",
