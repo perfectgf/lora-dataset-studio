@@ -30,6 +30,8 @@ holding an HTTP request open or freezing the UI.
 """
 from __future__ import annotations
 
+from ..operation_errors import BankInputError
+
 import hashlib
 import io
 import itertools
@@ -800,16 +802,17 @@ def create_bank(user_id, name, folder, *, read_only=False):
     # the direct paste works first try (same nicety as the dataset folder import).
     folder = (folder or '').strip().strip('"\'')
     if not name:
-        raise ValueError('name is required')
+        raise BankInputError('name is required', 'bank_name_required')
     if not folder or not os.path.isdir(folder):
-        raise ValueError(f'folder not found or not readable: {folder or "(empty)"}')
+        raise BankInputError(f'folder not found or not readable: {folder or "(empty)"}',
+                             'bank_folder_unavailable')
     # A bank and a dataset only ever TRANSIT images (by copy) — they never share
     # them. This folder is the one place that door was open: a dataset's storage
     # folder pasted here made a bank over the dataset's LIVE files, and this
     # bank's 🗑 Delete rejected then deleted images out of the dataset.
     conflict = path_guard.dataset_folder_conflict(folder)
     if conflict:
-        raise ValueError(conflict['message'])
+        raise BankInputError(conflict['message'], 'bank_dataset_folder_conflict')
     folder = os.path.realpath(folder)
     rels = []
     for rel in _walk_image_relpaths(folder):
@@ -817,9 +820,9 @@ def create_bank(user_id, name, folder, *, read_only=False):
         if len(rels) > BANK_MAX_FILES:
             # Bail on the walk itself: a bank pointed at a whole drive
             # must not be counted to the end before being refused.
-            raise ValueError(
+            raise BankInputError(
                 f'this folder holds more than {BANK_MAX_FILES:,} images '
-                '— point the bank at a subfolder, or split it in two')
+                '— point the bank at a subfolder, or split it in two', 'bank_image_limit')
     bank = ImageBank(user_id=user_id, name=name, source_path=folder, read_only=read_only)
     db.session.add(bank)
     db.session.flush()          # need bank.id for the child rows

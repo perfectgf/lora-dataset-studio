@@ -34,11 +34,19 @@ ACTIONS = frozenset({
     'create', 'import', 'caption', 'export', 'generate', 'train',
     'scan', 'faces', 'score', 'framing', 'watermark', 'promote', 'setup',
     'semantic_index', 'semantic_dedup', 'text', 'angles', 'medium', 'pipeline',
+    'train_start', 'train_resume', 'train_enqueue', 'train_run',
 })
 RESULTS = frozenset({'completed', 'accepted', 'partial', 'failed', 'cancelled'})
 ERRORS = frozenset({
     'none', 'invalid_input', 'not_found', 'busy', 'unavailable',
     'out_of_memory', 'timeout', 'dependency_missing', 'operation_failed',
+    'conflict',
+})
+ERROR_REASONS = frozenset({
+    'none', 'unknown', 'training_already_running', 'caption_backend_unavailable',
+    'gpu_busy', 'dataset_busy', 'bank_busy', 'ollama_fence_blocked',
+    'bank_name_required', 'bank_folder_unavailable', 'bank_dataset_folder_conflict',
+    'bank_image_limit', 'training_process_failed', 'training_resume_failed',
 })
 DURATIONS = ('under_1s', '1_to_10s', '10_to_60s', '1_to_10m', 'over_10m')
 EVENTS = frozenset({'lds_active_day', 'lds_feature_used', 'lds_action_result'})
@@ -88,11 +96,15 @@ def _valid_row(row):
     expected = {'feature'} if row['event'] == 'lds_feature_used' else set()
     if row['event'] == 'lds_action_result':
         expected = {'feature', 'action', 'result', 'error_code', 'duration_bucket'}
+        # Already queued events from older builds remain valid after an update.
+        if 'error_reason' in props:
+            expected.add('error_reason')
     return (set(props) == expected and all(isinstance(value, str) for value in props.values())
             and ('feature' not in props or props['feature'] in FEATURES)
             and ('action' not in props or props['action'] in ACTIONS)
             and ('result' not in props or props['result'] in RESULTS)
             and ('error_code' not in props or props['error_code'] in ERRORS)
+            and ('error_reason' not in props or props['error_reason'] in ERROR_REASONS)
             and ('duration_bucket' not in props or props['duration_bucket'] in DURATIONS))
 
 
@@ -259,17 +271,19 @@ class UsageStatistics:
             self._save()
 
     def operation(self, generation, feature, action, result, *, seconds=0,
-                  error_code='none'):
+                  error_code='none', error_reason='none'):
         with self._lock:
             if (not self.enabled or generation is None
                     or generation != self._state['generation']
                     or feature not in FEATURES or action not in ACTIONS
-                    or result not in RESULTS or error_code not in ERRORS):
+                    or result not in RESULTS or error_code not in ERRORS
+                    or error_reason not in ERROR_REASONS):
                 return
             bucket = DURATIONS[sum(seconds >= threshold for threshold in (1, 10, 60, 600))]
             self._queue('lds_action_result', {
                 'feature': feature, 'action': action, 'result': result,
-                'error_code': error_code, 'duration_bucket': bucket}, self._clock())
+                'error_code': error_code, 'error_reason': error_reason,
+                'duration_bucket': bucket}, self._clock())
             self._save()
 
     def _ensure_worker(self):
@@ -373,12 +387,31 @@ def begin_operation(feature):
     return None
 
 
-def finish_operation(ticket, feature, action, result, error_code='none'):
+def error_categories(exc):
+    """Never inspect or forward exception messages, paths or model names."""
+    code = getattr(exc, 'usage_error_code', None)
+    reason = getattr(exc, 'usage_error_reason', None)
+    if not isinstance(code, str) or code not in ERRORS or code == 'none':
+        code = ('invalid_input' if isinstance(exc, ValueError) else
+                'timeout' if isinstance(exc, TimeoutError) else 'operation_failed')
+    if not isinstance(reason, str) or reason not in ERROR_REASONS or reason == 'none':
+        reason = 'unknown'
+    return code, reason
+
+
+def record_operation_error(exc):
+    from flask import g, has_request_context
+    if has_request_context():
+        g.lds_usage_error = error_categories(exc)
+
+
+def finish_operation(ticket, feature, action, result, error_code='none', error_reason='none'):
     if ticket is None:
         return
     try:
         service, generation, started = ticket
         service.operation(generation, feature, action, result,
-                          seconds=max(0, time.monotonic() - started), error_code=error_code)
+                          seconds=max(0, time.monotonic() - started), error_code=error_code,
+                          error_reason=error_reason)
     except Exception:
         pass

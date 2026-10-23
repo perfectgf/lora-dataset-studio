@@ -91,6 +91,9 @@ _MAX_DATASET_ID = (1 << 63) - 1
 
 class DatasetActivityBusy(RuntimeError):
     """An exclusive Dataset operation could not acquire its generation slot."""
+    usage_error_code = 'busy'
+    usage_error_reason = 'dataset_busy'
+
 
 
 def normalize_dataset_id(dataset_id) -> int:

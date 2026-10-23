@@ -46,7 +46,7 @@ usable without the analytics service.
 |---|---|---|
 | `lds_active_day` | One UTC day with a trusted visible browser interaction or a selected user operation | None |
 | `lds_feature_used` | First interaction with a coarse core feature that UTC day | `feature` |
-| `lds_action_result` | Outcome of an explicitly instrumented core request or bank worker | `feature`, `action`, `result`, `error_code`, `duration_bucket` |
+| `lds_action_result` | Outcome of an explicitly instrumented core request, bank worker or observed local training run | `feature`, `action`, `result`, `error_code`, `error_reason`, `duration_bucket` |
 
 Common properties: `app_version`, `os` (windows/linux/macos/other),
 `environment` (`production` by default, or `test` for isolated checks),
@@ -57,11 +57,27 @@ stable UUID for transport retries and a UTC timestamp. No names, addresses,
 hardware fingerprints, URLs, dataset/job IDs or user-entered text are sent.
 
 `result` is `accepted`, `completed`, `partial`, `failed` or `cancelled`.
-**Accepted is not completed.** Local training launch/queue acceptance is covered;
-final training outcomes are not yet instrumented. Bank requests report acceptance
+**Accepted is not completed.** Local training requests distinguish `train_start`,
+`train_resume` and `train_enqueue`; older builds used the shared action `train`.
+Updated builds separately report `train_run` when the observed local process exits:
+completed for exit code zero, failed for an error or failed exact-state startup,
+and cancelled for a confirmed Stop. The consent generation is captured before
+launch, so withdrawing and re-enabling sharing cannot attribute an old run to a
+new identity. No run IDs, exit messages or logs are sent. A server restart loses
+its in-memory watcher: recovered runs and cloud runs do not report a final outcome.
+Bank requests report acceptance
 and the selected bank worker separately reports its terminal result: filter out
 accepted rows when calculating terminal failure rates. Caption and import skips
 are marked partial/failed where the service exposes their counts.
+
+`error_reason` is an additional closed category, not an exception message. It
+distinguishes known refusals such as training already running, a caption backend
+unavailable, GPU/dataset/bank occupied, or a missing/unusable bank folder. The
+allowlist in `usage_statistics.py` is checked both when recording and before
+sending. Older pending events without this property remain valid. Unknown reasons
+stay unknown; the dashboard must not reinterpret historical `busy` or
+`invalid_input` events as a proven cause. API status codes and messages stay
+compatible; the statistics use typed refusals rather than matching free text.
 
 Features cover the core datasets, bank, training, studio, gallery, setup,
 plugins/settings and guide surfaces. A feature interaction does not prove a
@@ -86,13 +102,16 @@ Every insight must filter `environment = production` to exclude synthetic checks
 4. **Operation outcomes**: `lds_action_result` broken down by `result` and action.
    Display accepted separately from terminal outcomes.
 5. **Failures and affected installations**: `lds_action_result` filtered to
-   failed/partial, broken down by `error_code`, `feature`, `app_version` and `os`.
+   failed/partial, broken down by `error_code`, `error_reason`, `feature`, `action`, `app_version` and `os`.
    Show affected installations as well as operation counts.
 6. **Return on day 7**: cohort by `first_active_day`, returning event
    `lds_active_day` exactly seven UTC dates later. Include only cohorts old enough
    to have a fully completed seventh UTC day, with first activity in the last
    180 days. First observed activity is not necessarily
    the software's installation date. Use the same rule for day 30 once available.
+7. **Operation durations**: counts by feature, action, outcome and duration bucket.
+   Keep accepted request durations separate from terminal worker/run durations;
+   these are approximate request/run times, not GPU-only timings.
 
 The service sends no historical local activity at opt-in. Background polls or an
 idle open server do not create active days. A later opt-out and opt-in generates

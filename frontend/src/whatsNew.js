@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-22-training-launch-once',
+    date: '2026-10-22',
+    title: 'One training launch per click sequence',
+    blurb: 'The Train button stays busy through preparation and confirmation, so repeated clicks cannot submit overlapping launches. It becomes available again if preparation is cancelled or fails.',
+  },
+  {
     id: '2026-10-22-bank-read-only-source', date: '2026-10-22',
     title: 'Protect your image bank originals with read-only mode',
     blurb: 'Enable Read-only source when adding a bank or in an existing bank to block source file deletion and new imports. Triage, captions, edits to working copies and copying into datasets still work. Protection also covers other banks pointing at the same folder tree. Thanks to kennhardy for the suggestion (GitHub #72).',

@@ -18,9 +18,9 @@ OPERATIONS = {
     'bank.bank_faces': ('bank', 'faces', 'accepted'),
     'bank.bank_score': ('bank', 'score', 'accepted'),
     'bank.bank_promote': ('bank', 'promote', 'accepted'),
-    'training.dataset_train': ('training', 'train', 'accepted'),
-    'training.dataset_train_enqueue': ('training', 'train', 'accepted'),
-    'training.dataset_train_continue': ('training', 'train', 'accepted'),
+    'training.dataset_train': ('training', 'train_start', 'accepted'),
+    'training.dataset_train_enqueue': ('training', 'train_enqueue', 'accepted'),
+    'training.dataset_train_continue': ('training', 'train_resume', 'accepted'),
     'setup_state.complete': ('setup', 'setup', 'completed'),
 }
 
@@ -38,6 +38,7 @@ def install_hooks(app):
         if tracked:
             (feature, action, success), ticket = tracked
             result, error = success, 'none'
+            reason = 'none'
             status = response.status_code
             # Only known endpoints with small JSON responses. Strings in the
             # body are never copied or logged; these booleans describe outcome.
@@ -49,9 +50,10 @@ def install_hooks(app):
                     pass
             if status >= 400 or (isinstance(data, dict) and (data.get('ok') is False or data.get('error'))):
                 result = 'failed'
-                error = {400: 'invalid_input', 404: 'not_found', 409: 'busy',
+                error = {400: 'invalid_input', 404: 'not_found', 409: 'conflict',
                          429: 'busy', 502: 'unavailable', 503: 'unavailable',
                          504: 'timeout'}.get(status, 'operation_failed')
+                error, reason = getattr(g, 'lds_usage_error', (error, 'unknown'))
             elif isinstance(data, dict) and (data.get('stopped') is True or data.get('cancelled') is True):
                 result = 'cancelled'
             elif (action == 'import' and isinstance(data, dict)
@@ -64,5 +66,7 @@ def install_hooks(app):
                 error = 'operation_failed'
             elif status == 202:
                 result = 'accepted'
-            finish_operation(ticket, feature, action, result, error)
+            if error != 'none' and reason == 'none':
+                reason = 'unknown'
+            finish_operation(ticket, feature, action, result, error, reason)
         return response

@@ -112,6 +112,9 @@ def get_vision_model() -> str:
 
 class LocalOllamaFenceError(RuntimeError):
     """A local inference lost its verified Vision GPU ownership."""
+    usage_error_code = 'busy'
+    usage_error_reason = 'ollama_fence_blocked'
+
 
 
 def _admit_local_ollama(url, model, keep_alive=None) -> None:

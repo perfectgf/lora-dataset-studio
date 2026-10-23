@@ -8,6 +8,10 @@ raises RuntimeError, which routes map to 409. The original project's unused
 ai-toolkit web UI and multi-user ownership filtering are omitted here."""
 from __future__ import annotations
 from ..extensions import db
+from ..operation_errors import TrainingAlreadyRunning
+from ..usage_statistics import begin_operation
+from . import training_usage
+
 import filecmp
 import functools
 import hashlib
@@ -5181,7 +5185,7 @@ def _export_and_freeze_local_dataset(user_id, dataset_id, *, masked, base_model)
             if (queue_manager._get_system_state('training_in_progress', False)
                     and not _training_process_is_definitely_dead(
                         queue_manager._get_system_state('training_pid', None))):
-                raise ValueError(
+                raise TrainingAlreadyRunning(
                     'a training is already in progress - wait for it to finish '
                     'or queue this dataset')
             from . import checkpoint_registry
@@ -8240,7 +8244,7 @@ def _mark_exact_resume_launching(journal_path, run_token) -> None:
 
 
 def _watch_training(
-        app, proc, log_path, dataset_id, exact_resume_transaction=None) -> None:
+        app, proc, log_path, dataset_id, exact_resume_transaction=None, usage_run_token=None) -> None:
     """Wait for ai-toolkit in a daemon, then immediately advance the queue.
 
     Free ComfyUI or launch the next job without client polling; surface log tails
@@ -8261,6 +8265,7 @@ def _watch_training(
         _clear_exact_resume_journal_after_boundary(
             exact_resume_transaction)
     except Exception:
+        training_usage.discard(usage_run_token)
         return
     try:
         with app.app_context():
@@ -8268,6 +8273,9 @@ def _watch_training(
             if exact_resume_transaction:
                 bridge_reason = _exact_resume_bridge_failure(
                     exact_resume_transaction.get('status_path'), rc)
+            # Stop publishes cancellation while holding this same lock.
+            with _queue_lock:
+                training_usage.finish(usage_run_token, rc, resume_failed=bool(bridge_reason))
             if rc not in (0, None) or bridge_reason:
                 payload = _crash_payload(log_path, dataset_id, rc)
                 if bridge_reason:
@@ -8319,6 +8327,7 @@ def _watch_training(
                 logger.info("ai-toolkit training for dataset %s finished (rc=%s).", dataset_id, rc)
             process_training_queue()  # free the GPU or launch the next job immediately
     except Exception as e:
+        training_usage.discard(usage_run_token)
         logger.warning("training watcher: post-processing failed: %s", e)
 
 
@@ -8394,7 +8403,7 @@ def _lt_refuse_or_resolve(user_id, dataset_id, train_type, variant,
     if (queue_manager._get_system_state('training_in_progress', False)
             and not _training_process_is_definitely_dead(
                 queue_manager._get_system_state('training_pid', None))):
-        raise ValueError('a training is already in progress - wait for it to finish or queue this dataset')
+        raise TrainingAlreadyRunning('a training is already in progress - wait for it to finish or queue this dataset')
     # Cheap refusal BEFORE the dataset export below: re-exporting a whole dataset
     # only to reject the launch under the spawn lock would burn minutes of disk
     # for nothing. The authoritative copy of this check lives in that lock.
@@ -8618,7 +8627,7 @@ def _lt_publish_bridge_context(run_dir, config_path, env, masked, _prepared,
         if (queue_manager._get_system_state('training_in_progress', False)
                 and not _training_process_is_definitely_dead(
                     queue_manager._get_system_state('training_pid', None))):
-            raise ValueError(
+            raise TrainingAlreadyRunning(
                 'a training is already in progress - wait for it to finish or '
                 'queue this dataset')
         if _bridge_candidate:
@@ -8755,7 +8764,7 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
         if (queue_manager._get_system_state('training_in_progress', False)
                 and not _training_process_is_definitely_dead(
                     queue_manager._get_system_state('training_pid', None))):
-            raise ValueError(
+            raise TrainingAlreadyRunning(
                 'a training is already in progress - wait for it to finish or '
                 'queue this dataset')
         # Authoritative: a vision pass may have grabbed the window during the
@@ -8916,6 +8925,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
     target continues training. fresh=True archives the existing run first.
     Return {pid, config_path, log_path}. Missing/unconfigured ai-toolkit raises
     RuntimeError, mapped to 409 because it is a backend-availability issue."""
+    usage_ticket = begin_operation('training')
     (ds, base_model, variant, launch_fam, recipe, launch_view,
      eff_vae, eff_te) = _lt_refuse_or_resolve(
         user_id, dataset_id, train_type, variant, base_model, check_captions,
@@ -8949,11 +8959,17 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
      _bridge_status_path) = _lt_publish_bridge_context(
         run_dir, config_path, env, masked, _prepared, _bridge_probe,
         _bridge_candidate, _state_restore_bundle, _state_bridge_required)
-    proc = _lt_spawn_transaction(
-        ds, user_id, dataset_id, steps, masked, launch_fam, variant,
-        base_model, recipe, allow_not_ready, parent_record_id, resumed_from,
-        run_token, log_path, config_path, env, _prepared,
-        _state_resume_journal)
+    training_usage.register(run_token, usage_ticket)
+    try:
+        proc = _lt_spawn_transaction(
+            ds, user_id, dataset_id, steps, masked, launch_fam, variant,
+            base_model, recipe, allow_not_ready, parent_record_id, resumed_from,
+            run_token, log_path, config_path, env, _prepared,
+            _state_resume_journal)
+    except BaseException:
+        training_usage.discard(run_token)
+        raise
+
     # The watcher advances the queue immediately on process exit; /train/status polling remains a fallback.
     _exact_resume_transaction = None
     if (_state_restore_bundle and _state_resume_training_folder
@@ -8971,9 +8987,10 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
         from flask import current_app
         threading.Thread(target=_watch_training,
                          args=(current_app._get_current_object(), proc, log_path,
-                               int(dataset_id), _exact_resume_transaction),
+                               int(dataset_id), _exact_resume_transaction, run_token),
                          daemon=True).start()
     except Exception as e:
+        training_usage.discard(run_token)
         logger.warning("training watcher not started: %s", e)
     return {'started': True, 'pid': proc.pid, 'config_path': config_path, 'steps': steps,
             'dataset_folder': dataset_folder, 'log_path': log_path,
@@ -9369,7 +9386,7 @@ def _launch_exact_resume_transaction(
                 previous_is_dead = _training_process_is_definitely_dead(
                     queue_manager._get_system_state('training_pid', None))
                 if not (allow_dead_predecessor and previous_is_dead):
-                    raise ValueError('a training is already in progress')
+                    raise TrainingAlreadyRunning('a training is already in progress')
             archived, exact_bundle_path, journal_path = (
                 _archive_and_seed_exact_bundle(
                     user_id, dataset_id, base, family, variant, chosen_filename,
@@ -9482,7 +9499,7 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
         previous_is_dead = _training_process_is_definitely_dead(
             queue_manager._get_system_state('training_pid', None))
         if not (_allow_dead_predecessor and previous_is_dead):
-            raise ValueError('a training is already in progress')
+            raise TrainingAlreadyRunning('a training is already in progress')
     # Same interpreter gate as a fresh launch: a resume spawns the very same
     # ai-toolkit command, so a torch-less Python must be named here too.
     assert_interpreter_ready()
@@ -9704,7 +9721,7 @@ def continue_training(user_id, dataset_id, extra_steps: int = 1000,
                     previous_is_dead = _training_process_is_definitely_dead(
                         queue_manager._get_system_state('training_pid', None))
                     if not (_allow_dead_predecessor and previous_is_dead):
-                        raise ValueError('a training is already in progress')
+                        raise TrainingAlreadyRunning('a training is already in progress')
                 if cloud_checkpoint is not None:
                     # A harvested cloud file is not permission to replace a
                     # local lane. Run the normal admission checks before any
@@ -9818,6 +9835,9 @@ def stop_training(expected_dataset_id=None, expected_run_token=None,
                     'stop_training: pid %s did not become conclusively dead; '
                     'keeping the GPU fence', pid)
                 return False
+
+        if pid_alive:
+            training_usage.cancelled(current_token)
 
         # Stop is intentional: clear the queue before publishing the idle state.
         _save_queue([])
@@ -10187,7 +10207,7 @@ def retry_local_run(user_id, record_id, **confirmations) -> dict:
     if (queue_manager._get_system_state('training_in_progress', False)
             and not _training_process_is_definitely_dead(
                 queue_manager._get_system_state('training_pid', None))):
-        raise ValueError('a training is already in progress - wait for it to finish or queue this dataset')
+        raise TrainingAlreadyRunning('a training is already in progress - wait for it to finish or queue this dataset')
     if _failed_local_record_id() != rec.id:
         raise ValueError('this run has no recorded failure to retry')
     return launch_training(
