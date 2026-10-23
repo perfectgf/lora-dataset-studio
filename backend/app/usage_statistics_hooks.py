@@ -1,7 +1,7 @@
-"""Explicit operation allowlist, never URLs, request bodies, or exception text."""
+"""Explicit operations and closed context categories; never raw request content."""
 from flask import g, request
 
-from .usage_statistics import begin_operation, finish_operation
+from .usage_statistics import begin_operation, finish_operation, operation_context, caption_context
 
 # (feature, action, successful request means). Background work is ACCEPTED,
 # not completed. Bank's worker separately reports its actual terminal outcome.
@@ -31,6 +31,13 @@ def install_hooks(app):
         operation = OPERATIONS.get(request.endpoint)
         if operation and request.method in {'GET', 'POST'}:
             g.lds_usage_operation = (operation, begin_operation(operation[0]))
+            try:
+                body = request.get_json(silent=True) if request.is_json else None
+                family = body.get('train_type') if isinstance(body, dict) else None
+            except Exception:
+                family = None  # Diagnostics must not change request handling.
+            g.lds_usage_context = (caption_context() if operation[1] == 'caption' else
+                                   operation_context(execution='local', model_family=family))
 
     @app.after_request
     def usage_operation_finished(response):
@@ -68,5 +75,6 @@ def install_hooks(app):
                 result = 'accepted'
             if error != 'none' and reason == 'none':
                 reason = 'unknown'
-            finish_operation(ticket, feature, action, result, error, reason)
+            finish_operation(ticket, feature, action, result, error, reason,
+                             context=getattr(g, 'lds_usage_context', None))
         return response

@@ -11,7 +11,7 @@ export default function UsageStatisticsBanner() {
         <div className="min-w-0 flex-1 basis-72">
           <p className="text-sm font-medium text-content">Help improve LDS with optional usage statistics</p>
           <p className="mt-1 text-xs leading-relaxed text-content-muted">
-            Share which features work or fail and when this installation is active with the LDS maintainer via PostHog Cloud EU.
+            Share feature outcomes, failure stages, model families, captioning engines, local/cloud categories and activity with the LDS maintainer via PostHog Cloud EU.
             No images, prompts, captions or file names. Off until you choose; change your mind in Settings.{' '}
             <Link to="/guide/settings-reference?h=usage-statistics" className="text-primary underline">What is shared</Link>
           </p>

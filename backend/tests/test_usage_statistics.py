@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from app.usage_statistics import MAX_AGE, MAX_EVENTS, UsageStatistics
+from app.usage_statistics import MAX_AGE, MAX_EVENTS, POLICY_VERSION, UsageStatistics
 
 TOKEN = 'phc_' + 'test' * 12
 
@@ -82,7 +82,8 @@ def test_outbound_closed_schema_and_original_version(recorder, monkeypatch):
         assert properties['environment'] == 'production'
         assert not set(properties) - {
             'schema_version', 'app_version', 'os', 'environment', '$process_person_profile', '$geoip_disable',
-            'first_active_day', 'feature', 'action', 'result', 'error_code', 'error_reason', 'duration_bucket'}
+            'first_active_day', 'feature', 'action', 'result', 'error_code', 'error_reason', 'duration_bucket',
+            'failure_stage', 'execution', 'model_family', 'caption_backend'}
     assert 'private-' not in json.dumps(sent)
     assert sent[0]['batch'][-1]['properties']['duration_bucket'] == '10_to_60s'
 
@@ -205,7 +206,7 @@ def configured_app(plugin_app_factory, monkeypatch):
 
 
 def _enable(client):
-    return client.put('/api/usage-statistics', json={'enabled': True, 'policy_version': 1})
+    return client.put('/api/usage-statistics', json={'enabled': True, 'policy_version': POLICY_VERSION})
 
 
 def test_consent_api_validates_choice_and_activity_schema(configured_app):
@@ -213,6 +214,7 @@ def test_consent_api_validates_choice_and_activity_schema(configured_app):
     assert client.get('/api/usage-statistics').json['choice'] is None
     assert client.put('/api/usage-statistics', json={'enabled': 'true', 'policy_version': 1}).status_code == 400
     assert client.put('/api/usage-statistics', json={'enabled': True, 'policy_version': True}).status_code == 400
+    assert client.put('/api/usage-statistics', json={'enabled': True, 'policy_version': POLICY_VERSION - 1}).status_code == 400
     assert _enable(client).json['enabled'] is True
     assert client.post('/api/usage-statistics/activity', json={'feature': 'datasets', 'prompt': 'private-text'}).status_code == 400
     assert client.post('/api/usage-statistics/activity', json={'feature': 'datasets'}).status_code == 204
@@ -368,9 +370,11 @@ def test_training_requests_distinguish_launch_resume_and_queue(configured_app, e
     assert (props['action'], props['result']) == (action, 'accepted')
 
 
-def test_bank_worker_reports_caption_availability_like_the_dataset_route(configured_app):
+def test_bank_worker_reports_caption_availability_like_the_dataset_route(configured_app, monkeypatch):
     from app.services import bank_jobs
+    from app.services import vision_llm
     from app.operation_errors import CaptionBackendUnavailable
+    monkeypatch.setattr(vision_llm, 'provider', lambda: 'lmstudio')
     service = configured_app.extensions['lds_usage_statistics']
     service.set_enabled(True)
     def fail(job):
@@ -378,4 +382,5 @@ def test_bank_worker_reports_caption_availability_like_the_dataset_route(configu
     bank_jobs.start(configured_app, 81004, 'caption', fail)
     props = [row['properties'] for row in service._state['events'] if row['event'] == 'lds_action_result'][-1]
     assert (props['error_code'], props['error_reason']) == ('unavailable', 'caption_backend_unavailable')
+    assert (props['failure_stage'], props['execution'], props['caption_backend']) == ('preparation', 'local', 'lmstudio')
     assert 'private-engine-details' not in service.path.read_text(encoding='utf-8')

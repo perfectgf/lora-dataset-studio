@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-23-usage-context-choice', date: '2026-10-23',
+    title: 'Help pinpoint failures with a fresh sharing choice',
+    blurb: 'Optional usage sharing can now include Studio and cloud training outcomes, failure stages, model families and captioning engines. Sharing these categories requires a new opt-in; earlier refusals stay saved, and your images, prompts and files stay private.',
+    to: '/settings/maintenance',
+  },
+  {
     id: '2026-10-22-training-launch-once',
     date: '2026-10-22',
     title: 'One training launch per click sequence',

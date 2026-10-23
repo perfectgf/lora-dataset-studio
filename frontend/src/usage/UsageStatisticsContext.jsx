@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useLocation } from 'react-router'
 import { apiFetch, fetchWithCsrfRetry, getCsrfToken, putJson } from '../api/fetchClient'
 import { shouldSendUsageActivity, usageFeature } from './activity.js'
+import { USAGE_POLICY_VERSION } from './policy.js'
 
 const UsageStatisticsContext = createContext(null)
 const CHANGE_KEY = 'lds:usage-statistics-changed'
@@ -63,7 +64,7 @@ export function UsageStatisticsProvider({ children }) {
     setBusy(true)
     setError('')
     try {
-      const data = await putJson('/api/usage-statistics', { enabled, policy_version: 1 }, { background: true })
+      const data = await putJson('/api/usage-statistics', { enabled, policy_version: USAGE_POLICY_VERSION }, { background: true })
       accept(data)
       announceChange()
     } catch (failure) {

@@ -46,7 +46,7 @@ usable without the analytics service.
 |---|---|---|
 | `lds_active_day` | One UTC day with a trusted visible browser interaction or a selected user operation | None |
 | `lds_feature_used` | First interaction with a coarse core feature that UTC day | `feature` |
-| `lds_action_result` | Outcome of an explicitly instrumented core request, bank worker or observed local training run | `feature`, `action`, `result`, `error_code`, `error_reason`, `duration_bucket` |
+| `lds_action_result` | Outcome of an explicitly instrumented request, bank worker, training run or Studio result | `feature`, `action`, `result`, `error_code`, `error_reason`, `duration_bucket`, `failure_stage`, `execution`, `model_family`, `caption_backend` |
 
 Common properties: `app_version`, `os` (windows/linux/macos/other),
 `environment` (`production` by default, or `test` for isolated checks),
@@ -64,7 +64,15 @@ completed for exit code zero, failed for an error or failed exact-state startup,
 and cancelled for a confirmed Stop. The consent generation is captured before
 launch, so withdrawing and re-enabling sharing cannot attribute an old run to a
 new identity. No run IDs, exit messages or logs are sent. A server restart loses
-its in-memory watcher: recovered runs and cloud runs do not report a final outcome.
+its in-memory watcher: recovered runs do not report a final outcome.
+Cloud runs report `train_run` from committed core host states: `done` is completed,
+`stopped` is cancelled, and `error`/`error_pod_kept` are failed. Studio reports
+`generate` as completed only after its result image is saved, not when ComfyUI
+finishes. Failed result retrieval/saving is distinguished from generation failure.
+The core observes these committed database states without changing plugin workers.
+Rolled-back transactions and released savepoints without an outer commit emit
+nothing. Only new operations captured under the same consent generation qualify;
+the bounded in-memory tracker does not backfill or persist run identifiers.
 Bank requests report acceptance
 and the selected bank worker separately reports its terminal result: filter out
 accepted rows when calculating terminal failure rates. Caption and import skips
@@ -79,11 +87,21 @@ stay unknown; the dashboard must not reinterpret historical `busy` or
 `invalid_input` events as a proven cause. API status codes and messages stay
 compatible; the statistics use typed refusals rather than matching free text.
 
+Policy/schema version 2 requires a fresh opt-in for previously enabled installs;
+saved refusals remain disabled. `failure_stage` is a closed phase category, such
+as preparation, uploading, training, generation or saving, and is `none` for
+non-failure results. It describes the last observed phase, not a proven root cause.
+`execution` is local/cloud/unknown. `model_family` accepts only known family keys,
+never a checkpoint name. `caption_backend` is ollama/lmstudio/unknown. Every
+category is validated again at send time; missing or unrecognized context stays
+unknown. No exception text, request body, engine URL or model path is transmitted.
+
 Features cover the core datasets, bank, training, studio, gallery, setup,
 plugins/settings and guide surfaces. A feature interaction does not prove a
 successful operation. Arbitrary and private plugin routes/names are not captured;
 the generic Plugins settings surface is only reported as `plugins`. The complete
-operation allowlist is `backend/app/usage_statistics_hooks.py`. Its timestamps
+request allowlist is `backend/app/usage_statistics_hooks.py`; committed Studio
+and cloud state observation is in `backend/app/usage_lifecycle.py`. Its timestamps
 measure request/worker duration, not GPU-only execution. Export completion means
 the archive was built, not proof that the browser saved it.
 

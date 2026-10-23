@@ -13,13 +13,15 @@ export default function UsageStatisticsCard() {
       <div className="space-y-3 text-sm text-content-muted">
         <p>
           If you agree, LDS shares a random installation ID, activity dates and event times, coarse feature names,
-          operation outcomes and error categories, LDS version, operating system and approximate durations
+          operation outcomes, error categories and failure stages, model families, captioning engines,
+          local/cloud operation categories, LDS version, operating system and approximate durations
           with the maintainer via <strong className="font-medium text-content">PostHog Cloud EU</strong>.
         </p>
         <p>
           Images, prompts, captions, names or paths of files, tokens, logs and screen recordings are never included.
           The ID is pseudonymous: these statistics count participating installations, not identifiable people.
         </p>
+        <p>These expanded categories require a new choice. An earlier refusal stays saved.</p>
         <p>
           PostHog's free plan lists one year of event retention. Its retention rollout can leave data stored longer;
           LDS does not guarantee an automatic deletion date.
