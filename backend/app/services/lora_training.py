@@ -9027,7 +9027,7 @@ def launch_training(user_id, dataset_id, steps: int | None = None, check_caption
      _bridge_status_path) = _lt_publish_bridge_context(
         run_dir, config_path, env, masked, _prepared, _bridge_probe,
         _bridge_candidate, _state_restore_bundle, _state_bridge_required)
-    training_usage.register(run_token, usage_ticket)
+    training_usage.register(run_token, usage_ticket, model_family=launch_fam)
     try:
         proc = _lt_spawn_transaction(
             ds, user_id, dataset_id, steps, masked, launch_fam, variant,

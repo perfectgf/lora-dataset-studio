@@ -949,10 +949,17 @@ to and which operations fail. When enabled, the allowed information is:
 | Random installation ID and days of activity | Count participating installations and returns over time. |
 | Event timestamps and first active day | Group activity by date and measure returns. |
 | Coarse feature names, such as Datasets, Bank or Training | See where development effort is useful. |
-| Supported operation outcomes and error categories | Find reliability problems without uploading an error message or log. |
+| Supported operation outcomes, error categories and failure stages | Find reliability problems without uploading an error message or log. |
+| Model family, captioning engine and local/cloud category | See which technical combinations need attention, without model filenames, server addresses or hardware details. |
 | LDS version and operating-system family | Identify version or platform differences. |
 | Approximate duration ranges | Spot slow operations without recording their contents. |
 | Production or test environment | Exclude the maintainer's synthetic tests from product statistics. |
+
+Expanded sharing requires a new choice, even if you previously opted in. A saved
+refusal stays saved. With the new choice, supported outcomes include local and
+cloud training, plus Studio generation after its image has been saved. Operations
+recovered after a server restart are not counted; earlier activity and missing
+context are not reconstructed.
 
 **Not collected:** images or videos, prompts, captions, dataset names or IDs,
 file names or paths, account names, tokens or API keys, log contents, key presses,

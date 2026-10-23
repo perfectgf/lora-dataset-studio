@@ -5,16 +5,16 @@ Restarted servers do not invent outcomes for watchers that no longer exist.
 """
 import threading
 
-from ..usage_statistics import finish_operation
+from ..usage_statistics import finish_operation, operation_context
 
 _lock = threading.Lock()
 _runs = {}
 
 
-def register(run_token, ticket):
+def register(run_token, ticket, *, model_family=None):
     if ticket is not None:
         with _lock:
-            _runs[run_token] = [ticket, False]
+            _runs[run_token] = [ticket, False, operation_context(execution='local', model_family=model_family)]
 
 
 def cancelled(run_token):
@@ -33,7 +33,7 @@ def finish(run_token, returncode, *, resume_failed=False):
         receipt = _runs.pop(run_token, None)
     if receipt is None:
         return
-    ticket, was_cancelled = receipt
+    ticket, was_cancelled, context = receipt
     if was_cancelled:
         result, code, reason = 'cancelled', 'none', 'none'
     elif resume_failed or returncode not in (0, None):
@@ -43,4 +43,5 @@ def finish(run_token, returncode, *, resume_failed=False):
         result, code, reason = 'completed', 'none', 'none'
     else:
         return  # An unknown exit code is not proof of completion.
-    finish_operation(ticket, 'training', 'train_run', result, code, reason)
+    finish_operation(ticket, 'training', 'train_run', result, code, reason,
+                     context=context, stage='preparation' if resume_failed else 'training')
