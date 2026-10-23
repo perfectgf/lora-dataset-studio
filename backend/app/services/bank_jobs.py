@@ -38,6 +38,9 @@ on_complete = None
 
 class BankJobBusy(Exception):
     """Another job is already running on this bank."""
+    usage_error_code = 'busy'
+    usage_error_reason = 'bank_busy'
+
     def __init__(self, kind):
         super().__init__(f'a {kind} job is already running on this bank')
         self.kind = kind
@@ -282,11 +285,14 @@ def start(app, bank_id, kind, fn, total=0, reserve_ids=None,
 
     def _run():
         completed = False
+        usage_error = ('operation_failed', 'unknown')
         try:
             with app.app_context():
                 fn(job)
                 completed = True
         except Exception as e:  # noqa: BLE001 — a background crash must surface in the UI
+            from ..usage_statistics import error_categories
+            usage_error = error_categories(e)
             with _lock:
                 job['error'] = f'{type(e).__name__}: {e}'
         finally:
@@ -300,7 +306,7 @@ def start(app, bank_id, kind, fn, total=0, reserve_ids=None,
                 if result == 'completed' and job.get('_usage_result') in {'partial', 'failed'}:
                     result = job['_usage_result']
                 finish_operation(usage_ticket, 'bank', usage_action, result,
-                                 'operation_failed' if result in {'partial', 'failed'} else 'none')
+                                 *(usage_error if result in {'partial', 'failed'} else ('none', 'none')))
             # AFTER the snapshot is finished, never before: the journal write
             # commits, and a commit inside the pass's own context would race its
             # final progress read. A cancelled or errored run is deliberately

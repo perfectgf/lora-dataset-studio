@@ -20,6 +20,7 @@ from ._common import _map_error, _require_no_stalled_comfyui
 from .datasets import _improve_engine_error
 from ..services import bank_filter_translator as translator
 from ..services import image_bank_service as banks
+from ..usage_statistics import record_operation_error
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ def _busy(e):
     It matters that this rides on the 409 itself: the refusal often arrives
     BEFORE the first 2 s progress poll, so at that instant the response body is
     the only thing that knows which pass is in the way."""
+    record_operation_error(e)
     return jsonify({'error': str(e), 'busy_kind': e.kind}), 409
 
 
@@ -137,7 +139,7 @@ def bank_create():
                                         data.get('folder'),
                                         read_only=data.get('read_only', False))
     except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        return _map_error(e)
     # Nested folders mean two banks over the same files: harmless while triaging
     # (statuses are per bank), but 🗑 Delete rejected in one amputates the other.
     # Say it now, once, rather than at the destructive click only.

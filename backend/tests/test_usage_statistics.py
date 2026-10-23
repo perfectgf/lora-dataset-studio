@@ -82,7 +82,7 @@ def test_outbound_closed_schema_and_original_version(recorder, monkeypatch):
         assert properties['environment'] == 'production'
         assert not set(properties) - {
             'schema_version', 'app_version', 'os', 'environment', '$process_person_profile', '$geoip_disable',
-            'first_active_day', 'feature', 'action', 'result', 'error_code', 'duration_bucket'}
+            'first_active_day', 'feature', 'action', 'result', 'error_code', 'error_reason', 'duration_bucket'}
     assert 'private-' not in json.dumps(sent)
     assert sent[0]['batch'][-1]['properties']['duration_bucket'] == '10_to_60s'
 
@@ -291,3 +291,91 @@ def test_bank_partial_result_is_not_a_success(configured_app):
     bank_jobs.start(configured_app, 81003, 'caption', lambda job: job.update(_usage_result='partial'))
     results = [row['properties'] for row in service._state['events'] if row['event'] == 'lds_action_result']
     assert results[-1]['result'] == 'partial'
+
+
+@pytest.mark.parametrize('kind,status,code,reason', [
+    ('training', 400, 'busy', 'training_already_running'),
+    ('caption', 409, 'unavailable', 'caption_backend_unavailable'),
+    ('gpu', 503, 'busy', 'gpu_busy'),
+    ('dataset', 409, 'busy', 'dataset_busy'),
+    ('fence', 409, 'busy', 'ollama_fence_blocked'),
+    ('generic', 409, 'operation_failed', 'unknown'),
+])
+def test_typed_refusals_preserve_api_and_classify_without_messages(configured_app, kind, status, code, reason):
+    from app.operation_errors import TrainingAlreadyRunning, CaptionBackendUnavailable
+    from app.gpu_window import GpuBusyError
+    from app.services.dataset_activity import DatasetActivityBusy
+    from app.services.vision_ollama import LocalOllamaFenceError
+    from app.routes._common import _map_error
+    classes = {'training': TrainingAlreadyRunning, 'caption': CaptionBackendUnavailable,
+               'gpu': GpuBusyError, 'dataset': DatasetActivityBusy,
+               'fence': LocalOllamaFenceError, 'generic': RuntimeError}
+    configured_app.view_functions['datasets.dataset_caption'] = lambda **kw: _map_error(classes[kind]('private-error-content'))
+    client = configured_app.test_client()
+    _enable(client)
+    assert client.post('/api/dataset/1/caption', json={}).status_code == status
+    service = configured_app.extensions['lds_usage_statistics']
+    props = [row['properties'] for row in service._state['events'] if row['event'] == 'lds_action_result'][-1]
+    assert (props['result'], props['error_code'], props['error_reason']) == ('failed', code, reason)
+    assert 'private-error-content' not in service.path.read_text(encoding='utf-8')
+
+
+@pytest.mark.parametrize('payload,reason', [({}, 'bank_name_required'),
+    ({'name': 'private-name', 'folder': ''}, 'bank_folder_unavailable')])
+def test_bank_validation_reports_fixed_reason(configured_app, payload, reason):
+    client = configured_app.test_client()
+    _enable(client)
+    assert client.post('/api/bank/create', json=payload).status_code == 400
+    props = [row['properties'] for row in configured_app.extensions['lds_usage_statistics']._state['events']
+             if row['event'] == 'lds_action_result'][-1]
+    assert props['error_reason'] == reason
+
+
+def test_error_reasons_reject_untrusted_values_and_accept_older_queued_events(recorder):
+    from app.usage_statistics import _valid_row, error_categories
+    service, sent, _ = recorder
+    service.set_enabled(True)
+    generation = service.consent_generation()
+    service.operation(generation, 'datasets', 'caption', 'failed', error_reason='private-content')
+    assert service.status()['queued_events'] == 0
+    service.operation(generation, 'datasets', 'caption', 'completed')
+    row = service._state['events'][-1]
+    del row['properties']['error_reason']
+    assert _valid_row(row)
+    row['properties']['error_reason'] = 'private-content'
+    assert not _valid_row(row)
+    class Untrusted(RuntimeError):
+        usage_error_code = ['private-content']
+        usage_error_reason = {'private-content': True}
+    assert error_categories(Untrusted('private-content')) == ('operation_failed', 'unknown')
+    service.flush_once()
+    assert not sent
+
+
+@pytest.mark.parametrize('endpoint,suffix,action', [
+    ('dataset_train', '', 'train_start'),
+    ('dataset_train_continue', '/continue', 'train_resume'),
+    ('dataset_train_enqueue', '/enqueue', 'train_enqueue'),
+])
+def test_training_requests_distinguish_launch_resume_and_queue(configured_app, endpoint, suffix, action):
+    from flask import jsonify
+    configured_app.view_functions[f'training.{endpoint}'] = lambda **kw: jsonify(ok=True)
+    client = configured_app.test_client()
+    _enable(client)
+    assert client.post('/api/dataset/1/train' + suffix, json={}).status_code == 200
+    props = [row['properties'] for row in configured_app.extensions['lds_usage_statistics']._state['events']
+             if row['event'] == 'lds_action_result'][-1]
+    assert (props['action'], props['result']) == (action, 'accepted')
+
+
+def test_bank_worker_reports_caption_availability_like_the_dataset_route(configured_app):
+    from app.services import bank_jobs
+    from app.operation_errors import CaptionBackendUnavailable
+    service = configured_app.extensions['lds_usage_statistics']
+    service.set_enabled(True)
+    def fail(job):
+        raise CaptionBackendUnavailable('private-engine-details')
+    bank_jobs.start(configured_app, 81004, 'caption', fail)
+    props = [row['properties'] for row in service._state['events'] if row['event'] == 'lds_action_result'][-1]
+    assert (props['error_code'], props['error_reason']) == ('unavailable', 'caption_backend_unavailable')
+    assert 'private-engine-details' not in service.path.read_text(encoding='utf-8')

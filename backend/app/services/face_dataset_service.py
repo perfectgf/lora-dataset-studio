@@ -6,6 +6,8 @@ output dir is resolved via `cfg.comfyui_dir('output')` so tests can monkeypatch 
 """
 from __future__ import annotations
 from decimal import Decimal
+from ..operation_errors import CaptionBackendUnavailable
+
 import io
 import json
 import lzma
@@ -7266,7 +7268,7 @@ def classify_images(user_id, dataset_id, force=False, report=None):
     try:
         from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
     except ImportError:
-        raise RuntimeError('vision (Ollama) service not configured/available yet')
+        raise CaptionBackendUnavailable('vision (Ollama) service not configured/available yet')
     ds = get_dataset(user_id, dataset_id)
     if not ds:
         return 0
@@ -7820,7 +7822,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
                     on_progress=lambda ready, total: dataset_activity.progress(
                         token, done=ready, detail=joy_detail))
             elif backend == 'joycaption':
-                raise RuntimeError('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
+                raise CaptionBackendUnavailable('JoyCaption backend is not available - check the ai-toolkit folder in Settings')
         except RuntimeError:
             raise
         except Exception as e:
@@ -7866,7 +7868,7 @@ def _caption_concept(ds, force, backend, token=None, image_ids=None,
         try:
             from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
         except ImportError:
-            raise RuntimeError('vision (Ollama) service not configured/available yet')
+            raise CaptionBackendUnavailable('vision (Ollama) service not configured/available yet')
         # Bind the per-dataset model once for EVERY Concept inference pass. Without
         # this, only the main caption/refine used the override while blocklist
         # expansion and omission rewrites silently loaded the global model.
@@ -7949,7 +7951,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
     opts = caption_options(ds)
     backend = (opts.get('backend') or cfg.get('captioning.backend') or 'auto').lower()
     if backend == 'none':
-        raise RuntimeError('No captioning backend configured')
+        raise CaptionBackendUnavailable('No captioning backend configured')
     # Vocabulary preset (NSFW register) + free-text steer, combined into the one block that
     # rides at the end of every prompt this run builds.
     extra_instructions = _combined_caption_instructions(opts)
@@ -8063,7 +8065,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                     # Explicit choice, explicit failure: a user who forced 'joycaption' in
                     # Settings must be told WHY (the exact missing deps + pip command),
                     # not get a silent 0 (only 'auto' is allowed to fall back to Ollama).
-                    raise RuntimeError(
+                    raise CaptionBackendUnavailable(
                         'JoyCaption backend is not available — '
                         + (availability().get('detail') or 'check the ai-toolkit folder in Settings'))
                 else:  # auto: JoyCaption unavailable -> remember the reason, fall back to Ollama
@@ -8122,7 +8124,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                 from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
                 from .vision_llm import label as _llm_label
             except ImportError:
-                raise RuntimeError('vision (Ollama) service not configured/available yet')
+                raise CaptionBackendUnavailable('vision (Ollama) service not configured/available yet')
             try:
                 for index, (image_id, p) in enumerate(remaining, 1):
                     # Graceful stop: the user asked to stop and we're at an image
@@ -8173,7 +8175,7 @@ def caption_images(user_id, dataset_id, force=False, mode=None, image_ids=None, 
                 # otherwise see only the Ollama error and never learn JoyCaption's deps
                 # are missing, issue #6). backend='ollama' has no note -> re-raise as-is.
                 if joycaption_note:
-                    raise RuntimeError(f'JoyCaption unavailable: {joycaption_note} · Ollama: {e}') from e
+                    raise CaptionBackendUnavailable(f'JoyCaption unavailable: {joycaption_note} · Ollama: {e}') from e
                 raise
             finally:
                 unload_vision_model()  # Release VRAM to ComfyUI at batch end.
@@ -8241,7 +8243,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
         return out
     backend = (backend or cfg.get('captioning.backend') or 'auto').lower()
     if backend == 'none':
-        raise RuntimeError('No captioning backend configured')
+        raise CaptionBackendUnavailable('No captioning backend configured')
     cap_prompt = prompt or DESCRIPTIVE_CAPTION_PROMPT
     if extra_instructions:
         cap_prompt = _with_caption_instructions(cap_prompt, (extra_instructions or '').strip())
@@ -8300,7 +8302,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
                                                should_cancel=should_cancel,
                                                on_progress=_joycaption_progress)
             elif backend == 'joycaption':
-                raise RuntimeError(
+                raise CaptionBackendUnavailable(
                     'JoyCaption backend is not available — '
                     + (availability().get('detail') or 'check the ai-toolkit folder in Settings'))
             else:  # auto: unavailable → remember why, fall back to Ollama
@@ -8326,7 +8328,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
         try:
             from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
         except ImportError:
-            raise RuntimeError('vision (Ollama) service not configured/available yet')
+            raise CaptionBackendUnavailable('vision (Ollama) service not configured/available yet')
         from .vision_ollama import LocalOllamaFenceError
         from .vision_pool import map_vision
 
@@ -8386,7 +8388,7 @@ def caption_paths(paths, *, prompt=None, backend=None, ollama_model=None,
             # 'auto' tried JoyCaption first and it was unavailable, then Ollama failed too
             # — report BOTH so the caller isn't debugging blind (issue #6 reasoning).
             if joycaption_note:
-                raise RuntimeError(f'JoyCaption unavailable: {joycaption_note} · Ollama: {e}') from e
+                raise CaptionBackendUnavailable(f'JoyCaption unavailable: {joycaption_note} · Ollama: {e}') from e
             raise
         finally:
             unload_vision_model()  # hand the VRAM back to ComfyUI
@@ -9366,7 +9368,7 @@ def _detect_watermarks_vision(dataset_id, row_ids, *, include_dismissed,
     try:
         from .vision_llm import describe_image as describe_image_ollama, unload_vision_model
     except ImportError:
-        raise RuntimeError('vision (Ollama) service not configured/available yet')
+        raise CaptionBackendUnavailable('vision (Ollama) service not configured/available yet')
     counts = {'detected': 0, 'none': 0, 'checked': 0}
     unanswered = 0
     # Deliberately NOT a key in `counts`: that dict is this route's response

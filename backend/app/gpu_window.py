@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 class GpuBusyError(RuntimeError):
+    usage_error_code = 'busy'
+    usage_error_reason = 'gpu_busy'
+
     pass
 
 

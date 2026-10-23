@@ -24,6 +24,7 @@ import {
   trainFamilyLabel,
 } from '../../utils/checkpointBrowser';
 import { stepsRecipeRefreshDelay } from '../../utils/stepsRecipeRefresh';
+import { singleFlight } from '../../utils/singleFlight';
 import { confirmableRetryFlag } from '../../utils/trainingRefusals';
 import {
   deployedFilenamesOf,
@@ -186,6 +187,8 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   };
   const [status, setStatus] = useState({ in_progress: false, installed: true, queue: [], current: null });
   const [statusLoaded, setStatusLoaded] = useState(false);
+  const launchOnce = useRef(singleFlight());
+  const [launchPending, setLaunchPending] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [checkpointsOpen, setCheckpointsOpen] = useState(false);
   // ◉ Graph of this dataset's runs + checkpoints — now the DEFAULT surface of the
@@ -1793,7 +1796,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             {trainingModeError}
           </span>
         )}
-        {!fullMode && <button type="button" disabled={!status.installed || belowFloor || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty || sliderPromptsMissing}
+        {!fullMode && <button type="button" aria-busy={launchPending} disabled={!status.installed || belowFloor || status.in_progress || baseBlocksTrain || sdxlNeedsBase || customWeightsEmpty || sliderPromptsMissing || launchPending}
           title={baseBlocksTrain ? baseBlockTitle
             : customWeightsEmpty ? 'Enter the path to your custom weights .safetensors'
             : sdxlNeedsBase ? 'Choose a base SDXL checkpoint'
@@ -1803,42 +1806,49 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                 ? `${keptCount} kept image(s) — slider training still needs ${trainMinFloor}+ images as a denoising substrate`
                 : `${keptCount} kept image(s) — the minimum for ${typeLabel} is ${trainMinFloor}`)
               : undefined}
-          onClick={async () => {
-            if (!(await preflightOk())) return;
-            // Existing run: Resume continues the LoRA; Fresh archives the run and starts over.
-            // Mismatch retry remains fresh because the first call failed in assert_trainable
-            // BEFORE archiving, so nothing was discarded.
-            const mode = await askResumeOrFresh();
-            if (!mode) return;
-            // The old "Resume" button called /train and let ai-toolkit infer
-            // what it would restore. Route every existing run through the
-            // shared dialog instead, where Full state vs Weights only is
-            // explicit and checkpoint-specific.
-            if (mode === 'continue') {
-              setContinueInitialStep(null); // null deliberately selects the latest save
-              setContinueSource(null);
-              setContinueOpen(true);
-              return;
+          onClick={() => launchOnce.current(async () => {
+            setLaunchPending(true);
+            try {
+              if (!(await preflightOk())) return;
+              // Existing run: Resume continues the LoRA; Fresh archives the run and starts over.
+              // Mismatch retry remains fresh because the first call failed in assert_trainable
+              // BEFORE archiving, so nothing was discarded.
+              const mode = await askResumeOrFresh();
+              if (!mode) return;
+              // The old "Resume" button called /train and let ai-toolkit infer
+              // what it would restore. Route every existing run through the
+              // shared dialog instead, where Full state vs Weights only is
+              // explicit and checkpoint-specific.
+              if (mode === 'continue') {
+                setContinueInitialStep(null); // null deliberately selects the latest save
+                setContinueSource(null);
+                setContinueOpen(true);
+                return;
+              }
+              const fresh = mode === 'fresh';
+              // ds.train takes camelCase opts — map the confirmable force flags.
+              const OPT_FOR_FLAG = { allow_caption_mismatch: 'allowCaptionMismatch',
+                                     allow_uncaptioned: 'allowUncaptioned',
+                                     allow_caption_quality: 'allowCaptionQuality',
+                                     allow_unverified_weights: 'allowUnverifiedWeights' };
+              let opts = { baseModel: base, variant, trainType, trainingMode, masked: maskedOpt,
+                           steps: stepsN, fresh,
+                           vaePath, tePath, allowNotReady };
+              let d = await ds.train(opts);
+              for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
+                if (flag === 'declined') break;        // the confirm WAS the answer
+                opts = { ...opts, [OPT_FOR_FLAG[flag]]: true };
+                d = await ds.train(opts);
+              }
+              await refreshStatus();
+            } catch (error) {
+              toastTrainError({ error: error?.message }, 'Could not start training');
+            } finally {
+              setLaunchPending(false);
             }
-            const fresh = mode === 'fresh';
-            // ds.train takes camelCase opts — map the confirmable force flags.
-            const OPT_FOR_FLAG = { allow_caption_mismatch: 'allowCaptionMismatch',
-                                   allow_uncaptioned: 'allowUncaptioned',
-                                   allow_caption_quality: 'allowCaptionQuality',
-                                   allow_unverified_weights: 'allowUnverifiedWeights' };
-            let opts = { baseModel: base, variant, trainType, trainingMode, masked: maskedOpt,
-                         steps: stepsN, fresh,
-                         vaePath, tePath, allowNotReady };
-            let d = await ds.train(opts);
-            for (let flag; d && d.ok === false && (flag = confirmableRetryFlag(d.error, 'Train anyway (force)')); ) {
-              if (flag === 'declined') break;        // the confirm WAS the answer
-              opts = { ...opts, [OPT_FOR_FLAG[flag]]: true };
-              d = await ds.train(opts);
-            }
-            refreshStatus();
-          }}
+          })}
           className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
-          <Rocket aria-hidden="true" className="h-4 w-4" /> Train the LoRA
+          <Rocket aria-hidden="true" className="h-4 w-4" /> {launchPending ? 'Preparing training…' : 'Train the LoRA'}
         </button>}
         {!fullMode && <HelpBadge topic="action-training-launch" />}
         <PluginSlot slot="training.launch" surface="dataset"

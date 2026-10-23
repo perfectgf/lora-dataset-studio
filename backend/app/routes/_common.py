@@ -10,6 +10,7 @@ from ..gpu_window import GpuBusyError
 from ..job_queue import (ComfyUIRecoveryRequired, auto_resolve_comfyui_barrier,
                          require_comfyui_enqueue_ready)
 from ..services.vision_ollama import LocalOllamaFenceError
+from ..usage_statistics import record_operation_error
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ def reject_unparsable_json_body():
 def _map_error(e: Exception):
     """Map a service/vision exception to a Flask (body, status) tuple.
     Unrecognized exceptions are re-raised (-> 500, a real bug)."""
+    record_operation_error(e)
     if isinstance(e, GpuBusyError):
         return jsonify({'error': 'GPU busy', 'detail': str(e)}), 503
     if isinstance(e, ValueError):
