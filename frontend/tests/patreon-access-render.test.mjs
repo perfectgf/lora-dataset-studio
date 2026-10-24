@@ -158,3 +158,40 @@ test('the announcement names the LDS Member tier and no price', () => {
   assert.match(html, /href="\/plugins\?tab=purchases"/)
   assert.doesNotMatch(html, /[$€£]/)
 })
+
+test('a free plugin keeps its free and members feature comparison after becoming a member', () => {
+  const publicRelease = {
+    manifest: { id: 'civitai_publish', name: 'Publish to Civitai', version: '1.0.2',
+      description: 'Link trained checkpoints to Civitai pages and post generated images.' },
+    price: { kind: 'free' }, presentation: { schema_version: 1, images: [] }, compatibility_issues: [],
+  }
+  const release = { ...publicRelease, manifest: { ...publicRelease.manifest, version: '1.1.0',
+    description: 'The latest description also includes imported LoRAs and complete drafts.' } }
+  const extra = 'Import a LoRA with example images and prepare a complete Civitai draft.'
+  for (const [access, available] of [[UNLINKED, false], [PRO, true]]) {
+    const installed = { ...(available ? release : publicRelease).manifest, state: 'loaded', active: true,
+      enabled: true, desired_enabled: true, official: true }
+    const html = render(() => createElement(MemoryRouter, null, createElement(PluginCard, {
+      plugin: installed, release, publicRelease, patreonAccess: access,
+      membersReleases: [{ version: '1.1.0', changelog: [extra], available }],
+    })))
+    assert.match(html, /data-free-features/)
+    assert.match(html, /Free version · 1\.0\.2/)
+    assert.match(html, /Link trained checkpoints to Civitai pages and post generated images\./)
+    assert.match(html, /Membership features/)
+    assert.match(html, /Import a LoRA with example images and prepare a complete Civitai draft\./)
+    assert.doesNotMatch(html, /The latest description also includes/)
+    if (available) assert.doesNotMatch(html, /Connect Patreon|Join on Patreon/)
+    else assert.match(html, /Connect Patreon/)
+  }
+  // A plugin reserved as a whole never acquires a fictitious free edition.
+  const exclusive = { ...release, price: { kind: 'paid', provider: 'patreon' }, changelog: [extra] }
+  const html = render(PluginCard, { release: exclusive, publicRelease, patreonAccess: PRO })
+  assert.match(html, /Membership features/)
+  assert.match(html, /Included with your Patreon membership/)
+  assert.doesNotMatch(html, /data-free-features|Free version ·/)
+  // No current member additions means the ordinary card remains unchanged.
+  const ordinary = render(PluginCard, { release, publicRelease, membersReleases: [] })
+  assert.match(ordinary, /The latest description also includes/)
+  assert.doesNotMatch(ordinary, /data-free-features|Membership features/)
+})

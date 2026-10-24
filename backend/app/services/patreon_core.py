@@ -250,6 +250,7 @@ def _fast_forward_blocker(root, release, *, fetch=False):
 
 _status_cache = {'ts': 0.0, 'data': None}
 _members_cache = {'ts': 0.0, 'data': None}
+_public_version_cache = {'ts': 0.0, 'version': None}
 _installed = {}
 _apply_lock = threading.Lock()
 
@@ -273,6 +274,24 @@ def members_versions():
         return ()
     _members_cache.update(ts=now, data=versions)
     return versions
+
+
+def public_core_version():
+    """Published free release for the plugin comparison, never guessed from dates.
+
+    This read grants no access and changes no updater channel. Cache unavailable
+    answers too, so opening several plugin cards does not hammer the release feed.
+    """
+    now = time.time()
+    if 0 <= now - _public_version_cache['ts'] < STATUS_TTL_SECONDS:
+        return _public_version_cache['version']
+    try:
+        value = updater.latest_release(repo='perfectgf/lora-dataset-studio', timeout=4).get('version')
+    except (ValueError, TypeError, OSError):
+        value = None
+    version = value if isinstance(value, str) and _VERSION.fullmatch(value) else None
+    _public_version_cache.update(ts=now, version=version)
+    return version
 
 
 def status(root=None, *, force=False):

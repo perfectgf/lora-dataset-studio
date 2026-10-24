@@ -487,9 +487,10 @@ def test_membership_features_are_the_releases_only_the_members_core_installs():
     assert members_releases([_release('1.2.0', '>=2026.10.18.3'), *cloud[1:]], members, current='2026.10.19') == []
     assert members_releases([_release('1.0.7', '<2027,>=2026.9.4', ['host_dependencies.filelock'])],
                             members, current='2026.10.19') == []
-    # A published members version builds on the public release of its date: it has them.
+    # A members installation compares to the verified public release, not its date.
     installed = [{**cloud[0], 'compatibility_issues': []}, *cloud[1:]]
-    assert members_releases(installed, members, current='2026.10.18.3') == [{**reserved, 'available': True}]
+    assert members_releases(installed, members, current='2026.10.18.3',
+                            public_version='2026.10.18') == [{**reserved, 'available': True}]
     # Nothing is claimed without the channel, for an unpublished members core,
     # for another refusal, or for a members-only plugin (reserved as a whole).
     assert members_releases(cloud, (), current='2026.10.18') == []
@@ -499,6 +500,36 @@ def test_membership_features_are_the_releases_only_the_members_core_installs():
                              *cloud[1:]], members, current='2026.10.18') == []
     assert members_releases([_release('1.0.3', '>=2026.10.11', ['compatibility.api'], patreon_product=True)],
                             members, current='2026.10.18') == []
+
+
+def test_member_plugin_comparison_survives_a_new_day_and_an_unsuffixed_release():
+    releases = [_release('1.1.0', '>=2026.10.23.3', changelog=['Complete LoRA drafts']),
+                _release('1.0.2', '>=2026.9.4')]
+    members = ('2026.10.24.1', '2026.10.24', '2026.10.23.3')
+    for current in members:
+        assert members_releases(releases, members, current=current, public_version='2026.10.23') == [
+            {'version': '1.1.0', 'changelog': ['Complete LoRA drafts'], 'available': True}]
+    assert members_releases(releases, members, current='2026.10.24') == []
+    # Once actually released for free, this feature is no longer described as exclusive.
+    assert members_releases(releases, members, current='2026.10.24.1', public_version='2026.10.25') == []
+
+
+def test_public_version_comparison_uses_verified_feed_and_caches_failures(monkeypatch):
+    from app.services import patreon_core
+    clock, calls = [1000], []
+    monkeypatch.setattr(patreon_core, '_public_version_cache', {'ts': 0, 'version': None})
+    monkeypatch.setattr(patreon_core.time, 'time', lambda: clock[0])
+    def release(**kwargs):
+        calls.append(kwargs)
+        return {'version': '2026.10.23'} if len(calls) == 1 else {'reason': 'offline'}
+    monkeypatch.setattr(patreon_core.updater, 'latest_release', release)
+    assert patreon_core.public_core_version() == '2026.10.23'
+    assert patreon_core.public_core_version() == '2026.10.23'
+    assert len(calls) == 1 and calls[0]['repo'] == 'perfectgf/lora-dataset-studio'
+    clock[0] += patreon_core.STATUS_TTL_SECONDS + 1
+    assert patreon_core.public_core_version() is None
+    assert patreon_core.public_core_version() is None
+    assert len(calls) == 2
 
 
 def test_update_all_leaves_locked_patreon_plugins_out_of_the_batch(monkeypatch, tmp_path):

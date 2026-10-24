@@ -55,8 +55,14 @@ def catalog():
     registry = _registry()
     from ...services import patreon_core
     members = patreon_core.members_versions() if payload['products'] else ()
+    public_version = patreon_core.public_core_version() if APP_VERSION in members else APP_VERSION
     for product in payload['products']:
-        product['members_releases'] = members_releases(product['releases'], members, current=APP_VERSION)
+        product['members_releases'] = members_releases(
+            product['releases'], members, current=APP_VERSION, public_version=public_version)
+        reserved = {release['version'] for release in product['members_releases']}
+        product['public_release'] = next((release for release in product['releases']
+                                          if release['manifest']['version'] not in reserved
+                                          and release['price'].get('kind') == 'free'), None) if reserved else None
         record = registry.records.get(product['id']) if registry else None
         release = next((r for r in product['releases'] if not r['compatibility_issues']), None)
         product['recommended'] = release

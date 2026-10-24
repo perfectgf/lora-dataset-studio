@@ -84,6 +84,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-24-plugin-free-member-comparison',
+    date: '2026-10-24',
+    title: 'See what each plugin includes for free and for members',
+    blurb: 'Plugin cards compare the published free version with member additions, even when you already '
+      + 'use the members version of LDS. Free features and member additions have their own sections.',
+    to: '/plugins',
+  },
+  {
     id: '2026-10-23-usage-context-choice', date: '2026-10-23',
     title: 'Help pinpoint failures with a fresh sharing choice',
     blurb: 'Optional usage sharing can now include Studio and cloud training outcomes, failure stages, model families and captioning engines. Sharing these categories requires a new opt-in; earlier refusals stay saved, and your images, prompts and files stay private.',
