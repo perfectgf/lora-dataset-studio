@@ -45,7 +45,7 @@ function MembershipFeatures({ name, membership, access, adminToken, onChanged })
 
 export default function PluginCard({ plugin, release, mediaKey, updateAvailable, storeActions, reinstallAction,
   onToggle, onRemove, onInstalled, busy, caps, capsKnown = false, membersReleases, patreonAccess = null,
-  onPatreonChanged, adminToken = '' }) {
+  onPatreonChanged, adminToken = '', publicRelease = null }) {
   const installed = plugin;
   plugin = plugin || release.manifest;
   const requires = plugin.requires || [];
@@ -60,6 +60,7 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
   const details = installed ? plugin.package_contract?.experience : plugin.experience;
   const patreonProduct = isPatreonRelease(release);
   const membership = membershipFeatures({ release, membersReleases, access: patreonAccess });
+  const freeRelease = membership && !membership.whole ? publicRelease : null;
   return (
     <article data-store-product={plugin.id} id={'plugin-row-' + plugin.id} data-plugin-id={installed ? plugin.id : undefined} aria-labelledby={'plugin-title-' + plugin.id}
       className="flex min-w-0 scroll-mt-6 flex-col rounded-xl border border-border-strong bg-surface shadow-sm">
@@ -88,7 +89,11 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
         {release && !(patreonProduct && !presentationImages(release).length) && <Presentation key={mediaKey} release={release} />}
         {pending && <p className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-content" data-plugin-pending>{pending}</p>}
         {release?.compatibility_issues?.length > 0 && <p className="text-sm text-amber-500">{release.compatibility_issues[0].message}</p>}
-        {plugin.description && <p className="text-sm leading-relaxed text-content-muted">{plugin.description}</p>}
+        {freeRelease ? <section aria-label={`Free features of ${plugin.name}`}
+          className="space-y-2 rounded-lg border border-border p-3 text-sm" data-free-features>
+          <p className="font-medium text-content">Free version · {freeRelease.manifest.version}</p>
+          {freeRelease.manifest.description && <p className="leading-relaxed text-content-muted">{freeRelease.manifest.description}</p>}
+        </section> : plugin.description && <p className="text-sm leading-relaxed text-content-muted">{plugin.description}</p>}
         {membership && <MembershipFeatures name={plugin.name} membership={membership} access={patreonAccess}
           adminToken={adminToken} onChanged={onPatreonChanged} />}
         <div className="flex flex-wrap items-center gap-2">

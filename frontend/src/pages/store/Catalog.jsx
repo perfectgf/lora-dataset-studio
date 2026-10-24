@@ -88,7 +88,7 @@ export default function Catalog({ catalog, installed, filter = 'all', onFilterCh
         return <PluginCard key={id} plugin={plugin} release={release}
           mediaKey={`${manifest?.version}:${catalog?.checked_at || ''}`} updateAvailable={product?.update_available}
           busy={busy} onToggle={onToggle} onRemove={onRemove} onInstalled={onInstalled} caps={caps} capsKnown={capsKnown}
-          membersReleases={product?.members_releases} patreonAccess={patreon.access}
+          publicRelease={product?.public_release} membersReleases={product?.members_releases} patreonAccess={patreon.access}
           onPatreonChanged={() => patreon.load()} adminToken={adminToken}
           reinstallAction={plugin && release && !product?.update_available ? action(true) : null}
           storeActions={release && (!plugin || product?.update_available) && <>
