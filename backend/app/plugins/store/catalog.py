@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,10 +11,12 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 from ..compatibility import host_issues
-from ..manifest import parse_manifest
+from ..manifest import ManifestNeedsNewerApp, parse_manifest
 from ..ownership import conflict
 from .client import StoreError
 from .media_contract import parse_presentation
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,26 +38,38 @@ class Release:
 
 
 def parse_catalog(data, config):
-    """The root configuration, not a publisher claim, authorizes historic IDs."""
+    """The root configuration, not a publisher claim, authorizes historic IDs.
+
+    Any invalid entry still refuses the whole catalog, with one exception: a
+    release whose manifest uses vocabulary added after this app is left out on
+    its own. A members plugin declaring a new permission once made the entire
+    Patreon catalog unavailable on every older installation."""
     if not isinstance(data, dict) or data.get('schema_version') != 1:
         raise StoreError('The catalog format is not supported by this app.')
     products = data.get('products')
     if not isinstance(products, list) or len(products) > 1000:
         raise StoreError('The catalog product list is invalid.')
-    result = {}
+    result, seen = {}, set()
     try:
         for product in products:
             plugin_id = product['id']
             if config.scoped and not config.serves(plugin_id):
                 continue
-            if plugin_id in result:
+            # Every identity seen, not only the kept ones: a product whose
+            # releases were all left out must still expose a duplicate of it.
+            if plugin_id in seen:
                 raise ValueError('duplicate product')
+            seen.add(plugin_id)
             versions = {}
             releases = product['releases']
             if not isinstance(releases, list) or not releases or len(releases) > 100:
                 raise ValueError('invalid releases')
             for release in releases:
-                manifest = parse_manifest(release['manifest'], Path('.'), official=plugin_id in config.official_ids)
+                try:
+                    manifest = parse_manifest(release['manifest'], Path('.'), official=plugin_id in config.official_ids)
+                except ManifestNeedsNewerApp as exc:
+                    log.info('Store: %s release left out, it needs a newer LDS (%s)', plugin_id, exc)
+                    continue
                 if manifest.bundled or manifest.id != plugin_id or manifest.contract['schema_version'] != 2:
                     raise ValueError('invalid package identity')
                 if not manifest.official and not config.serves(plugin_id):
@@ -82,7 +97,8 @@ def parse_catalog(data, config):
                     raise ValueError('invalid changelog')
                 images = parse_presentation(release.get('presentation'), manifest.id, manifest.version)
                 versions[version] = Release(manifest, target, digest, tuple(changelog), price, images)
-            result[plugin_id] = sorted(versions.values(), key=lambda r: Version(r.manifest.version), reverse=True)
+            if versions:
+                result[plugin_id] = sorted(versions.values(), key=lambda r: Version(r.manifest.version), reverse=True)
     except (KeyError, TypeError, ValueError) as exc:
         raise StoreError('The authenticated catalog contains an invalid product or release.') from exc
     return result

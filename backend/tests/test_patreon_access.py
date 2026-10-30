@@ -169,6 +169,35 @@ def test_only_the_patreon_source_can_label_patreon_products():
         parse_catalog(catalog(member_price), other)
 
 
+def test_a_release_for_a_newer_lds_does_not_hide_the_catalog():
+    # A members plugin declared a permission older installations did not know,
+    # and they lost the whole Patreon catalog with it.
+    price = {'kind': 'paid', 'product': 'patreon_lds', 'provider': 'patreon'}
+
+    def release(plugin_id, version, **manifest):
+        return {'manifest': contract(id=plugin_id, name=plugin_id.title(), version=version, **manifest),
+                'manifest_sha256': 'a' * 64, 'target': f'{plugin_id}/{version}.ldsplugin', 'price': price}
+    ids = frozenset({'manga', 'creature_battle'})
+    config = StoreConfig('https://s.example.test/m/', 'https://s.example.test/t/', b'{}',
+                         ids, frozenset(), ids, (), provider='patreon')
+    newer = {'permissions': ['membership:future']}
+    catalog = {'schema_version': 1, 'products': [
+        {'id': 'manga', 'releases': [release('manga', '1.1.0', **newer), release('manga', '1.0.0')]},
+        {'id': 'creature_battle', 'releases': [release('creature_battle', '2.0.0', owns={'future_kind': []})]}]}
+    parsed = parse_catalog(catalog, config)
+    assert [item.manifest.version for item in parsed['manga']] == ['1.0.0']
+    assert 'creature_battle' not in parsed
+    # Anything else wrong still refuses the whole catalog, duplicates included.
+    duplicate = {'schema_version': 1, 'products': [
+        {'id': 'creature_battle', 'releases': [release('creature_battle', '2.0.0', **newer)]},
+        {'id': 'creature_battle', 'releases': [release('creature_battle', '1.0.0')]}]}
+    with pytest.raises(StoreError):
+        parse_catalog(duplicate, config)
+    catalog['products'][0]['releases'][1]['price'] = {'kind': 'free'}
+    with pytest.raises(StoreError):
+        parse_catalog(catalog, config)
+
+
 # --- Membership object and link ---------------------------------------------------
 
 INACTIVE = {'linked': True, 'status': 'inactive', 'tier': None, 'valid_until': None, 'join_url': JOIN,
