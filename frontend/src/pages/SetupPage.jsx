@@ -502,6 +502,57 @@ export default function SetupPage() {
       </button>
     )
   }
+  // Live verdict on the CURRENTLY-TYPED directory (from /api/setup/comfyui-dir),
+  // shown the moment the field changes — a wrong path, an empty folder, or the
+  // launcher/parent folder (with a one-click "use the child" adopt). The verdict
+  // is only trusted when it matches the exact string in the field. Shared by the
+  // ComfyUI step and the first-run "Local" choice.
+  const comfyuiDirVerdictNode = () => {
+    const typedDir = (config.comfyui.base_dir || '').trim()
+    const liveCheck = dirCheck && dirCheck.path === typedDir ? dirCheck : null
+    if (!typedDir) return null
+    if (!liveCheck || liveCheck.status === 'checking') {
+      return <p className="text-xs text-content-subtle">Checking this folder…</p>
+    }
+    const v = comfyuiDirVerdict(liveCheck)
+    if (!v.message) return null
+    const cls = v.tone === 'ok' ? 'text-emerald-400'
+      : v.tone === 'warn' ? 'text-amber-400' : 'text-content-subtle'
+    const glyph = v.tone === 'ok' ? '✓' : v.tone === 'warn' ? '⚠' : ''
+    return (
+      <div className="space-y-1.5">
+        <p className={`text-xs ${cls}`}>{glyph} {v.message}</p>
+        {/* Non-blocking: the folder IS a ComfyUI install, but this process
+            cannot hand files to it (another container, a read-only mount).
+            Wraps freely — the message names a path and must stay readable
+            at 400px. */}
+        {v.note && (
+          <p className="break-words text-xs text-amber-400">⚠ {v.note}</p>
+        )}
+        {/* ComfyUI has said where it reads (an absolute --input-directory in the
+            command line it echoes): one click saves that folder as the input
+            override and asks the verdict again. This offer used to live only in
+            Settings > Advanced: ComfyUI folder overrides, which is how a Comfy
+            Desktop user with its shared folder ended up on GitHub (#64). */}
+        {v.inputSuggestion && (
+          <button type="button"
+            onClick={async () => {
+              await applyDetectedPath('comfyui', 'input_dir', v.inputSuggestion)
+              setDirCheckRevision((n) => n + 1)
+            }}
+            className="break-all rounded-md border border-border-strong px-2.5 py-1 text-left text-xs font-medium text-primary hover:bg-surface-raised">
+            Use the input folder ComfyUI reports: {v.inputSuggestion}
+          </button>
+        )}
+        {v.suggestion && (
+          <button type="button" onClick={() => setField('comfyui', 'base_dir', v.suggestion)}
+            className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-primary hover:bg-surface-raised">
+            Use this folder instead
+          </button>
+        )}
+      </div>
+    )
+  }
 
   // --- Per-tool step body (reuses the existing controls, one tool per screen) ---
   const toolBody = (id) => {
@@ -571,56 +622,9 @@ export default function SetupPage() {
           ? <InstallRunner action={action} buttonLabel={label} onDone={() => refresh(true)} />
           : <p className="text-xs text-emerald-400">✓ Installed</p>
       }
-      // Live verdict on the CURRENTLY-TYPED directory (from /api/setup/comfyui-dir),
-      // shown the moment the field changes — a wrong path, an empty folder, or the
-      // launcher/parent folder (with a one-click "use the child" adopt). The verdict
-      // is only trusted when it matches the exact string in the field.
       const typedDir = (config.comfyui.base_dir || '').trim()
       const liveCheck = dirCheck && dirCheck.path === typedDir ? dirCheck : null
-      const dirVerdictNode = typedDir ? (
-        (!liveCheck || liveCheck.status === 'checking')
-          ? <p className="text-xs text-content-subtle">Checking this folder…</p>
-          : (() => {
-            const v = comfyuiDirVerdict(liveCheck)
-            if (!v.message) return null
-            const cls = v.tone === 'ok' ? 'text-emerald-400'
-              : v.tone === 'warn' ? 'text-amber-400' : 'text-content-subtle'
-            const glyph = v.tone === 'ok' ? '✓' : v.tone === 'warn' ? '⚠' : ''
-            return (
-              <div className="space-y-1.5">
-                <p className={`text-xs ${cls}`}>{glyph} {v.message}</p>
-                {/* Non-blocking: the folder IS a ComfyUI install, but this process
-                    cannot hand files to it (another container, a read-only mount).
-                    Wraps freely — the message names a path and must stay readable
-                    at 400px. */}
-                {v.note && (
-                  <p className="break-words text-xs text-amber-400">⚠ {v.note}</p>
-                )}
-                {/* ComfyUI has said where it reads (an absolute --input-directory in the
-                    command line it echoes): one click saves that folder as the input
-                    override and asks the verdict again. This offer used to live only in
-                    Settings > Advanced: ComfyUI folder overrides, which is how a Comfy
-                    Desktop user with its shared folder ended up on GitHub (#64). */}
-                {v.inputSuggestion && (
-                  <button type="button"
-                    onClick={async () => {
-                      await applyDetectedPath('comfyui', 'input_dir', v.inputSuggestion)
-                      setDirCheckRevision((n) => n + 1)
-                    }}
-                    className="break-all rounded-md border border-border-strong px-2.5 py-1 text-left text-xs font-medium text-primary hover:bg-surface-raised">
-                    Use the input folder ComfyUI reports: {v.inputSuggestion}
-                  </button>
-                )}
-                {v.suggestion && (
-                  <button type="button" onClick={() => setField('comfyui', 'base_dir', v.suggestion)}
-                    className="rounded-md border border-border-strong px-2.5 py-1 text-xs font-medium text-primary hover:bg-surface-raised">
-                    Use this folder instead
-                  </button>
-                )}
-              </div>
-            )
-          })()
-      ) : null
+      const dirVerdictNode = comfyuiDirVerdictNode()
       const configPersisted = savedConfigRef.current !== null
         && JSON.stringify(config) === savedConfigRef.current
       // A just-typed folder has a live, path-pinned verdict, while `step.dirValid`
@@ -1640,9 +1644,23 @@ export default function SetupPage() {
 
   // --- Welcome + live machine scan --------------------------------------------
   if (kind === 'welcome') {
+    // "Generate images → Local" asks for the ComfyUI folder on the spot: the
+    // same field, scan suggestion and live verdict as the ComfyUI step.
+    const comfyuiFolder = (
+      <div className="space-y-2">
+        {guidedField('ComfyUI folder', 'comfyui', 'base_dir', 'C:\\ComfyUI')}
+        {detectedPathChip('comfyui', 'base_dir')}
+        {comfyuiDirVerdictNode()}
+        <button type="button" onClick={persist} disabled={busy}
+          className="min-h-10 rounded-lg border border-border-strong px-4 py-2 text-sm font-semibold text-content hover:bg-surface-raised disabled:opacity-50">
+          {busy ? 'Saving…' : 'Save folder'}
+        </button>
+      </div>
+    )
     return <SetupStart onTools={() => setScreen(screenOf('tools'))}
       onRecheck={() => runAutodetect(config, true)} scanned={scanned} detecting={detecting || pendingChecks > 0}
-      scanProblem={scanProblem} runtimeReadiness={runtimeReadiness} />
+      scanProblem={scanProblem} runtimeReadiness={runtimeReadiness}
+      comfyuiFolder={comfyuiFolder} onPickLlm={pickProvider} pickingLlm={savingProvider} />
   }
   if (kind === 'tools') {
     // Three states per tool: ready (✓ green), partial (⚠ amber — detected but a
