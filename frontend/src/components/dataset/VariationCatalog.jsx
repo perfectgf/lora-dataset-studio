@@ -1177,12 +1177,30 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
             the core hands it the same facts every card gets — checked,
             available, its share of the shots — plus the capabilities and the
             engines config it may read its own keys from. */}
-        {pluginEngineSpecs().map((spec) => (
-          <PluginPanel key={spec.id} panelKey={`${spec.plugin}:${spec.id}:card`} importer={spec.card}
-            spec={spec} checked={engines.includes(spec.id)} available={!!available[spec.id]}
-            generating={generating} onToggle={toggleEngine} share={engineShare(spec.id)}
-            caps={caps} engineConfig={engineConfig} enabledInSettings={enabledEngines.includes(spec.id)} />
-        ))}
+        {pluginEngineSpecs().map((spec) => {
+          const card = (
+            <PluginPanel key={spec.id} panelKey={`${spec.plugin}:${spec.id}:card`} importer={spec.card}
+              spec={spec} checked={engines.includes(spec.id)} available={!!available[spec.id]}
+              generating={generating} onToggle={toggleEngine} share={engineShare(spec.id)}
+              caps={caps} engineConfig={engineConfig} enabledInSettings={enabledEngines.includes(spec.id)} />
+          );
+          // An API card that cannot run said "Add … in Settings" with no way
+          // there, and the card itself is a disabled toggle. The shortcut sits
+          // under it, where the Qwen card keeps its own preparation link.
+          if (spec.kind !== 'api' || available[spec.id]) return card;
+          const enabled = enabledEngines.includes(spec.id);
+          return (
+            <div key={spec.id} className="flex min-w-0 flex-col gap-1 [&>button]:h-full">
+              {card}
+              <div className="flex min-h-10 items-center px-2 lg:min-h-0">
+                <SettingsLink pluginId={spec.plugin} tone="warning"
+                  focus={enabled ? spec.secret || undefined : 'plugin-enabled-engines'}>
+                  {enabled ? `Set up ${spec.label}` : `Enable ${spec.label}`}
+                </SettingsLink>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* How several engines share the run. Only shown when it can change

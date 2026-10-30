@@ -100,6 +100,14 @@ export const WHATS_NEW = [
     to: '/plugins',
   },
   {
+    id: '2026-10-30-simpler-setup-start',
+    date: '2026-10-30',
+    title: 'A simpler first setup',
+    blurb: 'Generate images asks one question first: Local or API. Local asks for your ComfyUI folder, then offers its '
+      + 'engines. Captioning always offers Ollama and LM Studio, and an API engine card that needs a key links straight to its settings.',
+    to: '/setup',
+  },
+  {
     id: '2026-10-24-plugin-free-member-comparison',
     date: '2026-10-24',
     title: 'See what each plugin includes for free and for members',
