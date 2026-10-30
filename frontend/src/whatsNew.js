@@ -84,6 +84,22 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-30-z-members-update-notice',
+    date: '2026-10-30',
+    title: 'See when the LDS members version is available',
+    blurb: 'Once your Patreon membership is linked, the update dot and a banner tell you when a newer members version '
+      + 'exists, with a button that opens Updates to install it.',
+    to: '/settings/maintenance',
+  },
+  {
+    id: '2026-10-30-store-newer-plugin',
+    date: '2026-10-30',
+    title: 'One plugin can no longer hide the whole Patreon catalog',
+    blurb: 'A plugin made for a newer LDS is now left out on its own: every other plugin of the catalog stays visible '
+      + 'and installable.',
+    to: '/plugins',
+  },
+  {
     id: '2026-10-24-plugin-free-member-comparison',
     date: '2026-10-24',
     title: 'See what each plugin includes for free and for members',

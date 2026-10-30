@@ -51,6 +51,7 @@ import { versionLabel } from './utils/versionLabel'
 import { useTrainingActivity } from './hooks/useTrainingActivity'
 import { activityLabel } from './utils/trainingActivity'
 import { installMode } from './components/settings/updateStatus'
+import { settingsLinkHref } from './components/common/settingsLinkHref'
 import { waitForRelaunchedServer } from './utils/serverRestart'
 import { UsageStatisticsProvider } from './usage/UsageStatisticsContext'
 import UsageStatisticsBanner from './usage/UsageStatisticsBanner'
@@ -86,6 +87,7 @@ function CheckUpdatesButton() {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [available, setAvailable] = useState(false)
+  const [members, setMembers] = useState(null)
   useEffect(() => {
     let alive = true
     const autoCheck = async () => {
@@ -100,6 +102,10 @@ function CheckUpdatesButton() {
           window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
         }
       } catch { /* offline — the manual button stays available */ }
+      const m = await membersUpdate()
+      if (!alive) return
+      setMembers(m)
+      window.dispatchEvent(new CustomEvent('lds:members-update', { detail: m }))
     }
     autoCheck()
     // 1 h: the project ships several times a day right now — 6 h let a tab
@@ -112,11 +118,17 @@ function CheckUpdatesButton() {
     setBusy(true)
     try {
       const d = await apiFetch('/api/update/check?force=1')
+      const m = await membersUpdate(true)
       setAvailable(!!d?.update_available)
+      setMembers(m)
       window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
+      if (m) sessionStorage.removeItem('membersUpdateBannerDismissed')
+      window.dispatchEvent(new CustomEvent('lds:members-update', { detail: m }))
       if (d?.update_available) {
         sessionStorage.removeItem('updateBannerDismissed')     // re-show even if dismissed
         toast.success(`Update available — v${d.latest || d.remote_sha || 'new'}`)
+      } else if (m) {
+        toast.success(`LDS members version ${m.release?.version || ''} is available`.trim())
       } else if (d?.ok) {
         // On a git checkout the release number alone is misleading — see versionLabel.
         toast.info(`You're up to date — ${versionLabel(d)}`)
@@ -129,20 +141,64 @@ function CheckUpdatesButton() {
       setBusy(false)
     }
   }
+  const lit = available || !!members
   return (
     <button type="button" onClick={check} disabled={busy}
-      title={available ? 'Update available — click to review' : 'Check for updates'}
-      className={`${NAV_ITEM_BASE} relative ${available
+      title={lit ? 'Update available — click to review' : 'Check for updates'}
+      className={`${NAV_ITEM_BASE} relative ${lit
         ? 'text-emerald-300 hover:text-emerald-200'
         : 'text-content-muted hover:text-content'} hover:bg-surface-raised disabled:opacity-50`}>
       {busy
         ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
         : <ArrowUp aria-hidden="true" className="h-4 w-4" />}
-      {available && (
+      {lit && (
         <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
       )}
-      <span className="sr-only">{available ? 'Update available' : 'Check for updates'}</span>
+      <span className="sr-only">{lit ? 'Update available' : 'Check for updates'}</span>
     </button>
+  )
+}
+
+/** The members version comes through the Patreon channel, which
+ * /api/update/check cannot see: a member who had just linked Patreon on a
+ * public install was never told it existed. Null when nothing newer is
+ * offered to this installation (free users are never entitled). */
+async function membersUpdate(force = false) {
+  try {
+    const m = await apiFetch(`/api/update/patreon${force ? '?force=1' : ''}`, { background: true })
+    return m?.entitled && m?.update_available ? m : null
+  } catch { return null }
+}
+
+/** Says that the members version exists. Settings › Updates installs it: its
+ * card owns the download, the progress and the restart. */
+function MembersUpdateBanner() {
+  const [info, setInfo] = useState(null)
+  useEffect(() => {
+    const onFound = (e) => setInfo(e.detail || null)
+    window.addEventListener('lds:members-update', onFound)
+    return () => window.removeEventListener('lds:members-update', onFound)
+  }, [])
+  const version = info?.release?.version || ''
+  if (!info || sessionStorage.getItem('membersUpdateBannerDismissed') === version) return null
+  return (
+    <div className="mx-auto max-w-5xl px-4 pt-3">
+      <div role="status"
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm">
+        <span aria-hidden>⬆</span>
+        <span className="text-content">
+          LDS members version <span className="font-semibold">{version || 'update'}</span> is available.
+        </span>
+        <a href={settingsLinkHref('maintenance', 'settings-updates')}
+          className="rounded-md bg-gradient-primary px-3 py-1 text-xs font-semibold text-gray-950 transition-transform hover:-translate-y-px">
+          Install it from Updates
+        </a>
+        <button type="button"
+          onClick={() => { sessionStorage.setItem('membersUpdateBannerDismissed', version); setInfo(null) }}
+          aria-label="Dismiss members update notice"
+          className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
+      </div>
+    </div>
   )
 }
 
@@ -524,6 +580,7 @@ function Shell() {
       <SetupHealthNotice />
       <ComfyRecoveryBanner />
       <UpdateBanner />
+      <MembersUpdateBanner />
       <UsageStatisticsBanner />
       <main id="main-content" tabIndex={-1}
         className={boardRoute
