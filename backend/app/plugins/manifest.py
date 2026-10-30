@@ -53,6 +53,11 @@ class ManifestError(ValueError):
     """The manifest is not usable. The message names the field and the rule."""
 
 
+class ManifestNeedsNewerApp(ManifestError):
+    """The manifest uses vocabulary added after this version of the app (a
+    permission, an ownership kind): a newer LDS reads it, this one cannot."""
+
+
 @dataclass(frozen=True)
 class PluginManifest:
     id: str
@@ -179,7 +184,7 @@ def parse_manifest(data: dict, directory: Path, *, where: str = MANIFEST_NAME,
         raise ManifestError(f'{where}: "owns" must be an object')
     for key in owns_raw:
         if key not in OWNS_KEYS:
-            raise ManifestError(f'{where}: "owns.{key}" is not a known ownership kind')
+            raise ManifestNeedsNewerApp(f'{where}: "owns.{key}" is not a known ownership kind')
     owns = {}
     for key in OWNS_LISTS:
         owns[key] = list(_str_list(owns_raw, key, f'{where} owns'))
@@ -243,7 +248,7 @@ def parse_manifest(data: dict, directory: Path, *, where: str = MANIFEST_NAME,
     permissions = _str_list(data, 'permissions', where)
     for perm in permissions:
         if perm not in PERMISSIONS and not SECRET_PERMISSION.match(perm):
-            raise ManifestError(f'{where}: permission {perm!r} is not in the vocabulary')
+            raise ManifestNeedsNewerApp(f'{where}: permission {perm!r} is not in the vocabulary')
     from .package_contract import PackageContractError, validate_contract
     try:
         contract = validate_contract(data)
