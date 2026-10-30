@@ -164,7 +164,7 @@ function UpdatesCard() {
     apply({ forcePublic: true })
   }
   return (
-    <Card title="Updates" help={dockerMode
+    <Card id="settings-updates" title="Updates" help={dockerMode
       ? 'Docker installs are updated from the host: update-docker.bat downloads the new version and '
         + 'rebuilds the image (a Git checkout is pulled by hand).'
       : pinokioMode
