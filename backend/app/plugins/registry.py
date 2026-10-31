@@ -112,6 +112,8 @@ class PluginRecord:
 
 class PluginRegistry:
     def __init__(self):
+        from .membership import MemberAccess
+        self.membership = MemberAccess()
         self.boot_id = uuid.uuid4().hex
         self.lifecycle_errors: list[dict] = []
         self.records: dict[str, PluginRecord] = {}

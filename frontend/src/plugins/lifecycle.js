@@ -1,7 +1,13 @@
-// The loaded runtime and the requested configuration are different until boot.
-export function pluginActive(plugin) {
+import { pluginMembership } from './registry.js';
+
+// Registration survives a membership change, so reconnection needs no restart.
+export function pluginLoaded(plugin) {
   return typeof plugin.active === 'boolean'
     ? plugin.active : Boolean(plugin.enabled && plugin.state === 'loaded');
+}
+
+export function pluginActive(plugin) {
+  return pluginLoaded(plugin) && pluginMembership(plugin.id, plugin.membership)?.allowed !== false;
 }
 
 export function pluginDesired(plugin) {

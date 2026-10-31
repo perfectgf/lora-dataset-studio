@@ -17,7 +17,45 @@ import {
   patreonCheckFailure,
   patreonUpdateView,
   publicReleaseNotice,
+  membersUpdateAvailable,
+  updateCheckFeedback,
+  latestUpdateLabel,
 } from './updateStatus.js';
+
+test('a newer Patreon build takes precedence over a current public channel', () => {
+  const current = { ok: true, channel: 'patreon', current: '2026.10.24.8', update_available: false };
+  const members = { status: 'ready', on_channel: true, entitled: true, can_apply: true,
+    update_available: true, release: { version: '2026.10.30.1' } };
+  const feedback = updateCheckFeedback(current, members);
+  assert.equal(feedback.type, 'success');
+  assert.match(feedback.message, /2026\.10\.30\.1 is available with your Patreon membership/);
+  assert.doesNotMatch(feedback.message, /up to date/i);
+  assert.equal(latestUpdateLabel(current, members), 'v2026.10.30.1 (Patreon)');
+  assert.equal(membersUpdateAvailable(members), true);
+});
+
+test('an unavailable or pending Patreon check never claims the installation is current', () => {
+  const current = { ok: true, channel: 'patreon', current: '2026.10.24.8' };
+  for (const status of ['unavailable', 'not_configured']) {
+    const failed = { status, message: 'Patreon could not be checked.' };
+    const feedback = updateCheckFeedback(current, failed);
+    assert.equal(feedback.type, 'warning');
+    assert.doesNotMatch(feedback.message, /up to date/i);
+    assert.equal(latestUpdateLabel(current, failed), 'Patreon check unavailable');
+    assert.equal(membersUpdateAvailable(failed), false);
+  }
+  assert.match(updateCheckFeedback(current, null).message, /Checking Patreon/);
+});
+
+test('update feedback distinguishes members access, a pending restart and a completed check', () => {
+  const current = { ok: true, current: '2026.10.30.1', update_available: false };
+  const offered = { status: 'ready', update_available: true, release: { version: '2026.10.31.1' } };
+  assert.equal(membersUpdateAvailable(offered), false);
+  assert.match(updateCheckFeedback(current, offered).message, /available to Patreon members/);
+  assert.match(updateCheckFeedback(current, { ...offered, restart_required: true }).message, /Restart LDS/);
+  assert.match(updateCheckFeedback(current, { status: 'ready', update_available: false }).message, /up to date/);
+  assert.equal(latestUpdateLabel({ ok: true }, { status: 'not_configured' }), 'No newer public build reported');
+});
 
 test('formatMB is compact and empty for unknown sizes', () => {
   assert.equal(formatMB(0), '');

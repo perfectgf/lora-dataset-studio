@@ -11,6 +11,7 @@ const { InstallPlan } = await import('../src/pages/store/Catalog.jsx')
 const { default: PluginCard } = await import('../src/pages/store/PluginCard.jsx')
 const { default: SupportProjectNotice } = await import('../src/components/common/SupportProjectNotice.jsx')
 const { MemoryRouter } = await import('react-router')
+const { resetRegistry, setMembership } = await import('../src/plugins/registry.js')
 
 const JOIN = 'https://www.patreon.com/c/example'
 const UNLINKED = { status: 'not_connected', patreon: { linked: false, status: 'inactive', tier: null,
@@ -19,6 +20,23 @@ const PRO = { status: 'ready', patreon: { linked: true, status: 'active', tier: 
   join_url: JOIN, request_url: 'https://requests.example.test/form' } }
 const state = (access, extra = {}) => ({ access, busy: false, error: '', authorizeUrl: '',
   load() {}, connect() {}, disconnect() {}, ...extra })
+
+test('an installed member plugin is visibly locked without an Open action', () => {
+  resetRegistry()
+  const plugin = { id: 'patreon.example', name: 'Member tool', active: true, state: 'loaded',
+    version: '1.0.0', enabled: true, package_contract: { experience: {
+      entrypoints: [{ path: '/p/patreon.example', label: 'Open member tool' }],
+    } } }
+  setMembership({ plugin_ids: [plugin.id], allowed: false, message: 'Connect Patreon to use this plugin.' })
+  const locked = render(() => createElement(MemoryRouter, null, createElement(PluginCard, { plugin })))
+  assert.match(locked, /Membership required/)
+  assert.match(locked, /Connect Patreon to use this plugin/)
+  assert.doesNotMatch(locked, /Open member tool|Active now/)
+  setMembership({ plugin_ids: [plugin.id], allowed: true })
+  const unlocked = render(() => createElement(MemoryRouter, null, createElement(PluginCard, { plugin })))
+  assert.match(unlocked, /Open member tool/)
+  resetRegistry()
+})
 
 test('membership actions render in every state', () => {
   const unlinked = render(PatreonAccessActions, { state: state(UNLINKED) })

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { apiFetch, postJson } from '../../api/fetchClient.js';
+import { notifyMembershipChanged } from '../../plugins/membership.js';
 import {
   ACCESS_NOTICE_DISMISSED_KEY, ADMIN_HINT, CODE_PROMPT, JUST_JOINED_HINT, PATREON_ACCESS_SUMMARY,
   membershipLabel, patreonActions, safeAuthorizeUrl, safeJoinUrl, safeRequestUrl,
@@ -25,6 +26,7 @@ export function usePatreonAccess(adminToken = '', initial = null) {
       const value = await apiFetch(ENDPOINT, { headers, signal, cache: 'no-store', background: true });
       if (!signal?.aborted) {
         setAccess(value); setError('');
+        notifyMembershipChanged(value?.patreon?.status !== 'active');
         // A member needs neither link of the Dataset page announcement.
         if (value?.patreon?.status === 'active') {
           try { localStorage.setItem(ACCESS_NOTICE_DISMISSED_KEY, '1'); }
@@ -34,6 +36,7 @@ export function usePatreonAccess(adminToken = '', initial = null) {
     } catch (failure) {
       if (signal?.aborted || failure?.name === 'AbortError') return;
       setAccess({ status: failure?.status === 403 ? 'not_permitted' : 'unavailable', patreon: null });
+      notifyMembershipChanged(true);
       setError('');
     }
   }, [headers]);
@@ -49,7 +52,7 @@ export function usePatreonAccess(adminToken = '', initial = null) {
     try {
       return await postJson(`${ENDPOINT}/${path}`, body, { headers });
     } catch (failure) {
-      setError(failure?.message || 'Patreon could not be reached. Installed plugins and this version of LDS keep working.');
+      setError(failure?.message || 'Patreon could not be reached. Your installed files are kept.');
       return null;
     } finally { setBusy(false); }
   };
@@ -64,13 +67,14 @@ export function usePatreonAccess(adminToken = '', initial = null) {
   };
 
   const disconnect = async () => {
-    if (!window.confirm('Disconnect Patreon from this installation? Installed plugins keep working; new downloads and updates will need Patreon again.')) return;
-    if (await post('unlink')) { setAuthorizeUrl(''); await load(); }
+    if (!window.confirm('Disconnect Patreon from this installation? Members-only plugins and the online library will lock immediately. Your files are kept.')) return;
+    if (await post('unlink')) { notifyMembershipChanged(true); setAuthorizeUrl(''); await load(); }
   };
 
   // The server names each refusal (wrong or expired code, too many attempts…).
   const confirm = async (code) => {
     if (!(await post('confirm', { code }))) return false;
+    notifyMembershipChanged();
     setAuthorizeUrl('');
     await load();
     return true;

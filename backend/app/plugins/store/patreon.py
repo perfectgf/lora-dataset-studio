@@ -66,9 +66,9 @@ class PatreonRefusal(StoreError):
 
 
 MEMBERSHIP_REQUIRED = ('Your Patreon membership is not active for this download. Join on Patreon, or connect '
-                       'Patreon again if you just joined, then retry. Installed plugins keep working.')
-VERIFICATION_UNAVAILABLE = ('Patreon could not verify your membership right now. Installed plugins and this '
-                            'version of LDS keep working; try again in a few minutes.')
+                       'Patreon again if you just joined, then retry. Your installed files are kept.')
+VERIFICATION_UNAVAILABLE = ('Patreon could not verify your membership right now. Members-only plugins require '
+                            'verification; your files and the rest of LDS remain available.')
 MALFORMED_CODE = 'Enter the 8-character code shown on the Patreon page, for example ABCD-2345.'
 # The named errors of POST /v1/patreon/confirm.
 CONFIRM_ERRORS = {
@@ -369,20 +369,34 @@ def register_patreon_routes(bp):
         if administration and (denied := require_admin()) is not None:
             return denied
         try:
-            result = operation(PatreonClient())
+            from ..membership import current_access
+            access = current_access()
+            with access.lock:
+                result = operation(PatreonClient())
+                if 'patreon' in result:
+                    access.observe(result)
             response = jsonify({**result, 'can_manage': is_admin()})
             response.headers['Cache-Control'] = 'no-store'
             return response
         except StoreNotConfigured as exc:
+            from ..membership import current_access
+            current_access().observe({'status': 'not_configured'})
             return jsonify(status='not_configured', message=str(exc), patreon=None, can_manage=is_admin()), 200
         except PatreonRefusal as exc:
             return jsonify(error=str(exc), code=exc.code, status='refused'), 409
         except (StoreError, OSError):
-            return jsonify(error='Patreon could not be reached or refused the request. Installed plugins '
-                                 'and this version of LDS keep working.', status='unavailable', patreon=None,
+            from ..membership import current_access
+            current_access().observe({'status': 'unavailable'})
+            return jsonify(error='Patreon could not be reached or refused the request. Your files are kept; '
+                                 'members-only plugins need an active verified membership.', status='unavailable', patreon=None,
                            can_manage=is_admin()), 409
 
     def changed(result):
+        from ..membership import current_access
+        access = current_access()
+        access.forget()
+        if result.get('status') == 'unlinked':
+            access.observe({'status': 'not_connected'})
         from ...services import patreon_core
         patreon_core.forget_status()
         return result

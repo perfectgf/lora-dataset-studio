@@ -103,7 +103,7 @@ export default function Library({ catalog, refresh = 0, onChanges, onPlan, admin
         <RefreshCw className="h-4 w-4" aria-hidden="true" />Refresh library
       </button>
     </div>
-    <p className="text-sm text-content-muted">Installed plugins keep working offline. Purchases and renewals control new downloads and eligible updates.</p>
+    <p className="text-sm text-content-muted">Purchased plugins keep working offline. Members-only plugins require an active Patreon membership. Your installed files are kept.</p>
     {error && <p role="alert" className="text-sm text-amber-500">{error}</p>}
     {unavailable && <p role="status" className="text-sm text-content-muted">{library?.message || (!library ? 'Loading your library…' : 'The purchase service is unavailable. Existing installations are unaffected.')}</p>}
     {library?.status === 'not_connected' && <div className="space-y-2">

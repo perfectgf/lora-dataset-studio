@@ -108,5 +108,6 @@ export function failureView(error) {
     hfGated: gated,
     interpreter,
     hfTransfer,
+    checkToolkit: !gpu && !gated && !interpreter && !hfTransfer && (!text || moduleFailure),
   };
 }

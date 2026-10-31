@@ -18,10 +18,10 @@ import ReactDOM from 'react-dom/client'
 import * as ReactDOMPortal from 'react-dom'
 import * as ReactJSXRuntime from 'react/jsx-runtime'
 import { Link, NavLink, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
-import { discardExternalDescriptor, plugins, problems, registerDescriptor, setEnabled } from './registry.js'
+import { discardExternalDescriptor, plugins, problems, registerDescriptor, setEnabled, setMembership } from './registry.js'
 import { apiFetch, del, patchJson, postForm, postJson, putJson } from '../api/fetchClient.js'
 import { loadModuleScript } from './moduleScripts.js'
-import { pluginActive } from './lifecycle.js'
+import { pluginLoaded } from './lifecycle.js'
 import { loadPluginStyles } from './styles.js'
 
 export const LDS_PLUGIN_API_MAJOR = 1
@@ -154,14 +154,15 @@ export async function loadPlugins({
     return finishLoading(result)
   }
   const list = payload.plugins
+  setMembership(payload.membership || { plugin_ids: [], allowed: false })
   if (globalThis.window?.lds) globalThis.window.lds.bootId = payload.boot_id
-  result.enabled = list.filter(pluginActive).map((p) => p.id)
+  result.enabled = list.filter(pluginLoaded).map((p) => p.id)
   setEnabled(result.enabled)
   writeCache(storage, result.enabled)
   for (const p of list) {
     // Legacy bundled sources have no frontend URL. Packaged plugins use the
     // same loader regardless of how they were delivered to the installation.
-    if (!pluginActive(p) || !p.frontend || !doc) continue
+    if (!pluginLoaded(p) || !p.frontend || !doc) continue
     let css
     const expected = { id: p.id, name: p.name, official: p.official === true, guideOwnership: p.guide_ownership, registered: false, error: null }
     try {

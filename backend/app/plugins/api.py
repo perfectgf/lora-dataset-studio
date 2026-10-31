@@ -116,6 +116,10 @@ class PluginContext:
             if not available():
                 return jsonify(ok=False, code='plugin_unavailable',
                                error='This plugin is unavailable. Enable it in Plugins and restart LDS.'), 409
+            from .membership import refusal
+            access = self._registry.membership.check(self._registry.records.get(self.id))
+            if not access['allowed']:
+                return refusal(access)
             return None
 
         # Install before deferred before_app_request callbacks can short-circuit
@@ -130,7 +134,10 @@ class PluginContext:
         def while_available(callback):
             @wraps(callback)
             def run(*args, **kwargs):
-                return self.app.ensure_sync(callback)(*args, **kwargs) if available() else None
+                if available() and self._registry.membership.check(
+                        self._registry.records.get(self.id), refresh=request.endpoint in endpoints)['allowed']:
+                    return self.app.ensure_sync(callback)(*args, **kwargs)
+                return None
             return run
 
         # URL preprocessors execute even before app.before_request; global

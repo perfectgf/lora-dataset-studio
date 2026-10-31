@@ -23,6 +23,7 @@ test('a proven cause replaces the generic guesswork list', () => {
   // a Hugging Face token" for EVERY crash, which is noise once we know exactly.
   const withGate = failureView({ rc: 1, excerpt: EXCERPT, hf_gated: GATED_401 });
   assert.equal(withGate.causes, '');
+  assert.equal(withGate.checkToolkit, false);
   const without = failureView({ rc: 1, excerpt: EXCERPT });
   assert.equal(without.causes, GENERIC_CAUSES);
   assert.equal(without.hfGated, null);
@@ -68,10 +69,12 @@ test('a torch failure NEVER suggests a Hugging Face token', () => {
   // real gated-model message ambiguous when it finally appeared.
   const withVerdict = failureView({ rc: 1, excerpt: TORCH_EXCERPT, interpreter: INTERPRETER });
   assert.equal(withVerdict.causes, '');
+  assert.equal(withVerdict.checkToolkit, false); // the verdict already has its own link
   // …and even without the backend verdict, the log alone is enough to drop it.
   const bare = failureView({ rc: 1, excerpt: TORCH_EXCERPT });
   assert.equal(bare.interpreter, null);
   assert.equal(bare.causes, MODULE_CAUSES);
+  assert.equal(bare.checkToolkit, true);
   // Hugging Face appears only to be RULED OUT, never as somewhere to go.
   assert.ok(!/token/i.test(bare.causes));
   assert.ok(/not a model or hugging face problem/i.test(bare.causes));
@@ -84,6 +87,7 @@ test('a non-module crash keeps the generic list untouched', () => {
   });
   assert.equal(view.causes, GENERIC_CAUSES);
   assert.equal(view.interpreter, null);
+  assert.equal(view.checkToolkit, false);
 });
 
 test('an empty interpreter payload is ignored rather than shown blank', () => {

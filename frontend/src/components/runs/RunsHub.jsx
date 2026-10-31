@@ -17,6 +17,7 @@ import { runStagingCleanup } from '../../utils/stagingCleanup.js'
 import { StatusBadge, timeAgo, famLabel, cardAccent, RunThumb, PodKeptNote, FullArtifactStatus, AutoRetryBadges, RecipeWarning, settingsLine, checkpointHref } from './RunHistoryAtoms.jsx'
 import useRunsHubContinue from './useRunsHubContinue.js'
 import { studioRunTarget } from '../../utils/studioRunNavigation.js'
+import RunError from './RunError.jsx'
 export { StatusBadge, timeAgo, famLabel, FullArtifactStatus, AutoRetryBadges, RecipeWarning, checkpointHref } from './RunHistoryAtoms.jsx'
 
 const POLL_MS = 5000
@@ -369,10 +370,7 @@ const renderRunCard = (run, i) => {
               shows on a phone — where this was reported. Newlines are real, hence
               whitespace-pre-line; clamped so a stack trace cannot take over the page. */}
           {run.error && (run.status === 'error' || run.status === 'error_pod_kept') && (
-            <p className="m-0 whitespace-pre-line line-clamp-5 text-rose-300/90 text-[0.6875rem]"
-              title={run.error}>
-              {run.error}
-            </p>
+            <RunError error={run.error} dedicatedToken={run.source === 'cloud' && fullModel} />
           )}
           {/* The boot timeout said in full: the raw error names the timer but
               never what became of the machine that was rented, which is the one

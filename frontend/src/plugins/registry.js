@@ -12,13 +12,38 @@ const ID = /^[a-z][a-z0-9_]{1,31}(\.[a-z][a-z0-9_]{1,31})?$/
 const state = {
   descriptors: new Map(),   // id -> { descriptor, external }
   enabled: null,            // Set of ids, or null = everything registered counts (before the manifest)
+  membership: { plugin_ids: [], allowed: false },
   problems: [],             // { plugin, message } — shown by the Plugins page
+}
+
+let revision = 0
+const listeners = new Set()
+export const pluginRevision = () => revision
+export const subscribePlugins = (listener) => { listeners.add(listener); return () => listeners.delete(listener) }
+function changed() { revision += 1; for (const listener of listeners) listener() }
+
+export function setMembership(value) {
+  const next = { ...value, plugin_ids: Array.isArray(value?.plugin_ids) ? [...value.plugin_ids].sort() : state.membership.plugin_ids,
+    allowed: value?.allowed === true }
+  if (JSON.stringify(next) === JSON.stringify(state.membership)) return
+  state.membership = next
+  changed()
+}
+
+export function membershipBlocked(id) {
+  return state.membership.plugin_ids.includes(id) && !state.membership.allowed
+}
+
+export function pluginMembership(id, fallback = null) {
+  return state.membership.plugin_ids.includes(id) ? state.membership : fallback
 }
 
 export function resetRegistry() {
   state.descriptors.clear()
   state.enabled = null
+  state.membership = { plugin_ids: [], allowed: false }
   state.problems.length = 0
+  changed()
 }
 
 export function validateDescriptor(descriptor, guideOwnership) {
@@ -68,6 +93,7 @@ export function registerDescriptor(descriptor, { external = false, official = fa
 
 export function setEnabled(ids) {
   state.enabled = new Set(ids)
+  changed()
 }
 
 /** A module that failed after registration must contribute nothing this boot. */
@@ -82,7 +108,7 @@ export function problems() {
 function active() {
   const out = []
   for (const { descriptor } of state.descriptors.values()) {
-    if (state.enabled === null || state.enabled.has(descriptor.id)) out.push(descriptor)
+    if ((state.enabled === null || state.enabled.has(descriptor.id)) && !membershipBlocked(descriptor.id)) out.push(descriptor)
   }
   return out
 }
