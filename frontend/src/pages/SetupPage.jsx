@@ -159,9 +159,11 @@ export default function SetupPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const journey = normalizeJourney(Object.fromEntries(searchParams))
   const requestedScreen = SCREENS.indexOf(searchParams.get('step'))
-  const screen = requestedScreen >= 0 ? requestedScreen : 0
+  // Setup opens on the tools overview. The guided menu is ?step=welcome, and a
+  // setup plan in the URL (goal=…) still opens that plan.
+  const screen = requestedScreen >= 0 ? requestedScreen : journey ? 0 : SCREENS.indexOf('tools')
   const setScreen = (next) => setSearchParams(
-    { ...(journey || {}), ...(SCREENS[next] === 'welcome' ? {} : { step: SCREENS[next] }) }, { replace: true })
+    { ...(journey || {}), ...(SCREENS[next] === 'welcome' && journey ? {} : { step: SCREENS[next] }) }, { replace: true })
   const [advancing, setAdvancing] = useState(false) // Next is mid save-&-recheck
   const kind = SCREENS[screen]
   const optionalScreen = (kind !== 'welcome' && kind !== 'done')
@@ -1806,13 +1808,19 @@ export default function SetupPage() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           {skipLink}
-          {/* Welcome leads to configuring the services first; the install step (Install
-              everything + the one-by-one menu) comes AFTER, since several installs depend
-              on a configured ComfyUI/Ollama. */}
-          <button type="button" onClick={() => setScreen(INSTALL)}
-            className="min-h-10 rounded-lg border border-border-strong px-5 py-2 text-sm font-semibold text-content">
-            Downloads & repair
-          </button>
+          <div className="flex flex-wrap items-center gap-4">
+            <button type="button" onClick={() => setScreen(0)}
+              className="inline-flex min-h-10 items-center text-sm text-content-muted underline hover:text-content">
+              Guided setup
+            </button>
+            {/* Welcome leads to configuring the services first; the install step (Install
+                everything + the one-by-one menu) comes AFTER, since several installs depend
+                on a configured ComfyUI/Ollama. */}
+            <button type="button" onClick={() => setScreen(INSTALL)}
+              className="min-h-10 rounded-lg border border-border-strong px-5 py-2 text-sm font-semibold text-content">
+              Downloads & repair
+            </button>
+          </div>
         </div>
       </div>
     )

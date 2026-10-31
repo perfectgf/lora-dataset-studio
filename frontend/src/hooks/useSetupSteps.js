@@ -23,8 +23,9 @@ export const SETUP_STEP_IDS = ['image', 'comfyui', 'ollama', 'quality', 'trainin
 // 'install' — the install/repair menu is a real destination (the one-click
 // engine installs live there), it just isn't a tool to configure. SetupPage's
 // SCREENS list is the display order; this one is the LINKABLE set, used by the
-// What's-new target validator and the help-registry contract test.
-export const SETUP_DEEP_LINK_STEPS = [...SETUP_STEP_IDS, 'install', 'tools']
+// What's-new target validator and the help-registry contract test. 'welcome' is
+// the guided menu: a bare /setup opens 'tools'.
+export const SETUP_DEEP_LINK_STEPS = [...SETUP_STEP_IDS, 'install', 'tools', 'welcome']
 
 // Shared with the plugins' Setup rows (the `setup.step` slot): the note a
 // lane shows while ComfyUI is merely off, and the topic that door opens.

@@ -84,6 +84,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-07-setup-opens-on-tools',
+    date: '2026-11-07',
+    title: 'Setup opens on your tools',
+    blurb: 'Setup now opens on the overview of your tools: what is ready, what is missing, and Downloads & repair. '
+      + 'The guided setup by goal is one click away.',
+    to: '/setup',
+  },
+  {
     id: '2026-11-03-members-features-in-place',
     date: '2026-11-03',
     title: 'See the members features where they apply',
@@ -133,7 +141,7 @@ export const WHATS_NEW = [
     title: 'A simpler first setup',
     blurb: 'Generate images asks one question first: Local or API. Local asks for your ComfyUI folder, then offers its '
       + 'engines. Captioning always offers Ollama and LM Studio, and an API engine card that needs a key links straight to its settings.',
-    to: '/setup',
+    to: '/setup?step=welcome',
   },
   {
     id: '2026-10-24-plugin-free-member-comparison',
