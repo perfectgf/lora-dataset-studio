@@ -98,7 +98,8 @@ export default function SetupStart({ onTools, onRecheck, scanned = false, detect
     finally { setBusy(false) }
   }
   function recheck() { setRevision(value => value + 1); onRecheck?.() }
-  function changeGoal() { saveSetupJourney(null); setParams({}, { replace: true }); setError('') }
+  // Back to the menu itself: a bare /setup opens the tools overview.
+  function changeGoal() { saveSetupJourney(null); setParams({ step: 'welcome' }, { replace: true }); setError('') }
   // One Back, one level up: engine → Local/API → goal; function → plugin → goal.
   function back() {
     if (journey.goal === 'images' && journey.engine) choose({ goal: 'images', where: journey.where })
