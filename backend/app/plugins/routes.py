@@ -79,8 +79,12 @@ def lifecycle_payload(registry):
         except (OSError, ValueError):
             errors.append({'id': plugin_id, 'error': 'The pending plugin package is unreadable; its files are retained.'})
     plugins = []
+    from .membership import payload as membership_payload
+    membership = membership_payload(registry)
     for plugin_id, record in records.items():
         plugin = record.payload()
+        if plugin_id in membership['plugin_ids']:
+            plugin['membership'] = {key: value for key, value in membership.items() if key != 'plugin_ids'}
         operation = operations.get(plugin_id)
         desired = enabled.get(plugin_id)
         desired = True if desired is None else bool(desired)
@@ -99,6 +103,7 @@ def lifecycle_payload(registry):
         plugin['environment'] = environment.summary(record, registry) if runtime else None
         plugins.append(plugin)
     payload['plugins'] = plugins
+    payload['membership'] = membership
     payload['boot_id'] = registry.boot_id if registry else None
     payload['pending_restart'] = bool(operations or errors or any(p['pending_action'] for p in plugins))
     payload['lifecycle_errors'] = list(registry.lifecycle_errors if registry else []) + errors
@@ -116,6 +121,14 @@ def list_plugins():
     payload['api'] = {'major': LDS_PLUGIN_API_MAJOR, 'minor': LDS_PLUGIN_API_MINOR}
     payload['restart'] = restart_payload()
     return jsonify(payload)
+
+
+@bp.get('/membership')
+def plugin_membership():
+    from .membership import payload
+    response = jsonify(payload(_registry(), refresh=True))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 
 @bp.post('/apply')

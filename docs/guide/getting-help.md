@@ -49,9 +49,10 @@ members (**LDS Member**) first, then everyone; exclusive plugins stay members-on
 
 Connect Patreon under **Plugins → Purchases**. Members-only plugins then install
 from the Store like any other plugin, and new LDS versions appear under
-**Settings → Maintenance → Updates**. Installed plugins and the installed LDS
-version keep working if a membership ends; new downloads and updates need an
-active membership. You can also support development through
+**Settings → Maintenance → Updates**. Members-only plugins and the online Library
+require an active connected membership. Disconnecting locks them immediately;
+your installed files and data are kept. Public plugins and the installed LDS core
+remain usable. You can also support development through
 [GitHub Sponsors](https://github.com/sponsors/perfectgf); it does not include
 the Patreon membership benefits.
 

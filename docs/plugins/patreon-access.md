@@ -1,9 +1,10 @@
 # Patreon access
 
 New LDS versions reach Patreon members (LDS Member) first, then everyone;
-exclusive plugins stay members-only. The installed version and installed plugins
-keep working when a membership ends; members-only downloads and early updates
-need an active membership.
+exclusive plugins stay members-only. Members-only plugins, including Creative
+Library, require a connected active membership while in use. Disconnecting locks
+their routes and screens immediately; installed files and saved data are kept.
+The installed LDS core and public plugins remain usable.
 
 The app never sees Patreon credentials. **Connect Patreon** asks the operator's
 service for a one-time authorization link on `www.patreon.com`. After you
@@ -73,7 +74,10 @@ through the usual review; the archive comes through a download grant from the
 Patreon service, checked against the signed length and SHA-256. Without an
 active membership the review offers Connect Patreon and Join on Patreon, and
 **Update all** leaves the members-only plugins out of its batch, naming them,
-instead of blocking the other updates; their installed versions keep working.
+instead of blocking the other updates. Installed members-only plugins lock until
+an active membership is connected again, without a reinstall or restart. Runtime
+checks are cached for at most 15 seconds; a successful disconnect invalidates them
+immediately. An unavailable verification service does not extend cached access.
 
 ## Core updates
 

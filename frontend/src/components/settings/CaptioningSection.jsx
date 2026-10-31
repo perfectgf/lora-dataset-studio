@@ -312,6 +312,7 @@ export default function CaptioningSection({ config, setField, configDefaults }) 
       </Card>
 
       <Card
+        id="bank-quality-thresholds"
         title="Image bank triage"
         help="Thresholds for the Bank quality flags. Raw scores are stored per image, so changing a threshold re-sorts an already-scanned bank instantly — no rescan."
       >

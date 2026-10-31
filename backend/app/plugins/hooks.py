@@ -83,6 +83,9 @@ def run_filter(name: str, value, *args, strict: bool = False):
         return value
     for plugin_id, fn in registry.hooks.get(name, ()):
         try:
+            if name in ('caption.stamp', 'studio.enhance_writer') and not registry.membership.check(
+                    registry.records.get(plugin_id))['allowed']:
+                continue
             value = fn(value, *args)
         except Exception:  # noqa: BLE001 — one plugin's hook must not take the core pass down
             if strict:

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { HelpBadge } from '../../help/HelpMode';
 import InstallRunner from './InstallRunner';
+import SettingsLink from '../common/SettingsLink';
 
 const UPDATE_GUIDE = 'https://docs.comfy.org/installation/update_comfyui';
 const PORTABLE_RELEASES = 'https://github.com/Comfy-Org/ComfyUI/releases/latest';
@@ -119,7 +120,10 @@ export default function ComfyNodeRepair({ nodes = [], nodePacks = [], onRefresh 
       {expanded && (
         <div id={helpId} className="min-w-0 space-y-3 border-t border-border pt-3">
           {comfyUrl && <a href={comfyUrl} target="_blank" rel="noopener noreferrer" className={linkClass}>Open ComfyUI</a>}
-          {addressError && <p role="alert" className="break-words text-red-400">{addressError}</p>}
+          {addressError && <p role="alert" className="break-words text-red-400">
+            {addressError}{' '}
+            <SettingsLink section="local-tools" focus="comfyui-api-url" tone="warning">Check ComfyUI address</SettingsLink>
+          </p>}
           <p>Let running and queued jobs finish before closing ComfyUI.</p>
           {installGroups.map((pack) => (
             <div key={pack.class_type} className="space-y-1">
@@ -189,7 +193,7 @@ export default function ComfyNodeRepair({ nodes = [], nodePacks = [], onRefresh 
                 <a href={MODEL_PATHS} target="_blank" rel="noopener noreferrer" className={linkClass}>Share existing models with a separate installation</a>
               </div>
               <p>For a separate installation, select its folder and API address in LDS Settings before checking again.</p>
-              <a href="#/settings/local-tools" className={linkClass}>Open ComfyUI settings</a>
+              <SettingsLink section="local-tools" focus="comfyui-base-dir">Select ComfyUI folder</SettingsLink>
             </>
           )}
         </div>

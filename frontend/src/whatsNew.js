@@ -84,6 +84,27 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-10-31-huggingface-error-settings',
+    date: '2026-10-31',
+    title: 'Fix Hugging Face access errors from the failed run',
+    blurb: 'Hugging Face access errors now offer a read-token creation link and a field to save it without leaving the run. '
+      + 'Links also open the model’s access page and the exact token setting, including the dedicated token for full-model cloud runs.',
+  },
+  {
+    id: '2026-10-31-error-setting-shortcuts',
+    date: '2026-10-31',
+    title: 'Open the relevant setting directly from a warning',
+    blurb: 'Warnings about AI Toolkit, ComfyUI, local prompt models and quality thresholds now link to their exact settings.',
+  },
+  {
+    id: '2026-10-31-consistent-update-status',
+    date: '2026-10-31',
+    title: 'Update checks show the available members version consistently',
+    blurb: 'The update notification and Settings now use the same Patreon result. A newer members build takes precedence over '
+      + 'a current public version, a failed channel check cannot claim you are up to date, and Latest build names the offered Patreon version.',
+    to: '/settings/maintenance?focus=settings-updates',
+  },
+  {
     id: '2026-10-30-z-members-update-notice',
     date: '2026-10-30',
     title: 'See when the LDS members version is available',

@@ -1,6 +1,6 @@
 import { MoreHorizontal, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { pluginWhatsNew } from '../../plugins/registry.js';
+import { pluginWhatsNew, pluginMembership } from '../../plugins/registry.js';
 import { sortedEntries } from '../../whatsNew.js';
 import InstallRunner from '../../components/setup/InstallRunner';
 import HeaderMenu from '../../components/common/HeaderMenu';
@@ -48,6 +48,8 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
   onPatreonChanged, adminToken = '', publicRelease = null }) {
   const installed = plugin;
   plugin = plugin || release.manifest;
+  const memberAccess = pluginMembership(plugin.id, plugin.membership);
+  const locked = installed && memberAccess?.allowed === false;
   const requires = plugin.requires || [];
   const news = installed ? sortedEntries(pluginWhatsNew(plugin.id)) : [];
   const desired = installed && pluginDesired(plugin);
@@ -75,9 +77,9 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
             </span>}
           </div>
         </div>
-        <span className={'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ' + stateClass(installed && pluginActive(plugin) ? 'loaded' : plugin.state || 'disabled')}>
+        <span className={'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ' + stateClass(locked ? 'disabled' : installed && pluginActive(plugin) ? 'loaded' : plugin.state || 'disabled')}>
           <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
-          {installed ? pluginActive(plugin) ? 'Active now' : STATE_LABEL[plugin.state] || plugin.state : patreonProduct ? 'Patreon' : release.price?.kind === 'paid' ? 'Paid plugin' : 'Free'}
+          {locked ? 'Membership required' : installed ? pluginActive(plugin) ? 'Active now' : STATE_LABEL[plugin.state] || plugin.state : patreonProduct ? 'Patreon' : release.price?.kind === 'paid' ? 'Paid plugin' : 'Free'}
         </span>
       </header>
       <div className="flex flex-1 flex-col gap-3 px-4 py-4 sm:px-5">
@@ -88,6 +90,7 @@ export default function PluginCard({ plugin, release, mediaKey, updateAvailable,
         {/* The Patreon catalog serves no presentation images: no "coming soon" there. */}
         {release && !(patreonProduct && !presentationImages(release).length) && <Presentation key={mediaKey} release={release} />}
         {pending && <p className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-content" data-plugin-pending>{pending}</p>}
+        {locked && <p role="status" className="text-sm text-content-muted">{memberAccess.message || 'Connect an active Patreon membership in Plugins to use this plugin. Your files are kept.'}</p>}
         {release?.compatibility_issues?.length > 0 && <p className="text-sm text-amber-500">{release.compatibility_issues[0].message}</p>}
         {freeRelease ? <section aria-label={`Free features of ${plugin.name}`}
           className="space-y-2 rounded-lg border border-border p-3 text-sm" data-free-features>

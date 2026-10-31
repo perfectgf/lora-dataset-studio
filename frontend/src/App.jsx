@@ -1,5 +1,5 @@
 import PluginSlot from './plugins/PluginSlot.jsx'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useLocation } from 'react-router'
 import { Archive, ArrowUp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, Settings, X } from 'lucide-react'
 import { apiFetch, postJson } from './api/fetchClient'
@@ -31,7 +31,8 @@ const CloudRunsPage = lazyPage(() => import('./pages/CloudRunsPage'))
 const GalleryPage = lazyPage(() => import('./pages/GalleryPage'))
 const PluginsPage = lazyPage(() => import('./pages/PluginsPage'))
 const PluginSettingsPage = lazyPage(() => import('./pages/PluginSettingsPage'))
-import { navItems as pluginNavItems, routes as pluginRoutes } from './plugins/registry'
+import { navItems as pluginNavItems, routes as pluginRoutes, subscribePlugins, pluginRevision } from './plugins/registry'
+import { watchMembership } from './plugins/membership.js'
 import { lazyRoute } from './plugins/lazyRoute'
 import UnavailablePluginPage from './pages/UnavailablePluginPage.jsx'
 
@@ -50,7 +51,7 @@ import { useMediaQuery } from './hooks/useMediaQuery'
 import { versionLabel } from './utils/versionLabel'
 import { useTrainingActivity } from './hooks/useTrainingActivity'
 import { activityLabel } from './utils/trainingActivity'
-import { installMode } from './components/settings/updateStatus'
+import { installMode, membersUpdateAvailable, patreonCheckFailure, updateCheckFeedback } from './components/settings/updateStatus'
 import { settingsLinkHref } from './components/common/settingsLinkHref'
 import { waitForRelaunchedServer } from './utils/serverRestart'
 import { UsageStatisticsProvider } from './usage/UsageStatisticsContext'
@@ -90,6 +91,17 @@ function CheckUpdatesButton() {
   const [members, setMembers] = useState(null)
   useEffect(() => {
     let alive = true
+    const onPublicStatus = (event) => setAvailable(!!event.detail?.update_available)
+    const onPatreonStatus = (event) => {
+      const status = event.detail
+      // A failed refresh must not erase a previously confirmed update.
+      if (!status || !['ready', 'not_configured'].includes(status.status)) return
+      const next = membersUpdateAvailable(status) ? status : null
+      setMembers(next)
+      window.dispatchEvent(new CustomEvent('lds:members-update', { detail: next }))
+    }
+    window.addEventListener('lds:update-available', onPublicStatus)
+    window.addEventListener('lds:patreon-status', onPatreonStatus)
     const autoCheck = async () => {
       try {
         const d = await apiFetch('/api/update/check?auto=1', { background: true })
@@ -104,14 +116,17 @@ function CheckUpdatesButton() {
       } catch { /* offline — the manual button stays available */ }
       const m = await membersUpdate()
       if (!alive) return
-      setMembers(m)
-      window.dispatchEvent(new CustomEvent('lds:members-update', { detail: m }))
+      window.dispatchEvent(new CustomEvent('lds:patreon-status', { detail: m }))
     }
     autoCheck()
     // 1 h: the project ships several times a day right now — 6 h let a tab
     // sit stale most of a working day. Server-side TTL matches.
     const t = setInterval(autoCheck, 3600 * 1000)
-    return () => { alive = false; clearInterval(t) }
+    return () => {
+      alive = false; clearInterval(t)
+      window.removeEventListener('lds:update-available', onPublicStatus)
+      window.removeEventListener('lds:patreon-status', onPatreonStatus)
+    }
   }, [])
   const check = async () => {
     if (busy) return
@@ -120,21 +135,14 @@ function CheckUpdatesButton() {
       const d = await apiFetch('/api/update/check?force=1')
       const m = await membersUpdate(true)
       setAvailable(!!d?.update_available)
-      setMembers(m)
       window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
-      if (m) sessionStorage.removeItem('membersUpdateBannerDismissed')
-      window.dispatchEvent(new CustomEvent('lds:members-update', { detail: m }))
+      if (membersUpdateAvailable(m)) sessionStorage.removeItem('membersUpdateBannerDismissed')
+      window.dispatchEvent(new CustomEvent('lds:patreon-status', { detail: m }))
       if (d?.update_available) {
         sessionStorage.removeItem('updateBannerDismissed')     // re-show even if dismissed
-        toast.success(`Update available — v${d.latest || d.remote_sha || 'new'}`)
-      } else if (m) {
-        toast.success(`LDS members version ${m.release?.version || ''} is available`.trim())
-      } else if (d?.ok) {
-        // On a git checkout the release number alone is misleading — see versionLabel.
-        toast.info(`You're up to date — ${versionLabel(d)}`)
-      } else {
-        toast.error(d?.reason || 'Could not check for updates.')
       }
+      const feedback = updateCheckFeedback(d, m)
+      toast[feedback.type](feedback.message)
     } catch (e) {
       toast.error(e?.message || 'Update check failed.')
     } finally {
@@ -161,13 +169,12 @@ function CheckUpdatesButton() {
 
 /** The members version comes through the Patreon channel, which
  * /api/update/check cannot see: a member who had just linked Patreon on a
- * public install was never told it existed. Null when nothing newer is
- * offered to this installation (free users are never entitled). */
+ * public install was never told it existed. Preserve the full result so an
+ * unreachable channel cannot be mistaken for "no update". */
 async function membersUpdate(force = false) {
   try {
-    const m = await apiFetch(`/api/update/patreon${force ? '?force=1' : ''}`, { background: true })
-    return m?.entitled && m?.update_available ? m : null
-  } catch { return null }
+    return await apiFetch(`/api/update/patreon${force ? '?force=1' : ''}`, { background: true })
+  } catch (error) { return patreonCheckFailure(error) }
 }
 
 /** Says that the members version exists. Settings › Updates installs it: its
@@ -607,6 +614,8 @@ function Shell() {
 }
 
 function AppInner() {
+  useSyncExternalStore(subscribePlugins, pluginRevision, pluginRevision)
+  useEffect(() => watchMembership(), [])
   const toast = useToast()
   useEffect(() => { setToastRef(toast) }, [toast])
   return (
@@ -653,6 +662,7 @@ function AppInner() {
             {['/canvas', '/video-bank', '/video-dataset/:id'].filter(path => !pluginRoutes().some(route => route.path === path)).map(path => (
               <Route key={path} path={path} element={<UnavailablePluginPage />} />
             ))}
+            <Route path="/p/:pluginId/*" element={<UnavailablePluginPage />} />
             <Route path="*" element={<Navigate to="/datasets" replace />} />
           </Route>
         </Routes>

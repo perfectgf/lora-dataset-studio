@@ -19,6 +19,7 @@ import useOllamaFence from '../../../hooks/useOllamaFence';
 import { SUPERSEDED_ANSWER_NOTICE, keepAnswer } from '../../../utils/ollamaFence';
 import { modelPickerCopy } from '../../../utils/localLlm.js';
 import OllamaFenceNotice from '../../common/OllamaFenceNotice';
+import SettingsLink from '../../common/SettingsLink';
 import { enhanceBlocker } from './enhanceGate';
 import { activeLocalLlm } from '../../../utils/localLlm'
 
@@ -92,7 +93,7 @@ function EnhanceModelPopover({ model, onPick, onClose }) {
             but a vanilla model can refuse NSFW prompts; the abliterated captioning
             default is the safe choice there.{' '}
             {picker.canPull
-              ? 'Pull a new model from Settings › Local tools, or a dataset’s Captions ⚙️ options.'
+              ? <>Download a model in{' '}<SettingsLink section="local-tools" focus="ollama-vision-model">Ollama model settings</SettingsLink>.</>
               : 'Load another model inside LM Studio itself — it shows progress and lets you cancel, which this app cannot do for it.'}
           </p>
         </div>
@@ -120,7 +121,8 @@ export default function EnhancePromptButton({ prompt, onResult, className = '' }
   const { fence, runGuarded, unloadAndRetry, stopWaiting } = useOllamaFence({
     onError: (e) => toast.error(e?.message || 'Enhance failed'),
   });
-  const blocked = enhanceBlocker(activeLocalLlm(caps), { capsLoading: loading, customModel: model });
+  const localLlm = activeLocalLlm(caps);
+  const blocked = enhanceBlocker(localLlm, { capsLoading: loading, customModel: model });
   const empty = !((prompt || '').trim());
   const title = blocked
     || (empty ? 'Write a prompt first'
@@ -176,6 +178,14 @@ export default function EnhancePromptButton({ prompt, onResult, className = '' }
         className={`px-1.5 py-0.5 rounded border border-border bg-surface text-[0.625rem] hover:text-content ${model ? 'text-content' : 'text-content-subtle'}`}>
         <span aria-hidden>⚙️</span>
       </button>
+      {blocked && !loading && (
+        <SettingsLink section="local-tools" tone="warning"
+          focus={localLlm.provider === 'lmstudio'
+            ? (localLlm.reachable ? 'lmstudio-vision-model' : 'lmstudio-url')
+            : (localLlm.reachable ? 'ollama-vision-model' : 'ollama-url')}>
+          {localLlm.provider === 'lmstudio' ? 'LM Studio' : 'Ollama'} settings
+        </SettingsLink>
+      )}
       {optionsOpen && (
         <EnhanceModelPopover model={model} onPick={pick} onClose={() => setOptionsOpen(false)} />
       )}

@@ -69,6 +69,7 @@ import {
   memoryRiskLine, memoryStateLabel,
 } from './memorySavingAdvice';
 import SettingsLink from '../common/SettingsLink';
+import HuggingFaceTokenSetup from '../common/HuggingFaceTokenSetup.jsx';
 import { DatasetVersionChip, RunIdChip } from './RunIdentityBadges';
 import {
   cloudGroupsFrom, localRunIdentity, runRowDomId,
@@ -1624,7 +1625,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           <GraduationCap aria-hidden="true" className="h-4 w-4" /> {fullMode ? 'Full-model training' : 'LoRA Training'} ({typeLabel})
         </span>
         {!status.installed && (
-          <span className="text-amber-300 text-[0.6875rem]">ai-toolkit not ready — point to its Python (its venv/Scripts/python.exe) in Settings › Local tools</span>
+          <span className="text-amber-300 text-[0.6875rem]">
+            ai-toolkit not ready — check its{' '}
+            <SettingsLink section="local-tools" focus="aitoolkit-dir" tone="warning">installation folder</SettingsLink>
+            {' '}and{' '}
+            <SettingsLink section="local-tools" focus="aitoolkit-python" tone="warning">Python interpreter</SettingsLink>.
+          </span>
         )}
         {status.in_progress
           ? <span className="ml-auto flex items-center gap-2">
@@ -1707,12 +1713,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               <div className="font-semibold">{view.hfGated.title}</div>
               <p className="m-0 mt-0.5 break-words text-amber-200/90">{view.hfGated.message}</p>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                {view.hfGated.status === 401 && (
-                  <a href="#/settings/local-tools"
-                    className="text-amber-300 underline decoration-amber-300/50">
-                    Settings ▸ API keys →
-                  </a>
-                )}
+                <SettingsLink section="local-tools" focus="HF_TOKEN" tone="warning">
+                  Configure Hugging Face token
+                </SettingsLink>
                 {view.hfGated.repo && (
                   <a href={view.hfGated.url} target="_blank" rel="noreferrer"
                     className="min-w-0 break-all text-amber-300 underline decoration-amber-300/50">
@@ -1720,6 +1723,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                   </a>
                 )}
               </div>
+              <HuggingFaceTokenSetup />
             </div>
           )}
           {view.excerpt && (
@@ -1745,6 +1749,12 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
             <span className="min-w-0 text-red-300/80">{view.note}</span>
           </div>
           {view.causes && <div className="mt-1 text-red-300/80">{view.causes}</div>}
+          {view.checkToolkit && (
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+              <SettingsLink section="local-tools" focus="aitoolkit-python" tone="warning">Check AI Toolkit Python</SettingsLink>
+              {!view.excerpt && <SettingsLink section="local-tools" focus="aitoolkit-dir" tone="warning">Check AI Toolkit folder</SettingsLink>}
+            </div>
+          )}
         </div>
         );
       })()}

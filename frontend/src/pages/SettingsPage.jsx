@@ -21,6 +21,7 @@ import { guideChapters } from '../plugins/registry.js'
 import OverviewSection from '../components/settings/OverviewSection'
 import EnginesSection from '../components/settings/EnginesSection'
 import ScrapingSection from '../components/settings/ScrapingSection'
+import { notifyHuggingFaceTokenPresence } from '../hooks/useHuggingFaceTokenPresence.js'
 import LocalToolsSection from '../components/settings/LocalToolsSection'
 import CaptioningSection from '../components/settings/CaptioningSection'
 import TrainingSection from '../components/settings/TrainingSection'
@@ -103,6 +104,7 @@ export default function SettingsPage({ plugin = null, groups = [] }) {
       setConfigDefaults(data.config_defaults || {})
       setSecretsPresence(data.secrets)
       setLoadError('')
+      notifyHuggingFaceTokenPresence(data.secrets)
     } catch (e) {
       setLoadError(e.message || 'Could not load settings.')
       toast.error(`Failed to load settings: ${e.message}`)
@@ -145,6 +147,7 @@ export default function SettingsPage({ plugin = null, groups = [] }) {
       const data = await del(settingsApiUrl(plugin?.id, `/api/settings/secret/${encodeURIComponent(key)}`))
       setSecretsPresence(data.secrets)
       setSecretInputs((prev) => { const next = { ...prev }; delete next[key]; return next })
+      notifyHuggingFaceTokenPresence(data.secrets)
       await refresh(true)
       toast.success(`${label} removed.`)
     } catch (e) {
@@ -161,6 +164,7 @@ export default function SettingsPage({ plugin = null, groups = [] }) {
     if (!pending) return
     const data = await putJson(settingsUrl, { secrets: { [key]: pending } })
     setSecretsPresence(data.secrets)
+    notifyHuggingFaceTokenPresence(data.secrets)
     setSecretInputs((prev) => {
       if ((prev[key] || '').trim() !== pending) return prev
       const next = { ...prev }; delete next[key]; return next
@@ -229,6 +233,7 @@ export default function SettingsPage({ plugin = null, groups = [] }) {
       setSavedConfig(data.config)
       setRuntime(data.runtime || { host: null, port: null })
       setSecretsPresence(data.secrets)
+      notifyHuggingFaceTokenPresence(data.secrets)
       setSecretInputs((prev) => Object.fromEntries(Object.entries(prev)
         .filter(([key, value]) => (value || '').trim() !== secrets[key])))
       // force=true: /api/capabilities caches probes for 30s server-side, so a

@@ -86,6 +86,7 @@ import { WORKSPACE_SECTIONS, SECTION_FOR_TARGET } from './workspaceSections';
 import { apiFetch, postJson, putJson } from '../../api/fetchClient';
 import { datasetToBankRequest, datasetToBankUrl } from './datasetToBank';
 import { HelpBadge } from '../../help/HelpMode';
+import SettingsLink from '../common/SettingsLink';
 import { requestHelpTip } from '../../help/helpTips';
 import { openCollapsedAncestors } from '../../help/revealTarget';
 import { activeLocalLlm } from '../../utils/localLlm';
@@ -2396,7 +2397,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 </button>
               ) : (
                 <p className="m-0 rounded-lg border border-border bg-surface px-3 py-2 text-content-muted text-sm">
-                  Configure ComfyUI in Settings to use the LoRA testing Studio.
+                  Connect ComfyUI to use the LoRA testing Studio.{' '}
+                  <SettingsLink section="local-tools" focus="comfyui-api-url">Configure ComfyUI address</SettingsLink>
                 </p>
               )}
               <div><HelpBadge topic="action-studio-open" /></div>

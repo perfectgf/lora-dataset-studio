@@ -1,6 +1,6 @@
-import { Suspense, lazy, useMemo } from 'react'
+import { Suspense, lazy, useMemo, useSyncExternalStore } from 'react'
 import ErrorBoundary from '../components/common/ErrorBoundary'
-import { contributions } from './registry.js'
+import { contributions, subscribePlugins, pluginRevision } from './registry.js'
 
 /* A place in the core where plugins contribute — rendered as the list of
    contributions enabled plugins made to `slot` on `surface`. Each contribution
@@ -50,11 +50,11 @@ export function PluginPanel({ panelKey, importer, ...props }) {
 }
 
 export default function PluginSlot({ slot, surface, fallback = null, itemProps = null, ...hostProps }) {
+  useSyncExternalStore(subscribePlugins, pluginRevision, pluginRevision)
   const items = contributions(slot, surface)
   // Keyed on WHICH contributions are here, not how many: two plugins on one
   // slot swapped for each other keep the count and must not keep the memo
-  // (a refutation finding, 2026-09-04). The registry is fixed after boot,
-  // so this key changes only when the surface does.
+  // (a refutation finding, 2026-09-04). Membership changes can remove contributions.
   const key = items.map((item) => `${item.plugin}:${item.id}`).join('|')
   const rendered = useMemo(() => items.map((item) => ({ item, Component: componentFor(item, surface) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps

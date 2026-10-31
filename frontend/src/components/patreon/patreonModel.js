@@ -72,7 +72,7 @@ export function membershipLabel(access) {
   if (access?.status === 'not_permitted') {
     return 'Patreon membership is managed from this computer, or with the plugin admin token.';
   }
-  if (!patreon) return 'Patreon could not be reached. Installed plugins and this version of LDS keep working.';
+  if (!patreon) return 'Patreon could not be reached. Members-only plugins require verification; your files are kept.';
   if (patreon.status === 'active') return `Active Patreon membership${tierLabel(patreon.tier) ? ` · ${tierLabel(patreon.tier)}` : ''}`;
   if (patreon.reason === 'free_trial') return FREE_TRIAL_TEXT;
   if (patreon.pending === true) return `Approved on Patreon. ${CODE_PROMPT} to finish connecting.`;

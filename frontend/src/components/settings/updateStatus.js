@@ -1,3 +1,5 @@
+import { versionLabel } from '../../utils/versionLabel.js'
+
 /* Pure helpers for the mode-aware Updates card. Kept out of the component so the
    mode/label/progress logic is unit-testable without a DOM (see updateStatus.test.js).
 
@@ -109,6 +111,42 @@ export function patreonCheckFailure(error) {
   const message = typeof error?.body?.error === 'string' ? error.body.error : ''
   return { status: 'unavailable',
     message: message || 'The Patreon update channel could not be checked. Check again in a moment.' }
+}
+
+export function membersUpdateAvailable(p) {
+  return p?.status === 'ready' && !!(p.entitled || p.can_apply) && !!p.update_available
+}
+
+/** The public check alone cannot establish whether a members installation is current. */
+export function updateCheckFeedback(s, p) {
+  if (p?.status === 'ready' && (p.restart_required || p.update_available)) {
+    return { type: membersUpdateAvailable(p) && !p.restart_required ? 'success' : 'info',
+      message: patreonUpdateView(p).text }
+  }
+  if (s?.update_available) {
+    return { type: 'success', message: `Update available — v${s.latest || s.remote_sha || 'new'}` }
+  }
+  if (!s?.ok) return { type: 'error', message: s?.reason || 'Could not check for updates.' }
+  if (!p) return { type: 'info', message: 'Checking Patreon updates…' }
+  if (p.status !== 'ready' && (p.status !== 'not_configured' || s.channel === 'patreon')) {
+    return { type: 'warning', message: p.message || 'The Patreon update channel could not be checked. Try again.' }
+  }
+  return { type: 'info', message: `You're up to date — ${versionLabel(s)}` }
+}
+
+export function latestUpdateLabel(s, p) {
+  if (p?.status === 'ready' && p.release?.version
+      && (p.update_available || p.on_channel || s?.channel === 'patreon')) {
+    return `v${p.release.version} (Patreon)`
+  }
+  if (s?.channel === 'patreon') return p ? 'Patreon check unavailable' : 'Checking Patreon…'
+  if (s?.remote_sha) {
+    const behind = typeof s.behind === 'number' && s.behind > 0
+      ? ` (+${s.behind} commit${s.behind === 1 ? '' : 's'})` : ''
+    return `${s.remote_sha}${behind}`
+  }
+  if (s?.latest) return `v${s.latest}`
+  return s?.update_available ? 'update available' : s?.ok ? 'No newer public build reported' : 'Not checked'
 }
 
 export const PATREON_ADMIN_REASON = 'Install it from the computer that runs LDS: '
