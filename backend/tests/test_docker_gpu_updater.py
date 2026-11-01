@@ -486,7 +486,7 @@ function Get-ImmutableCommit { param($Repo, $Reference)
 Resolve-ArchiveSource -SelectedChannel $Channel -Repo 'sample/project' | ConvertTo-Json -Compress
 ''', encoding='utf-8')
     result = subprocess.run([POWERSHELL, '-NoProfile', '-File', str(harness),
-                             str(UPDATER), channel], capture_output=True, text=True, timeout=30)
+                             str(UPDATER), channel], capture_output=True, text=True, timeout=BAT_TIMEOUT)
     assert result.returncode == 0, result.stderr
     source = json.loads(result.stdout)
     assert source['Tag'] == 'v2'
