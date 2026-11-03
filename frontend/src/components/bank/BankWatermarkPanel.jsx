@@ -44,6 +44,7 @@ import {
 import { openerLabel } from './scoringPython.js'
 import { localEngineUnavailableReason } from '../../utils/localEngineReason'
 import { activeLocalLlm } from '../../utils/localLlm'
+import { MemberOptions } from '../patreon/MemberPreviews.jsx'
 
 // How many cleaned images the before/after strip offers. A sample is enough to
 // judge a pass; the grid holds the full set.
@@ -287,6 +288,8 @@ export default function BankWatermarkPanel({
             Klein <span className="font-normal opacity-70">quality</span>
           </button>
         </div>
+        {/* Members previews of the clean engines plugins add, without an active membership. */}
+        <MemberOptions placements={['watermark.engines']} variant="line" />
         {/* WHICH Klein model is about to repaint these images. A bank has no
             dataset to inherit a choice from, so there is nothing to pick here —
             but "no choice" was never a reason to stay silent about the model.

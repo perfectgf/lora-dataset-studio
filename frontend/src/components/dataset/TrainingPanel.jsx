@@ -10,6 +10,7 @@ import { dualCaptionsSupport } from './dualCaptions.js';
 import { maskedCarryOverAction, clearLegacyMasked } from './maskedMigration.js';
 import ConceptFaceMaskField from './ConceptFaceMaskField';
 import PluginSlot from '../../plugins/PluginSlot.jsx';
+import { MemberOptions } from '../patreon/MemberPreviews.jsx';
 import { contributions } from '../../plugins/registry.js';
 import {
   checkpointSelectionMatchesTraining,
@@ -1912,6 +1913,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           </>)}
         </span>
       </div>
+
+      {/* Members previews of training options (free installations only). */}
+      <MemberOptions placements={['training.options']} />
 
       <div className="contents" ref={setCloudNoticeHost} />
 

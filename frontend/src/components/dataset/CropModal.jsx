@@ -8,6 +8,7 @@
  * Custom implementation (no react-easy-crop): that lib pins a fixed frame and
  * moves the image under it — it cannot stretch the selection itself. */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MemberOptions } from '../patreon/MemberPreviews.jsx';
 
 const ASPECTS = [
   ['free', null],
@@ -54,7 +55,7 @@ function ratioBox(cur, ratio, W, H) {
 }
 
 export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
-                                    lockSquare = false, defaultAspect = null }) {
+                                    lockSquare = false, defaultAspect = null, previewPlacement = null }) {
   const [nat, setNat] = useState(null);        // {W, H} natural size
   const [box, setBox] = useState(null);        // crop box in NATURAL px
   const [aspect, setAspect] = useState(lockSquare ? 1 : defaultAspect);   // null = free
@@ -201,6 +202,8 @@ export default function CropModal({ imageUrl, onCancel, onConfirm, onReset,
             <span className="text-white/40 text-[10px]">free = stretch the box any way you like</span>
           </div>
         )}
+        {/* Members previews of this surface's crop tools, without an active membership. */}
+        {previewPlacement && <MemberOptions placements={[previewPlacement]} variant="line" />}
         <div className="flex gap-2 justify-end">
           {onReset && (
             <button type="button" onClick={onReset}

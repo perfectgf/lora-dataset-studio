@@ -84,6 +84,13 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-03-members-features-in-place',
+    date: '2026-11-03',
+    title: 'See the members features where they apply',
+    blurb: 'Without an active LDS Patreon membership, Test Studio, Training, the crop windows and the watermark clean '
+      + 'now name the members features that apply there, with a link to join. Nothing else changes.',
+  },
+  {
     id: '2026-10-31-huggingface-error-settings',
     date: '2026-10-31',
     title: 'Fix Hugging Face access errors from the failed run',

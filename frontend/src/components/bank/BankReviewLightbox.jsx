@@ -513,7 +513,7 @@ export default function BankReviewLightbox({
           dataset's automatic head-crop, and a bank has no such thing. */}
       {cropId != null && (
         <CropModal imageUrl={`/api/bank/${bankId}/file/${cropId}${imageVersionQuery(meta[cropId])}`}
-          onCancel={() => setCropId(null)} onConfirm={cropCurrent} />
+          onCancel={() => setCropId(null)} onConfirm={cropCurrent} previewPlacement="bank.crop" />
       )}
     </div>
   )
