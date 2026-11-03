@@ -5,6 +5,7 @@ import DescribeImageModal from './DescribeImageModal';
 import DatasetCaptionControl from './DatasetCaptionControl';
 import EnhancePromptButton from './EnhancePromptButton';
 import CivitaiBrowserButton from './CivitaiBrowserButton';
+import { MemberPreviewButton } from '../../patreon/MemberPreviews.jsx';
 
 // Test prompt field: textarea, reset-to-default, Enhance, Describe and recent prompts, extracted
 // unchanged from LoraTestStudio.jsx. value is effectivePrompt, placeholder is d.prompt, and
@@ -55,6 +56,7 @@ export default function PromptField({ value, placeholder, onChange, onReset, isC
           </button>
           <CivitaiBrowserButton prompt={value} onPrompt={onChange}
             picks={civitaiPicks} onTogglePick={onToggleCivitaiPick} />
+          <MemberPreviewButton placement="studio.prompt" />
         </div>
       </div>
       {/*

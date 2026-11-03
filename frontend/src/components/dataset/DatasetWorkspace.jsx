@@ -90,6 +90,7 @@ import SettingsLink from '../common/SettingsLink';
 import { requestHelpTip } from '../../help/helpTips';
 import { openCollapsedAncestors } from '../../help/revealTarget';
 import { activeLocalLlm } from '../../utils/localLlm';
+import { MemberOptions } from '../patreon/MemberPreviews.jsx';
 import {
   PANEL_STATUS,
   getWorkspacePanel,
@@ -1672,6 +1673,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                       Klein <span className="font-normal opacity-70">quality</span>
                     </button>
                   </div>
+                  {/* Members previews of the clean engines plugins add, without an active membership. */}
+                  <MemberOptions placements={['watermark.engines']} variant="line" />
                   {/* 🔤/🚩 WHAT to clean — only offered once Find text flagged
                       something (no text page = the three choices collapse into
                       one, a dead dial). Same three choices, same words as the
@@ -2413,7 +2416,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
       {cropImg && cropImg.filename && (
         <CropModal imageUrl={`/api/dataset/${d.id}/img/${encodeURIComponent(cropImg.filename)}${
           ds.nonces?.[cropImg.id] ? `?v=${ds.nonces[cropImg.id]}` : ''}`}
-          onCancel={() => setCropImg(null)}
+          onCancel={() => setCropImg(null)} previewPlacement="dataset.crop"
           onConfirm={async (box) => { await ds.crop(cropImg.id, box); setCropImg(null); }} />
       )}
       {refCrop && d.ref_filename && (

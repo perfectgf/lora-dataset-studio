@@ -16,6 +16,7 @@ import DescribeImageModal from './DescribeImageModal';
 import DatasetCaptionControl from './DatasetCaptionControl';
 import EnhancePromptButton from './EnhancePromptButton';
 import CivitaiBrowserButton from './CivitaiBrowserButton';
+import { MemberPreviewButton } from '../../patreon/MemberPreviews.jsx';
 import { cellCount } from './loraStack';
 import { launchText as batchLaunchText } from './promptBatch';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
@@ -136,6 +137,7 @@ export default function StudioRunSetup({
           </button>
           <CivitaiBrowserButton prompt={prompt} onPrompt={onPrompt}
             picks={civitaiPicks} onTogglePick={onToggleCivitaiPick} />
+          <MemberPreviewButton placement="studio.prompt" />
           </div>
         </div>
         <textarea id="studio-run-prompt" value={prompt} onChange={(e) => onPrompt(e.target.value)} rows={5}

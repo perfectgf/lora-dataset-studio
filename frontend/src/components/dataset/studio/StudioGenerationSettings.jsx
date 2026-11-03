@@ -17,6 +17,7 @@ import ResolutionSelector from '../../shared/ResolutionSelector';
 import LockableSlider from '../../shared/LockableSlider';
 import ZImageLoraConfig from '../../shared/ZImageLoraConfig';
 import StudioSection from './StudioSection';
+import { MemberOptions } from '../../patreon/MemberPreviews.jsx';
 import { supportsNegativePrompt } from '../../../utils/studioFamilySettings';
 import {
   KREA_SAMPLER_PRESETS_FALLBACK, presetChoice, splitSamplerChoice,
@@ -438,6 +439,10 @@ export default function StudioGenerationSettings({ family = 'zimage', capabiliti
           </label>
         </StudioSection>
       )}
+
+      {/* Members previews of this family's options (free installations only). */}
+      <MemberOptions variant="section" storageKey={k('sec_members')}
+        placements={['studio.options', `studio.options.${family}`]} />
     </div>
   );
 }

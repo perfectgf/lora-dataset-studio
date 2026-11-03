@@ -10,3 +10,5 @@ def register_blueprints(app, csrf):
         app.register_blueprint(mod.bp)
     from ..plugins.routes import bp as plugins_bp
     app.register_blueprint(plugins_bp)
+    from ..plugins.store.member_previews import bp as member_previews_bp
+    app.register_blueprint(member_previews_bp)
