@@ -105,3 +105,24 @@ def test_persistence_failure_falls_back_to_ephemeral_token(app, monkeypatch):
         token = netguard.ensure_access_token('0.0.0.0')
     assert token
     assert os.environ['LDS_ACCESS_TOKEN'] == token
+
+
+def test_local_protection_seeds_a_loopback_token_despite_the_remote_opt_out(app, monkeypatch):
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ALLOW_UNAUTHENTICATED', '1')
+    monkeypatch.delenv('LDS_ACCESS_TOKEN', raising=False)
+    with app.app_context():
+        token = netguard.ensure_access_token('127.0.0.1')
+    assert token and len(token) >= 32
+    from app import config as cfg
+    cfg._cache = None
+    assert cfg.get('server.access_token') == token
+    assert os.environ['LDS_ACCESS_TOKEN'] == token
+
+
+def test_launcher_adds_a_credential_only_for_protected_local_access(monkeypatch):
+    monkeypatch.delenv('LDS_REQUIRE_LOCAL_TOKEN', raising=False)
+    assert netguard.local_browser_url('http://localhost/', 'example+credential') == 'http://localhost/'
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    assert netguard.local_browser_url('http://localhost/', 'example+credential') == (
+        'http://localhost/?token=example%2Bcredential')

@@ -5,8 +5,8 @@ API keys, launch GPU trainings or delete datasets. That is fine on 127.0.0.1 —
 but `server.host` is configurable, and binding 0.0.0.0 (e.g. to reach the app
 from a phone) would otherwise expose everything to the whole LAN.
 
-Rule: requests from loopback clients are always allowed (the normal local flow,
-untouched, and the path the container healthcheck uses). A non-loopback (LAN)
+By default, requests from loopback clients are allowed (the normal local flow
+and the path the container healthcheck uses). A non-loopback (LAN)
 client is allowed straight through UNLESS the user opted into a token via
 Settings (`server.require_token`) — a home LAN is trusted by default, so no token
 has to be typed on a phone.
@@ -25,18 +25,39 @@ Token sources, in order:
 
 Escape hatch for setups with their own network isolation (VPN, reverse proxy
 with auth, trusted Docker network): `LDS_ALLOW_UNAUTHENTICATED=1`.
+
+`LDS_REQUIRE_LOCAL_TOKEN=1` requires authentication on local connections too,
+regardless of these opt-outs. Only the loopback GET/HEAD health probe stays
+public: it returns a boolean and a boot identifier, no application data.
+This prevents anonymous local HTTP calls; it is not isolation from processes
+that can read this account's token or session signing key.
 """
 from __future__ import annotations
+import hashlib
+import hmac
 import ipaddress
 import os
 import secrets
+from urllib.parse import urlencode
 
-from flask import jsonify, request, session
+from flask import jsonify, redirect, request, session
 
 SESSION_FLAG = 'lds_token_ok'
+SESSION_TOKEN = 'lds_token_binding'
 
 
 _TRUTHY = {'1', 'true', 'yes', 'on'}
+
+
+def local_token_required() -> bool:
+    return os.environ.get('LDS_REQUIRE_LOCAL_TOKEN', '').strip().lower() in _TRUTHY
+
+
+def local_browser_url(url: str, token: str | None) -> str:
+    """Authenticate a launcher-opened local tab; ordinary launches keep their URL."""
+    if local_token_required() and token:
+        return url + '?' + urlencode({'token': token})
+    return url
 
 
 def public_bind() -> bool:
@@ -73,17 +94,35 @@ def _presented_token() -> str | None:
 
 
 def install_network_guard(app):
+    def accepted():
+        if request.method == 'GET' and request.path == '/' and request.args.get('token'):
+            # Remove the credential even when this browser already has a valid
+            # session (for example, opening the launcher's link a second time).
+            response = redirect('/', code=303)
+            response.headers['Cache-Control'] = 'no-store'
+            response.headers['Referrer-Policy'] = 'no-referrer'
+            return response
+        return None
+
     @app.before_request
     def _network_guard():
-        if _is_loopback(request.remote_addr):
+        local = _is_loopback(request.remote_addr)
+        strict = local_token_required()
+        if local and not strict:
             return None
-        if os.environ.get('LDS_ALLOW_UNAUTHENTICATED') == '1':
+        # Keep process supervision and double-launch detection working. The
+        # method/path and an actual loopback peer must all match; missing peer
+        # information is never enough for this exception.
+        if (strict and request.remote_addr and local and request.path == '/api/health'
+                and request.method in {'GET', 'HEAD'}):
+            return None
+        if not strict and os.environ.get('LDS_ALLOW_UNAUTHENTICATED') == '1':
             return None
         # LAN access is open by default (trusted home network); the token gate
         # only engages when the user turned it on in Settings. Read lazily so the
         # toggle takes effect on the next request without a restart.
         from . import config as cfg
-        if not (public_bind() or cfg.get('server.require_token')):
+        if not (strict or public_bind() or cfg.get('server.require_token')):
             return None
         # config.server.access_token is read here too (not only the boot-time env)
         # so turning the gate on with a saved token works LIVE — no restart, unlike
@@ -94,14 +133,25 @@ def install_network_guard(app):
         if not token:
             # Non-loopback client but no token configured (custom WSGI launch that
             # bypassed run.py): fail CLOSED with an actionable message.
-            return jsonify({'error': 'remote access requires an access token — '
-                                     'set LDS_ACCESS_TOKEN (see README) or bind 127.0.0.1'}), 403
-        if session.get(SESSION_FLAG):
-            return None
+            return jsonify({'error': 'access requires an access token — '
+                                     'set LDS_ACCESS_TOKEN or start LDS with its launcher'}), 403
+        # Bind a session to the current credential. A bare legacy flag, or a
+        # session from before a token change, must not bypass local protection.
+        key = app.secret_key
+        if isinstance(key, str):
+            key = key.encode('utf-8')
+        binding = hmac.new(key, str(token).encode('utf-8'), hashlib.sha256).hexdigest()
+        saved = session.get(SESSION_TOKEN)
+        if (session.get(SESSION_FLAG) and isinstance(saved, str)
+                and secrets.compare_digest(saved.encode('utf-8'), binding.encode('ascii'))):
+            return accepted()
         presented = _presented_token()
-        if presented and secrets.compare_digest(str(presented), str(token)):
+        if presented and secrets.compare_digest(str(presented).encode('utf-8'), str(token).encode('utf-8')):
             session[SESSION_FLAG] = True   # signed cookie → the SPA's fetches follow
-            return None
+            session[SESSION_TOKEN] = binding
+            return accepted()
+        session.pop(SESSION_FLAG, None)
+        session.pop(SESSION_TOKEN, None)
         return jsonify({'error': 'invalid or missing access token'}), 403
 
 
@@ -117,12 +167,13 @@ def ensure_access_token(host: str) -> str | None:
     instead of rotating every boot -- the Settings "Server" card reads it back
     from there to show and copy.
     """
-    if host in _LOOPBACK_HOSTS:
+    strict = local_token_required()
+    if host in _LOOPBACK_HOSTS and not strict:
         return None
-    if os.environ.get('LDS_ALLOW_UNAUTHENTICATED') == '1':
+    if not strict and os.environ.get('LDS_ALLOW_UNAUTHENTICATED') == '1':
         return None
     from . import config as cfg
-    if not (public_bind() or cfg.get('server.require_token')):
+    if not (strict or public_bind() or cfg.get('server.require_token')):
         return None
     existing = os.environ.get('LDS_ACCESS_TOKEN')
     if existing:

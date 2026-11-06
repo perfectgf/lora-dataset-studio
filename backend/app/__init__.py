@@ -839,9 +839,8 @@ def create_app(config_object=None):
     from .routes import register_blueprints
     register_blueprints(app, csrf)
 
-    # Non-loopback clients must present the access token (run.py generates one
-    # when the bind is opened) — without this, `server.host: 0.0.0.0` would hand
-    # the whole LAN the API keys, the GPU and the datasets. Loopback = untouched.
+    # Install the access gate before plugin hooks. The operator can require
+    # authentication on loopback too with LDS_REQUIRE_LOCAL_TOKEN=1.
     from .netguard import install_network_guard
     install_network_guard(app)
 
