@@ -165,7 +165,8 @@ def test_local_credential_authenticates_only_the_requesting_session(app, monkeyp
     monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
     monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
     c = app.test_client()
-    value = 'Bearer test-local-credential' if header == 'Authorization' else 'test-local-credential'
+    credential = 'test-local-credential'
+    value = f'Bearer {credential}' if header == 'Authorization' else credential
     assert c.get('/api/settings', headers={header: value}).status_code == 200
     assert c.get('/api/settings').status_code == 200
     assert app.test_client().get('/api/settings').status_code == 403
