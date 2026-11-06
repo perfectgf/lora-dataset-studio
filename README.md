@@ -5,7 +5,7 @@
 
 # LoRA Dataset Studio V2
 
-Build, curate, caption and train image datasets from one browser interface. LDS runs on your machine and uses [ai-toolkit](https://github.com/ostris/ai-toolkit) for training and [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for local generation and checkpoint testing.
+Free local LoRA training studio: turn one reference photo or a whole image folder into a captioned LoRA dataset, train character, style and concept LoRAs for Krea 2, FLUX.1, FLUX.2 Klein, Qwen-Image 2.1, Z-Image, SDXL and Anima, then pick the best checkpoint side by side. LDS runs on your machine in one browser tab and uses [ai-toolkit](https://github.com/ostris/ai-toolkit) for training and [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for local generation and checkpoint testing, without a node graph to wire.
 
 [Install](#setup--install) · [Documentation](docs/README.md) · [Plugins](#plugins) · [Releases](https://github.com/perfectgf/lora-dataset-studio/releases) · [Discord](https://discord.gg/j6hnJBFtXE)
 
@@ -16,8 +16,8 @@ The current core and public plugins are free under the [PolyForm Noncommercial l
 
 <table>
   <tr>
-    <td width="50%" align="center"><a href="docs/screenshots/generate/generate-variations.png"><img src="docs/screenshots/generate/generate-variations.png" alt="Generation engines" width="100%"></a><br><sub>Generation engines</sub></td>
-    <td width="50%" align="center"><a href="docs/screenshots/02-workspace.png"><img src="docs/screenshots/02-workspace.png" alt="Dataset workspace" width="100%"></a><br><sub>Dataset workspace</sub></td>
+    <td width="50%" align="center"><a href="docs/screenshots/generate/generate-variations.png"><img src="docs/screenshots/generate/generate-variations.png" alt="Generation engines for LoRA dataset images" width="100%"></a><br><sub>Generation engines</sub></td>
+    <td width="50%" align="center"><a href="docs/screenshots/02-workspace.png"><img src="docs/screenshots/02-workspace.png" alt="LoRA dataset workspace" width="100%"></a><br><sub>Dataset workspace</sub></td>
   </tr>
 </table>
 
@@ -70,24 +70,24 @@ Click a screenshot to view it at full size.
 
 <table>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-overview.png"><img src="docs/screenshots/bank/bank-overview.png" alt="Image Bank" width="100%"></a><br><sub>Image Bank</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="Analysis and coverage" width="100%"></a><br><sub>Analysis and coverage</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-launch-all.png"><img src="docs/screenshots/bank/bank-launch-all.png" alt="Batch analysis" width="100%"></a><br><sub>Batch analysis</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-overview.png"><img src="docs/screenshots/bank/bank-overview.png" alt="Image Bank: sort a large image folder before building a LoRA dataset" width="100%"></a><br><sub>Image Bank</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="Image Bank analysis and dataset coverage" width="100%"></a><br><sub>Analysis and coverage</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-launch-all.png"><img src="docs/screenshots/bank/bank-launch-all.png" alt="Batch image analysis in the Image Bank" width="100%"></a><br><sub>Batch analysis</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="Dataset curation" width="100%"></a><br><sub>Dataset curation</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/find-text-launch.png"><img src="docs/screenshots/bank/find-text-launch.png" alt="Text detection" width="100%"></a><br><sub>Text detection</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/training/runs-hub.png"><img src="docs/screenshots/training/runs-hub.png" alt="Training runs" width="100%"></a><br><sub>Training runs</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="LoRA dataset curation: keep, reject and crop training images" width="100%"></a><br><sub>Dataset curation</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/find-text-launch.png"><img src="docs/screenshots/bank/find-text-launch.png" alt="Text detection on training images" width="100%"></a><br><sub>Text detection</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/training/runs-hub.png"><img src="docs/screenshots/training/runs-hub.png" alt="LoRA training runs with ai-toolkit" width="100%"></a><br><sub>Training runs</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/studio/studio-grid.png"><img src="docs/screenshots/studio/studio-grid.png" alt="Checkpoint comparisons" width="100%"></a><br><sub>Checkpoint comparisons</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/canvas/canvas-board.png"><img src="docs/screenshots/canvas/canvas-board.png" alt="LoRA Canvas" width="100%"></a><br><sub>LoRA Canvas</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/studio/civitai-prompt-browser.png"><img src="docs/screenshots/studio/civitai-prompt-browser.png" alt="Civitai prompts" width="100%"></a><br><sub>Civitai prompts</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/studio/studio-grid.png"><img src="docs/screenshots/studio/studio-grid.png" alt="Test Studio grid comparing LoRA checkpoints at a fixed seed" width="100%"></a><br><sub>Checkpoint comparisons</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/canvas/canvas-board.png"><img src="docs/screenshots/canvas/canvas-board.png" alt="LoRA Canvas: compare and blend LoRAs on a board" width="100%"></a><br><sub>LoRA Canvas</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/studio/civitai-prompt-browser.png"><img src="docs/screenshots/studio/civitai-prompt-browser.png" alt="Civitai prompt browser for LoRA tests" width="100%"></a><br><sub>Civitai prompts</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="Camera angles" width="100%"></a><br><sub>Camera angles</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/video/video-studio-clips.png"><img src="docs/screenshots/video/video-studio-clips.png" alt="Video Test Studio" width="100%"></a><br><sub>Video Test Studio</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/video/dlss5-compare.png"><img src="docs/screenshots/video/dlss5-compare.png" alt="DLSS 5 comparison" width="100%"></a><br><sub>DLSS 5 comparison</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="Camera angles: new viewpoints for a character dataset" width="100%"></a><br><sub>Camera angles</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/video/video-studio-clips.png"><img src="docs/screenshots/video/video-studio-clips.png" alt="Video Test Studio comparing video LoRA clips" width="100%"></a><br><sub>Video Test Studio</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/video/dlss5-compare.png"><img src="docs/screenshots/video/dlss5-compare.png" alt="DLSS 5 neural rendering before and after comparison" width="100%"></a><br><sub>DLSS 5 comparison</sub></td>
   </tr>
 </table>
 
@@ -119,6 +119,58 @@ The core runs without a GPU. Python 3.10–3.12 supports the local ML extras; th
 - [Troubleshooting](docs/guide/troubleshooting.md) and [known limitations](docs/guide/known-limitations.md)
 
 The [documentation index](docs/README.md) includes development and plugin references.
+
+## LoRA training FAQ
+
+These are the questions that come up most in LoRA training threads, with what LDS does about each. The [dataset guide](docs/DATASET_GUIDE.md) has the details.
+
+### How do I train a consistent character LoRA from one or a few photos?
+
+Create a **Character** dataset and set a reference photo. LDS proposes a shot catalog for the subject (face, bust, body and back framings from several angles) and generates the missing shots locally with Klein or Krea 2 Edit, which restages the reference while preserving identity. InsightFace similarity and score-based auto-triage help you reject shots where the face drifts, and the [Camera angles](bundled/camera_angles/) plugin adds new viewpoints. Your own photos work too: import them, then let [coverage](docs/DATASET_GUIDE.md#9-coverage--what-your-set-never-showed) name what the set never shows, such as profile views or a second outfit.
+
+### How many images do I need to train a LoRA?
+
+About 25 varied images make a balanced character LoRA, and they beat 60 near-duplicates. Minimums depend on the family: 12 for Z-Image, 15 for Krea 2, FLUX.1 and FLUX.2 Klein, 20 for SDXL. Balance face, bust, body and back shots, because a set of close-ups gives a LoRA that falls apart on full-body prompts; the composition meter on the dataset page tracks that balance. See [how many images, and which ones](docs/DATASET_GUIDE.md#2-how-many-images-and-which-ones).
+
+### Tags or natural language captions? Where does the trigger word go?
+
+Match the caption style to the family: natural-language prose for Krea 2, FLUX.1, FLUX.2 Klein and Z-Image, booru tags for SDXL, either for Anima. LDS writes captions in that style with JoyCaption or a local vision model and puts the trigger word at the start of every caption on export. Describe what should vary (place, light, outfit, pose) and leave out what should stick to the trigger: per-trait appearance policies decide whether hair, makeup or glasses are described. See [captions](docs/DATASET_GUIDE.md#3-captions--the-make-or-break-step).
+
+### Which base model should I train my LoRA on?
+
+Choose the family before captioning, because it sets the caption style, the image count and the settings. In short: Krea 2 has the highest realism ceiling, FLUX.1 the largest LoRA ecosystem, FLUX.2 Klein 4B trains on mid-range GPUs, Z-Image iterates fastest, SDXL suits booru-native checkpoints and Anima targets anime. Qwen-Image 2.1 is supported too. See the [family comparison](docs/DATASET_GUIDE.md#1-pick-your-model-family-first).
+
+### What steps, rank and learning rate should I use?
+
+Start from the guided recipe for your family: LDS fills in the ai-toolkit settings and scales steps with the dataset, about 120 per image for a character LoRA, kept between 1,500 and 3,500, because a fixed 3,000 overcooks small sets. Raise the rank (48 to 64) only for a hard identity and a bigger dataset; a high rank on 15 images memorizes them. Advanced options stay editable, and a run can continue from any saved epoch. See the [settings cheat-sheet](docs/DATASET_GUIDE.md#4-settings-cheat-sheet).
+
+### Which LoRA trainer should I use? Do I need the command line?
+
+LDS trains with [ai-toolkit](https://github.com/ostris/ai-toolkit). Once ai-toolkit is installed and set in **Settings → Local tools**, LDS writes the training config: pick a recipe and start the run from the browser, with the queue and logs on the runs page. Datasets also export as standard ZIPs with `.txt` caption files, so the same set can feed kohya_ss, OneTrainer or another trainer.
+
+### How much VRAM do I need to train a LoRA?
+
+Importing, sorting and manual captioning need no GPU. Auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training needs 16 GB or more for Z-Image and SDXL (quantized, low-VRAM mode), 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px (under 24 GB, train at 768 px only) and about 24 GB for FLUX.1 and Anima. Short on VRAM? The [Cloud training](bundled/cloud_training/) plugin trains supported families on rented vast.ai GPUs, and LDS itself can run on a [RunPod GPU](docs/guide/runpod.md). See the [hardware tables](docs/guide/requirements.md).
+
+### How do I pick the best epoch or checkpoint?
+
+Open the run in Test Studio: it renders the checkpoints you pick at several strengths with the same seed and prompts, so the images differ only by checkpoint and strength. Vote and rank them, compare several LoRAs or stack them, and test several prompts in one launch. See [after training](docs/DATASET_GUIDE.md#6-after-training-pick-the-right-checkpoint).
+
+### Can I train a style or concept LoRA?
+
+Yes: **Style** and **Concept** datasets have their own workflows. Concept captions must be prose rather than booru tags, steps grow more slowly with the image count (about 475 × √n, from 2,000 to 12,000), and the guide explains how to [keep faces out of a concept](docs/DATASET_GUIDE.md#8-concept-loras-keeping-faces-out).
+
+### Can I train a video LoRA (Wan 2.2, LTX-2, MiniMax H3)?
+
+Experimentally, with the [Video lane](bundled/video/) plugin (beta). It cuts clips to the frame counts each model accepts (4n+1 for Wan, 8n+1 for LTX), measures silence and audio level, shows burned-in subtitles and letterbox bars before training, and trains with ai-toolkit locally or on a rented GPU. Eight targets are offered across Wan 2.1, Wan 2.2, LTX-2, LTX-2.3 and MiniMax H3, but only Wan 2.2 14B has been through a finished run so far, filling 24 GB with CPU offload.
+
+### Do I need to know ComfyUI?
+
+You need a ComfyUI install for local generation, not its node editor. LDS sends its own workflows for dataset shots, edits, upscaling and checkpoint tests, and Setup downloads the generation models. With Docker, the launcher can set up a fresh, isolated ComfyUI.
+
+### How do I upscale or restore images locally?
+
+Install [SeedVR2](bundled/seedvr2/) to restore and upscale with high-resolution tiling, or [Klein Improve](bundled/image_upscale/) to re-render detail from instructions (appearance and color can change). Both run on your local ComfyUI.
 
 ## Configuration & network access
 
