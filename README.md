@@ -150,7 +150,7 @@ LDS trains with [ai-toolkit](https://github.com/ostris/ai-toolkit). Once ai-tool
 
 ### How much VRAM do I need to train a LoRA?
 
-Importing, sorting and manual captioning need no GPU. Auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training needs 16 GB or more for Z-Image and SDXL (quantized, low-VRAM mode), 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px (under 24 GB, train at 768 px only) and about 24 GB for FLUX.1 and Anima. Short on VRAM? The [Cloud training](bundled/cloud_training/) plugin trains supported families on rented vast.ai GPUs, and LDS itself can run on a [RunPod GPU](docs/guide/runpod.md). See the [hardware tables](docs/guide/requirements.md).
+Importing, sorting and manual captioning need no GPU. Auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training needs 16 GB or more for Z-Image and SDXL (quantized, low-VRAM mode), 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px (under 24 GB, train at 768 px only) and about 24 GB for FLUX.1 and Anima. Short on VRAM? The [Cloud training](bundled/cloud_training/) plugin trains supported families on rented [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPUs, and LDS itself can run on a [RunPod GPU](docs/guide/runpod.md). See the [hardware tables](docs/guide/requirements.md).
 
 ### How do I pick the best epoch or checkpoint?
 
