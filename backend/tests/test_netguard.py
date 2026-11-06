@@ -7,6 +7,8 @@ type on a phone); turning on server.require_token restores the token gate for a
 shared/untrusted network (audit 2026-07-12, angle securite). REMOTE_ADDR is
 simulated via environ_base: the Flask test client defaults to 127.0.0.1.
 """
+import pytest
+
 REMOTE = {'REMOTE_ADDR': '192.168.1.50'}
 
 
@@ -117,3 +119,80 @@ def test_public_flag_is_not_truthy_for_arbitrary_values(app, monkeypatch):
     harden (or silently fail to harden) the app."""
     monkeypatch.setenv('LDS_PUBLIC', '0')
     assert app.test_client().get('/api/health', environ_base=REMOTE).status_code == 200
+
+
+@pytest.mark.parametrize('peer', ['127.0.0.1', '::1', '::ffff:127.0.0.1', '', '192.168.1.50'])
+def test_local_protection_denies_anonymous_sensitive_reads_and_writes(app, monkeypatch, peer):
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    monkeypatch.setenv('LDS_ALLOW_UNAUTHENTICATED', '1')
+    c = app.test_client()
+    source = {'REMOTE_ADDR': peer}
+    spoofed = {'Origin': 'http://localhost', 'X-Forwarded-For': '127.0.0.1'}
+    for path in ('/', '/api/settings', '/api/csrf-token', '/api/plugins'):
+        assert c.get(path, environ_overrides=source, headers=spoofed).status_code == 403
+    assert c.put('/api/settings', json={'config': {'server': {'require_token': False}}},
+                 environ_overrides=source, headers=spoofed).status_code == 403
+
+
+def test_local_health_exception_is_only_a_real_loopback_read(app, monkeypatch):
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    c = app.test_client()
+    response = c.get('/api/health')
+    assert response.status_code == 200 and set(response.json) == {'ok', 'boot'}
+    assert c.head('/api/health').status_code == 200
+    assert c.post('/api/health').status_code == 403
+    for peer in ('', '192.168.1.50'):
+        assert c.get('/api/health', environ_overrides={'REMOTE_ADDR': peer}).status_code == 403
+    # Reading the health endpoint never creates an authenticated session.
+    assert c.get('/api/settings').status_code == 403
+
+
+def test_local_protection_without_a_credential_fails_closed(app, monkeypatch):
+    from app import config as cfg
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.delenv('LDS_ACCESS_TOKEN', raising=False)
+    app.config.pop('LDS_ACCESS_TOKEN', None)
+    with app.app_context():
+        cfg.save_config({'server': {'access_token': ''}})
+    response = app.test_client().get('/api/settings')
+    assert response.status_code == 403 and 'LDS_ACCESS_TOKEN' in response.json['error']
+
+
+@pytest.mark.parametrize('header', ['Authorization', 'X-LDS-Token'])
+def test_local_credential_authenticates_only_the_requesting_session(app, monkeypatch, header):
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    c = app.test_client()
+    value = 'Bearer test-local-credential' if header == 'Authorization' else 'test-local-credential'
+    assert c.get('/api/settings', headers={header: value}).status_code == 200
+    assert c.get('/api/settings').status_code == 200
+    assert app.test_client().get('/api/settings').status_code == 403
+
+
+def test_local_browser_login_cleans_the_token_and_rejects_sessions_after_rotation(app, monkeypatch):
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    c = app.test_client()
+    login = c.get('/?token=test-local-credential')
+    assert login.status_code == 303 and login.headers['Location'] == '/'
+    assert login.headers['Cache-Control'] == 'no-store'
+    assert login.headers['Referrer-Policy'] == 'no-referrer'
+    assert c.get('/api/settings').status_code == 200
+    again = c.get('/?token=test-local-credential')
+    assert again.status_code == 303 and again.headers['Location'] == '/'
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'replacement-local-credential')
+    assert c.get('/api/settings').status_code == 403
+    assert c.get('/api/settings', headers={'X-LDS-Token': 'replacement-local-credential'}).status_code == 200
+
+
+def test_a_legacy_session_flag_does_not_bypass_local_authentication(app, monkeypatch):
+    from app.netguard import SESSION_FLAG
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    c = app.test_client()
+    with c.session_transaction() as state:
+        state[SESSION_FLAG] = True
+    assert c.get('/api/settings').status_code == 403
+    assert c.get('/api/settings', headers={'X-LDS-Token': 'incorrect-\u00e9'}).status_code == 403

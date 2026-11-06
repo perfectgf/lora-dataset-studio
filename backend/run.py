@@ -66,7 +66,7 @@ except ImportError:
 app = create_app()
 
 
-def _announce_when_ready(url, open_browser=False, timeout=180):
+def _announce_when_ready(url, open_browser=False, timeout=180, open_url=None):
     """Print the address the app is actually serving on — and open the browser
     when asked — once that address answers.
 
@@ -91,11 +91,16 @@ def _announce_when_ready(url, open_browser=False, timeout=180):
             time.sleep(0.25)
     print(f"[LDS] Ready on {url}", flush=True)
     if open_browser:
-        webbrowser.open(url)
+        webbrowser.open(open_url or url)
 
 if __name__ == '__main__':
     host = os.environ.get('LDS_HOST') or cfg_get('server.host')
     requested_port = int(os.environ.get('LDS_PORT') or cfg_get('server.port'))
+    from app import netguard
+    access_token = netguard.ensure_access_token(host)
+    if netguard.local_token_required() and access_token:
+        print('\n[LDS] Local access requires an access token.')
+        print(f"[LDS] Open with:  {netguard.local_browser_url('/', access_token)}\n")
     # One data folder, one server — checked BEFORE the port slide below, which
     # is exactly how a double-launch used to become a second server on :5051
     # sharing the first one's database (private in-memory job registries, a
@@ -109,7 +114,7 @@ if __name__ == '__main__':
         if os.environ.get('LDS_OPEN_BROWSER') == '1':
             # The double-click case: the person wanted the app on screen, and
             # it exists already — open THAT one instead of printing at them.
-            webbrowser.open(f"http://127.0.0.1:{running['port']}/")
+            webbrowser.open(netguard.local_browser_url(f"http://127.0.0.1:{running['port']}/", access_token))
         sys.exit(0)
     # Never a slide under a container's fixed publish (LDS_BIND_MANAGED).
     port = startup_port(host, requested_port)
@@ -118,9 +123,7 @@ if __name__ == '__main__':
               flush=True)
     os.environ['LDS_PORT'] = str(port)
     is_lan = host not in ('127.0.0.1', 'localhost', '::1')
-    from app import netguard
-    access_token = netguard.ensure_access_token(host)
-    if access_token:
+    if access_token and not netguard.local_token_required():
         why = ('LDS_PUBLIC=1 -> this bind is reachable from the internet'
                if netguard.public_bind() else f'server.host={host} reachable from the network')
         print(f"\n[LDS] {why} -> access token REQUIRED.")
@@ -128,7 +131,7 @@ if __name__ == '__main__':
         if not netguard.public_bind():
             print("[LDS] (turn the token off in Settings -> Server to open the LAN without one)")
         print()
-    elif is_lan:
+    elif is_lan and not access_token:
         print(f"\n[LDS] server.host={host} reachable from the network (no token — trusted-LAN mode).")
         print(f"[LDS] Open from another device:  http://<this-machine>:{port}/\n")
     # Snapshot of what's ACTUALLY bound, for the Settings "Server" card: config.json
@@ -162,7 +165,8 @@ if __name__ == '__main__':
     except Exception:                       # noqa: BLE001 — never block boot
         logging.getLogger(__name__).warning('bundled node refresh failed', exc_info=True)
     threading.Thread(target=_announce_when_ready, args=(url,),
-                     kwargs={'open_browser': os.environ.get('LDS_OPEN_BROWSER') == '1'},
+                     kwargs={'open_browser': os.environ.get('LDS_OPEN_BROWSER') == '1',
+                             'open_url': netguard.local_browser_url(url, access_token)},
                      daemon=True).start()
     app.run(debug=os.environ.get('FLASK_DEBUG', '0') == '1',
             host=host,
