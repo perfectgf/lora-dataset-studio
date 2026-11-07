@@ -5,7 +5,7 @@ From now on every launch writes ``lora_test_image.record_id`` / ``.step`` itself
 link to everything generated before the columns existed, so the canvas gallery
 opens on a real history instead of on an empty strip.
 
-Two sources of evidence, in that order — and NOTHING else:
+Four sources of evidence, in that order — and NOTHING else:
 
 1. **The preview pointer.** ``checkpoint_preview`` already records
    ``(record_id, step) → lora_test_image_id`` for every image the Lab generated
@@ -24,14 +24,27 @@ Two sources of evidence, in that order — and NOTHING else:
    no step at all. Pass 2 threw that away with the step, so those images counted
    as "could not be traced back to a checkpoint" — true, and useless: the run WAS
    knowable. They now get ``record_id`` with ``step`` left NULL, which is exactly
-   what is known. The run gallery shows them in a "step unknown" group; no
-   checkpoint gallery can ever pick them up, because those filter on a step.
+   what the NAME tells. The run gallery shows them in a "step unknown" group;
+   no checkpoint gallery picks them up, because those filter on a step — until
+   pass 4 finds it.
+
+4. **The run's lineage, for a final save's step.** That step was never unknown:
+   the run's ◉ Graph pairs the step-less deployed file with its final pill
+   (``final_save_step``, the join that pill shows "deployed" with). Every row
+   that knows its run and not its step — pass 3's, and the ones an earlier
+   version left — gets the step of the pill that shows its file; a file no pill
+   shows (an older version, a copy since removed from ComfyUI) keeps its run
+   only. This is the one pass that reads disk: when the ComfyUI LoRA folder, the
+   relocated checkpoint store or a run's save list cannot be read, nothing is
+   decided and the version is not recorded, so the next start tries again
+   instead of filing "no pill" for good.
 
 Everything else is LEFT UNLINKED. A name with no run tag (imported before
-tagging existed), a tag pointing at a run that no longer exists, a cloud tag
-matching two records — all skipped. Those images stay invisible under the nodes
-and the UI says how many there are (``unlinked_count``). Guessing would put a
-stranger's image under someone's checkpoint, which is worse than an honest gap.
+tagging existed, or a merge), a tag pointing at a run that no longer exists, a
+cloud tag matching two records — all skipped. Those images stay invisible under
+the nodes and the UI says how many there are (``unlinked_count``). Guessing would
+put a stranger's image under someone's checkpoint, which is worse than an honest
+gap. The member list a stacked cell carries in ``extra_loras`` is never rewritten.
 
 Same discipline as ``lineage_backfill`` / ``framing_backfill``: version marker in
 ``SystemState``, idempotent, COUNT before UPDATE, set-based writes, and a failure
@@ -41,6 +54,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from ..utils.timestamps import utc_stamp
 
 from sqlalchemy import inspect, text
@@ -52,7 +66,8 @@ logger = logging.getLogger(__name__)
 
 # Bump when the RESOLUTION RULE improves, so a smarter pass re-runs once on a
 # database it already visited (it still only fills links that are still NULL).
-BACKFILL_VERSION = 2
+# 3: a final save's step, from its run's lineage (pass 4).
+BACKFILL_VERSION = 3
 _STATE_KEY = 'checkpoint_link_backfill'
 
 # Pass 1 — the pointer written at generation time. Correlated subqueries rather
@@ -111,8 +126,30 @@ _LINK_RUN_ONLY_SQL = text(
     """
 )
 
+# Pass 4 — the run is known, the step comes from its lineage. DISTINCT pairs, so
+# a final save tested 200 times costs one lineage read. The UPDATE keys on the
+# record already stored: a row is completed, never re-attributed.
+_RUN_ONLY_PAIRS_SQL = text(
+    """
+    SELECT DISTINCT record_id, checkpoint FROM lora_test_image
+     WHERE record_id IS NOT NULL AND step IS NULL
+       AND checkpoint IS NOT NULL AND checkpoint <> ''
+    """
+)
+
+_LINK_FINAL_STEP_SQL = text(
+    """
+    UPDATE lora_test_image
+       SET step = :step
+     WHERE record_id = :rid AND step IS NULL AND checkpoint = :ck
+    """
+)
+
 _UNLINKED_COUNT_SQL = text(
     'SELECT COUNT(*) FROM lora_test_image WHERE record_id IS NULL')
+
+_RUN_ONLY_COUNT_SQL = text(
+    'SELECT COUNT(*) FROM lora_test_image WHERE record_id IS NOT NULL AND step IS NULL')
 
 
 def _load_state() -> dict:
@@ -242,10 +279,76 @@ def final_save_step(filename: str, record_id: int, dataset_id: int,
         return None
 
 
+def _listable(path) -> bool:
+    if not path:
+        return False
+    try:
+        with os.scandir(path) as entries:
+            next(entries, None)
+        return True
+    except OSError:
+        return False
+
+
+def _unreadable_source() -> str | None:
+    """The folder pass 4 needs and cannot read right now, or None.
+
+    Both read as "nothing there" when they are missing — an unplugged drive, a
+    ComfyUI not configured yet — and pass 4 would then file every final save as
+    shown by no pill, for good. The checkpoint store is a cloud run's save list;
+    it only counts when moved off the data folder, where its absence just means
+    nothing was ever stored."""
+    from .. import config as cfg
+    if not _listable(cfg.comfyui_dir('loras')):
+        return 'the ComfyUI LoRA folder'
+    if (cfg.get('paths.checkpoints_dir') or '') and \
+            not _listable(cfg.checkpoints_root(create=False)):
+        return 'the checkpoint store'
+    return None
+
+
+def _link_final_saves(out: dict) -> None:
+    """Pass 4: give every row that knows its run and not its step the step of the
+    pill that shows its file (see final_save_step). Reads first, then one short
+    write: no write lock is held across the disk reads."""
+    pairs = [(r[0], r[1]) for r in db.session.execute(_RUN_ONLY_PAIRS_SQL)]
+    if not pairs:
+        return
+    blocked = _unreadable_source()
+    if blocked:
+        out['deferred'] = blocked
+        return
+    found = []
+    for rid, name in pairs:
+        try:
+            run_hit = resolve_run_name(name)
+        except Exception:
+            run_hit = None
+        if not run_hit or run_hit[0] != rid:
+            continue          # untagged, or tagged for another run: not ours to complete
+        try:
+            step = final_save_step(name, rid, run_hit[1], strict=True)
+        except Exception:
+            logger.debug('checkpoint link backfill: saves of run %s unreadable', rid,
+                         exc_info=True)
+            out['deferred'] = 'a run\'s saves'
+            continue
+        if step is not None:  # None: no pill shows this file, the run stays alone
+            found.append((rid, name, step))
+    for rid, name, step in found:
+        out['by_final_save'] += db.session.execute(
+            _LINK_FINAL_STEP_SQL, {'rid': rid, 'ck': name, 'step': step}).rowcount or 0
+    if found:
+        db.session.commit()
+
+
 def backfill_checkpoint_links() -> dict:
     """Fill in every link the evidence supports. Returns
-    {'by_pointer': n, 'by_name': n, 'by_run': n, 'unlinked': n}. Never raises."""
-    out = {'by_pointer': 0, 'by_name': 0, 'by_run': 0, 'unlinked': 0}
+    {'by_pointer': n, 'by_name': n, 'by_run': n, 'by_final_save': n,
+     'run_only': n, 'unlinked': n}, plus 'deferred' (what could not be read)
+    when pass 4 has to wait for the next start. Never raises."""
+    out = {'by_pointer': 0, 'by_name': 0, 'by_run': 0, 'by_final_save': 0,
+           'run_only': 0, 'unlinked': 0}
     try:
         if not _schema_supports_backfill():
             logger.info('checkpoint link backfill: schema not ready (skipped)')
@@ -284,7 +387,10 @@ def backfill_checkpoint_links() -> dict:
         if out['by_name'] or out['by_run']:
             db.session.commit()
 
+        _link_final_saves(out)
+
         out['unlinked'] = db.session.execute(_UNLINKED_COUNT_SQL).scalar() or 0
+        out['run_only'] = db.session.execute(_RUN_ONLY_COUNT_SQL).scalar() or 0
         return out
     except Exception:
         logger.exception('checkpoint link backfill: failed (skipped, nothing changed)')
@@ -312,15 +418,24 @@ def run_if_needed() -> dict:
         if int(state.get('version') or 0) >= BACKFILL_VERSION:
             return state
         res = backfill_checkpoint_links()
+        if res.get('deferred'):
+            # The version stays where it was: the next start runs the pass again.
+            logger.info('checkpoint link backfill: %s cannot be read, final saves '
+                        'keep their run without a step until the next start',
+                        res['deferred'])
+            return {'version': int(state.get('version') or 0), **res}
         summary_ = {'version': BACKFILL_VERSION,
                     'ran_at': utc_stamp(),
                     **res}
         _save_state(summary_)
-        if res['by_pointer'] or res['by_name'] or res['by_run']:
+        if (res['by_pointer'] or res['by_name'] or res['by_run']
+                or res.get('by_final_save')):
             logger.info('checkpoint link backfill: %d image(s) linked by pointer, '
                         '%d by run tag, %d to a run without a step, '
-                        '%d left unlinked',
+                        '%d given their final save\'s step; %d still without a '
+                        'step, %d left unlinked',
                         res['by_pointer'], res['by_name'], res['by_run'],
+                        res.get('by_final_save', 0), res.get('run_only', 0),
                         res['unlinked'])
         return summary_
     except Exception:

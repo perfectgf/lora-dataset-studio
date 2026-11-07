@@ -339,6 +339,59 @@ def test_the_run_marker_makes_the_pass_run_once(client, app, monkeypatch):
         assert calls == []
 
 
+def test_the_v3_pass_gives_final_saves_their_step_and_waits_for_unreadable_folders(
+        client, app, monkeypatch, tmp_path):
+    """Images tested from a step-less final save before the launch could name its
+    step sit unlinked, or linked to their run only. Pass 4 gives them the step of
+    the final pill that shows their file, leaves a file no pill shows at its run,
+    never touches a merge or a stack's member list — and when it cannot read the
+    ComfyUI LoRA folder or a run's saves, records nothing and waits for the next
+    start."""
+    import json
+    from app import config
+    from app.extensions import db
+    from app.models import LoraTestImage
+    from app.services import checkpoint_link_backfill as bf
+    from app.services import cloud_training as ct
+    with app.app_context():
+        ds = _create(client)
+        rec, cid = _cloud_run_with_final_save(db, ds, monkeypatch)
+        final = f'krea\\lora_nova_Krea-2-Raw_rc{cid}_v2.safetensors'
+        gone = f'krea\\lora_nova_Krea-2-Raw_rc{cid}_v1.safetensors'  # since removed
+        merge = 'krea\\lora_nova_merged_20261102-190604.safetensors'
+        stack = json.dumps([{'filename': final, 'weights': [0.5], 'combined': True,
+                             'record_id': None, 'step': None}])
+        unlinked = _image(db, ds, final, extra_loras=stack)
+        run_only = _image(db, ds, final, record_id=rec.id)   # what version 2 wrote
+        undeployed = _image(db, ds, gone)
+        merged = _image(db, ds, merge)
+        bf._save_state({'version': 2})
+
+        config.save_config({'comfyui': {'base_dir': str(tmp_path / 'unplugged')}})
+        assert bf.run_if_needed()['deferred'] == 'the ComfyUI LoRA folder'
+        assert bf._load_state()['version'] == 2
+        _comfy_loras(tmp_path, [final])
+        lineage = ct._node_checkpoints
+        monkeypatch.setattr(ct, '_node_checkpoints',
+                            lambda rec, crun: (_ for _ in ()).throw(OSError('drive')))
+        assert bf.run_if_needed()['deferred'] == "a run's saves"
+        assert bf._load_state()['version'] == 2
+
+        monkeypatch.setattr(ct, '_node_checkpoints', lineage)
+        res = bf.run_if_needed()
+        assert (res['version'], bf._load_state()['version']) == (3, 3)
+        assert (res['by_final_save'], res['run_only'], res['unlinked']) == (2, 1, 1)
+        db.session.expire_all()
+
+        def link(img):
+            row = db.session.get(LoraTestImage, img.id)
+            return row.record_id, row.step
+        assert link(unlinked) == link(run_only) == (rec.id, 6000)
+        assert link(undeployed) == (rec.id, None)
+        assert link(merged) == (None, None)
+        assert db.session.get(LoraTestImage, unlinked.id).extra_loras == stack
+
+
 # --- what the link is FOR ----------------------------------------------------
 
 def test_the_gallery_returns_every_image_of_a_checkpoint_newest_first(client, app):
