@@ -76,6 +76,7 @@ from .face_dataset_service import (SCRAPE_IMPORT_MAX, _dhash, _download_scrape_i
                                    _watermark_regions_payload,
                                    _source_metadata_storage, bank_deterministic_analysis,
                                    import_images, _preserved_import_extension,
+                                   _preserve_mode_payload,
                                    rollback_imported_images,
                                    normalize_watermark_regions)
 from .image_quality import ANALYSIS_MAX_SIDE, quality_metrics
@@ -90,7 +91,10 @@ logger = logging.getLogger(__name__)
 _SEMANTIC_GROUP_PROOF_LOCK = threading.RLock()
 _semantic_group_proof_memo = {}
 
-IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp')
+#: Sources a bank inventories but never hands out as they are: HEIC/HEIF (phones)
+#: and AVIF. Each is read through its decoded PNG copy, see `source_image_path`.
+DECODED_SOURCE_EXTS = ('.heic', '.heif', '.avif')
+IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp') + DECODED_SOURCE_EXTS
 # Sanity cap — a bank is a triage layer, not a filesystem indexer: this is what
 # catches "I pointed it at a whole drive", nothing more. Measured on a synthetic
 # tree of 200 000 files (50 subfolders, warm cache): the walk refresh_bank runs
@@ -479,6 +483,193 @@ def _drop_edited_blob(bank_id, row) -> None:
     row.edit_history = None
 
 
+# --- decoded copies of sources nothing downstream reads ----------------------
+# A HEIC/HEIF photo (phones) or an AVIF image can sit in a bank folder, but only
+# this process is guaranteed to decode it: pi-heif is a core requirement, AVIF is
+# Pillow's own. The browser shows no HEIC (Safari aside), the face pass decodes
+# with OpenCV, and the infer workers may run in a BORROWED interpreter (ai-toolkit's,
+# ComfyUI's) where LDS never installs anything. So such a source is decoded ONCE
+# into a lossless PNG under the bank's own working directory, and that copy is the
+# source PIXELS for every reader: the two resolvers build on it, so thumbnails,
+# /bank/file, every analysis lane, the edits and both promotions read a PNG. The
+# user's file is never written.
+#
+# Lifetime, spelled out because the copies are large:
+# * made on first use (the first thumbnail, pass or promotion that needs the
+#   pixels), never at inventory, which stays a walk that decodes nothing;
+# * named by the source's SHA-256, so a replaced or edited file gets a new copy,
+#   and the previous generation is deleted as soon as the new one exists;
+# * a source that disappears is never served from its copy (the raw file is
+#   checked first); the copy leaves with its row (forget missing, delete
+#   rejected) or with the whole bank directory;
+# * disk: one lossless PNG of the decoded picture, typically 3-8x the source.
+_DECODED_MEMO_LOCK = threading.Lock()
+#: normcased path -> ((size, mtime_ns, file id), SHA-256 | '' unhashable | None
+#: read as it is). Bounded; a miss only costs one re-read of the file.
+_DECODED_MEMO: 'OrderedDict[str, tuple]' = OrderedDict()
+_DECODED_MEMO_BUDGET = 50_000
+
+
+def _decoded_dir(bank_id) -> Path:
+    """Where decoded copies live — the bank's own working directory, next to
+    clean/ and rotated/. Never inside the user's folder."""
+    return _bank_dir(bank_id) / 'decoded'
+
+
+def decoded_image_path(bank_id, image_id, source_fingerprint) -> Path:
+    """The decoded copy of ONE source generation (may not exist)."""
+    return _decoded_dir(bank_id) / f'{int(image_id)}.{source_fingerprint}.png'
+
+
+def drop_decoded_copies(bank_id, image_ids, *, keep: Path | None = None) -> None:
+    """Best-effort removal of every decoded copy of these images except ``keep``.
+    A leftover is harmless — nothing reads a copy whose source changed or whose
+    row is gone — so a locked file is not an error. One directory listing per
+    call, whatever the number of ids."""
+    wanted = {str(int(image_id)) for image_id in image_ids}
+    if not wanted:
+        return
+    try:
+        with os.scandir(_decoded_dir(bank_id)) as entries:
+            stale = [Path(entry.path) for entry in entries
+                     if entry.name.endswith('.png')
+                     and entry.name.split('.', 1)[0] in wanted]
+    except OSError:
+        return   # no copy was ever made for this bank
+    for path in stale:
+        if keep is not None and path == keep:
+            continue
+        try:
+            path.unlink()
+        except OSError:
+            pass   # already gone or locked: a stale copy owes nothing
+
+
+def _decoded_source_fingerprint(raw: str):
+    """SHA-256 of a raw source read through a decoded copy, None for one read as
+    it is, '' when it cannot be hashed.
+
+    Only `DECODED_SOURCE_EXTS` names are candidates, and their CONTENT decides: a
+    .heic holding PNG bytes (a Bank-to-Bank copy of an already decoded image) is
+    read as it is. Memoised per file on (size, mtime, file id) so a pass over
+    thousands of rows does not re-read every photo; rewriting a file changes one
+    of them, which is what invalidates its copy.
+    """
+    if not str(raw).lower().endswith(DECODED_SOURCE_EXTS):
+        return None
+    try:
+        st = os.stat(raw)
+    except OSError:
+        return None   # missing: every caller already answers for a missing source
+    signature = (st.st_size, st.st_mtime_ns, st.st_ino)
+    key = os.path.normcase(str(raw))
+    with _DECODED_MEMO_LOCK:
+        hit = _DECODED_MEMO.get(key)
+        if hit is not None and hit[0] == signature:
+            _DECODED_MEMO.move_to_end(key)
+            return hit[1]
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', Image.DecompressionBombWarning)
+            with Image.open(raw) as im:
+                native = (im.format or '').upper() in image_encoding.EDITABLE_FORMATS
+    except Exception:  # noqa: BLE001 - unreadable: the decode attempt reports it
+        native = False
+    fingerprint = (None if native
+                   else bank_transfer_metadata.content_fingerprint_path(raw) or '')
+    with _DECODED_MEMO_LOCK:
+        _DECODED_MEMO[key] = (signature, fingerprint)
+        _DECODED_MEMO.move_to_end(key)
+        while len(_DECODED_MEMO) > _DECODED_MEMO_BUDGET:
+            _DECODED_MEMO.popitem(last=False)
+    return fingerprint
+
+
+def _materialize_decoded_copy(bank_id, image_id, raw: str, fingerprint: str) -> str | None:
+    """Decode one source into its PNG copy; the copy's path, or None.
+
+    What is decoded is the bounded snapshot whose SHA names the copy, so a file
+    replaced mid-way can never be published under the old name. Same decoder,
+    budget and static rule as a Dataset import (`_preserve_mode_payload`). Two
+    simultaneous requests (grid + lightbox) may both build it: unique temp names,
+    the last atomic replace wins, and both serve a complete file."""
+    dst = decoded_image_path(bank_id, image_id, fingerprint)
+    try:
+        payload = _read_bounded_bank_source_bytes(raw, label='bank decoded copy')
+        if bank_transfer_metadata.content_fingerprint_bytes(payload) != fingerprint:
+            raise OSError('the source changed while it was being decoded')
+        png, _ext = _preserve_mode_payload(payload, label='bank decoded copy')
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(f'{dst.name}.{os.getpid()}-{threading.get_ident()}.tmp')
+        try:
+            tmp.write_bytes(png)
+            os.replace(tmp, dst)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass   # already gone: the temp owed nothing
+    except (ValueError, OSError, MemoryError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning) as e:
+        logger.warning('bank image %s could not be decoded: %s', image_id, e)
+        if (isinstance(e, ValueError)
+                and not isinstance(e, image_encoding.ImageTooLargeError)):
+            # An undecodable file (no pi-heif on this platform, a corrupt or
+            # animated one) stays so until it changes: remember that, or every
+            # thumbnail request of the grid retries it and logs again. The size
+            # budget is a setting and an I/O error may pass, so neither is kept.
+            key = os.path.normcase(str(raw))
+            with _DECODED_MEMO_LOCK:
+                hit = _DECODED_MEMO.get(key)
+                if hit is not None and hit[1] == fingerprint:
+                    _DECODED_MEMO[key] = (hit[0], '')
+        return None
+    drop_decoded_copies(bank_id, (image_id,), keep=dst)
+    return str(dst)
+
+
+def _reads_decoded_copy(row) -> bool:
+    """Whether a row's source NAME makes it a decoded-copy candidate. Its cache
+    keys are then the copy's path, never the raw one, so a lexical raw-path lookup
+    must resolve it like a rotated or cleaned row instead."""
+    return str(getattr(row, 'relpath', '') or '').lower().endswith(DECODED_SOURCE_EXTS)
+
+
+def _decoded_source(bank_id, row: BankImage, raw: str, *, materialize: bool = True) -> str | None:
+    """The source PIXELS of an existing raw file: the file itself, or its decoded
+    copy (made now when ``materialize``). None when a copy is needed and cannot be
+    had, which the analysis lanes treat as unreadable (fail closed)."""
+    fingerprint = _decoded_source_fingerprint(raw)
+    if fingerprint is None:
+        return raw
+    if not _valid_analysis_fingerprint(fingerprint):
+        return None
+    dst = decoded_image_path(bank_id, row.id, fingerprint)
+    if dst.is_file():
+        return str(dst)
+    if not materialize:
+        return None
+    return _materialize_decoded_copy(bank_id, row.id, raw, fingerprint)
+
+
+def source_image_path(bank: ImageBank, row: BankImage, *, fail_open: bool = False) -> str | None:
+    """The SOURCE PIXELS of a bank image, for every reader that decodes the source
+    itself: the two resolvers below, the watermark and text lanes, and
+    ``/bank/file?original=1``.
+
+    The user's own file (`abs_image_path`) for JPEG/PNG/WebP/BMP content, its
+    decoded PNG copy for HEIC/HEIF and AVIF content (see the block above). A
+    missing source comes back as it is: every caller already handles a path that
+    is not a file. ``fail_open`` (display) falls back to the raw file when the
+    copy cannot be made; otherwise that is None."""
+    raw = abs_image_path(bank, row)
+    if not raw or not os.path.isfile(raw):
+        return raw
+    pixels = _decoded_source(bank.id, row, raw)
+    return raw if pixels is None and fail_open else pixels
+
+
 def _ensure_rotated(bank_id, row: BankImage, source: str) -> str:
     """Materialise (once) the turned copy of ``source`` and return its path.
 
@@ -567,20 +758,26 @@ def resolved_image_path(bank: ImageBank, row: BankImage) -> str | None:
         if cleaned.is_file():
             path = str(cleaned)
     if path is None:
-        path = abs_image_path(bank, row)
+        # The source pixels: the user's file, or the decoded copy of a HEIC/HEIF or
+        # AVIF one (the browser could not show it). Fails open to the raw file.
+        path = source_image_path(bank, row, fail_open=True)
     if path is None or not getattr(row, 'rotation', None):
         return path
     return _ensure_rotated(bank.id, row, path)
 
 
 def analysis_image_path(bank: ImageBank, row: BankImage, *,
-                        refresh_rotation=False) -> str | None:
+                        refresh_rotation=False, materialize=True) -> str | None:
     """Strict effective path used by every analysis/caption/cache lane.
 
     Display remains fail-open so a broken derivative never produces a 404.
     Analysis must fail closed: a requested clean without raw watermark authority,
     or a rotation that cannot be materialised, may never silently analyse the
     raw fallback and bless it as though it were the displayed transform.
+
+    A HEIC/HEIF or AVIF source is analysed through its decoded copy and fails
+    closed without one. ``materialize=False`` is for cache LOOKUPS: a missing
+    copy then answers None instead of decoding a photo nobody analysed yet.
     """
     raw = abs_image_path(bank, row)
     if not raw or not os.path.isfile(raw):
@@ -592,6 +789,11 @@ def analysis_image_path(bank: ImageBank, row: BankImage, *,
     if row.edit_method:
         edited = edited_image_path(bank.id, row.id, row.edit_generation)
         return str(edited) if edited.is_file() else None
+    # From here the decoded copy IS the source of a HEIC/HEIF or AVIF row, so the
+    # watermark attestation below binds to the same bytes its lanes measured.
+    raw = _decoded_source(bank.id, row, raw, materialize=materialize)
+    if raw is None:
+        return None
     path = raw
     if row.watermark_clean_method:
         if (not _valid_analysis_fingerprint(row.watermark_fingerprint)
@@ -1252,6 +1454,7 @@ def forget_missing(user_id, bank_id, *, _bank_lease=None) -> dict:
             BankImage.id.in_(ids[i0:i0 + _SQL_IN_CHUNK])
         ).delete(synchronize_session=False)
         db.session.commit()
+        drop_decoded_copies(bank_id, ids[i0:i0 + _SQL_IN_CHUNK])   # a HEIC/AVIF row's copy goes with it
     if ids:
         # The pending ↩ offer may point at rows this run just dropped —
         # withdraw it rather than advertise a restore that would find nothing.
@@ -4237,6 +4440,19 @@ def _semantic_eligible_paths(bank: ImageBank) -> tuple[int, tuple[str, ...]]:
                         rotated.setdefault(int(prefix), []).append(candidate)
         except OSError:
             pass   # unreadable entry: the rotation scan skips it
+    # A HEIC/HEIF or AVIF source is indexed under its decoded copy's path. Same
+    # rule as the rotations above: list the app-owned folder once, hash nothing.
+    # One that never got a copy falls back to its raw path (the index has neither).
+    decoded = {}
+    if any(str(row.relpath or '').lower().endswith(DECODED_SOURCE_EXTS) for row in rows):
+        try:
+            with os.scandir(_decoded_dir(bank.id)) as entries:
+                for entry in entries:
+                    prefix = entry.name.split('.', 1)[0]
+                    if entry.name.endswith('.png') and prefix.isdigit():
+                        decoded.setdefault(int(prefix), []).append(entry.path)
+        except OSError:
+            pass   # no copy made yet: every such row falls back to its raw path
     base, resolved = _poll_path_memo(bank)
     paths = []
     for image_id, relpath, rotation, clean_method in rows:
@@ -4247,6 +4463,8 @@ def _semantic_eligible_paths(bank: ImageBank) -> tuple[int, tuple[str, ...]]:
                          if marker in candidate.name)
         elif clean_method:
             paths.append(str(clean_image_path(bank.id, image_id)))
+        elif image_id in decoded:
+            paths.extend(decoded[image_id])
         else:
             try:
                 raw = resolved[relpath]
@@ -5420,8 +5638,8 @@ def _pool_embeddings(bank, emb_by_path, filters):
     prefix = os.path.normcase(base + os.sep)
     ids, vecs = [], []
     for r in rows:
-        if r.watermark_clean_method or r.rotation:
-            p = analysis_image_path(bank, r)
+        if r.watermark_clean_method or r.rotation or _reads_decoded_copy(r):
+            p = analysis_image_path(bank, r, materialize=False)
             emb = emb_by_path.get(p) if p else None
             if emb is not None:
                 ids.append(r.id)
@@ -6474,6 +6692,7 @@ def delete_rejected(user_id, bank_id, job=None, *, _bank_lease=None) -> dict:
                 BankImage.id.in_(ids[i0:i0 + _SQL_IN_CHUNK])
             ).delete(synchronize_session=False)
         db.session.commit()
+        drop_decoded_copies(bank_id, ids)   # a HEIC/AVIF row's copy goes with it
 
     for i, (row_id, relpath) in enumerate(rows, 1):
         if job is not None and bank_jobs.cancelled(job):
@@ -7915,10 +8134,11 @@ def _watermark_job(bank_id, rescan, use_detector=False, statuses=None, ids=None,
                     _discard_clean_blob(bank_id, row)
                     _invalidate_effective_analysis(row)
                 # Watermark boxes are stored in raw, EXIF-oriented source
-                # coordinates because cleaning consumes ``abs_image_path``.
+                # coordinates because cleaning consumes ``source_image_path``
+                # (the user's file, or a HEIC/AVIF source's decoded copy).
                 # Rotation/clean derivatives belong to the effective-analysis
                 # lanes and would make the saved geometry unusable here.
-                yield rid, abs_image_path(bank, row)
+                yield rid, source_image_path(bank, row)
 
         def ask(item):
             """WORKER thread: read the file, ask Ollama. Touches no session — the
@@ -8113,7 +8333,7 @@ def _watermark_detector_job(bank_id, rescan, statuses=None, ids=None, limit=None
             if row.watermark_clean_method:
                 _discard_clean_blob(bank_id, row)
                 _invalidate_effective_analysis(row)
-            path = abs_image_path(bank, row)
+            path = source_image_path(bank, row)
             if not path:
                 # No resolvable file. Counted and bumped rather than quietly
                 # dropped: a pass that says "done — 12 with a watermark" over a
@@ -8415,7 +8635,7 @@ def _text_scan_job(bank_id, rescan, statuses=None, ids=None, limit=None):
                 vanished += 1
                 bank_jobs.bump(job)
                 continue
-            path = abs_image_path(bank, row)
+            path = source_image_path(bank, row)
             if not path:
                 vanished += 1
                 bank_jobs.bump(job)
@@ -8779,7 +8999,7 @@ def _clean_regions(row):
 
 
 def _current_watermark_source(bank, row) -> tuple[str | None, str | None]:
-    path = abs_image_path(bank, row)
+    path = source_image_path(bank, row)
     if not path or not os.path.isfile(path):
         return None, None
     fingerprint = bank_transfer_metadata.content_fingerprint_path(path)
@@ -9792,7 +10012,7 @@ def set_watermark_regions(user_id, bank_id, image_id, regions, *,
     import json as _json
     stored = _json.dumps(normalized) if normalized is not None else None
     bank = db.session.get(ImageBank, bank_id)
-    raw_path = abs_image_path(bank, row) if bank else None
+    raw_path = source_image_path(bank, row) if bank else None
     # A row no scan ever reached carries no attestation. That is the FIRST one,
     # not a changed file: measure it now and let _prepare_watermark_write bind it
     # (its `watermark_fingerprint is None` branch). Passing the stored NULL would
@@ -9840,7 +10060,7 @@ def undo_watermark_clean(user_id, bank_id, image_ids=None, *,
     rows = q.all()
     restored = 0
     for row in rows:
-        raw_path = abs_image_path(bank, row)
+        raw_path = source_image_path(bank, row)
         expected_raw_fingerprint = row.watermark_fingerprint
         if not _prepare_watermark_write(
                 row, raw_path, expected_raw_fingerprint):
@@ -9877,7 +10097,7 @@ def dismiss_watermarks(user_id, bank_id, image_ids, *,
             .filter(BankImage.id.in_(ids[:_SQL_IN_CHUNK])).all())
     dismissed = 0
     for row in rows:
-        raw_path = abs_image_path(bank, row)
+        raw_path = source_image_path(bank, row)
         expected_raw_fingerprint = row.watermark_fingerprint
         if not _prepare_watermark_write(
                 row, raw_path, expected_raw_fingerprint):
@@ -10349,8 +10569,8 @@ def _medium_job(bank_id, rescan, statuses=None, ids=None):
             # normpath that HITS the cache is provably what realpath would have
             # returned, and realpath is a syscall this loop cannot afford once
             # per row on a 20 000-image bank.
-            if r.watermark_clean_method or r.rotation:
-                p = analysis_image_path(bank, r)
+            if r.watermark_clean_method or r.rotation or _reads_decoded_copy(r):
+                p = analysis_image_path(bank, r, materialize=False)
                 emb = emb_by_path.get(p) if p else None
             else:
                 p = os.path.normpath(os.path.join(base, r.relpath))
@@ -11365,8 +11585,8 @@ def _coverage_embeddings(bank, crit):
     prefix = os.path.normcase(base + os.sep)
     vecs = []
     for r in rows:
-        if r.watermark_clean_method or r.rotation:
-            p = analysis_image_path(bank, r)
+        if r.watermark_clean_method or r.rotation or _reads_decoded_copy(r):
+            p = analysis_image_path(bank, r, materialize=False)
             emb = emb_by_path.get(p) if p else None
             if emb is not None:
                 vecs.append(emb)
