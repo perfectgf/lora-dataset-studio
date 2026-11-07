@@ -12171,6 +12171,11 @@ def regenerate_image(user_id, image_id, lora_strength=None, prompt=None, app=Non
         raise ValueError('small-image rescue candidates cannot be regenerated; re-import the source')
     if img.derivation_kind == KLEIN_IMAGE_IMPROVE:
         raise ValueError('upscale & improve candidates cannot be regenerated from the dataset reference')
+    if img.derivation_kind and img.parent_image_id is not None:
+        # Any other derived candidate (a camera view) was made from ONE picture;
+        # this route would restart from the dataset reference.
+        raise ValueError('candidates made from another picture cannot be regenerated from the '
+                         'dataset reference; generate them again from that picture')
     ds = db.session.get(FaceDataset, img.dataset_id)
     if not ds.ref_filename:
         raise ValueError('reference image required')

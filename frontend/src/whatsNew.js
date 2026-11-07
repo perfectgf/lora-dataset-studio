@@ -84,6 +84,13 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-07-z-regenerate-keeps-its-source',
+    date: '2026-11-07',
+    title: 'Regenerate no longer remakes a camera view from the wrong picture',
+    blurb: 'A camera view is made from one picture of your dataset, but 🔄 and the retry offered when rejecting it restarted from '
+      + 'the dataset reference and made an unrelated image. Those tiles no longer offer it: generate the view again from its picture.',
+  },
+  {
     id: '2026-11-07-z-plugin-zip-size',
     date: '2026-11-07',
     title: 'Install from a ZIP takes the same plugins as the Store',
