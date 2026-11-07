@@ -987,6 +987,9 @@ def dataset_import(dataset_id):
         ids, failed = svc.import_images(LOCAL_USER, dataset_id, files, crop=False,
                                         dedupe=True, stats=stats)
         return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                        # Closed cause -> count (svc.IMPORT_FAILURE_CAUSES): what
+                        # the usage-statistics hook reports, never a file name.
+                        'failed_reasons': stats.get('failed_reasons', {}),
                         'duplicates': stats.get('duplicates', 0),
                         'small': stats.get('small', 0)})
     try:
@@ -998,6 +1001,7 @@ def dataset_import(dataset_id):
     except Exception as e:
         return _map_error(e)
     return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                    'failed_reasons': stats.get('failed_reasons', {}),
                     'duplicates': stats.get('duplicates', 0),
                     'small': stats.get('small', 0)})
 
@@ -2037,6 +2041,7 @@ def dataset_import_zip(dataset_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                    'failed_reasons': stats.get('failed_reasons', {}),
                     'duplicates': stats.get('duplicates', 0),
                     'captions': stats.get('captions', 0),
                     # Captions that landed on images ALREADY in the dataset (the
@@ -2066,6 +2071,7 @@ def dataset_import_folder(dataset_id):
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     return jsonify({'ok': True, 'imported': len(ids), 'failed': failed,
+                    'failed_reasons': stats.get('failed_reasons', {}),
                     'duplicates': stats.get('duplicates', 0),
                     'captions': stats.get('captions', 0),
                     # Captions that landed on images ALREADY in the dataset (the

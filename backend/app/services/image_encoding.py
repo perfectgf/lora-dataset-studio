@@ -118,6 +118,15 @@ INPUT_MAX_PIXELS = DEFAULT_INPUT_MAX_PIXELS
 #: was hardcoded, and is a dead end now that it is not.
 INPUT_BUDGET_SETTING_PATH = 'Settings ▸ Captioning & quality ▸ Image size budget'
 
+
+class ImageTooLargeError(ValueError):
+    """An image refused for its size (the budget below, or a bomb-sized header).
+
+    A ValueError like every other refusal here, so no caller changes. The type
+    exists so an import can COUNT why a file was refused without reading the
+    message text.
+    """
+
 _budget_provider = None
 
 
@@ -196,7 +205,7 @@ def validate_input_header_dimensions(im: Image.Image, *, label: str,
         limits = ' or '.join(
             part for part in ((f'{side} px per side' if side else ''),
                               (f'{pixels} pixels' if pixels else '')) if part)
-        raise ValueError(
+        raise ImageTooLargeError(
             f'{label} rejects images above {limits} (got {width}x{height}); '
             f'raise or remove this budget in {INPUT_BUDGET_SETTING_PATH}, '
             'or reduce the image before import')

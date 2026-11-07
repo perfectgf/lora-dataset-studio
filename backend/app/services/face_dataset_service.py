@@ -5718,7 +5718,7 @@ def _import_header_dimensions(image_bytes: bytes, *, label: str = 'import') -> t
     except ValueError:
         raise
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
-        raise ValueError(f'{label} rejected an unsafe image header') from exc
+        raise image_encoding.ImageTooLargeError(f'{label} rejected an unsafe image header') from exc
     except (OSError, UnidentifiedImageError, MemoryError) as exc:
         raise ValueError(f'{label} received an unreadable image') from exc
 
@@ -5766,7 +5766,7 @@ def _preserved_import_extension(image_bytes: bytes, *, label: str = 'preserve mo
     except ValueError:
         raise
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
-        raise ValueError(f'{label} rejected an unsafe image header') from exc
+        raise image_encoding.ImageTooLargeError(f'{label} rejected an unsafe image header') from exc
     except (OSError, UnidentifiedImageError, MemoryError) as exc:
         raise ValueError(f'{label} received an unreadable image') from exc
     return ext
@@ -5789,7 +5789,7 @@ def _load_import_derivative_image(image_bytes: bytes) -> Image.Image:
     except ValueError:
         raise
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
-        raise ValueError('import rejected an unsafe image header') from exc
+        raise image_encoding.ImageTooLargeError('import rejected an unsafe image header') from exc
     except (OSError, UnidentifiedImageError, MemoryError) as exc:
         raise ValueError('import received an unreadable image') from exc
 
@@ -6307,6 +6307,24 @@ def _imp_commit_row(user_id, dataset_id, index, stored, extension, scale,
     return img
 
 
+#: Why an import skipped a file, as closed cause -> count in ``stats['failed_reasons']``.
+#: The import routes return these counts beside ``failed``, and the usage-statistics
+#: hook turns the dominant cause into its ``error_reason``; no file name, path or
+#: message ever leaves with it. Decided by exception TYPE, never by message text.
+#: A failed WRITE is not here on purpose: it aborts the request (see _imp_commit_row).
+IMPORT_FAILURE_CAUSES = ('unreadable', 'too_large')
+
+
+def _note_import_failure(stats, exc) -> None:
+    """Count one skipped file under its cause: over the size budget, or not a
+    picture this import can read (corrupt, unidentified or unsupported format)."""
+    if stats is None:
+        return
+    cause = 'too_large' if isinstance(exc, image_encoding.ImageTooLargeError) else 'unreadable'
+    counts = stats.setdefault('failed_reasons', {})
+    counts[cause] = counts.get(cause, 0) + 1
+
+
 @_serialize_dataset_ingest
 def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, stats=None,
                   source_metadata=None, captions=None, caption_origins=None,
@@ -6418,6 +6436,7 @@ def import_images(user_id, dataset_id, files_bytes, crop=False, dedupe=False, st
                 raise RuntimeError(
                     f'could not preserve Bank image bytes: {e}') from e
             failed += 1
+            _note_import_failure(stats, e)
             logger.warning(f"dataset import: image skipped (dataset {dataset_id}): {e}")
             continue
         seal_analysis_snapshot = _imp_prepare_seal(
@@ -6544,8 +6563,9 @@ def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
             raw = getter()
         except (OSError, ValueError, MemoryError, zipfile.BadZipFile,
                 zipfile.LargeZipFile, zlib.error, lzma.LZMAError,
-                NotImplementedError, RuntimeError):
+                NotImplementedError, RuntimeError) as e:
             failed += 1
+            _note_import_failure(stats, e)
             continue
         if stats is not None:   # Same quality warning as photo imports.
             try:
@@ -6557,6 +6577,7 @@ def _merge_training_images(user_id, dataset_id, entries, captions, stats=None):
             stored, extension = import_store_image(raw)
         except Exception as e:
             failed += 1
+            _note_import_failure(stats, e)
             logger.warning(f"dataset import: image skipped ({display}): {e}")
             continue
         try:
@@ -6735,14 +6756,14 @@ def import_dataset_folder(user_id, dataset_id, folder, stats=None):
         if not stat.S_ISREG(source_stat.st_mode):
             raise ValueError('folder image is not a regular file')
         if source_stat.st_size > DATASET_ZIP_MAX_IMAGE_BYTES:
-            raise ValueError('image too large in folder (max 128 MiB per image)')
+            raise image_encoding.ImageTooLargeError('image too large in folder (max 128 MiB per image)')
         with open(p, 'rb') as fh:
             opened_stat = os.fstat(fh.fileno())
             if not stat.S_ISREG(opened_stat.st_mode):
                 raise ValueError('folder image is not a regular file')
             raw = fh.read(DATASET_ZIP_MAX_IMAGE_BYTES + 1)
         if len(raw) > DATASET_ZIP_MAX_IMAGE_BYTES:
-            raise ValueError('image too large in folder (max 128 MiB per image)')
+            raise image_encoding.ImageTooLargeError('image too large in folder (max 128 MiB per image)')
         return raw
 
     def _non_regular_image():

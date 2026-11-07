@@ -42,13 +42,17 @@ ERRORS = frozenset({
     'out_of_memory', 'timeout', 'dependency_missing', 'operation_failed',
     'conflict',
 })
+# Dominant cause of the files an import skipped while the request itself succeeded:
+# unreadable or unsupported format, or over the image size budget. An HTTP error
+# never carries one of these (see usage_statistics_hooks.py).
+IMPORT_REFUSAL_REASONS = frozenset({'import_file_unreadable', 'import_file_too_large'})
 ERROR_REASONS = frozenset({
     'none', 'unknown', 'training_already_running', 'caption_backend_unavailable',
     'gpu_busy', 'dataset_busy', 'bank_busy', 'ollama_fence_blocked',
     'bank_name_required', 'bank_folder_unavailable', 'bank_dataset_folder_conflict',
     'bank_image_limit', 'training_process_failed', 'training_resume_failed',
     'studio_generation_failed', 'studio_result_save_failed', 'cloud_training_failed',
-})
+}) | IMPORT_REFUSAL_REASONS
 CONTEXT_VALUES = {
     'execution': frozenset({'local', 'cloud', 'unknown'}),
     'model_family': frozenset({'zimage', 'krea', 'flux2klein', 'sdxl', 'flux',
@@ -81,6 +85,8 @@ def failure_stage(error_code, error_reason):
     if error_reason in {'caption_backend_unavailable', 'training_resume_failed'}:
         return 'preparation'
     if error_reason.startswith('bank_') and error_reason not in {'bank_busy'}:
+        return 'validation'
+    if error_reason in IMPORT_REFUSAL_REASONS:
         return 'validation'
     if error_code in {'invalid_input', 'not_found', 'busy', 'conflict'}:
         return 'validation'
