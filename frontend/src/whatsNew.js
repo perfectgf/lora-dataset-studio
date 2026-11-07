@@ -121,6 +121,13 @@ export const WHATS_NEW = [
       + 'now name the members features that apply there, with a link to join. Nothing else changes.',
   },
   {
+    id: '2026-11-02-zz-saved-keys-survive-restart',
+    date: '2026-11-02',
+    title: 'A key you change in Settings stays changed after a restart',
+    blurb: 'After an in-app restart, the app could go back to an older copy of a key you had replaced in Settings — a new Hugging Face token was then refused as if it were wrong. '
+      + 'The keys saved in Settings now always win when the app starts.',
+  },
+  {
     id: '2026-10-31-huggingface-error-settings',
     date: '2026-10-31',
     title: 'Fix Hugging Face access errors from the failed run',
