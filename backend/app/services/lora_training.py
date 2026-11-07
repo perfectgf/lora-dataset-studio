@@ -1187,6 +1187,39 @@ def detect_lora_arch(path) -> str | None:
     return fam
 
 
+_LORA_TRIGGER_CACHE: dict = {}
+
+
+def recorded_trigger(path) -> str | None:
+    """The trigger word a LoRA .safetensors was trained with, as ai-toolkit records it.
+
+    Whenever its job config sets trigger_word, ai-toolkit stamps
+    ss_tag_frequency = {"1_<trigger>": {"<trigger>": 1}} into the file's metadata
+    (BaseSDTrainProcess). Every family's export and job config write the dataset
+    trigger through _safe_trigger, so a dataset typed "Double pen" trains "Double_pen",
+    which a text encoder splits differently from the typed words. None when the file
+    records no single trigger (a Style run drops trigger_word, another trainer lists
+    every caption tag) or cannot be read. Never raises; cached like detect_lora_arch."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+    if key not in _LORA_TRIGGER_CACHE:
+        trigger = None
+        try:
+            md, _keys = _read_safetensors_header(path)
+            tags = json.loads(md.get('ss_tag_frequency') or 'null')
+            if isinstance(tags, dict) and len(tags) == 1:
+                words = next(iter(tags.values()))
+                if isinstance(words, dict) and len(words) == 1:
+                    trigger = str(next(iter(words))).strip() or None
+        except (ValueError, TypeError):
+            trigger = None
+        _LORA_TRIGGER_CACHE[key] = trigger
+    return _LORA_TRIGGER_CACHE[key]
+
+
 def lora_arch_conflicts(detected, family) -> bool:
     """True only when a POSITIVELY-detected LoRA arch cannot be loaded by
     `family`'s pipeline (different key namespace → ComfyUI drops every key

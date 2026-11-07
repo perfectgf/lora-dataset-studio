@@ -457,6 +457,11 @@ def identity_prompt(ds, with_trigger=True) -> str:
     return IDENTITY_PROMPT_TEMPLATE.format(trigger=(ds.trigger_word or '').strip())
 
 
+def _trigger_pattern(trigger):
+    """`trigger` as a whole token, case-insensitive; group 1 is the boundary before it."""
+    return re.compile(r'(^|[^0-9A-Za-z])' + re.escape(trigger) + r'(?=[^0-9A-Za-z]|$)', re.IGNORECASE)
+
+
 def _prompt_with_trigger(prompt, trigger_word):
     """Prepend the dataset trigger unless empty or already a whole token.
 
@@ -466,9 +471,55 @@ def _prompt_with_trigger(prompt, trigger_word):
     t = (trigger_word or '').strip()
     if not p or not t:
         return p
-    if re.search(r'(?:^|[^0-9A-Za-z])' + re.escape(t) + r'(?:[^0-9A-Za-z]|$)', p, re.IGNORECASE):
+    if _trigger_pattern(t).search(p):
         return p
     return f'{t}, {p}'
+
+
+def _learned_trigger(lora_name, trigger):
+    """`trigger` spelled as the LoRA file `lora_name` learned it.
+
+    Training writes the dataset trigger through lora_training._safe_trigger, in every
+    family, so "Double pen" is learned as "Double_pen", and a text encoder splits the
+    two differently: sending the typed words never activates the LoRA. The file's own
+    record (lora_training.recorded_trigger) is the authority, which also covers a
+    trigger renamed after training and a guest LoRA's own word. A LoRA that records no
+    trigger keeps the historical injection: `trigger` as typed."""
+    if not lora_name or not (trigger or '').strip():
+        return trigger
+    path = _resolve_lora_abs_path(lora_name)
+    return (lt.recorded_trigger(path) if path else None) or trigger
+
+
+def _respell_trigger(prompt, typed, learned):
+    """`prompt` with each whole-token `typed` trigger respelled `learned`. The default
+    identity prompt carries the typed trigger, and so may a written prompt: that word is
+    the trigger, so it is respelled in place instead of getting a second copy prefixed."""
+    t, u = (learned or '').strip(), (typed or '').strip()
+    if not t or not u or t.casefold() == u.casefold() or _trigger_pattern(t).search(prompt):
+        return prompt
+    return _trigger_pattern(u).sub(lambda m: m.group(1) + t, prompt)
+
+
+def _inject_triggers(prompt, checkpoint, trigger_word, extra_loras=None):
+    """The prompt a cell sends: each trigger spelled as its LoRA learned it, head first.
+
+    `trigger_word` is the tested checkpoint's dataset trigger, or a list headed by it
+    (combine mode); a stacked member's trigger belongs to the `extra_loras` entry that
+    carries it as `trigger`. Respells the typed triggers, then prefixes the missing ones."""
+    if trigger_word is None:
+        return _prompt_with_triggers(prompt, None)
+    typed = [trigger_word] if isinstance(trigger_word, str) else list(trigger_word)
+    owners = {}
+    for entry in extra_loras or ():
+        if isinstance(entry, dict) and entry.get('trigger') and entry.get('filename'):
+            owners.setdefault(entry['trigger'], entry['filename'])
+    learned = [_learned_trigger(checkpoint if i == 0 else owners.get(t), t)
+               for i, t in enumerate(typed)]
+    p = (prompt or '').strip()
+    for t, u in zip(learned, typed):
+        p = _respell_trigger(p, u, t)
+    return _prompt_with_triggers(p, learned)
 
 
 def _prompt_with_triggers(prompt, trigger_words):
@@ -1708,14 +1759,15 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
     and showing one LoRA's images in another's studio. The UUID also prevents
     collisions within a dataset when rerunning after a ComfyUI restart."""
     # Inject trigger words here, only when building the graph; retain the raw
-    # prompt in storage. `trigger_word` may be a list, one per stacked LoRA.
+    # prompt in storage. `trigger_word` may be a list, one per stacked LoRA, each
+    # spelled as its LoRA learned it (_inject_triggers).
     base_family = _base_model_family(checkpoint)
     if base_family:
         if base_family != train_type:
             raise ValueError('base-model run family does not match its saved settings')
         checkpoint = None
         trigger_word = None
-    prompt = _prompt_with_triggers(prompt, trigger_word)
+    prompt = _inject_triggers(prompt, checkpoint, trigger_word, extra_loras)
     ds_tag = f"d{dataset_id}_" if dataset_id is not None else ""
     fname = f"{user_id}_{ds_tag}LoraTest_{uuid.uuid4().hex[:8]}"
     extra_loras = extra_loras or []
@@ -3442,14 +3494,15 @@ def _cmp_enqueue_cells(user_id, cell_plan, members, _dataset_and_checkpoints,
     ids = []
     for sel, cell, combo, zm in cell_plan:
         # Member weights for this combination. Graph-facing stack_extra keeps the
-        # always-on format; only the persisted copy carries member identity so the
+        # always-on format plus the member's trigger (spelled at graph build as that
+        # LoRA learned it); only the persisted copy carries member identity so the
         # stack view can recover its dataset and trigger without guessing.
         stack_extra, stack_row = [], []
         for i, m in enumerate(members):
             entry = {'filename': m['filename'], 'strength': combo[i + 1]}
-            stack_extra.append(entry)
+            stack_extra.append({**entry, 'trigger': m['trigger']})
             # Only the persisted copy carries provenance; stack_extra retains the
-            # always-on format expected by the workflow builder.
+            # always-on format (and the trigger) the workflow builder reads.
             stack_row.append({**entry, 'combined': True,
                               'dataset_id': m['dataset_id'], 'trigger': m['trigger'],
                               'record_id': m['record_id'], 'step': m['step']})
