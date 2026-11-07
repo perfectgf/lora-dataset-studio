@@ -326,6 +326,11 @@ just crash the trainer — **zero kept images**, or a **slider with no prompt pa
 — are never offered the option, and the box un-ticks itself the moment the
 blockers change.
 
+**Full-model datasets.** Full-model training runs in the cloud only, so the
+readiness panel checks such a dataset the way its cloud launch will: it reads
+**Ready to launch in the cloud** when nothing blocks the run, instead of a red
+"Not ready" whose only blocker was that this computer cannot run it.
+
 **Stopping a training run.** The red **⏹ Stop training** button next to Train
 ends the run in progress — it is not a housekeeping button. It kills the training
 process, clears the pending local training queue, and hands the GPU back to

@@ -135,6 +135,13 @@ export const WHATS_NEW = [
       + 'The keys saved in Settings now always win when the app starts.',
   },
   {
+    id: '2026-11-02-zz-full-model-readiness-cloud',
+    date: '2026-11-02',
+    title: 'Full-model datasets show their real launch readiness',
+    blurb: 'The readiness card above Training now checks a full-model dataset the way its cloud launch will. '
+      + 'It reads “Ready to launch in the cloud” (or “Almost ready” with its warnings) instead of “Not ready” because this computer cannot train it.',
+  },
+  {
     id: '2026-10-31-huggingface-error-settings',
     date: '2026-10-31',
     title: 'Fix Hugging Face access errors from the failed run',

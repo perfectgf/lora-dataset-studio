@@ -5390,6 +5390,10 @@ def dataset_payload(user_id, dataset_id):
         # Results can load without waiting for trainer/model discovery.
         'train_base_model': ds.train_base_model or '',
         'train_variant': ds.train_variant,
+        # The readiness badge asks the lane the dataset trains on: a full-model
+        # recipe is cloud-only, and its local preflight is one blocker long.
+        'training_mode': (ds.training_mode if ds.training_mode in ('lora', 'full_transformer')
+                          else 'lora'),
         'kind': (ds.kind or 'character'),
         # WHAT the subject is (NULL/legacy -> 'human'); drives the generation
         # catalog + identity lock. Orthogonal to `kind`.

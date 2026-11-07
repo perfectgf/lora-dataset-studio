@@ -48,6 +48,40 @@ export function preflightUrl(datasetId, {
   return `/api/dataset/${datasetId}/train/preflight${qs.length ? `?${qs.join('&')}` : ''}`;
 }
 
+/** What the readiness badge above the Training panel asks, and how it reads a
+ * clean verdict.
+ *
+ * A full-model recipe is cloud-only, so its LOCAL-lane preflight is always one
+ * blocker long ("full_transformer training is cloud-only") — the badge said
+ * "Not ready" over a dataset that was ready to launch. In full-model mode it
+ * asks the cloud lane, with no variant and no base: the server then reads the
+ * SAVED selection, where a variant from a dataset payload loaded earlier could
+ * be stale. The launch still checks the picked base itself. Every other mode keeps
+ * the historical request byte for byte, and `endpoint` (the video workspace's)
+ * wins over both. */
+export function readinessRequest({ datasetId, trainType, variant, trainingMode, endpoint = null } = {}) {
+  if (endpoint) return { url: endpoint, readyLabel: 'Ready to train', lane: null };
+  if (normalizeTrainingMode(trainingMode) === 'full_transformer') {
+    return {
+      url: preflightUrl(datasetId, { trainType, trainingMode, lane: 'cloud' }),
+      readyLabel: 'Ready to launch in the cloud',
+      lane: 'cloud',
+    };
+  }
+  const params = new URLSearchParams();
+  if (trainType) params.set('train_type', trainType);
+  if (variant) params.set('variant', variant);
+  const qs = params.size ? `?${params.toString()}` : '';
+  return { url: `/api/dataset/${datasetId}/train/preflight${qs}`, readyLabel: 'Ready to train', lane: 'local' };
+}
+
+/** A report answered for the OTHER lane (the dataset has just switched mode and
+ * its new preflight is still running) is not this one's verdict. The server
+ * echoes its lane; a report without one is the historical local payload. */
+export function reportFitsLane(report, lane) {
+  return !lane || (report?.lane === 'cloud' ? 'cloud' : 'local') === lane;
+}
+
 /** Rows the modal must never show on a cloud lane, kept here as the client-side
  * mirror of the server filter — used by the test that guards the whole point of
  * this feature: a warning that fires wrongly teaches people to ignore all of

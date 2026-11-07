@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 import { readinessSignature, overrideAck } from '../../utils/readinessOverride';
 import { HelpBadge } from '../../help/HelpMode';
+import { readinessRequest, reportFitsLane } from './preflightLane.js';
 
 /*
  * Training-readiness badge mirrors server GET /train/preflight checks and verdict: ready, warnings
@@ -23,8 +24,11 @@ const ROW_CLS = { ok: 'text-emerald-400', warn: 'text-amber-300', fail: 'text-re
 // byte for byte, so nothing that already mounts this card changes. The video
 // workspace passes its own — the report has the same shape (`checks` +
 // `verdict`), and one card rendering both is the parity rule made literal.
+// `trainingMode` (optional): a full-model dataset is asked on the cloud lane
+// (preflightLane.js readinessRequest); without it, the historical request.
 export default function TrainingReadiness({ datasetId, trainType, variant, refreshKey, onJump,
-                                            onOverrideChange, endpoint = null }) {
+                                            onOverrideChange, endpoint = null, trainingMode = null }) {
+  const request = readinessRequest({ datasetId, trainType, variant, trainingMode, endpoint });
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
   // Continue anyway acknowledges a bypassable QUALITY blocker. Uncheck whenever the blocking-state
@@ -38,19 +42,14 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
     clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       try {
-        const params = new URLSearchParams();
-        if (trainType) params.set('train_type', trainType);
-        if (variant) params.set('variant', variant);
-        const qs = params.size ? `?${params.toString()}` : '';
-        const url = endpoint || `/api/dataset/${datasetId}/train/preflight${qs}`;
-        const r = await fetch(url, { credentials: 'include' });
+        const r = await fetch(request.url, { credentials: 'include' });
         if (!r.ok) { if (alive) setData(null); return; }   // 409 AI Toolkit missing → no data
         const d = await r.json();
         if (alive && d.ok) setData(d);
       } catch { /* Transient failure: retry on the next counter change. */ }
     }, 400);
     return () => { alive = false; clearTimeout(timer.current); };
-  }, [datasetId, trainType, variant, refreshKey, endpoint]);
+  }, [request.url, refreshKey]);
 
   // Reset the ack whenever the blocking state changes (a new blocker, a fixed one,
   // an override that just became unavailable) so a stale tick never rides forward.
@@ -62,6 +61,9 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
     [sig, ack, data, onOverrideChange]);
 
   if (!data || !(data.checks || []).length) return null;
+  // Switching to full-model mode re-asks on the cloud lane; until it answers,
+  // the local verdict still in hand is not this dataset's.
+  if (!reportFitsLane(data, request.lane)) return null;
   const v = VERDICT[data.verdict] || VERDICT.warnings;
   const warns = data.checks.filter((c) => c.status === 'warn').length;
   const fails = data.checks.filter((c) => c.status === 'fail').length;
@@ -74,7 +76,9 @@ export default function TrainingReadiness({ datasetId, trainType, variant, refre
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2 text-left">
         <v.icon aria-hidden="true" className={`h-4 w-4 shrink-0 ${v.iconCls}`} />
-        <span className="text-content text-sm font-semibold">{v.label}</span>
+        <span className="text-content text-sm font-semibold">
+          {data.verdict === 'ready' ? request.readyLabel : v.label}
+        </span>
         <span className="text-content-subtle text-[0.6875rem]">{subtitle}</span>
         <span aria-hidden className="ml-auto text-content-subtle text-xs">{open ? '▾' : '▸'}</span>
       </button>

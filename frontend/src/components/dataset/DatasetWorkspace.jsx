@@ -344,6 +344,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Continue anyway: acknowledgment from the readiness badge bypasses the quality safeguard,
   // unlocks Train and reaches launch as allow_not_ready. The server remains authoritative.
   const [notReadyAck, setNotReadyAck] = useState(false);
+  // The Training panel's live recipe {datasetId, trainingMode}: a full-model
+  // dataset is checked on the cloud lane. Until the panel has read it, the
+  // dataset payload's mode is used.
+  const [trainingSelection, setTrainingSelection] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importToBankOpen, setImportToBankOpen] = useState(false);
   const [folderBrowseOpen, setFolderBrowseOpen] = useState(false);  // in-app folder browser (native-dialog fallback)
@@ -640,6 +644,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
 
   if (!d) return <p className="text-content-subtle text-sm">Loading…</p>;
 
+  const liveTraining = trainingSelection?.datasetId === d.id ? trainingSelection : null;
   const images = d.images || [];
   const rescuePairs = buildSmallImageRescuePairs(images);
   const unresolvedRescuePairs = rescuePairs.filter((pair) => !pair.resolved);
@@ -2352,6 +2357,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                  */}
                 {caps.training_visible && (
                   <TrainingReadiness datasetId={d.id} trainType={d.train_type} variant={d.train_variant}
+                    trainingMode={liveTraining ? liveTraining.trainingMode : d.training_mode}
                     refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
                     onJump={(targetId) => jumpTo({ targetId })}
                     onOverrideChange={setNotReadyAck} />
@@ -2362,6 +2368,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   checkpointHost={checkpointHost}
                   navigationPanel={section === 'training' && panel === 'advanced' ? panel : null}
                   onNavigationStateChange={setTrainingNavigation}
+                  onTrainingSelectionChange={setTrainingSelection}
                   onPanelOpenChange={(panelId, open) => {
                     if (!open && section === 'training' && panel === panelId) clearActivePanel();
                   }} />
