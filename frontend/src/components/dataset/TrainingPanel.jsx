@@ -3164,6 +3164,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         <div id="ds-training-queue" tabIndex={-1} data-workspace-focus
           className="flex flex-col gap-1 rounded-lg border border-indigo-400/30 bg-indigo-500/5 px-3 py-2 scroll-mt-20">
           <span className="text-content-muted text-[0.625rem] uppercase">Training queue ({status.queue.length})</span>
+          {status.queue_waiting_for ? (
+            <span role="status" className="text-indigo-200/90 text-[0.6875rem]">
+              Waiting for {status.queue_waiting_for} — the next one starts on its own when the GPU is free.
+            </span>
+          ) : null}
           {status.queue.map((q, i) => (
             <div key={q.dataset_id} className="flex items-center gap-2 text-[0.6875rem]">
               <span className="text-content-subtle tabular-nums">{i + 1}.</span>
