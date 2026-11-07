@@ -57,6 +57,19 @@ def test_anima_uses_its_small_qwen_encoder_and_real_negative_conditioning():
     assert graph['7']['inputs']['cfg'] == 5.0
 
 
+def test_moss_never_renders_past_four_megapixels():
+    from app.services.lora_test_studio import _aspect_dims, generation_capabilities
+    from app.utils.trained_image_workflows import MOSS_MAX_PIXELS
+    # Max tier x1.9 asks ~5.8 MP; OpenMOSS documents MOSS-Image up to 4 MP (2048²).
+    w, h = _aspect_dims('3:4', 'moss', 'max', 1.9)
+    assert w * h <= MOSS_MAX_PIXELS and w % 16 == h % 16 == 0 and abs(w / h - 3 / 4) < 0.01
+    assert _aspect_dims('3:4', 'krea', 'max', 1.9) != (w, h)
+    latent = _build('moss', width=2560, height=2048)['6']['inputs']
+    assert latent['width'] * latent['height'] <= MOSS_MAX_PIXELS
+    assert generation_capabilities('moss')['max_pixels'] == MOSS_MAX_PIXELS
+    assert 'max_pixels' not in generation_capabilities('krea')
+
+
 def test_moss_matches_the_validated_runtime_and_keeps_shift_before_skip_guidance():
     graph = _build('moss', prompt='a fox', negative='blur')
     assert graph['1']['class_type'] == 'LDSMossUNETLoader'

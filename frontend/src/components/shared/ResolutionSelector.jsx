@@ -14,6 +14,7 @@
  *   aspectRatio        - current format key (to display the resulting WxH)
  *   onChange           - (value) => void
  *   maxLongSide        - optional per-model preset cap (SDXL passes 1024)
+ *   maxPixels          - optional per-model ceiling on the final size (MOSS-Image: 4 MP)
  *   multiplier         - resolution multiplier, 1.0–1.9 (default 1.0)
  *   onMultiplierChange - (number) => void
  */
@@ -40,10 +41,18 @@ const clampMult = (m) => {
   return Number.isFinite(v) ? Math.max(MULT_MIN, Math.min(MULT_MAX, v)) : MULT_MIN;
 };
 
+// Optional maxPixels is a MODEL-specific ceiling on the snapped size: scaled down, ratio kept, onto
+// multiples of 16 rounded down — the backend's moss_capped_dims, so MOSS shows what it renders.
+function capPixels(w, h, maxPixels) {
+  if (!maxPixels || w * h <= maxPixels) return [w, h];
+  const s = Math.sqrt(maxPixels / (w * h));
+  return [Math.max(MULT, Math.floor((w * s) / MULT) * MULT), Math.max(MULT, Math.floor((h * s) / MULT) * MULT)];
+}
+
 // Optional maxLongSide is a MODEL-specific cap. SDXL passes 1024 because it fails beyond roughly 1
 // megapixel, matching backend dimensions. multiplier 1.0-1.9 scales the PRESET after the tier cap,
 // then clamps to the absolute 3072 limit.
-function tierDims(aspectRatio, mp, maxLongSide, multiplier = 1) {
+function tierDims(aspectRatio, mp, maxLongSide, multiplier = 1, maxPixels = 0) {
   const [rw, rh] = RATIOS[aspectRatio] || RATIOS.square;
   const r = rw / rh;
   let h = Math.sqrt((mp * 1e6) / r);
@@ -55,11 +64,11 @@ function tierDims(aspectRatio, mp, maxLongSide, multiplier = 1) {
   w *= m; h *= m;
   longest = Math.max(w, h);
   if (longest > ABS_CAP) { const s = ABS_CAP / longest; w *= s; h *= s; }
-  return [snap(w), snap(h)];
+  return capPixels(snap(w), snap(h), maxPixels);
 }
 
 export default function ResolutionSelector({
-  value = 'standard', aspectRatio = 'square', onChange, maxLongSide,
+  value = 'standard', aspectRatio = 'square', onChange, maxLongSide, maxPixels,
   multiplier = 1, onMultiplierChange,
 }) {
   const m = clampMult(multiplier);
@@ -67,15 +76,15 @@ export default function ResolutionSelector({
   const overTrain = m > MULT_WARN + 1e-9;
   // Base (preset) vs final size of the CURRENTLY selected tier, for the live readout.
   const cur = TIERS.find((t) => t.value === value) || TIERS[1];
-  const [bw, bh] = tierDims(aspectRatio, cur.mp, maxLongSide, 1);
-  const [fw, fh] = tierDims(aspectRatio, cur.mp, maxLongSide, m);
+  const [bw, bh] = tierDims(aspectRatio, cur.mp, maxLongSide, 1, maxPixels);
+  const [fw, fh] = tierDims(aspectRatio, cur.mp, maxLongSide, m, maxPixels);
   return (
     <div className="flex flex-col gap-2">
       <div className="grid grid-cols-4 gap-2">
         {TIERS.map((t) => {
           const selected = value === t.value;
           // Each chip shows its FINAL size (preset × current multiplier).
-          const [w, h] = tierDims(aspectRatio, t.mp, maxLongSide, m);
+          const [w, h] = tierDims(aspectRatio, t.mp, maxLongSide, m, maxPixels);
           return (
             <button
               key={t.value}

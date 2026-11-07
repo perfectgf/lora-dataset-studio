@@ -99,6 +99,10 @@ DEFAULTS = {
     'qwenimage21': {'steps': 25, 'cfg': 1.0, 'sampler': 'euler', 'scheduler': 'simple'},
 }
 
+# MOSS-Image extrapolates "from 0.25M (512×512) to 4M (2K)" pixels (OpenMOSS user guide):
+# no Studio size goes past 2048², tier multiplier included.
+MOSS_MAX_PIXELS = 2048 * 2048
+
 _COMMON_NODES = ('UNETLoader', 'VAELoader', 'KSampler', 'VAEDecode', 'SaveImage',
                  'LoraLoaderModelOnly')
 REQUIRED_NODES = {
@@ -155,6 +159,14 @@ def _number(value, default, low, high, label, *, integer=False):
     return int(number) if integer else number
 
 
+def moss_capped_dims(width, height):
+    """(width, height) scaled down, ratio kept, to at most MOSS_MAX_PIXELS, on multiples of 16."""
+    if width * height <= MOSS_MAX_PIXELS:
+        return width, height
+    scale = math.sqrt(MOSS_MAX_PIXELS / (width * height))
+    return max(16, int(width * scale) // 16 * 16), max(16, int(height * scale) // 16 * 16)
+
+
 def build_trained_image_workflow(
     family, *, assets, allowed_bases, allowed_loras, base_model=None, loras=(),
     prompt='', negative='', seed=0, width=1024, height=1024, cfg=None, steps=None,
@@ -169,9 +181,12 @@ def build_trained_image_workflow(
     model: Anima's trained text conditioner is inside that model (llm_adapter),
     and Qwen 2.1's toolkit exports ComfyUI-prefixed transformer keys. Loading them
     through an older Qwen encoder or a Z-Image graph would silently drop weights.
+    A MOSS picture never exceeds MOSS_MAX_PIXELS.
     """
     family = _family(family)
     defaults = family_defaults(family)
+    if family == 'moss':
+        width, height = moss_capped_dims(width, height)
     if not isinstance(assets, dict):
         raise ValueError('Generation assets must be resolved before building a workflow')
     resolved = {}

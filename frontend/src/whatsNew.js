@@ -106,6 +106,14 @@ export const WHATS_NEW = [
       + 'and keeps the environment unready if files are still missing.',
   },
   {
+    id: '2026-11-07-z-moss-size-ceiling',
+    date: '2026-11-07',
+    title: 'MOSS-Image stays within the size it supports',
+    blurb: 'MOSS-Image is documented up to 4 MP (2048×2048), but Max with a high multiplier could ask for almost 6 MP. '
+      + 'Larger sizes now scale down to that limit with the same proportions, and the size picker shows what will be rendered.',
+    to: '/studio',
+  },
+  {
     id: '2026-11-07-setup-opens-on-tools',
     date: '2026-11-07',
     title: 'Setup opens on your tools',

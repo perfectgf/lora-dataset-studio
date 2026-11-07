@@ -190,12 +190,17 @@ def _aspect_dims(aspect, train_type=None, resolution_tier=None, resolution_multi
     A supplied fast/standard/hq/max tier uses compute_tier_dims and a clamped
     1.0-1.9 multiplier. Otherwise use family-specific legacy tables; the multiplier
     does not affect them. SDXL tier output caps its long side at 1024*multiplier
-    in multiples of 64, avoiding dimensions that distort SDXL merges/DMD models."""
+    in multiples of 64, avoiding dimensions that distort SDXL merges/DMD models.
+    MOSS-Image stops at the 4 MP its authors document (moss_capped_dims; the frontend's
+    ResolutionSelector shows the same size)."""
     if resolution_tier in RESOLUTION_TIERS:
         named = _ASPECT_TO_TIER_RATIO.get(aspect)
         if named:
             from ..utils.resolution import clamp_multiplier, compute_tier_dims
             w, h = compute_tier_dims(named, resolution_tier, resolution_multiplier)
+            if (train_type or '').lower() == 'moss':
+                from ..utils.trained_image_workflows import moss_capped_dims
+                return moss_capped_dims(w, h)
             if (train_type or '').lower() == 'sdxl':
                 # Scale the SDXL cap too, matching the frontend instead of silently cancelling its multiplier.
                 ceiling = 1024.0 * clamp_multiplier(resolution_multiplier)
@@ -566,7 +571,11 @@ def studio_family_defaults(family):
 
 
 def generation_capabilities(family):
-    return {'negative_prompt': family in ('zimage', 'anima', 'qwenimage21', 'moss')}
+    caps = {'negative_prompt': family in ('zimage', 'anima', 'qwenimage21', 'moss')}
+    if family == 'moss':
+        from ..utils.trained_image_workflows import MOSS_MAX_PIXELS
+        caps['max_pixels'] = MOSS_MAX_PIXELS
+    return caps
 
 
 def family_base_models(family):
