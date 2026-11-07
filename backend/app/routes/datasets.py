@@ -1101,6 +1101,14 @@ def dataset_caption(dataset_id):
     # from `engines`, which is a writer-count map the UI renders name by name — a
     # 'skipped' key in there would be shown as an engine that wrote captions.
     outcome = {}
+    # A dataset frozen by an exclusive operation (a copy to or from a Bank, a
+    # training export, a backup) refuses here, BEFORE the vision window asks
+    # ComfyUI to unload its models for a pass that cannot run. The pass itself
+    # refused it too, but only once inside the window.
+    try:
+        svc._guard_not_bank_export(dataset_id)
+    except Exception as e:
+        return _map_error(e)
     try:
         with gpu_exclusive_vision_window(flag_ttl=1800):
             n = svc.caption_images(LOCAL_USER, dataset_id, force=force, mode=mode,
