@@ -240,11 +240,13 @@ test('manual improvement candidates cannot use the unrelated generic regenerate 
   // The guard moved into improveRerun.js (testable in node --test, which cannot
   // parse JSX) when the tile gained its own 🔄✨ re-run of the improve pass. Same
   // meaning, asserted at both ends: the tile delegates, and the decision refuses.
-  assert.match(gridItem, /const isImageImproveCandidate = isImageImproveRow\(img\)/);
+  // Reject's retry offer reads the same decision as 🔄.
   assert.match(gridItem, /const canRegenerate = canRegenerateGeneric\(img, \{ isRescueDerived \}\)/);
-  assert.match(gridItem, /if \(!isImageImproveCandidate && img\.status !== 'reject'/);
-  assert.equal(canRegenerateGeneric({ source: 'generated', filename: 'a.png', status: 'keep',
-    derivation_kind: 'klein_image_improve', parent_image_id: 2 }), false);
+  assert.match(gridItem, /if \(canRegenerate && img\.status !== 'reject'/);
+  for (const kind of ['klein_image_improve', 'camera_angle']) {
+    assert.equal(canRegenerateGeneric({ source: 'generated', filename: 'a.png', status: 'keep',
+      derivation_kind: kind, parent_image_id: 2 }), false);
+  }
 });
 
 test('curation grid and lightbox render provenance through ONE dispatching component', () => {

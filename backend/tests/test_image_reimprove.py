@@ -409,6 +409,11 @@ def test_generic_regenerate_still_refuses_an_improvement(app, monkeypatch):
         ds, parent, candidate = _improved_pair(svc, FaceDatasetImage, LOCAL_USER)
         with pytest.raises(ValueError, match='cannot be regenerated'):
             svc.regenerate_image(LOCAL_USER, candidate.id)
+        # A camera view was made from one picture too.
+        candidate.derivation_kind = svc.CAMERA_ANGLE
+        svc.db.session.commit()
+        with pytest.raises(ValueError, match='cannot be regenerated'):
+            svc.regenerate_image(LOCAL_USER, candidate.id)
         assert queued == [], 'nothing may be enqueued through the generic route'
 
 

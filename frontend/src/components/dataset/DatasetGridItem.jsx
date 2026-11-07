@@ -14,7 +14,7 @@ import { datasetLabSurface } from './captionLabSurface';
 import PromptEditPopover from './PromptEditPopover';
 import SourceAttribution from './SourceAttribution';
 import { engineAccent, engineLabel as labelOfEngine } from './engineSelection.js';
-import { canRegenerateGeneric, improveRerunAffordance, isImageImproveRow } from './improveRerun.js';
+import { canRegenerateGeneric, improveRerunAffordance } from './improveRerun.js';
 import { rememberImageRatio } from './lightboxActionPlacement.js';
 import { datasetThumbUrl } from '../../utils/datasetThumbUrl.js';
 import { poseLabel } from '../../utils/cameraAngles.js';
@@ -139,11 +139,10 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
   // Regenerate applies to generated tiles that are not mid-generation —
   // finished AND failed ones (failure recovery path) (F2).
   const isRescueDerived = isSmallImageRescueRow(img);
-  // A manual Klein improvement is derived from THIS image, not the dataset's
-  // main reference. Sending it through the generic regenerate route would lose
-  // that source and silently make an unrelated variation instead — so it gets
-  // its OWN re-run below (same parent, current improve settings) instead.
-  const isImageImproveCandidate = isImageImproveRow(img);
+  // A derived candidate (improvement, camera view) was made from ONE picture, not
+  // the dataset's main reference. The generic route would lose that source and
+  // silently make an unrelated variation instead; an improvement gets its OWN
+  // re-run below (same parent, current settings).
   const canRegenerate = canRegenerateGeneric(img, { isRescueDerived });
   const rerunImprove = onReimprove && improvementAvailable() ? improveRerunAffordance(img) : null;
   // Every refused write says WHICH pass holds it; idle, each keeps its own words.
@@ -265,7 +264,9 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
                     {img.fail_reason}
                   </span>
                 )}
-                <span className="text-content-subtle text-[0.5625rem]">🔄 to retry</span>
+                {(canRegenerate || rerunImprove) && (
+                  <span className="text-content-subtle text-[0.5625rem]">🔄 to retry</span>
+                )}
               </>
             ) : (
               <span className="text-content-subtle text-xs">…</span>
@@ -408,8 +409,7 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
             onClick={() => {
               // Rejecting a GENERATED image offers an immediate retry of the same
               // variation (in place, new seed) so the composition stays on target.
-              if (!isImageImproveCandidate && img.status !== 'reject'
-                  && img.source === 'generated' && img.filename && onRegenerate
+              if (canRegenerate && img.status !== 'reject' && img.filename && onRegenerate
                   && window.confirm('Photo rejected — regenerate a new attempt of this variation?\n(OK = replace with a new attempt · Cancel = reject only)')) {
                 onRegenerate(img.id);
                 return;

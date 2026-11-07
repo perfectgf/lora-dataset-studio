@@ -40,10 +40,11 @@ export function improveRerunAffordance(img) {
 }
 
 /**
- * The original guard, unchanged and now testable: the generic regenerate route is
- * never offered for a derived row (improvement or small-image rescue).
+ * The generic regenerate route restarts from the dataset reference, so it is never
+ * offered for a derived row (improvement, small-image rescue or camera view): each
+ * was made from ONE picture of the dataset.
  */
 export function canRegenerateGeneric(img, { isRescueDerived = false } = {}) {
-  if (isRescueDerived || isImageImproveRow(img)) return false;
+  if (isRescueDerived || isImageImproveRow(img) || img?.derivation_kind) return false;
   return img?.source === 'generated' && !(img.status === 'pending' && !img.filename);
 }
