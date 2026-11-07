@@ -100,6 +100,13 @@ export const WHATS_NEW = [
       + 'original-file mode keeps each one as a lossless PNG.',
   },
   {
+    id: '2026-11-07-zzy-queued-training-failure-shown',
+    date: '2026-11-07',
+    title: 'A queued training that cannot start says why',
+    blurb: 'When a training waiting in the queue failed to start when its turn came, it left the queue without a word. '
+      + 'The Training panel now names it and gives the reason.',
+  },
+  {
     id: '2026-11-07-zzx-queued-training-keeps-its-place',
     date: '2026-11-07',
     title: 'A queued training waits for the GPU instead of vanishing',

@@ -3202,6 +3202,13 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         </p>
       )}
 
+      {status.queue_error?.error && (
+        <p className="m-0 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-red-300 text-[0.6875rem]">
+          ⚠️ A queued training could not start{status.queue_error.name ? ` (${status.queue_error.name})` : ''} and
+          left the queue: {status.queue_error.error}
+        </p>
+      )}
+
       {fullMode
         ? (
           <p className="m-0 text-content-subtle text-[0.625rem]">

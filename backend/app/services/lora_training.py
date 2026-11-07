@@ -10202,6 +10202,20 @@ def is_local_run_active(dataset_id) -> bool:
     return cur is not None and str(cur) == str(dataset_id)
 
 
+def _queue_error_view():
+    """The queued launch that failed and was removed from the queue. It used to
+    be recorded and never read, so a queued training could vanish silently."""
+    err = queue_manager._get_system_state('training_queue_error', None)
+    if not isinstance(err, dict):
+        return None
+    try:
+        name = _dataset_name(err.get('dataset_id'))
+    except (TypeError, ValueError):
+        name = None
+    return {'dataset_id': err.get('dataset_id'), 'name': name,
+            'error': str(err.get('error') or '')}
+
+
 def training_status(user_id=None) -> dict:
     cur_id = queue_manager._get_system_state('training_dataset_id', None)
     in_progress = bool(queue_manager._get_system_state('training_in_progress', False))
@@ -10270,6 +10284,8 @@ def training_status(user_id=None) -> dict:
             'installed': is_installed(),
             'pid': queue_manager._get_system_state('training_pid', None),
             'current': current,
+            # The queued launch that failed and left the queue, if any.
+            'queue_error': _queue_error_view(),
             # Expose the watcher-reported nonzero-exit training crash to the UI.
             'error': queue_manager._get_system_state('training_error', None),
             # Why the queue's next item has not started yet (None: it has not
