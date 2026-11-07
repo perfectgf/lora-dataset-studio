@@ -1,8 +1,8 @@
 """Plugin environments use Setup's existing pip queue, runner and log.
 
 The owning marker distinguishes a repairable LDS environment from a directory
-the user placed there. A success receipt is written only after the interpreter
-and the installed dependency graph have both been checked.
+the user placed there. A success receipt is written only after the interpreter,
+the installed package files and the dependency graph have all been checked.
 """
 from __future__ import annotations
 from ..timeout_settings import processing_timeout
@@ -282,6 +282,64 @@ def _verify_interpreter(python, env_dir):
         raise EnvironmentError('Plugin CPU workers require Python 3.10–3.12. Move this plugin’s old environment aside, then install its environment again; its packages have not been changed.')
 
 
+# Runs in the plugin interpreter. pip keeps an installed version whose files
+# were deleted or changed, and pip check reads only metadata, so each package
+# is compared with the sizes and hashes pip wrote to its RECORD file. RECORD is
+# parsed directly: Distribution.files omits missing files on Python 3.12.
+_INTEGRITY_PROBE = r'''
+import base64, csv, hashlib, json, re, sys
+from importlib import metadata
+norm = lambda name: re.sub(r'[-_.]+', '-', str(name or '')).lower()
+found = {}
+for dist in metadata.distributions():
+    try:
+        found.setdefault(norm(dist.metadata['Name']), dist)
+    except Exception:
+        continue
+def intact(dist):
+    record = dist.read_text('RECORD')
+    if record is None:
+        return False
+    for row in csv.reader(record.splitlines()):
+        if len(row) < 2 or '=' not in row[1]:
+            continue
+        mode, _, value = row[1].partition('=')
+        try:
+            digest = hashlib.new(mode)
+        except ValueError:
+            continue
+        path = dist.locate_file(row[0])
+        if len(row) > 2 and row[2] and path.stat().st_size != int(row[2]):
+            return False
+        with open(path, 'rb') as stream:
+            for block in iter(lambda: stream.read(1 << 20), b''):
+                digest.update(block)
+        if base64.urlsafe_b64encode(digest.digest()).rstrip(b'=').decode() != value:
+            return False
+    return True
+def state(name):
+    if norm(name) not in found:
+        return 'absent'
+    try:
+        return 'ok' if intact(found[norm(name)]) else 'damaged'
+    except Exception:
+        return 'damaged'
+print(json.dumps({name: state(name) for name in sys.argv[1:]}))
+'''
+
+
+def _package_states(python, names):
+    try:
+        probe = subprocess.run([python, '-I', '-c', _INTEGRITY_PROBE, *names], capture_output=True, text=True,
+                               timeout=processing_timeout(600), env=subprocess_env())
+        states = json.loads(probe.stdout) if probe.returncode == 0 else None
+    except (subprocess.TimeoutExpired, ValueError):
+        states = None
+    if not isinstance(states, dict) or set(states) != set(names):
+        raise EnvironmentError('The installed package files could not be checked. Move this plugin’s old environment aside, then install its environment again.')
+    return states
+
+
 def _cpu_plan(report):
     plan = []
     for item in report.get('install', []):
@@ -294,7 +352,7 @@ def _cpu_plan(report):
         digest = (download.get('archive_info') or {}).get('hashes', {}).get('sha256')
         if not url.startswith('https://') or not re.fullmatch(r'[a-f0-9]{64}', str(digest or '')):
             raise EnvironmentError('The resolved package plan has no verified HTTPS archive.')
-        plan.append(f'{url} --hash=sha256:{digest}')
+        plan.append((name, f'{url} --hash=sha256:{digest}'))
     return plan
 
 
@@ -358,10 +416,28 @@ def install(action, record, *, extra_packages=(), extra_requirements=None):
                 return 1
             plan = _cpu_plan(json.loads(report.read_text(encoding='utf-8')))
             if plan:
-                locked = Path(temp) / 'requirements.txt'
-                locked.write_text('\n'.join(plan) + '\n', encoding='utf-8')
-                if run([python, '-I', '-m', 'pip', '--isolated', 'install', '--no-deps',
-                        '--no-index', '--require-hashes', '-r', str(locked)]) != 0:
+                names = [name for name, _ in plan]
+                damaged = {name for name, state in _package_states(python, names).items() if state == 'damaged'}
+                if damaged:
+                    si._append(action, 'Reinstalling packages whose installed files are missing or changed: '
+                                       + ', '.join(sorted(damaged)))
+                # Only damaged packages are forced; intact ones keep pip's
+                # already-satisfied shortcut.
+                for force in (False, True):
+                    lines = [line for name, line in plan if (name in damaged) == force]
+                    if not lines:
+                        continue
+                    locked = Path(temp) / ('repair.txt' if force else 'requirements.txt')
+                    locked.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+                    if run([python, '-I', '-m', 'pip', '--isolated', 'install', '--no-deps',
+                            *(['--force-reinstall'] if force else []),
+                            '--no-index', '--require-hashes', '-r', str(locked)]) != 0:
+                        return 1
+                broken = sorted(name for name, state in _package_states(python, names).items() if state != 'ok')
+                if broken:
+                    si._append(action, f'Installed files of {", ".join(broken)} are still missing or changed right after '
+                                       'installing. Security software or a failing disk can do this; check its quarantine, '
+                                       'then repair this environment again.')
                     return 1
     if run([python, '-I', '-m', 'pip', '--isolated', 'check']) != 0:
         return 1
@@ -371,5 +447,5 @@ def install(action, record, *, extra_packages=(), extra_requirements=None):
         raise EnvironmentError('The plugin changed during installation. Restart LDS and install its environment again.')
     with receipt.open('x', encoding='utf-8') as stream:
         json.dump(signature, stream)
-    si._append(action, 'Plugin environment ready. Python and installed dependency compatibility verified.')
+    si._append(action, 'Plugin environment ready. Python, installed package files and dependency compatibility verified.')
     return 0

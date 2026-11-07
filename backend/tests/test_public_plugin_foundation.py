@@ -1,11 +1,15 @@
 """Public framework foundations, exercised without loading any shipped product."""
+import base64
 from copy import deepcopy
+import hashlib
 import io
 import json
 from pathlib import Path
+import subprocess
 import sys
 import textwrap
 import uuid
+import venv
 import zipfile
 
 from flask import Flask
@@ -180,6 +184,38 @@ def test_managed_environment_stays_unprepared_until_explicit_installation(host):
     assert environment.installer() is setup_installer
     assert setup_installer.known_action('plugin_environment:sample.feature')
     assert not environment.environment_dir(record).exists()
+
+
+def test_environment_file_check_finds_deleted_and_zeroed_package_files(tmp_path):
+    # pip keeps a same-version package whose files are gone, so Repair relies
+    # on this RECORD comparison, run by the plugin interpreter itself.
+    from app.setup_installer import _venv_python
+    venv.create(tmp_path / 'env', with_pip=False)
+    python = _venv_python(tmp_path / 'env')
+    site = Path(subprocess.run([python, '-I', '-c', 'import sysconfig; print(sysconfig.get_paths()["purelib"])'],
+                               capture_output=True, text=True, check=True).stdout.strip())
+    files = {'lds_probe_demo/__init__.py': b'VALUE = 1\n', 'lds_probe_demo/weights.bin': b'\x01' * 4096}
+    for name, data in files.items():
+        (site / name).parent.mkdir(exist_ok=True)
+        (site / name).write_bytes(data)
+    info = site / 'lds_probe_demo-1.0.dist-info'
+    info.mkdir()
+    (info / 'METADATA').write_text('Metadata-Version: 2.1\nName: lds-probe-demo\nVersion: 1.0\n')
+    rows = [f'{name},sha256={base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()},{len(data)}'
+            for name, data in files.items()]
+    # Unhashed rows (bytecode, RECORD itself) may legitimately be absent.
+    rows += ['lds_probe_demo/__pycache__/__init__.cpython-312.pyc,,', 'lds_probe_demo-1.0.dist-info/RECORD,,']
+    (info / 'RECORD').write_text('\n'.join(rows) + '\n')
+
+    def states():
+        return environment._package_states(python, ['lds-probe-demo', 'not-installed'])
+
+    assert states() == {'lds-probe-demo': 'ok', 'not-installed': 'absent'}
+    (site / 'lds_probe_demo/weights.bin').write_bytes(b'\0' * 4096)
+    assert states()['lds-probe-demo'] == 'damaged'
+    (site / 'lds_probe_demo/weights.bin').write_bytes(files['lds_probe_demo/weights.bin'])
+    (site / 'lds_probe_demo/__init__.py').unlink()
+    assert states()['lds-probe-demo'] == 'damaged'
 
 
 def test_netfetch_uses_existing_public_host_primitive(host):

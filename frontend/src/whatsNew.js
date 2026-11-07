@@ -98,6 +98,14 @@ export const WHATS_NEW = [
       + 'Those copies are now removed after a successful start; a change that did not finish keeps everything it needs to roll back.',
   },
   {
+    id: '2026-11-07-z-plugin-repair-damaged-files',
+    date: '2026-11-07',
+    title: 'Repairing a plugin environment replaces damaged files',
+    blurb: 'Repair could report a verified environment that still could not import its packages, because pip keeps an installed '
+      + 'version even when its files are gone. It now compares each package with what was installed, reinstalls only the damaged ones, '
+      + 'and keeps the environment unready if files are still missing.',
+  },
+  {
     id: '2026-11-07-setup-opens-on-tools',
     date: '2026-11-07',
     title: 'Setup opens on your tools',
