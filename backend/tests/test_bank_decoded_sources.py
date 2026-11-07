@@ -59,6 +59,21 @@ def bank_ctx(app, tmp_path):
         yield banks, bank, rows, folder, before
 
 
+def test_without_a_heif_decoder_the_walk_leaves_heic_out(app, tmp_path, monkeypatch):
+    """A platform pi-heif ships no wheel for: no row nothing could show."""
+    from app.services import heif_decoder
+    from app.services import image_bank_service as banks
+    folder = tmp_path / 'phone'
+    folder.mkdir()
+    (folder / 'IMG_0001.HEIC').write_bytes(TINY_HEIC)
+    (folder / 'web.avif').write_bytes(STILL_AVIF)
+    (folder / 'plain.jpg').write_bytes(_jpeg((10, 120, 60)))
+    monkeypatch.setattr(heif_decoder, 'register', lambda: False)
+    with app.app_context():
+        _bank, added = banks.create_bank('local', 'No HEIF decoder', str(folder))
+    assert added == 2
+
+
 def test_every_reader_takes_one_copy_made_on_first_use(bank_ctx):
     import numpy as np
     banks, bank, rows, folder, before = bank_ctx
