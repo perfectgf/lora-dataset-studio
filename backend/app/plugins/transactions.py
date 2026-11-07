@@ -496,6 +496,24 @@ def rollback(root, tx):
     _save(root, tx)
 
 
+def purge_committed(root):
+    """Delete the recovery material of committed cohorts; their journals stay for history.
+
+    A committed cohort never rolls back, so its previous package, pre-boot data
+    snapshot and staging copies only cost disk space: a whole plugin data folder
+    per update. Unfinished and rolled-back cohorts keep everything."""
+    removed = 0
+    with admission(root):
+        for tx in journals(root):
+            if tx['phase'] != 'committed':
+                continue
+            items = _storage().managed_path(_folder(root, tx['id']), 'items')
+            if items.exists():
+                _remove_tree(items)
+                removed += 1
+    return removed
+
+
 def history(root, limit=10):
     """A bounded public projection, never expose provenance or machine paths."""
     from .loader import _paste_safe

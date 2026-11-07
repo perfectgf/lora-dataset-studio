@@ -91,6 +91,13 @@ export const WHATS_NEW = [
       + 'It now accepts the same size as the Store.',
   },
   {
+    id: '2026-11-07-z-plugin-updates-disk-space',
+    date: '2026-11-07',
+    title: 'Plugin updates stop filling your disk',
+    blurb: 'Every plugin update kept the previous package and a full copy of the plugin’s data forever. '
+      + 'Those copies are now removed after a successful start; a change that did not finish keeps everything it needs to roll back.',
+  },
+  {
     id: '2026-11-07-setup-opens-on-tools',
     date: '2026-11-07',
     title: 'Setup opens on your tools',
