@@ -175,8 +175,9 @@ test('every popover action is live, or stated with its reason — never a silent
 });
 
 test('the graph opens for any run with a checkpoint, not only 2+ run lineages', () => {
-  // button + body both gate on lineage OR a saved checkpoint
-  assert.match(cloud, /run\.lineage\s*\|\|\s*run\.checkpoint_ready/);
+  // button + body both gate on runOpensGraph: a lineage, a saved checkpoint, or any
+  // local run (whose disk the Runs list never scans); its cases: runGraph.test.js
+  assert.equal((cloud.match(/runOpensGraph\(run, \{ fullModel \}\)/g) || []).length, 2);
   // single-run graph is labelled ◉ Graph, a real lineage stays 🌳 Lineage
   assert.match(cloud, /run\.lineage \? '🌳 Lineage' : '◉ Graph'/);
 });
