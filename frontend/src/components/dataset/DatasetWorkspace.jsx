@@ -344,9 +344,9 @@ export default function DatasetWorkspace({ ds, onBack }) {
   // Continue anyway: acknowledgment from the readiness badge bypasses the quality safeguard,
   // unlocks Train and reaches launch as allow_not_ready. The server remains authoritative.
   const [notReadyAck, setNotReadyAck] = useState(false);
-  // The Training panel's live recipe {datasetId, trainingMode}: a full-model
-  // dataset is checked on the cloud lane. Until the panel has read it, the
-  // dataset payload's mode is used.
+  // The Training panel's live recipe {datasetId, trainingMode, revision}: a
+  // full-model dataset is checked on the cloud lane, and again after its base
+  // is saved. Until the panel has read it, the dataset payload's mode is used.
   const [trainingSelection, setTrainingSelection] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [importToBankOpen, setImportToBankOpen] = useState(false);
@@ -2358,7 +2358,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 {caps.training_visible && (
                   <TrainingReadiness datasetId={d.id} trainType={d.train_type} variant={d.train_variant}
                     trainingMode={liveTraining ? liveTraining.trainingMode : d.training_mode}
-                    refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}`}
+                    refreshKey={`${kept}|${keptCaptioned}|${pending}|${triage}|${d.caption_leak?.leaking ?? ''}${
+                      liveTraining?.revision ? `|${liveTraining.revision}` : ''}`}
                     onJump={(targetId) => jumpTo({ targetId })}
                     onOverrideChange={setNotReadyAck} />
                 )}

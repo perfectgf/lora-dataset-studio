@@ -58,6 +58,7 @@ import { toggleDiffSelection } from './lineageDetail.js';
 import { UseDatasetCaptionsButton } from './UseDatasetCaptionsButton';
 import TrainingProgress from './TrainingProgress';
 import PreflightModal from './PreflightModal';
+import { denseChoiceSaver, densePickerSetters } from './denseChoice.js';
 import { laneOfPayload, preflightUrl } from './preflightLane.js';
 import { continuationFromNode, explicitRunContinuation } from '../runs/localContinuation.js';
 import {
@@ -144,8 +145,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                                         navigationPanel = null,
                                         onNavigationStateChange,
                                         onPanelOpenChange,
-                                        // {datasetId, trainingMode} for the readiness badge above
-                                        // the panel: a full-model recipe is checked on the cloud lane.
+                                        // {datasetId, trainingMode, revision} for the readiness
+                                        // badge above the panel: a full-model recipe is checked
+                                        // on the cloud lane, and asked again when its base is saved.
                                         onTrainingSelectionChange,
                                         // Is Training visible? The panel stays MOUNTED in other
                                         // sections so queue polling continues. Visibility must be
@@ -266,6 +268,10 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   // The dataset `trainingMode` was read for: while the next dataset's base-info
   // loads, the previous mode must not be reported as this one's.
   const [trainingModeDatasetId, setTrainingModeDatasetId] = useState(null);
+  // Bumped each time a full-model choice is saved, so the readiness badge
+  // re-reads a verdict that depends on it.
+  const [denseSelectionRevision, setDenseSelectionRevision] = useState(0);
+  const [denseSaver] = useState(denseChoiceSaver);
   const trainingModeRadioRefs = useRef({});
   const incompatibleModeFallbackRef = useRef('');
   // Independent results browser: changing the NEXT training configuration must never
@@ -409,8 +415,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   }, [ds.currentId, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (trainingModeDatasetId == null) return;
-    onTrainingSelectionChange?.({ datasetId: trainingModeDatasetId, trainingMode });
-  }, [trainingModeDatasetId, trainingMode, onTrainingSelectionChange]);
+    onTrainingSelectionChange?.({
+      datasetId: trainingModeDatasetId, trainingMode, revision: denseSelectionRevision });
+  }, [trainingModeDatasetId, trainingMode, denseSelectionRevision, onTrainingSelectionChange]);
   //
   // Poll conversion status every 4 seconds. Depend on the STABLE callback keyed by currentId, not
   // the entire ds object: recreating the interval every render previously prevented the timer from
@@ -795,7 +802,22 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const fullTransformerReason = fullTransformerUnavailableReason(fullTransformerSelection);
   const fullMode = trainingMode === TRAINING_MODE_FULL_TRANSFORMER;
 
+  // A full-model choice is saved here, not by the plugin's picker (denseChoice.js):
+  // only the launch used to save it, so a reload brought the previous base back.
+  const denseCustomRef = useRef(customBase);
+  denseCustomRef.current = customBase;
+  const densePicker = densePickerSetters({
+    variant, base, customRef: denseCustomRef, setVariant, setBase, setCustomBase,
+    saver: denseSaver,
+    persist: async (selection, options) => {
+      const saved = await ds.setDatasetTrainingMode?.(
+        TRAINING_MODE_FULL_TRANSFORMER, selection, options);
+      if (saved) setDenseSelectionRevision((n) => n + 1);
+    },
+  });
+
   const onTrainingModeChange = async (nextValue) => {
+    denseSaver.drop();
     const nextMode = normalizeTrainingMode(nextValue);
     if (nextMode === trainingMode || trainingModeBusy) return false;
     if (nextMode === TRAINING_MODE_FULL_TRANSFORMER && !fullTransformerEligible) {
@@ -2105,11 +2127,11 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
           {fullMode ? (<>
             <PluginSlot slot="training.dense" surface="dataset" placement="recipe"
               variant={variant}
-              setVariant={setVariant}
+              setVariant={densePicker.setVariant}
               base={base}
-              setBase={setBase}
+              setBase={densePicker.setBase}
               customBase={customBase}
-              setCustomBase={setCustomBase}
+              setCustomBase={densePicker.setCustomBase}
               currentBases={currentBases}
               customSupported={customSupported}
               baseNote={baseNote}
