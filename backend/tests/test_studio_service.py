@@ -544,7 +544,7 @@ def _capture_krea_enqueue(monkeypatch, lts, checkpoints, base_models=()):
     monkeypatch.setattr(lts, '_target_node_classes', lambda: None)
     monkeypatch.setattr(
         lts, 'checkpoint_origins',
-        lambda selected, explicit=None: {checkpoint: (None, None)
+        lambda selected, explicit=None, family=None: {checkpoint: (None, None)
                                          for checkpoint in selected},
     )
 

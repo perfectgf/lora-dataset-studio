@@ -40,7 +40,7 @@ def _prep(monkeypatch, lts, checkpoints):
     monkeypatch.setattr(lts, '_target_node_classes', lambda: None)
     monkeypatch.setattr(
         lts, 'checkpoint_origins',
-        lambda selected, explicit=None: {c: (None, None) for c in selected})
+        lambda selected, explicit=None, family=None: {c: (None, None) for c in selected})
 
     def fake_builder(*a, **k):
         triggers.append(k.get('trigger_word'))

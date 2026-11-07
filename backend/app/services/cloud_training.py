@@ -7631,10 +7631,14 @@ def _testable_by_step(dataset_id, family, run_tag=None, final_step=None) -> dict
     return out
 
 
-def _testable_for_record(dataset_id, family, record_id) -> dict:
+def _testable_for_record(dataset_id, family, record_id, *, strict=False) -> dict:
     """{step: deployed filename} as seen FROM one run — the dataset+family map
     plus that run's own step-less final save (see _testable_by_step). Degrades to
-    the plain map when the record is unknown or its save list can't be read."""
+    the plain map when the record is unknown or its save list can't be read.
+
+    `strict` re-raises a failed save-list read instead: the boot backfill has to
+    tell "this run shows no such deploy" from "its saves could not be read", so
+    it can try again at the next start rather than record the wrong answer."""
     from ..models import TrainingRunRecord
     rec = db.session.get(TrainingRunRecord, record_id)
     if rec is None:
@@ -7644,6 +7648,8 @@ def _testable_for_record(dataset_id, family, record_id) -> dict:
     try:
         cks = _node_checkpoints(rec, crun)
     except Exception:
+        if strict:
+            raise
         cks = []
     return _testable_by_step(dataset_id, family, run_tag=_deployed_run_tag(rec),
                              final_step=_final_step_of(cks))
