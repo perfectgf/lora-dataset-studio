@@ -287,20 +287,17 @@ def _verify_interpreter(python, env_dir):
 # were deleted or changed, and pip check reads only metadata, so each package
 # is compared with the sizes and hashes pip wrote to its RECORD file. RECORD is
 # parsed directly: Distribution.files omits missing files on Python 3.12.
+# Resolve each requested distribution by its directory, not its METADATA name:
+# damaged metadata must trigger a reinstall rather than look like an absence.
 _INTEGRITY_PROBE = r'''
 import base64, csv, hashlib, json, re, sys
 from importlib import metadata
 norm = lambda name: re.sub(r'[-_.]+', '-', str(name or '')).lower()
-found = {}
-for dist in metadata.distributions():
-    try:
-        found.setdefault(norm(dist.metadata['Name']), dist)
-    except Exception:
-        continue
 def intact(dist):
     record = dist.read_text('RECORD')
-    if record is None:
+    if not record or '\x00' in record:
         return False
+    checked = 0
     for row in csv.reader(record.splitlines()):
         if len(row) < 2 or '=' not in row[1]:
             continue
@@ -317,12 +314,17 @@ def intact(dist):
                 digest.update(block)
         if base64.urlsafe_b64encode(digest.digest()).rstrip(b'=').decode() != value:
             return False
-    return True
+        checked += 1
+    return checked > 0
 def state(name):
-    if norm(name) not in found:
+    try:
+        dist = metadata.distribution(name)
+    except metadata.PackageNotFoundError:
         return 'absent'
     try:
-        return 'ok' if intact(found[norm(name)]) else 'damaged'
+        if norm(dist.metadata['Name']) != norm(name) or not dist.version:
+            return 'damaged'
+        return 'ok' if intact(dist) else 'damaged'
     except Exception:
         return 'damaged'
 print(json.dumps({name: state(name) for name in sys.argv[1:]}))
@@ -425,6 +427,7 @@ def install(action, record, *, extra_packages=(), extra_requirements=None):
                                        + ', '.join(sorted(damaged)))
                 # Only damaged packages are forced; intact ones keep pip's
                 # already-satisfied shortcut.
+                failed = set()
                 for force in (False, True):
                     lines = [line for name, line in plan if (name in damaged) == force]
                     if not lines:
@@ -434,12 +437,28 @@ def install(action, record, *, extra_packages=(), extra_requirements=None):
                     if run([python, '-I', '-m', 'pip', '--isolated', 'install', '--no-deps',
                             *(['--force-reinstall'] if force else []),
                             '--no-index', '--require-hashes', '-r', str(locked)]) != 0:
-                        return 1
+                        failed.update(name for name, _ in plan if (name in damaged) == force)
+                        break
                 broken = sorted(name for name, state in _package_states(python, names).items() if state != 'ok')
+                retry = failed | set(broken)
+                if retry:
+                    # Keep the exact CPU URLs and hashes approved above, but
+                    # discard cached downloads for one bounded repair attempt.
+                    si._append(action, 'Retrying failed packages once with fresh verified CPU downloads: '
+                                       + ', '.join(sorted(retry)))
+                    locked = Path(temp) / 'fresh-repair.txt'
+                    locked.write_text('\n'.join(line for name, line in plan if name in retry) + '\n',
+                                      encoding='utf-8')
+                    if run([python, '-I', '-m', 'pip', '--isolated', 'install', '--no-deps',
+                            '--force-reinstall', '--no-cache-dir', '--no-index', '--require-hashes',
+                            '-r', str(locked)]) != 0:
+                        si._append(action, 'The fresh-download repair failed. This environment has not been marked ready.')
+                        return 1
+                    broken = sorted(name for name, state in _package_states(python, names).items() if state != 'ok')
                 if broken:
-                    si._append(action, f'Installed files of {", ".join(broken)} are still missing or changed right after '
-                                       'installing. Security software or a failing disk can do this; check its quarantine, '
-                                       'then repair this environment again.')
+                    si._append(action, f'Installed files of {", ".join(broken)} still did not verify after the '
+                                       'fresh-download repair. This environment has not been marked ready. '
+                                       'Check file access, security-software quarantine and storage errors before retrying.')
                     return 1
     if run([python, '-I', '-m', 'pip', '--isolated', 'check']) != 0:
         return 1
