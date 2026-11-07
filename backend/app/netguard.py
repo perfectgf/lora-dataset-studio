@@ -40,7 +40,7 @@ import os
 import secrets
 from urllib.parse import urlencode
 
-from flask import jsonify, redirect, request, session
+from flask import current_app, jsonify, redirect, request, session
 
 SESSION_FLAG = 'lds_token_ok'
 SESSION_TOKEN = 'lds_token_binding'
@@ -93,6 +93,51 @@ def _presented_token() -> str | None:
     return request.headers.get('X-LDS-Token') or request.args.get('token')
 
 
+def accepted_token(app) -> str | None:
+    """The one token the guard accepts right now.
+
+    config.server.access_token is read here too (not only the boot-time env) so
+    turning the gate on with a saved token works LIVE — no restart, unlike the
+    bind change. run.py still seeds the env token at boot for the custom WSGI
+    path that never writes config.
+    """
+    from . import config as cfg
+    return (os.environ.get('LDS_ACCESS_TOKEN') or app.config.get('LDS_ACCESS_TOKEN')
+            or cfg.get('server.access_token'))
+
+
+def _session_binding(app, token) -> str:
+    key = app.secret_key
+    if isinstance(key, str):
+        key = key.encode('utf-8')
+    return hmac.new(key, str(token).encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def apply_saved_token(previous: str | None) -> None:
+    """Under the local lock, put a token just saved in Settings in force at once.
+
+    ensure_access_token() copies the saved token into the environment and the
+    guard reads that copy first, so saving alone changed nothing: Settings showed
+    a link the server refused. A restart did not always help, because a direct
+    launch hands its environment down and ensure_access_token() keeps that copy.
+    Moving the copy with the save closes both gaps.
+
+    An environment token that differs from the previously saved one is the
+    operator's own LDS_ACCESS_TOKEN: it stays in charge. The session that saved
+    stays signed in; every other session falls off, as after any rotation.
+    """
+    from . import config as cfg
+    saved = cfg.get('server.access_token')
+    if not local_token_required() or not isinstance(saved, str) or not saved or saved == previous:
+        return
+    running = os.environ.get('LDS_ACCESS_TOKEN') or current_app.config.get('LDS_ACCESS_TOKEN')
+    if running and running != previous:
+        return
+    os.environ['LDS_ACCESS_TOKEN'] = saved
+    session[SESSION_FLAG] = True
+    session[SESSION_TOKEN] = _session_binding(current_app, saved)
+
+
 def install_network_guard(app):
     def accepted():
         if request.method == 'GET' and request.path == '/' and request.args.get('token'):
@@ -124,12 +169,7 @@ def install_network_guard(app):
         from . import config as cfg
         if not (strict or public_bind() or cfg.get('server.require_token')):
             return None
-        # config.server.access_token is read here too (not only the boot-time env)
-        # so turning the gate on with a saved token works LIVE — no restart, unlike
-        # the bind change. run.py still seeds the env token at boot for the custom
-        # WSGI path that never writes config.
-        token = (os.environ.get('LDS_ACCESS_TOKEN') or app.config.get('LDS_ACCESS_TOKEN')
-                 or cfg.get('server.access_token'))
+        token = accepted_token(app)
         if not token:
             # Non-loopback client but no token configured (custom WSGI launch that
             # bypassed run.py): fail CLOSED with an actionable message.
@@ -137,10 +177,7 @@ def install_network_guard(app):
                                      'set LDS_ACCESS_TOKEN or start LDS with its launcher'}), 403
         # Bind a session to the current credential. A bare legacy flag, or a
         # session from before a token change, must not bypass local protection.
-        key = app.secret_key
-        if isinstance(key, str):
-            key = key.encode('utf-8')
-        binding = hmac.new(key, str(token).encode('utf-8'), hashlib.sha256).hexdigest()
+        binding = _session_binding(app, token)
         saved = session.get(SESSION_TOKEN)
         if (session.get(SESSION_FLAG) and isinstance(saved, str)
                 and secrets.compare_digest(saved.encode('utf-8'), binding.encode('ascii'))):
