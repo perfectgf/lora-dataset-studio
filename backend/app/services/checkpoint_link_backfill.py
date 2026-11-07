@@ -201,6 +201,47 @@ def resolve_run_name(filename: str) -> tuple[int, int] | None:
     return rec.id, rec.dataset_id
 
 
+def _basename_key(name) -> str:
+    return str(name or '').replace('\\', '/').rsplit('/', 1)[-1].lower()
+
+
+def final_save_step(filename: str, record_id: int, dataset_id: int,
+                    family: str | None = None, *, strict: bool = False) -> int | None:
+    """The step of the save a deployed file IS, as its run's lineage shows it —
+    or None when no pill of that run shows the file as deployed (an older
+    version of the final save, a copy removed from ComfyUI since).
+
+    This is the half of the answer a step-less final save is missing: ai-toolkit
+    names it without a step (``…_rc192_v2``), so the name gives the run and
+    nothing more, while the run's ◉ Graph already pairs that file with its final
+    pill (``cloud_training._testable_for_record``). Asking that same join keeps a
+    gallery and a pill from ever disagreeing about which checkpoint made an image.
+
+    Unlike ``resolve_checkpoint_name`` this READS DISK — the ComfyUI LoRA folder
+    and the run's save list. `family` picks the folder (the launch's family; else
+    the name's folder, else the run's). Best-effort: None on any failure, unless
+    `strict`, which lets a failed read raise for the boot pass that must tell
+    "no pill" from "could not look"."""
+    from ..models import TrainingRunRecord
+    from ..utils.comfyui import family_of_lora
+    from .cloud_training import _testable_for_record
+    try:
+        fam = family or family_of_lora(filename)
+        if not fam:
+            rec = db.session.get(TrainingRunRecord, record_id)
+            fam = getattr(rec, 'family', None)
+        if not fam:
+            return None
+        want = _basename_key(filename)
+        by_step = _testable_for_record(dataset_id, fam, record_id, strict=strict)
+        steps = {step for step, fn in by_step.items() if _basename_key(fn) == want}
+        return steps.pop() if len(steps) == 1 else None
+    except Exception:
+        if strict:
+            raise
+        return None
+
+
 def backfill_checkpoint_links() -> dict:
     """Fill in every link the evidence supports. Returns
     {'by_pointer': n, 'by_name': n, 'by_run': n, 'unlinked': n}. Never raises."""

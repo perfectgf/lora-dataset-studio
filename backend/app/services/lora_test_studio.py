@@ -2607,7 +2607,7 @@ def measured_seconds_per_image(family=None) -> float | None:
     return round(median, 1)
 
 
-def checkpoint_origins(checkpoints, explicit=None) -> dict:
+def checkpoint_origins(checkpoints, explicit=None, family=None) -> dict:
     """{deployed filename: (record_id, step)} — WHICH training checkpoint each
     selected LoRA came from, so every cell can record it on its row instead of
     the app re-deriving it from the filename on every render (the heuristic that
@@ -2623,6 +2623,13 @@ def checkpoint_origins(checkpoints, explicit=None) -> dict:
     written by the app, not inferred from a trigger word — and a name that
     carries none resolves to (None, None), i.e. an honestly unlinked cell.
 
+    A run's FINAL save is deployed with the tag and NO step (`…_rc192_v2`). Its
+    step is the one the run's lineage pairs that file with — the final pill that
+    shows it as deployed (`final_save_step`; `family`, the launch's, names the
+    ComfyUI folder that pairing reads). A file no pill shows keeps its run with
+    no step, as the boot backfill records it. Keeping neither left every image
+    tested from a final save out of the Canvas and the checkpoint galleries.
+
     Resolved ONCE per distinct filename: a 40-cell grid over 6 checkpoints costs
     6 lookups."""
     out = {}
@@ -2637,8 +2644,13 @@ def checkpoint_origins(checkpoints, explicit=None) -> dict:
             except (KeyError, TypeError, ValueError):
                 pass                     # malformed hint → fall through to the tag
         try:
-            from .checkpoint_link_backfill import resolve_checkpoint_name
+            from .checkpoint_link_backfill import (
+                final_save_step, resolve_checkpoint_name, resolve_run_name)
             hit = resolve_checkpoint_name(cp)
+            if hit is None:
+                run = resolve_run_name(cp)
+                if run:
+                    hit = (run[0], final_save_step(cp, run[0], run[1], family))
         except Exception:                # a registry read must never fail a launch
             hit = None
         out[cp] = (hit[0], hit[1]) if hit else (None, None)
@@ -3054,7 +3066,7 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     # WHICH lineage checkpoint each selected LoRA is, stamped on every cell it
     # produces (see checkpoint_origins) — the canvas gallery reads these columns,
     # it never re-parses a filename.
-    origin_of = checkpoint_origins(cps_in, origins)
+    origin_of = checkpoint_origins(cps_in, origins, family=run_family)
     # One opaque id per invocation is the strict boundary of a render-equivalent
     # timeline.  A later launch with the same prompt/seed/settings must never be
     # spliced into this one; resume_run reuses the ids already stored on rows.
@@ -3595,7 +3607,8 @@ def create_comparison_run(user_id, selections, strengths, settings=None, *,
         [s.get('checkpoint') for s in selections if s.get('checkpoint')],
         {s['checkpoint']: s for s in selections
          if s.get('checkpoint') and s.get('record_id') is not None
-         and s.get('step') is not None})
+         and s.get('step') is not None},
+        family=run_type)
 
     combine, selections, stack_triggers, combos, members = _cmp_expand_stack(
         combine, selections, origin_of, _dataset_and_checkpoints)
