@@ -9,6 +9,7 @@ import ContinueDialog from '../dataset/ContinueDialog.jsx'
 import RunLineageTree from '../dataset/RunLineageTree.jsx'
 import { BaseModelChip, DatasetVersionChip, RunIdChip } from '../dataset/RunIdentityBadges.jsx'
 import { runIdentityOf, runRowDomId } from '../../utils/runIdentity.js'
+import { runOpensGraph } from './runGraph.js'
 import { canStopLocalRun, formatDuration, groupRunsByDataset, isTrainingRecipeReplayBlocked, retryRequest, runBaseModelLabel, runDurationSeconds, runRetryKey, trainingRunVariantLabel } from '../../utils/trainingRuns.js'
 import { postWithConfirmations, RETRY_CONFIRMABLE_REFUSALS } from '../../utils/trainingRefusals.js'
 import { podBootFailureView, uploadStallFailureView } from '../../utils/launchProgress.js'
@@ -450,9 +451,9 @@ const renderRunCard = (run, i) => {
               </button>
             )}
             {/* The graph opens for ANY run with saved checkpoints (a single run
-                already shows its epochs), and labels as Lineage once it has a
-                parent or a branch. */}
-            {!fullModel && run.record_id != null && (run.lineage || run.checkpoint_ready) && (
+                already shows its epochs), every local run included (runGraph.js),
+                and labels as Lineage once it has a parent or a branch. */}
+            {runOpensGraph(run, { fullModel }) && (
               <button type="button" onClick={() => toggleLineage(run.record_id)}
                 aria-expanded={!!lineageOpen[run.record_id]}
                 title={run.lineage
@@ -487,7 +488,7 @@ const renderRunCard = (run, i) => {
               </button>
             )}
           </div>
-          {!fullModel && run.record_id != null && (run.lineage || run.checkpoint_ready) && lineageOpen[run.record_id] && (
+          {runOpensGraph(run, { fullModel }) && lineageOpen[run.record_id] && (
             <RunLineageTree
               tree={lineageData[run.record_id]?.tree}
               loading={lineageData[run.record_id]?.loading}
