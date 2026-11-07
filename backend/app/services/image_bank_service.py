@@ -502,7 +502,9 @@ def _drop_edited_blob(bank_id, row) -> None:
 # * a source that disappears is never served from its copy (the raw file is
 #   checked first); the copy leaves with its row (forget missing, delete
 #   rejected) or with the whole bank directory;
-# * disk: one lossless PNG of the decoded picture, typically 3-8x the source.
+# * disk: one lossless PNG of the decoded picture, about 1.5-2 MB per megapixel
+#   for a photo. Measured on public samples: 2.6x a 718 KB HEIC, 15x an 81 KB
+#   web AVIF, which compresses far harder than any lossless format can.
 _DECODED_MEMO_LOCK = threading.Lock()
 #: normcased path -> ((size, mtime_ns, file id), SHA-256 | '' unhashable | None
 #: read as it is). Bounded; a miss only costs one re-read of the file.
