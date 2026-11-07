@@ -7,6 +7,8 @@ type on a phone); turning on server.require_token restores the token gate for a
 shared/untrusted network (audit 2026-07-12, angle securite). REMOTE_ADDR is
 simulated via environ_base: the Flask test client defaults to 127.0.0.1.
 """
+import os
+
 import pytest
 
 REMOTE = {'REMOTE_ADDR': '192.168.1.50'}
@@ -163,9 +165,9 @@ def test_local_protection_without_a_credential_fails_closed(app, monkeypatch):
 @pytest.mark.parametrize('header', ['Authorization', 'X-LDS-Token'])
 def test_local_credential_authenticates_only_the_requesting_session(app, monkeypatch, header):
     monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
-    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'fake-local-credential')
     c = app.test_client()
-    credential = 'test-local-credential'
+    credential = 'fake-local-credential'
     value = f'Bearer {credential}' if header == 'Authorization' else credential
     assert c.get('/api/settings', headers={header: value}).status_code == 200
     assert c.get('/api/settings').status_code == 200
@@ -197,3 +199,70 @@ def test_a_legacy_session_flag_does_not_bypass_local_authentication(app, monkeyp
         state[SESSION_FLAG] = True
     assert c.get('/api/settings').status_code == 403
     assert c.get('/api/settings', headers={'X-LDS-Token': 'incorrect-\u00e9'}).status_code == 403
+
+
+def _sign_in(client, token):
+    assert client.get('/api/settings', headers={'X-LDS-Token': token}).status_code == 200
+
+
+def test_runtime_tells_the_truth_about_the_local_lock(app, monkeypatch):
+    monkeypatch.delenv('LDS_REQUIRE_LOCAL_TOKEN', raising=False)
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    runtime = app.test_client().get('/api/settings').json['runtime']
+    assert runtime['local_token_required'] is False and runtime['access_token'] is None
+
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    with app.app_context():
+        from app import config as cfg
+        cfg.save_config({'server': {'access_token': 'saved-local-credential'}})
+    client = app.test_client()
+    _sign_in(client, 'test-local-credential')
+    runtime = client.get('/api/settings').json['runtime']
+    # The token the server accepts, even when the saved one differs from it.
+    assert runtime['local_token_required'] is True
+    assert runtime['access_token'] == 'test-local-credential'
+
+
+def test_a_token_saved_under_the_local_lock_applies_at_once(app, monkeypatch):
+    from app import config as cfg
+    from app import netguard
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    with app.app_context():
+        cfg.save_config({'server': {'access_token': 'test-local-credential'}})
+    saver, other = app.test_client(), app.test_client()
+    _sign_in(saver, 'test-local-credential')
+    _sign_in(other, 'test-local-credential')
+
+    saved = saver.put('/api/settings', json={'config': {'server': {
+        'access_token': 'replacement-local-credential'}}})
+
+    assert saved.status_code == 200
+    assert saved.json['runtime']['access_token'] == 'replacement-local-credential'
+    assert saver.get('/api/settings').status_code == 200
+    assert other.get('/api/settings').status_code == 403
+    stale = app.test_client().get('/api/settings', headers={'X-LDS-Token': 'test-local-credential'})
+    assert stale.status_code == 403
+    assert app.test_client().get('/?token=replacement-local-credential').status_code == 303
+    # A direct relaunch inherits this environment and keeps what it finds there.
+    with app.app_context():
+        assert netguard.ensure_access_token('127.0.0.1') == 'replacement-local-credential'
+
+
+def test_saving_a_token_leaves_an_operator_token_and_the_unlocked_mode_alone(app, monkeypatch):
+    from app import config as cfg
+    monkeypatch.setenv('LDS_REQUIRE_LOCAL_TOKEN', '1')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'operator-local-credential')
+    with app.app_context():
+        cfg.save_config({'server': {'access_token': 'test-local-credential'}})
+    client = app.test_client()
+    _sign_in(client, 'operator-local-credential')
+    saved = client.put('/api/settings', json={'config': {'server': {
+        'access_token': 'replacement-local-credential'}}})
+    assert saved.json['runtime']['access_token'] == 'operator-local-credential'
+    assert client.get('/api/settings').status_code == 200
+
+    monkeypatch.delenv('LDS_REQUIRE_LOCAL_TOKEN')
+    monkeypatch.setenv('LDS_ACCESS_TOKEN', 'test-local-credential')
+    client.put('/api/settings', json={'config': {'server': {'access_token': 'another-local-credential'}}})
+    assert os.environ['LDS_ACCESS_TOKEN'] == 'test-local-credential'

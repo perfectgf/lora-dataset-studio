@@ -184,6 +184,15 @@ def _settings_payload() -> dict:
                     # says. The card locks the toggle rather than letting the user
                     # flip a switch that cannot take effect.
                     'public': _netguard.public_bind(),
+                    # LDS_REQUIRE_LOCAL_TOKEN=1: netguard wants the token from every
+                    # client, this computer included, whatever server.require_token
+                    # says. access_token is the one it accepts right now, which the
+                    # saved value is not always (LDS_ACCESS_TOKEN wins), so the card
+                    # can show a link that works. Sent only under the lock, where
+                    # this payload reaches nobody who has not presented that token.
+                    'local_token_required': _netguard.local_token_required(),
+                    'access_token': (_netguard.accepted_token(current_app)
+                                     if _netguard.local_token_required() else None),
                     # LAN IPv4 so the Server card can show a real, copyable
                     # http://<ip>:port/ URL instead of a <this-computer> placeholder;
                     # None (offline / loopback-only) -> the UI keeps the placeholder.
@@ -328,7 +337,9 @@ def put_settings():
                 'error': hf_cloud_check['detail'],
                 'secret_checks': {'HF_CLOUD_TOKEN': hf_cloud_check},
             }), 400
+    previous_access_token = cfg.get('server.access_token')
     cfg.save_config(config_partial, plugin_id=scope)
+    _netguard.apply_saved_token(previous_access_token)
     cfg.set_secrets(secrets_partial)
     # A changed ComfyUI location must take effect NOW: the base/model listers cache
     # their scans for 5 min, so without this the training-base dropdowns keep showing
