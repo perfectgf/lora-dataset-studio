@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<link rel="canonical" href="{{canonical}}">
+{{robots}}{{verification}}<meta name="theme-color" content="#fbfaf8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161617" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="{{og_type}}">
+<meta property="og:site_name" content="{{site_name}}">
+<meta property="og:title" content="{{og_title}}">
+<meta property="og:description" content="{{description}}">
+<meta property="og:url" content="{{canonical}}">
+<meta property="og:image" content="{{og_image}}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="{{prefix}}icon.png">
+<link rel="stylesheet" href="{{stylesheet}}">
+<script type="application/ld+json">{{jsonld}}</script>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="{{home}}"><img src="{{prefix}}icon.png" alt="" width="28" height="28">LoRA Dataset Studio</a>
+  <nav class="top-nav" aria-label="Main">{{header_nav}}</nav>
+  <details class="menu">
+    <summary>Menu</summary>
+    <nav aria-label="Site">{{menu}}</nav>
+  </details>
+</header>
+<div class="layout{{layout_class}}">
+  <aside class="sidebar"><nav aria-label="Documentation">{{sidebar}}</nav></aside>
+  <div class="toc-column">{{toc}}</div>
+  <main id="content" class="main">
+    {{breadcrumbs}}
+    <article class="markdown-body">
+{{content}}
+    </article>
+    {{page_meta}}
+  </main>
+</div>
+<footer class="site-footer">{{footer}}</footer>
+<script>
+(function () {
+  var toc = document.querySelector('details.toc');
+  if (toc && window.matchMedia('(min-width: 1200px)').matches) toc.open = true;
+})();
+</script>
+</body>
+</html>

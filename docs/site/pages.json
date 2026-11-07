@@ -1,0 +1,200 @@
+{
+  "site_url": "https://perfectgf.github.io/lora-dataset-studio/",
+  "repository": "perfectgf/lora-dataset-studio",
+  "branch": "v2",
+  "name": "LoRA Dataset Studio",
+  "alternate_name": "LDS",
+  "language": "en",
+  "logo": "icon.png",
+  "og_image": "docs/screenshots/02-workspace.png",
+  "home_faq_anchor": "lora-training-faq",
+  "google_site_verification": "",
+  "bing_site_verification": "",
+  "links": {
+    "download": "https://github.com/perfectgf/lora-dataset-studio/releases/latest",
+    "github": "https://github.com/perfectgf/lora-dataset-studio",
+    "discord": "https://discord.gg/j6hnJBFtXE"
+  },
+  "header": [
+    {"label": "Docs", "source": "docs/README.md"},
+    {"label": "Dataset guide", "source": "docs/DATASET_GUIDE.md"},
+    {"label": "FAQ", "source": "docs/faq/README.md"},
+    {"label": "Compare", "source": "docs/lora-training-tools-compared.md"},
+    {"label": "GitHub", "link": "github"},
+    {"label": "Download", "link": "download", "primary": true}
+  ],
+  "software": {
+    "description": "Free local LoRA training studio: build captioned character, style and concept datasets from one photo or an image folder, train LoRAs with ai-toolkit and compare checkpoints side by side.",
+    "category": "MultimediaApplication",
+    "operating_system": "Windows 10, Windows 11 (full local stack); Linux and macOS (API-only or manual environment); Docker",
+    "license": "https://polyformproject.org/licenses/noncommercial/1.0.0/",
+    "screenshots": [
+      "docs/screenshots/02-workspace.png",
+      "docs/screenshots/03-curate.png",
+      "docs/screenshots/studio/studio-grid.png"
+    ]
+  },
+  "llms_summary": "LoRA Dataset Studio (LDS) is a free, self-hosted LoRA training studio. It builds character, style and concept datasets from one reference photo or an image folder, captions them (JoyCaption or a local vision model, prose or booru tags), trains LoRAs with ai-toolkit for Krea 2, FLUX.1, FLUX.2 Klein, Qwen-Image 2.1, Z-Image, SDXL and Anima, and compares checkpoints side by side. It runs on your machine in one browser tab and uses ComfyUI for local generation and checkpoint tests.",
+  "llms_facts": [
+    "License: PolyForm Noncommercial 1.0.0. Noncommercial use is free; commercial use requires separate permission from the licensor. LDS is not MIT-licensed.",
+    "Source code, issues and downloads: https://github.com/perfectgf/lora-dataset-studio (Windows ZIP, Git checkout, Docker, Pinokio).",
+    "Windows 10/11 runs the full local stack; Linux and macOS work for API-only use and a manual virtual environment; GPU Docker depends on host NVIDIA support.",
+    "Training uses ai-toolkit and local generation uses ComfyUI. Importing, sorting and manual captioning need no GPU or API key.",
+    "New versions reach Patreon members first, then everyone; the installed version stays free and keeps working.",
+    "LDS is not affiliated with loradataset.com."
+  ],
+  "sections": [
+    {
+      "title": "Start here",
+      "pages": [
+        {
+          "source": "README.md",
+          "path": "index.html",
+          "nav_label": "Overview",
+          "title": "LoRA Dataset Studio: free local LoRA training studio",
+          "description": "Free local LoRA training studio: turn a photo or folder into a captioned dataset, train Krea 2, FLUX, Qwen-Image, Z-Image or SDXL LoRAs, compare checkpoints."
+        },
+        {
+          "source": "docs/README.md",
+          "nav_label": "Documentation index",
+          "title": "Documentation · LoRA Dataset Studio",
+          "description": "Every LoRA Dataset Studio guide in one place: installation, requirements, the LoRA workflow, dataset quality, settings, troubleshooting and the FAQ."
+        },
+        {
+          "source": "docs/guide/getting-started.md",
+          "nav_label": "Getting started",
+          "title": "Getting started with LoRA Dataset Studio",
+          "description": "First steps in LoRA Dataset Studio: complete Setup, build a dataset from one reference photo, caption it, train a LoRA and rank its checkpoints."
+        },
+        {
+          "source": "docs/guide/installation.md",
+          "nav_label": "Installation",
+          "title": "Install LoRA Dataset Studio: Windows ZIP, Git, Docker or Pinokio",
+          "description": "Install LoRA Dataset Studio with the Windows ZIP launcher, a Git checkout, Docker with or without a GPU, or Pinokio, then complete Setup and add plugins."
+        },
+        {
+          "source": "docs/guide/requirements.md",
+          "nav_label": "Requirements",
+          "title": "LoRA training requirements: GPU, VRAM, disk and OS",
+          "description": "What each LoRA Dataset Studio feature needs, from no GPU at all to local LoRA training: VRAM per model family, disk space, Python and operating system."
+        },
+        {
+          "source": "docs/guide/workflow.md",
+          "nav_label": "End-to-end workflow",
+          "title": "End-to-end LoRA workflow, from an empty dataset to an exported LoRA",
+          "description": "The full LoRA Dataset Studio route, stage by stage: build the dataset, curate and caption it, train with ai-toolkit, test checkpoints and export the LoRA."
+        }
+      ]
+    },
+    {
+      "title": "LoRA training FAQ",
+      "parent": "docs/faq/README.md",
+      "pages": [
+        {"source": "docs/faq/README.md", "nav_label": "All questions"},
+        {"source": "docs/faq/character-lora-from-one-photo.md", "nav_label": "Character LoRA from one photo"},
+        {"source": "docs/faq/how-many-images-to-train-a-lora.md", "nav_label": "How many images"},
+        {"source": "docs/faq/lora-captions-tags-or-natural-language.md", "nav_label": "Captions and trigger words"},
+        {"source": "docs/faq/which-base-model-for-a-lora.md", "nav_label": "Which base model"},
+        {"source": "docs/faq/lora-steps-rank-learning-rate.md", "nav_label": "Steps, rank, learning rate"},
+        {"source": "docs/faq/which-lora-trainer.md", "nav_label": "Which trainer"},
+        {"source": "docs/faq/lora-training-vram.md", "nav_label": "VRAM needed"},
+        {"source": "docs/faq/pick-the-best-lora-checkpoint.md", "nav_label": "Best checkpoint"},
+        {"source": "docs/faq/style-and-concept-loras.md", "nav_label": "Style and concept LoRAs"},
+        {"source": "docs/faq/video-lora-training.md", "nav_label": "Video LoRAs"},
+        {"source": "docs/faq/do-i-need-comfyui.md", "nav_label": "Do I need ComfyUI?"},
+        {"source": "docs/faq/upscale-and-restore-images-locally.md", "nav_label": "Upscale and restore"}
+      ]
+    },
+    {
+      "title": "Guides",
+      "parent": "docs/README.md",
+      "pages": [
+        {
+          "source": "docs/DATASET_GUIDE.md",
+          "nav_label": "Dataset guide",
+          "title": "How to build a good LoRA dataset: images, captions and settings",
+          "description": "What moves the needle in a LoRA dataset: the model family, how many images and which framings, captions and trigger words, settings and checkpoint choice."
+        },
+        {
+          "source": "docs/guide/using-the-app.md",
+          "nav_label": "Using the app",
+          "title": "Using LoRA Dataset Studio: task-by-task instructions",
+          "description": "Step-by-step instructions for each part of LoRA Dataset Studio: the guided dataset flow, curation, captioning, training, checkpoint testing and export."
+        },
+        {
+          "source": "docs/guide/features.md",
+          "nav_label": "Feature reference",
+          "title": "LoRA Dataset Studio feature reference and limits",
+          "description": "Detailed capabilities, examples and limits of LoRA Dataset Studio and its public plugins, including the experimental video and slider workflows."
+        },
+        {"source": "docs/lora-training-tools-compared.md", "nav_label": "Tools compared"},
+        {
+          "source": "docs/guide/docker.md",
+          "nav_label": "Docker",
+          "title": "Run LoRA Dataset Studio in Docker with ComfyUI",
+          "description": "Run LoRA Dataset Studio in Docker on Windows: the two launchers, GPU and API-only setups, an existing or a fresh isolated ComfyUI, updates and restarts."
+        },
+        {
+          "source": "docs/guide/runpod.md",
+          "nav_label": "RunPod",
+          "title": "Run LoRA Dataset Studio on a rented RunPod GPU",
+          "description": "Run the whole studio on a rented NVIDIA GPU with RunPod and reach it from any browser, with your datasets on a network volume that survives pod restarts."
+        },
+        {
+          "source": "docs/guide/migrate-to-v2.md",
+          "nav_label": "Migrate to V2",
+          "title": "Move an existing LoRA Dataset Studio installation to V2",
+          "description": "Switch an existing LoRA Dataset Studio installation from the frozen v1 branch to the maintained v2 branch and keep its datasets and settings."
+        }
+      ]
+    },
+    {
+      "title": "Reference",
+      "parent": "docs/README.md",
+      "pages": [
+        {
+          "source": "docs/guide/settings-reference.md",
+          "nav_label": "Settings reference",
+          "title": "LoRA Dataset Studio settings reference",
+          "description": "Every LoRA Dataset Studio setting explained: what it does, its default, when to change it and the traps to avoid, section by section."
+        },
+        {
+          "source": "docs/guide/troubleshooting.md",
+          "nav_label": "Troubleshooting",
+          "title": "LoRA Dataset Studio troubleshooting",
+          "description": "Fixes for the most reported LoRA Dataset Studio problems, listed symptom first, and how to report a new one with a diagnostic report."
+        },
+        {
+          "source": "docs/guide/known-limitations.md",
+          "nav_label": "Known limitations",
+          "title": "LoRA Dataset Studio known limitations",
+          "description": "Current boundaries of LoRA Dataset Studio that are not setup failures, so you know what to expect before you build a dataset or start a run."
+        },
+        {
+          "source": "docs/guide/network-access.md",
+          "nav_label": "Network and privacy",
+          "title": "Network access and privacy in LoRA Dataset Studio",
+          "description": "Which external services LoRA Dataset Studio contacts, what data they receive, and how to open protected network access from a phone or tablet."
+        },
+        {
+          "source": "docs/guide/extensions.md",
+          "nav_label": "Extensions",
+          "title": "Extensions guide · LoRA Dataset Studio",
+          "description": "How optional local extensions in backend/extensions load at startup, register their own API routes and mount their own UI in LoRA Dataset Studio."
+        },
+        {
+          "source": "docs/guide/getting-help.md",
+          "nav_label": "Getting help",
+          "title": "Getting help and reporting problems · LoRA Dataset Studio",
+          "description": "How to get help with LoRA Dataset Studio: generate a diagnostic report, then ask on Discord or open a GitHub issue."
+        },
+        {
+          "source": "docs/responsible-use.md",
+          "nav_label": "Responsible use",
+          "title": "Responsible use · LoRA Dataset Studio",
+          "description": "Consent, privacy, copyright and platform rules for LoRA training with LoRA Dataset Studio, and why a real person's likeness needs their consent."
+        }
+      ]
+    }
+  ]
+}

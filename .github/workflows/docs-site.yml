@@ -1,0 +1,55 @@
+name: Docs site
+
+# Publishes the documentation website on GitHub Pages from README.md and docs/
+# whenever they change on v2. scripts/build_docs_site.py renders the pages with
+# GitHub's Markdown API and needs nothing beyond the runner's Python.
+on:
+  push:
+    branches: [v2]
+    paths:
+      - README.md
+      - docs/**
+      - scripts/build_docs_site.py
+      - .github/workflows/docs-site.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer push waits instead of cancelling a deploy.
+concurrency:
+  group: docs-site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'perfectgf/lora-dataset-studio'
+    runs-on: ubuntu-latest
+    steps:
+      # Full history without file contents: the sitemap dates come from git log.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Build the site
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/build_docs_site.py --out _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

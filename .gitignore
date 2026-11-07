@@ -84,3 +84,6 @@ docs/superpowers/
 # Written at the repo root by an external homelab dashboard (the port it
 # found the server on). Not ours, machine-local, never shipped.
 /.lds-dashboard-port
+
+# Documentation website build output (scripts/build_docs_site.py)
+/_site/
