@@ -2126,6 +2126,7 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
               the false branch below: the backend ignores all of them in dense. */}
           {fullMode ? (<>
             <PluginSlot slot="training.dense" surface="dataset" placement="recipe"
+              datasetId={ds.currentId}
               variant={variant}
               setVariant={densePicker.setVariant}
               base={base}
