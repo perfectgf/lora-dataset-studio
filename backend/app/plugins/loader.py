@@ -244,7 +244,20 @@ def load_plugins(app, csrf) -> PluginRegistry:
         _register_discovered(app, csrf, registry)
         if boot is not None:
             boot.confirm_health(registry)
+    _purge_committed_changes()
     return registry
+
+
+def _purge_committed_changes():
+    """Once a plugin change is committed, its recovery copies are dead weight."""
+    from .transactions import purge_committed
+    try:
+        removed = purge_committed(external_dir())
+    except Exception:  # Housekeeping never blocks startup; the next start retries.
+        log.warning('Could not remove the recovery copies of committed plugin changes.', exc_info=True)
+        return
+    if removed:
+        log.info('Removed the recovery copies of %d committed plugin change(s).', removed)
 
 
 def _register_discovered(app, csrf, registry):

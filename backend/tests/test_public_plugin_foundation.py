@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import textwrap
+import uuid
 import zipfile
 
 from flask import Flask
@@ -257,3 +258,40 @@ def test_transaction_snapshot_restores_previous_package_and_data(host):
     transactions.rollback(external, tx)
     assert directory.exists()
     assert (data / 'keep.txt').read_text() == 'original'
+
+
+def test_a_committed_change_drops_its_recovery_copies_and_keeps_its_history(host):
+    app, csrf, _ = host
+    directory = write(host)
+    external = directory.parent
+    data = storage.data_dir('sample.feature')
+    data.mkdir(parents=True)
+    (data / 'keep.txt').write_text('kept')
+    txid = transactions.prepare_batch(external, [{'id': 'sample.feature', 'action': 'remove'}])['id']
+    load_plugins(app, csrf)   # The boot transaction applies, confirms and commits the change.
+    assert [(tx['id'], tx['phase']) for tx in transactions.journals(external)] == [(txid, 'committed')]
+    assert not (external / '.transactions' / txid / 'items').exists()   # old package and data snapshot
+    assert (external / '.transactions' / txid / 'transaction.json').is_file()
+    assert transactions.history(external)[0]['id'] == txid
+    assert (data / 'keep.txt').read_text() == 'kept'
+
+
+def test_purge_keeps_unfinished_and_rolled_back_recovery_material(host):
+    directory = write(host)
+    external = directory.parent
+    def journal(phase, pid):
+        txid = uuid.uuid4().hex
+        folder = external / '.transactions' / txid
+        (folder / 'items' / pid / 'data-before').mkdir(parents=True)
+        (folder / 'items' / pid / 'data-before' / 'copy.txt').write_text('snapshot')
+        (folder / 'transaction.json').write_text(json.dumps({
+            'id': txid, 'format': 1, 'phase': phase, 'created_at': 1.0,
+            'items': [{'id': pid, 'action': 'update', 'desired_enabled': True}]}))
+        return folder
+    committed, rolled_back, unfinished = (journal('committed', 'one.plugin'), journal('rolled_back', 'two.plugin'),
+                                          journal('prepared', 'three.plugin'))
+    assert transactions.purge_committed(external) == 1
+    assert not (committed / 'items').exists() and (committed / 'transaction.json').is_file()
+    for kept in (rolled_back, unfinished):
+        assert (kept / 'items' / next((kept / 'items').iterdir()).name / 'data-before' / 'copy.txt').is_file()
+    assert transactions.purge_committed(external) == 0
