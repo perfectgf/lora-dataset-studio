@@ -10,7 +10,9 @@
 | [End-to-end workflow](guide/workflow.md) | You want the full source → curate → caption → clean → train → test → export walkthrough |
 | [Using the app](guide/using-the-app.md) | You need task-level instructions for a specific workspace, Image Bank, Canvas or Studio action |
 | [Dataset quality guide](DATASET_GUIDE.md) | You want guidance on image counts, variety, captions, masks and training-ready data |
+| [LoRA training FAQ](faq/README.md) | You have one question: how many images, which captions, which base model, which settings, how much VRAM, which checkpoint |
 | [Feature reference](guide/features.md) | Detailed capabilities, screenshots and the limits of each workflow |
+| [LoRA training tools compared](lora-training-tools-compared.md) | You are choosing between LDS, kohya_ss, OneTrainer, AI Toolkit and FluxGym |
 
 ## Install and configure
 
