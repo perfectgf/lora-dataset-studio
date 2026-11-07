@@ -86,9 +86,9 @@ export const WHATS_NEW = [
   {
     id: '2026-11-07-zzz-heic-photo-import',
     date: '2026-11-07',
-    title: 'iPhone photos (HEIC) import into your datasets',
-    blurb: 'HEIC and HEIF photos were refused at import. They now import from the dropzone, a ZIP or a folder, with or '
-      + 'without auto head-crop, and work as a reference too. Browsers and trainers cannot read HEIC, so the default '
+    title: 'iPhone photos (HEIC) and AVIF images import into your datasets',
+    blurb: 'HEIC/HEIF photos and AVIF images were refused at import. They now import from the dropzone, a ZIP or a folder, '
+      + 'with or without auto head-crop, and work as a reference too. The trainers cannot read them, so the default '
       + 'original-file mode keeps each one as a lossless PNG.',
   },
   {

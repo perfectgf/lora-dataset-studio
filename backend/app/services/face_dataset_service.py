@@ -523,7 +523,8 @@ def sanitize_external_reference(image_bytes: bytes, *, label: str = 'reference i
             warnings.simplefilter('error', Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(raw)) as source:
                 # This shared header validator admits only static JPEG/PNG/WebP/BMP,
-                # plus HEIC/HEIF (re-encoded below like everything else), and applies
+                # plus HEIC/HEIF and static AVIF (re-encoded below like everything
+                # else), and applies
                 # the global side/pixel budget before ``load``.
                 _preserved_import_header_extension(source, label=label, transcodable=True)
                 source.load()
@@ -5639,15 +5640,21 @@ _PRESERVED_IMPORT_EXTENSIONS = {
 
 # Static photo formats an import READS but never stores as they arrived. A HEIC/
 # HEIF photo (iPhone, recent Android) opens in no browser but Safari, in neither
-# trainer and in none of the OpenCV workers, so keeping its bytes would park a file
-# that nothing after the import can open. Preserve mode stores its picture as a
-# lossless PNG instead: an honest extension, no pixel lost on the way, the colour
-# profile kept and the orientation baked, like every edit. The WebP modes and the
-# head crop re-encode every format already. Decoded by pi-heif (heif_decoder.py).
-_TRANSCODED_IMPORT_FORMATS = frozenset({'HEIF'})
+# trainer and in none of the OpenCV workers; an AVIF is read by neither trainer
+# and by no OpenCV build LDS can count on. Keeping their bytes would park a file
+# that the pipeline after the import cannot open, so preserve mode stores the
+# picture as a lossless PNG instead: an honest extension, no pixel lost on the way,
+# the colour profile kept and the orientation baked, like every edit. The WebP
+# modes and the head crop re-encode every format already. HEIF is decoded by
+# pi-heif (heif_decoder.py), AVIF by Pillow itself.
+_TRANSCODED_IMPORT_FORMATS = frozenset({'HEIF', 'AVIF'})
+# Of those, the format whose extra frames are a TIMELINE (an AVIF sequence), so an
+# animated one is refused like an animated WebP. A HEIF container's extra images
+# are a burst or alternates of one photo instead (see the header check below).
+_ANIMATED_TRANSCODED_FORMATS = frozenset({'AVIF'})
 _TRANSCODED_IMPORT_EXTENSION = '.png'
 _IMPORT_FORMATS_TEXT = 'JPEG, PNG, WebP, or BMP'
-_TRANSCODABLE_IMPORT_FORMATS_TEXT = 'JPEG, PNG, WebP, BMP, or HEIC'
+_TRANSCODABLE_IMPORT_FORMATS_TEXT = 'JPEG, PNG, WebP, BMP, HEIC, or AVIF'
 
 # A raw master is intentionally NOT resized on import, but importing it must not
 # turn the process into an unbounded decompressor. These limits apply uniformly to
@@ -5750,12 +5757,16 @@ def _preserved_import_header_extension(im: Image.Image, *, label: str = 'preserv
     dataset folder under its own bytes.
     """
     fmt = (getattr(im, 'format', None) or '').upper()
+    formats = _TRANSCODABLE_IMPORT_FORMATS_TEXT if transcodable else _IMPORT_FORMATS_TEXT
     if transcodable and fmt in _TRANSCODED_IMPORT_FORMATS:
         # A HEIF container's other top-level images (a burst, alternates) are not
         # a timeline: its primary picture IS the photo, and that is what decodes.
+        if fmt in _ANIMATED_TRANSCODED_FORMATS and getattr(im, 'n_frames', 1) != 1:
+            raise ValueError(
+                f'{label} supports only static {formats} images '
+                '(animated images are not supported)')
         _validate_import_header_dimensions(im, label=label)
         return _TRANSCODED_IMPORT_EXTENSION
-    formats = _TRANSCODABLE_IMPORT_FORMATS_TEXT if transcodable else _IMPORT_FORMATS_TEXT
     ext = _PRESERVED_IMPORT_EXTENSIONS.get(fmt)
     if ext is None:
         raise ValueError(
@@ -5775,7 +5786,8 @@ def _preserved_import_extension(image_bytes: bytes, *, label: str = 'preserve mo
     Preserving bytes must not mean accepting arbitrary browser/media formats the
     rest of the dataset pipeline cannot safely edit, serve or train from. GIF,
     TIFF, AVIF and animated WebP are deliberately refused here instead of being
-    silently flattened or saved under a made-up extension.  Header dimensions
+    silently flattened or saved under a made-up extension (preserve mode itself
+    converts a static HEIC/HEIF or AVIF, see `_preserve_mode_payload`).  Header dimensions
     are checked before ``load()`` under a local Pillow bomb-warning policy; no
     process-global warning filter is ever changed.
     """
@@ -5853,8 +5865,8 @@ def _load_import_derivative_image(image_bytes: bytes) -> Image.Image:
 def import_store_image(image_bytes: bytes) -> tuple[bytes, str]:
     """Return exactly what a non-cropped import should store and its extension.
 
-    `preserve` keeps approved source bytes byte-for-byte (a HEIC/HEIF photo, which
-    nothing downstream reads, becomes a lossless PNG). The three legacy
+    `preserve` keeps approved source bytes byte-for-byte (a HEIC/HEIF photo or a
+    static AVIF, which the pipeline downstream cannot read, becomes a lossless PNG). The three legacy
     encoding modes intentionally still create WebP derivatives, preserving their
     historical resizing and quality controls for users who explicitly choose them.
     """
@@ -6602,7 +6614,7 @@ DATASET_ZIP_MAX_FILES = 400
 DATASET_ZIP_MAX_BYTES = 2 * 1024 * 1024 * 1024
 DATASET_ZIP_MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _DATASET_ZIP_MAX_CENTRAL_DIRECTORY_BYTES = 8 * 1024 * 1024
-_DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.heic', '.heif')
+_DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.heic', '.heif', '.avif')
 
 
 @_serialize_dataset_ingest
