@@ -35,7 +35,7 @@ On Windows, the NVIDIA driver does not stop with an out-of-memory error by defau
 
 ## No suitable GPU
 
-- The [Cloud training](../../bundled/cloud_training/) plugin rents a GPU per run on vast.ai with your own API key, billed by vast.ai, and shows the hourly rate with an estimated duration and total (Qwen-Image 2.1 has no estimate yet). It covers Z-Image, Krea 2, FLUX.2 Klein and Qwen-Image 2.1; SDXL, FLUX.1 and Anima have no cloud lane.
+- The [Cloud training](../../bundled/cloud_training/) plugin rents a GPU per run on [vast.ai](https://cloud.vast.ai/?ref_id=683073) with your own API key, billed by vast.ai, and shows the hourly rate with an estimated duration and total (Qwen-Image 2.1 has no estimate yet). It covers Z-Image, Krea 2, FLUX.2 Klein and Qwen-Image 2.1; SDXL, FLUX.1 and Anima have no cloud lane.
 - LDS itself can run on a [rented RunPod GPU](../guide/runpod.md): the interface, Image Bank, captioning and ComfyUI generation run on the pod, but training does not, because ai-toolkit is not in the image. Training from there still goes through cloud training.
 - Video LoRAs are heavier: the one finished video run, Wan 2.2 14B, filled 24 GB with CPU offload.
 

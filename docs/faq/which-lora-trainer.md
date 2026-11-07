@@ -32,7 +32,7 @@ For an architecture LDS does not support, or for experimental config keys, use a
 - Local training needs an NVIDIA GPU with enough memory; see [how much VRAM a LoRA needs](lora-training-vram.md).
 - LDS drives ai-toolkit and no other trainer.
 - The Docker images and the RunPod image do not include local ai-toolkit training: connect an ai-toolkit on the host, or train in the cloud.
-- Without a suitable GPU, the [Cloud training](../../bundled/cloud_training/) plugin rents one per run on vast.ai with your own API key, for Z-Image, Krea 2, FLUX.2 Klein and Qwen-Image 2.1. SDXL, FLUX.1 and Anima train locally only.
+- Without a suitable GPU, the [Cloud training](../../bundled/cloud_training/) plugin rents one per run on [vast.ai](https://cloud.vast.ai/?ref_id=683073) with your own API key, for Z-Image, Krea 2, FLUX.2 Klein and Qwen-Image 2.1. SDXL, FLUX.1 and Anima train locally only.
 - If ai-toolkit uses conda, uv or the system Python and is not detected, fill the Python interpreter field; see [ai-toolkit isn't detected](../guide/troubleshooting.md#ai-toolkit-isnt-detected-conda--uv--no-venv).
 
 ## Related
