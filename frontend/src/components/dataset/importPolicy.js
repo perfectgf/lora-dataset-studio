@@ -19,7 +19,10 @@ export const IMPORT_ENCODING_LABEL = {
 const IMPORT_FALLBACK_MAX_SIDE = 1024;
 const IMPORT_FALLBACK_INPUT_MAX_SIDE = 16384;
 const IMPORT_FALLBACK_INPUT_MAX_PIXELS = 64 * 1024 * 1024;
-export const IMPORT_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/bmp';
+// HEIC/HEIF imports too (converted on arrival, never stored as HEIC), so the file
+// picker must offer it; the extensions are listed because a browser may map no
+// file extension to those MIME types. FORMATS stays the four kept byte-for-byte.
+export const IMPORT_IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/bmp,image/heic,image/heif,.heic,.heif';
 export const IMPORT_IMAGE_FORMATS = 'JPEG, PNG, WebP and BMP';
 
 /** The sentence a 0 earns: it removes a memory guard, so it says what it removes. */
