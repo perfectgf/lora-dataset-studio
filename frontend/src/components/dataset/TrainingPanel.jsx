@@ -144,6 +144,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                                         navigationPanel = null,
                                         onNavigationStateChange,
                                         onPanelOpenChange,
+                                        // {datasetId, trainingMode} for the readiness badge above
+                                        // the panel: a full-model recipe is checked on the cloud lane.
+                                        onTrainingSelectionChange,
                                         // Is Training visible? The panel stays MOUNTED in other
                                         // sections so queue polling continues. Visibility must be
                                         // explicit because the step recipe refreshes only while
@@ -260,6 +263,9 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
   const [trainingMode, setTrainingMode] = useState(TRAINING_MODE_LORA);
   const [trainingModeBusy, setTrainingModeBusy] = useState(false);
   const [trainingModeError, setTrainingModeError] = useState('');
+  // The dataset `trainingMode` was read for: while the next dataset's base-info
+  // loads, the previous mode must not be reported as this one's.
+  const [trainingModeDatasetId, setTrainingModeDatasetId] = useState(null);
   const trainingModeRadioRefs = useRef({});
   const incompatibleModeFallbackRef = useRef('');
   // Independent results browser: changing the NEXT training configuration must never
@@ -394,12 +400,17 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
         setVariant(safeVariant);
         setTrainType(info.train_type || 'zimage');
         setTrainingMode(normalizeTrainingMode(info.training_mode));
+        setTrainingModeDatasetId(ds.currentId);
         setAdv(info.train_settings || null);
         setSlider(info.slider || null);
       }
     });
     return () => { alive = false; };
   }, [ds.currentId, caps.training_visible]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (trainingModeDatasetId == null) return;
+    onTrainingSelectionChange?.({ datasetId: trainingModeDatasetId, trainingMode });
+  }, [trainingModeDatasetId, trainingMode, onTrainingSelectionChange]);
   //
   // Poll conversion status every 4 seconds. Depend on the STABLE callback keyed by currentId, not
   // the entire ds object: recreating the interval every render previously prevented the timer from

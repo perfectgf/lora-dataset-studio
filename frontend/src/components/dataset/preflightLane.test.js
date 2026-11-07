@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import {
   MACHINE_SCOPE_CHECKS, checksForLane, laneOfPayload, normalizeLane, preflightUrl,
+  readinessRequest, reportFitsLane,
 } from './preflightLane.js';
 
 const panel = fs.readFileSync(new URL('./TrainingPanel.jsx', import.meta.url), 'utf8');
@@ -62,6 +63,54 @@ test('anything unrecognised falls back to the local lane', () => {
   assert.equal(laneOfPayload({ lane: 'cloud' }), 'cloud');
   assert.equal(laneOfPayload({ lane: 'local' }), 'local');
   assert.equal(laneOfPayload(null), 'local');
+});
+
+// --- the readiness badge above the Training panel -----------------------------
+
+test('a full-model dataset is asked on the cloud lane, and a ready one says so', () => {
+  // Asked on the local lane, a full-model dataset always got one blocker —
+  // "full_transformer training is cloud-only" — under a red "Not ready".
+  const full = readinessRequest({
+    datasetId: 36, trainType: 'krea', variant: 'turbo', trainingMode: 'full_transformer' });
+  assert.equal(full.url,
+    '/api/dataset/36/train/preflight?train_type=krea&training_mode=full_transformer&lane=cloud');
+  assert.equal(full.readyLabel, 'Ready to launch in the cloud');
+  // No variant and no base: the SAVED selection decides, never a variant read
+  // from a dataset payload loaded earlier.
+  assert.doesNotMatch(full.url, /variant=|base_model=/);
+});
+
+test('LoRA keeps the historical request byte for byte', () => {
+  for (const trainingMode of ['lora', undefined, null, 'full_model']) {
+    const lora = readinessRequest({ datasetId: 7, trainType: 'krea', variant: 'base', trainingMode });
+    assert.equal(lora.url, '/api/dataset/7/train/preflight?train_type=krea&variant=base');
+    assert.equal(lora.readyLabel, 'Ready to train');
+  }
+  assert.equal(readinessRequest({ datasetId: 7 }).url, '/api/dataset/7/train/preflight');
+  // The video workspace's own endpoint wins over both.
+  assert.deepEqual(readinessRequest({
+    datasetId: 7, trainingMode: 'full_transformer', endpoint: '/api/video-dataset/7/train/preflight',
+  }), { url: '/api/video-dataset/7/train/preflight', readyLabel: 'Ready to train', lane: null });
+});
+
+test('a verdict answered for the other lane is not shown as this one', () => {
+  // Switching to full-model re-asks on the cloud lane, and that preflight can
+  // take seconds on a large set: the local "Not ready" still in hand must not
+  // be shown under the cloud label meanwhile.
+  assert.equal(reportFitsLane({ lane: 'local' }, 'cloud'), false);
+  assert.equal(reportFitsLane({ lane: 'cloud' }, 'cloud'), true);
+  assert.equal(reportFitsLane({}, 'local'), true);            // historical payload
+  assert.equal(reportFitsLane({ lane: 'local' }, null), true); // the video endpoint
+});
+
+test('the badge is wired to the request and to the live training mode', () => {
+  const badge = fs.readFileSync(new URL('./TrainingReadiness.jsx', import.meta.url), 'utf8');
+  const workspace = fs.readFileSync(new URL('./DatasetWorkspace.jsx', import.meta.url), 'utf8');
+  assert.match(badge, /readinessRequest\(\{ datasetId, trainType, variant, trainingMode, endpoint \}\)/);
+  assert.match(badge, /fetch\(request\.url, /);
+  assert.match(badge, /data\.verdict === 'ready' \? request\.readyLabel : v\.label/);
+  assert.match(workspace, /trainingMode=\{liveTraining \? liveTraining\.trainingMode : d\.training_mode\}/);
+  assert.match(workspace, /onTrainingSelectionChange=\{setTrainingSelection\}/);
 });
 
 // --- the guard-rail -----------------------------------------------------------
