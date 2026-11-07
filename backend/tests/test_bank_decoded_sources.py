@@ -189,6 +189,24 @@ def test_promotion_to_a_dataset_takes_the_decoded_copy(bank_ctx):
     assert _folder_digest(folder) == before
 
 
+def test_a_bank_to_bank_copy_carries_the_decoded_picture(app, bank_ctx):
+    """The new bank gets the effective picture, as for a cleaned image, and reads
+    that PNG as it is: no second decoded copy of a copy."""
+    from app.extensions import db
+    from app.models import BankImage, ImageBank
+    banks, bank, rows, folder, before = bank_ctx
+    heic = rows['IMG_0001.HEIC']
+    expected = Path(banks.resolved_image_path(bank, heic)).read_bytes()
+    new_id = banks.start_bank_promote(app, 'local', bank.id, [heic.id], 'Copies')
+    new_bank = db.session.get(ImageBank, new_id)
+    (copied,) = BankImage.query.filter_by(bank_id=new_id).all()
+    assert Path(new_bank.source_path, copied.relpath).read_bytes() == expected
+    assert banks.resolved_image_path(new_bank, copied) == banks.abs_image_path(new_bank, copied)
+    assert banks.analysis_image_path(new_bank, copied) == banks.abs_image_path(new_bank, copied)
+    assert not banks._decoded_dir(new_id).exists()
+    assert _folder_digest(folder) == before
+
+
 def test_the_browser_gets_the_decoded_copy_never_heic_bytes(app, bank_ctx):
     banks, bank, rows, folder, before = bank_ctx
     client = app.test_client()
