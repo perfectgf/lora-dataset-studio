@@ -1546,7 +1546,9 @@ def bank_file(bank_id, image_id):
     if request.args.get('previous') in ('1', 'true'):
         path = banks.bank_edit_history.previous_path(bank, row)
     else:
-        path = (banks.abs_image_path(bank, row)
+        # ?original=1 is the untouched SOURCE pixels: the user's file, or the
+        # decoded copy of a HEIC/HEIF or AVIF one, which no browser would show.
+        path = (banks.source_image_path(bank, row, fail_open=True)
                 if request.args.get('original') in ('1', 'true')
                 else banks.resolved_image_path(bank, row))
     if not path or not os.path.isfile(path):

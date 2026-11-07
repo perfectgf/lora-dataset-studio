@@ -493,7 +493,11 @@ The funnel itself:
 1. **Create a bank** — give it a name and paste the folder path. The app
    inventories every image in place (subfolders included). Nothing is copied,
    nothing is modified; rejecting an image is a reversible status, never a file
-   deletion. The folder stays LIVE: keep dropping images into it and they are
+   deletion. HEIC/HEIF photos and AVIF images are inventoried too: the browser and
+   the analysis passes cannot read them, so the app keeps a lossless PNG copy of
+   each in its own data folder (never in yours), made the first time it is shown or
+   analysed and replaced when the file changes. The folder stays LIVE: keep
+   dropping images into it and they are
    picked up automatically the next time you OPEN the bank ("42 new image(s)
    found in the folder"), as undecided images ready for the next scan — your
    existing keep/reject decisions, scores and captions are never touched. The

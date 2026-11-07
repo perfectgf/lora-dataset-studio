@@ -84,6 +84,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-07-zzzz-bank-heic-avif',
+    date: '2026-11-07',
+    title: 'Your Bank shows HEIC and AVIF photos too',
+    blurb: 'A Bank over a folder of iPhone photos or AVIF images used to skip them. They are now inventoried, shown, '
+      + 'scored, face-sorted and promoted like any other image, through a lossless PNG copy the app keeps in its own '
+      + 'data folder. Your files are never touched.',
+  },
+  {
     id: '2026-11-07-zzz-heic-photo-import',
     date: '2026-11-07',
     title: 'iPhone photos (HEIC) and AVIF images import into your datasets',
