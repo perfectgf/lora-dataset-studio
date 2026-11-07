@@ -121,6 +121,14 @@ export const WHATS_NEW = [
     to: '/studio',
   },
   {
+    id: '2026-11-07-z-local-token-settings-card',
+    date: '2026-11-07',
+    title: 'Local token protection shows up in Settings',
+    blurb: 'With LDS_REQUIRE_LOCAL_TOKEN=1, Server & access now shows your access token, puts it in the phone links and the QR code, '
+      + 'and keeps the switch locked on. A new token works as soon as you save.',
+    to: '/settings/server',
+  },
+  {
     id: '2026-11-07-z-full-model-base-kept',
     date: '2026-11-07',
     title: 'Your full-model base survives a reload',

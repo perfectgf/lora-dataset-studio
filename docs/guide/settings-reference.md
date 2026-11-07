@@ -12,7 +12,7 @@ A few things hold true everywhere:
 - **Where values live.** Ordinary settings are written to `config.json` (git-ignored, in your data directory). Secrets — API keys and tokens — go to a separate `.env` file and are never written to `config.json` or committed.
 - **Secret fields are write-only.** An API-key box is always blank, even when a key is saved (a ✓ *Configured* badge tells you it's there). Typing a new value replaces the old one; **leaving a field blank never erases a saved key** — that would be too easy to do by accident. To actually remove a key, use its **Remove** button.
 - **Test buttons probe what's saved, not what's typed.** Hitting **Test** first persists whatever you've typed, then tests the *saved* setting end-to-end. So a Test result always reflects the value the app will really use.
-- **Server changes need a restart.** Host, port and the access token only take effect when the server process starts. Those fields show a **Running vs Saved** comparison and a **Save & restart to apply** button. Everything else — including scraping credentials — applies immediately, no restart.
+- **Server changes need a restart.** Host, port and the access token only take effect when the server process starts (with `LDS_REQUIRE_LOCAL_TOKEN=1`, a token saved in Settings applies at once). Those fields show a **Running vs Saved** comparison and a **Save & restart to apply** button. Everything else — including scraping credentials — applies immediately, no restart.
 - **Every field can go back to its shipped value.** Change a number, a path, a dropdown or the enabled-engine list and a small **↺ Reset to default** button appears right under it; it disappears again once the field is back where it started, so a button you can see is always a button that does something. The value it restores is read from the server, not from a copy inside the page — so if a shipped default changes in a later release, Reset gives you the *new* default rather than the one your version was built with. On the fields that mean "work it out yourself" when left blank (the engine model slugs, the Krea base model, the dataset images root), Reset empties the box rather than typing today's answer in, which is how you keep following future improvements instead of freezing one. Nothing is written until you **Save**, same as any other edit.
 - **Search finds settings, not just sections.** The search box at the top of the page matches both section names *and* individual settings, so typing "budget" or "vision model" jumps you straight to the right field.
 
@@ -916,17 +916,21 @@ re-runs that sweep on demand and is safe to press at any time.
 How the app binds and who can reach it. **These are the settings that need a restart** — the card shows a **Running vs Saved** banner and a **Save & restart to apply** button that does it in one click.
 
 - **Port** → `server.port`. The port the app listens on. Default **`5050`**. Change it if something else owns the port (on macOS, port 5000 is taken by AirPlay Receiver).
-- **Available on the local network** — a toggle that flips the bind host between `127.0.0.1` (this machine only, the default) and `0.0.0.0` (reachable from your LAN — phone, tablet, another PC). The token and phone controls below only appear once this is on.
-- **Require an access token** → `server.require_token`. Default **off** — a home LAN is treated as trusted, so LAN access is open and there's no token to type on a phone. Turn it **on** to demand a token from remote devices. Localhost normally bypasses this gate; `LDS_REQUIRE_LOCAL_TOKEN=1` requires authentication there too and cannot be turned off from this setting.
+- **Available on the local network** — a toggle that flips the bind host between `127.0.0.1` (this machine only, the default) and `0.0.0.0` (reachable from your LAN — phone, tablet, another PC). The token and phone controls below only appear once this is on; with `LDS_REQUIRE_LOCAL_TOKEN=1` the token controls are always there.
+- **Require an access token** → `server.require_token`. Default **off** — a home LAN is treated as trusted, so LAN access is open and there's no token to type on a phone. Turn it **on** to demand a token from remote devices. Localhost normally bypasses this gate; `LDS_REQUIRE_LOCAL_TOKEN=1` requires authentication there too and cannot be turned off from this setting: the switch is **forced on and locked**, with that reason shown.
   When `LDS_PUBLIC=1` this is **forced on and locked** — the switch is disabled with that reason shown, and a public bind is served with the gate on unless `LDS_ALLOW_UNAUTHENTICATED=1` is set (see the environment variables above).
 - **Access token** → `server.access_token`. Shown only when the token gate is on: a read-only field with **Generate new token** and **Copy**. It's persisted, so it survives restarts. Open `http://<machine>:<port>/?token=<token>` once from the remote device and a signed session cookie takes over.
 
 With local token protection enabled, use the token link printed by the launcher,
-or the browser tab opened by `start.bat` / `start.sh`. The browser remembers the
-authenticated session; the initial token is removed from the address bar.
-Scripts must send `X-LDS-Token` or `Authorization: Bearer` on their requests.
-After changing the token, restart LDS; sessions tied to the previous token stop
-working. This protects against anonymous local HTTP calls, not a compromised
+the browser tab opened by `start.bat` / `start.sh`, or the token shown on this
+card; its phone links and QR code carry the token the running server accepts.
+The browser remembers the authenticated session; the initial token is removed
+from the address bar. Scripts must send `X-LDS-Token` or `Authorization: Bearer`
+on their requests. **Generate new token** applies as soon as you save, no restart:
+the tab that saved stays signed in, and every other session needs the new link. A
+token set with `LDS_ACCESS_TOKEN` stays in charge: the card shows it and offers no
+**Generate new token**; change the variable, then stop and start LDS.
+This protects against anonymous local HTTP calls, not a compromised
 process that can read your token, `.env`, or session signing key. Use a separate
 account with restricted file permissions or stronger isolation for that threat.
 - **Open it on your phone** — a card with a scannable **QR code** and copyable URLs built from this machine's real LAN IP (and Tailscale IP, if present). No guessing which address to type.
@@ -1164,7 +1168,7 @@ A flat cheat-sheet of the main `config.json` keys, for quick lookup or hand-edit
 |---|---|
 | `server.host` | Interface the Flask server binds to (default `127.0.0.1`, local-only). |
 | `server.port` | Port the server listens on (default `5050`). |
-| `server.require_token` | On a non-loopback bind, require remote clients to present an access token (default `false` — a trusted LAN needs none). Toggle and token also live in Settings → Server & access. Overridden to always-on by `LDS_PUBLIC=1`. |
+| `server.require_token` | On a non-loopback bind, require remote clients to present an access token (default `false` — a trusted LAN needs none). Toggle and token also live in Settings → Server & access. Overridden to always-on by `LDS_PUBLIC=1` and by `LDS_REQUIRE_LOCAL_TOKEN=1`. |
 | `paths.dataset_images_root` | Where dataset images are stored. Empty string defaults to `<data dir>/datasets`. |
 | `paths.cloud_runs_dir` | Working area of cloud training runs (dataset copy, samples, logs). Empty string defaults to `<data dir>/cloud_runs`. |
 | `paths.checkpoints_dir` | Durable store for the checkpoints cloud runs produce. Empty string defaults to `<data dir>/checkpoints`. No cleanup ever removes a file from it. |

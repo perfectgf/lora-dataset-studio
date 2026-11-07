@@ -58,8 +58,8 @@ export function resolveServerAccess({ bindManaged, browserOrigin, configHost, co
   }
 }
 
-export function shouldShowRemoteControls(bindManaged, lan) {
-  return bindManaged || lan
+export function shouldShowRemoteControls(bindManaged, lan, localTokenRequired = false) {
+  return bindManaged || lan || localTokenRequired
 }
 /* managed-access:end */
 
@@ -68,7 +68,7 @@ export function shouldShowRemoteControls(bindManaged, lan) {
    contrasts the SAVED config against `runtime` (what's actually bound right now,
    stamped by run.py) and offers a one-click save-then-restart, mirroring
    UpdatesCard's "poll /api/health, then hard-reload" pattern. */
-export default function ServerSection({ config, setField, runtime, handleSave, configDefaults }) {
+export default function ServerSection({ config, savedConfig, setField, runtime, handleSave, configDefaults }) {
   const toast = useToast()
   const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -82,9 +82,23 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
     runtimeLanIp: runtime.lan_ip,
   })
   const lan = access.lan
-  const showRemoteControls = shouldShowRemoteControls(bindManaged, lan)
+  // LDS_REQUIRE_LOCAL_TOKEN=1: the gate is on for every client, this computer
+  // included, whatever server.require_token says.
+  const localTokenRequired = runtime.local_token_required === true
+  const showRemoteControls = shouldShowRemoteControls(bindManaged, lan, localTokenRequired)
   const requireToken = !!config.server.require_token
   const publicBind = runtime.public === true
+  const tokenLocked = publicBind || localTokenRequired
+  const tokenGate = requireToken || tokenLocked
+  // Under that lock the server names the token it accepts, because the one in
+  // the form can differ: LDS_ACCESS_TOKEN wins over the saved value (the token is
+  // then pinned, and generating another would do nothing), and a generated token
+  // stays a draft until Save. The link always carries the accepted one.
+  const draftToken = config.server.access_token || ''
+  const savedToken = savedConfig?.server?.access_token || ''
+  const acceptedToken = runtime.access_token || ''
+  const tokenPinned = localTokenRequired && acceptedToken !== savedToken
+  const fieldToken = localTokenRequired && draftToken === savedToken ? acceptedToken : draftToken
   // Real LAN IPv4 of this machine (backend socket probe), so the remote-access
   // URL is copyable as-is instead of a <this-computer> placeholder. null when the
   // backend couldn't determine it (offline / loopback-only) -> keep the placeholder.
@@ -98,9 +112,9 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
   // gate is on (a tokenless URL would 403); when it's on but no token exists yet,
   // reachUrls stays empty and the card asks the user to generate one first.
   const port = access.port
-  const token = (requireToken || publicBind) ? (config.server.access_token || '') : ''
-  const tokenReady = !(requireToken || publicBind) || !!token
-  const tokenQS = token ? `?token=${token}` : ''
+  const token = localTokenRequired ? acceptedToken : (tokenGate ? draftToken : '')
+  const tokenReady = !tokenGate || !!token
+  const tokenQS = token ? `?token=${encodeURIComponent(token)}` : ''
   const reachUrls = tokenReady ? (bindManaged ? [
     lan && access.origin && {
       key: 'current',
@@ -142,7 +156,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
 
   const copyToken = async () => {
     try {
-      await navigator.clipboard.writeText(config.server.access_token || '')
+      await navigator.clipboard.writeText(fieldToken)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* clipboard unavailable (non-HTTPS remote origin) — token stays selectable */ }
@@ -202,7 +216,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
               ? (lan
                 ? 'On because this browser is using a non-loopback address. Docker and network rules still determine which other devices can reach it.'
                 : 'Off because this browser is using a loopback address. That does not reveal whether Docker is exposed; open the app through the host’s LAN address to get a shareable link and QR code.')
-              : 'Off (default): only this computer can open the app. On: any device on your Wi-Fi/LAN can reach it — e.g. from your phone — using the plain URL below.'}
+              : `Off (default): only this computer can open the app. On: any device on your Wi-Fi/LAN can reach it — e.g. from your phone — using the ${localTokenRequired ? 'token link' : 'plain URL'} below.`}
           </p>
         </div>
         <button id="server-lan" type="button" role="switch" aria-checked={lan}
@@ -225,50 +239,71 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
             <div>
               <p className="text-sm font-medium text-content">Require an access token</p>
               <p className="mt-0.5 text-xs text-content-muted">
-                {bindManaged
-                  ? (requireToken
-                    ? 'On: devices that can reach this Docker service must open a tokenized URL once (a session cookie takes over after).'
-                    : 'Off: any device that can reach this Docker service can open it with no password. Docker and network rules determine whether it is exposed.')
-                  : (requireToken
-                    ? 'On: remote devices must open the URL WITH the token once (a session cookie takes over after). Extra safety on a shared or untrusted network.'
-                    : 'Off (default): anyone on your Wi-Fi/LAN can open the app with no password. Fine for a home network; turn on if the network is shared or untrusted.')}
+                {localTokenRequired
+                  ? 'On: every browser and device, this computer included, must open the URL WITH the token once (a session cookie takes over after).'
+                  : bindManaged
+                    ? (requireToken
+                      ? 'On: devices that can reach this Docker service must open a tokenized URL once (a session cookie takes over after).'
+                      : 'Off: any device that can reach this Docker service can open it with no password. Docker and network rules determine whether it is exposed.')
+                    : (requireToken
+                      ? 'On: remote devices must open the URL WITH the token once (a session cookie takes over after). Extra safety on a shared or untrusted network.'
+                      : 'Off (default): anyone on your Wi-Fi/LAN can open the app with no password. Fine for a home network; turn on if the network is shared or untrusted.')}
               </p>
-              {publicBind && (
+              {tokenLocked && (
                 <p className="text-content-subtle text-sm mt-1">
-                  Forced on: this app is reachable from the internet
-                  (<code>LDS_PUBLIC=1</code>), so the token gate can’t be turned off.
+                  {localTokenRequired ? (
+                    <>Forced on: <code>LDS_REQUIRE_LOCAL_TOKEN=1</code> protects this computer too,
+                      so the token gate can’t be turned off here.</>
+                  ) : (
+                    <>Forced on: this app is reachable from the internet
+                      (<code>LDS_PUBLIC=1</code>), so the token gate can’t be turned off.</>
+                  )}
                 </p>
               )}
             </div>
-            <button id="server-require-token" type="button" role="switch" aria-checked={requireToken}
+            <button id="server-require-token" type="button" role="switch" aria-checked={requireToken || localTokenRequired}
               data-focus-gate="server-token"
-              disabled={publicBind}
-              onClick={() => { if (!publicBind) setField('server', 'require_token', !requireToken) }}
+              disabled={tokenLocked}
+              onClick={() => { if (!tokenLocked) setField('server', 'require_token', !requireToken) }}
               aria-label="Require an access token"
-              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${requireToken ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
+              className={`relative h-6 w-11 shrink-0 scroll-mt-24 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${requireToken || localTokenRequired ? 'bg-emerald-500' : 'bg-surface border border-border-strong'}`}>
               <span aria-hidden
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken ? 'translate-x-5' : 'translate-x-0'}`} />
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${requireToken || localTokenRequired ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </div>
 
-          {(requireToken || publicBind) && (
+          {tokenGate && (
             <div>
               <div className="flex items-center justify-between">
                 <label htmlFor="server-token" className="block text-sm font-medium text-content">Access token</label>
-                <button type="button" onClick={regenerateToken}
-                  className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
-                  Generate new token
-                </button>
+                {!tokenPinned && (
+                  <button type="button" onClick={regenerateToken}
+                    className="text-xs font-medium text-sky-300 underline hover:text-sky-200">
+                    Generate new token
+                  </button>
+                )}
               </div>
               <p className="mb-1 text-xs text-content-muted">
-                Remote devices present this once (baked into the link below) — a signed session
-                cookie takes over from there. Requests from this computer never need it.
+                {localTokenRequired ? (
+                  <>
+                    Every browser and device, this computer included, presents this once — a signed
+                    session cookie takes over from there.{' '}
+                    {tokenPinned
+                      ? <>It comes from <code>LDS_ACCESS_TOKEN</code> in this server’s environment: change it there, then stop and start LDS.</>
+                      : 'A new token applies as soon as you save; other sessions then need the new link.'}
+                  </>
+                ) : (
+                  <>
+                    Remote devices present this once (baked into the link below) — a signed session
+                    cookie takes over from there. Requests from this computer never need it.
+                  </>
+                )}
               </p>
               <div className="flex gap-2">
                 <input id="server-token" type="text" readOnly
-                  value={config.server.access_token || '(created automatically on the next restart — or click “Generate new token”)'}
+                  value={fieldToken || '(created automatically on the next restart — or click “Generate new token”)'}
                   className={`${INPUT_CLASS} font-mono text-xs`} />
-                {config.server.access_token && (
+                {fieldToken && (
                   <button type="button" onClick={copyToken}
                     className="shrink-0 rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised">
                     {copied ? 'Copied ✓' : 'Copy'}
@@ -310,7 +345,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
                     ))}
                   </div>
                 </div>
-              ) : (requireToken || publicBind) && !token ? (
+              ) : tokenGate && !token ? (
                 <p className="mt-1 text-xs text-content-subtle">
                   Turn the token on, then <span className="text-content">Generate new token</span> (or
                   Save &amp; restart) — the scannable link appears once a token exists.
@@ -318,7 +353,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
               ) : (
                 <p className="mt-1 break-all text-xs text-content-subtle">
                   Couldn’t detect this machine’s address. From another device open{' '}
-                  <code className="text-content">http://&lt;this-computer&apos;s LAN IP&gt;:{port}/</code>{' '}
+                  <code className="text-content">http://&lt;this-computer&apos;s LAN IP&gt;:{port}/{localTokenRequired ? tokenQS : ''}</code>{' '}
                   (find the IP by running <code className="text-content">ipconfig</code>).
                 </p>
               )}
@@ -337,7 +372,7 @@ export default function ServerSection({ config, setField, runtime, handleSave, c
           ) : (
             <span className="text-content-muted">
               Running: <span className="font-medium text-content">{runtime.host}:{runtime.port}</span>
-              {runtime.host === '0.0.0.0' && lanIp && (
+              {runtime.host === '0.0.0.0' && lanIp && !localTokenRequired && (
                 <span className="text-content-subtle"> — reachable at http://{lanIp}:{runtime.port}/</span>
               )}
               {dirty && (
