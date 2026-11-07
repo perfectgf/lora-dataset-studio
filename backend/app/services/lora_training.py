@@ -8895,10 +8895,10 @@ def _lt_spawn_transaction(ds, user_id, dataset_id, steps, masked, launch_fam,
         # durable queue state is therefore the admission record for an already
         # running prompt as well as for a pending one.
         if queue_manager.has_comfyui_work():
-            from ..gpu_window import GpuBusyError
+            from ..gpu_window import HOLD_GENERATION, GpuBusyError
             raise GpuBusyError(
                 'ComfyUI has queued or active work, so local training cannot take the GPU. '
-                'Wait for it to finish or cancel it safely first.')
+                'Wait for it to finish or cancel it safely first.', hold=HOLD_GENERATION)
         try:
             from .ollama_gpu_fence import ensure_released_for_comfy
             ollama_released = ensure_released_for_comfy()
@@ -10132,16 +10132,64 @@ def _assert_no_vision_pass_on_gpu():
         ) from exc
 
     if active_vision_window or queue_manager._get_system_state('vision_in_progress', False):
+        from ..gpu_window import HOLD_VISION
         raise GpuBusyError(
             'a vision pass (captioning, watermark or framing) is using the GPU - '
             'training would fight it for VRAM instead of failing outright, so it '
             'has to wait. Stop the pass, or queue this dataset and it will start '
-            'by itself when the pass is done.')
+            'by itself when the pass is done.', hold=HOLD_VISION)
 
     if queue_manager.has_comfyui_stalled_barrier():
         raise GpuBusyError(
             'ComfyUI recovery is required before local training can take the GPU. '
             'Recover ComfyUI, cancel the paused Test Studio job, then resume it.')
+
+
+def _queue_gpu_hold():
+    """What keeps the training queue from starting its next item, apart from the
+    run in progress: a vision pass, a paused ComfyUI job, a ComfyUI generation.
+
+    Asked BEFORE an item is launched. The spawn refuses for each of these, and a
+    queued launch that was refused used to be dropped from the queue — after
+    re-exporting its whole dataset for nothing. Unreadable state holds the queue
+    (fail closed).
+    """
+    from ..gpu_window import HOLD_GENERATION, HOLD_VISION, vision_gpu_window_blocks_gpu
+    from ..job_queue import HOLD_COMFYUI_RECOVERY
+    try:
+        if (vision_gpu_window_blocks_gpu()
+                or queue_manager._get_system_state('vision_in_progress', False)):
+            return HOLD_VISION
+        if queue_manager.has_comfyui_stalled_barrier():
+            return HOLD_COMFYUI_RECOVERY
+        if queue_manager.has_comfyui_work():
+            return HOLD_GENERATION
+    except Exception:
+        logger.exception('training queue: could not read whether the GPU is free')
+        return HOLD_VISION
+    return None
+
+
+def _queued_launch_must_wait(exc) -> bool:
+    """A queued launch refused because the GPU, or its dataset, is merely in use
+    stays in the queue; anything else is removed and reported (training_queue_error)."""
+    from ..gpu_window import TRANSIENT_HOLDS, GpuBusyError
+    if isinstance(exc, GpuBusyError):
+        return getattr(exc, 'hold', None) in TRANSIENT_HOLDS
+    return isinstance(exc, (TrainingAlreadyRunning, dataset_activity.DatasetActivityBusy))
+
+
+def _queue_waiting_for(queue) -> str | None:
+    """What the queue is waiting for, in words, while it has a due item."""
+    if not queue or _due_index(queue) is None:
+        return None             # empty, or scheduled for later (the ⏰ badge says when)
+    from ..gpu_window import wait_label
+    if _launchable_index(queue) is None:
+        return 'its dataset to finish the work it is doing'
+    if queue_manager._get_system_state('training_in_progress', False):
+        return wait_label('training')
+    hold = _queue_gpu_hold()
+    return wait_label(hold) if hold else None
 
 
 def is_local_run_active(dataset_id) -> bool:
@@ -10224,6 +10272,9 @@ def training_status(user_id=None) -> dict:
             'current': current,
             # Expose the watcher-reported nonzero-exit training crash to the UI.
             'error': queue_manager._get_system_state('training_error', None),
+            # Why the queue's next item has not started yet (None: it has not
+            # needed to wait).
+            'queue_waiting_for': _queue_waiting_for(get_train_queue()),
             'queue': train_queue_view(user_id) if user_id is not None else []}
 
 
@@ -11248,6 +11299,22 @@ def _due_index(q) -> int | None:
     return None
 
 
+def _launchable_index(q) -> int | None:
+    """The first due item whose dataset is idle. A dataset busy with a pass of
+    its own cannot be frozen for training yet; its item waits without holding
+    up the due items behind it."""
+    for i, it in enumerate(q):
+        if _due_index([it]) is None:
+            continue
+        try:
+            busy = dataset_activity.get(it.get('dataset_id')) is not None
+        except (TypeError, ValueError):
+            busy = False      # a damaged id fails at launch and is reported there
+        if not busy:
+            return i
+    return None
+
+
 def _advance_training_queue() -> str | None:
     # First action under the launch locks: recover any exact-resume lane move
     # whose watcher vanished with Flask. This must precede queue admission.
@@ -11255,8 +11322,11 @@ def _advance_training_queue() -> str | None:
         return None
     flag = bool(queue_manager._get_system_state('training_in_progress', False))
     pid = queue_manager._get_system_state('training_pid', None)
-    vision_busy = bool(queue_manager._get_system_state('vision_in_progress', False))
     q = get_train_queue()
+    # Not just the vision flag: the in-process vision fence, a ComfyUI recovery
+    # and a ComfyUI generation all make the spawn refuse, and a refused queued
+    # launch used to be dropped. The queue waits for them instead.
+    gpu_held = _queue_gpu_hold() if q else None
 
     if flag:
         pid_alive = _pid_alive(pid)
@@ -11290,8 +11360,8 @@ def _advance_training_queue() -> str | None:
                     'training_variant', _PERSISTED))
         except Exception as e:
             logger.warning('final snapshot (advance) failed: %s', e)
-        due = _due_index(q)
-        if due is not None and not vision_busy:
+        due = _launchable_index(q)
+        if due is not None and not gpu_held:
             nxt = q[due]
             try:
                 _launch_queued_item(nxt)  # replace the flag/PID without a GPU release gap
@@ -11299,6 +11369,17 @@ def _advance_training_queue() -> str | None:
                 logger.info(f"Training queue: finished → starting dataset {nxt['dataset_id']}")
                 return f"next:{nxt['dataset_id']}"
             except Exception as e:
+                if _queued_launch_must_wait(e):
+                    # Keep the item, and let the dead run's fence go: the owner
+                    # in the way may need the GPU to finish what it is doing.
+                    # Not on TrainingAlreadyRunning: that refusal is evidence a
+                    # training process may be alive, and its fence stays.
+                    logger.info('Training queue: dataset %s waits for the GPU: %s',
+                                nxt.get('dataset_id'), e)
+                    if isinstance(e, TrainingAlreadyRunning):
+                        return None
+                    _clear_training_identity(ttl_seconds=1)
+                    return 'released'
                 # Remove failed items to avoid endless retries, but surface their errors.
                 _save_queue(q[:due] + q[due + 1:])
                 queue_manager._set_system_state(
@@ -11312,8 +11393,8 @@ def _advance_training_queue() -> str | None:
         logger.info("Training queue: finished, no continuation due → flag released")
         return 'released'
 
-    due = _due_index(q)
-    if due is not None and not vision_busy:
+    due = _launchable_index(q)
+    if due is not None and not gpu_held:
         nxt = q[due]
         try:
             _launch_queued_item(nxt)
@@ -11321,6 +11402,10 @@ def _advance_training_queue() -> str | None:
             logger.info(f"File training : lancement dataset {nxt['dataset_id']}")
             return f"launched:{nxt['dataset_id']}"
         except Exception as e:
+            if _queued_launch_must_wait(e):
+                logger.info('Training queue: dataset %s waits for the GPU: %s',
+                            nxt.get('dataset_id'), e)
+                return None
             _save_queue(q[:due] + q[due + 1:])
             queue_manager._set_system_state(
                 'training_queue_error',

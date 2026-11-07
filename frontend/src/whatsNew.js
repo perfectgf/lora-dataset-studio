@@ -100,6 +100,13 @@ export const WHATS_NEW = [
       + 'original-file mode keeps each one as a lossless PNG.',
   },
   {
+    id: '2026-11-07-zzx-queued-training-keeps-its-place',
+    date: '2026-11-07',
+    title: 'A queued training waits for the GPU instead of vanishing',
+    blurb: 'A training in the queue could disappear when its turn came while ComfyUI was generating or a vision pass held '
+      + 'the GPU. It now keeps its place, the queue says what it is waiting for, and it starts on its own once the GPU is free.',
+  },
+  {
     id: '2026-11-07-zz-stopped-local-run-checkpoints',
     date: '2026-11-07',
     title: 'A stopped local training keeps its checkpoints in Runs',
