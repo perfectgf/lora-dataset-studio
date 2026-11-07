@@ -101,6 +101,28 @@ def test_settings_persists_and_base_info_serializes_training_mode(
     assert "'lora' or 'full_transformer'" in invalid.get_json()['error']
 
 
+def test_a_full_model_base_picked_after_the_switch_comes_back_on_reload(
+        app, client, monkeypatch, tmp_path):
+    """The Training panel saves each pick with these keys, and base-info is what a
+    reload reads: a base that waited for the launch was gone after one."""
+    from tests.test_dense_recipe_and_quantized_base import _bf16_model
+
+    _valid_training_capabilities(monkeypatch)
+    dataset_id = _dataset(app)
+    url = f'/api/dataset/{dataset_id}/train/settings'
+
+    def reload_after(**choice):
+        assert client.post(url, json={'training_mode': 'full_transformer', **choice}).status_code == 200
+        info = client.get(f'/api/dataset/{dataset_id}/train/base-info').get_json()
+        return info['training_mode'], info['variant'], info['base']
+
+    assert reload_after(base_model='', variant='turbo') == ('full_transformer', 'turbo', '')
+    own = str(tmp_path / 'own-krea.safetensors')
+    _bf16_model(own)
+    assert reload_after(base_model=own, variant='base') == ('full_transformer', 'base', own)
+    assert reload_after(base_model='', variant='base') == ('full_transformer', 'base', '')
+
+
 def test_settings_atomically_validates_and_persists_dense_selection(
         app, client, monkeypatch):
     from app.extensions import db

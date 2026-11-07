@@ -113,6 +113,13 @@ export const WHATS_NEW = [
       + 'and keeps the environment unready if files are still missing.',
   },
   {
+    id: '2026-11-07-z-full-model-base-kept',
+    date: '2026-11-07',
+    title: 'Your full-model base survives a reload',
+    blurb: 'The base you choose for full-model training (Raw, Turbo, a listed checkpoint or your own file) was only saved at launch, '
+      + 'so reloading the page brought the previous one back. It is now saved as soon as you pick it.',
+  },
+  {
     id: '2026-11-07-setup-opens-on-tools',
     date: '2026-11-07',
     title: 'Setup opens on your tools',
