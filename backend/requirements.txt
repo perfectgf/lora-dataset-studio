@@ -6,6 +6,12 @@ Werkzeug==3.1.8
 requests==2.34.2
 python-dotenv==1.2.3
 Pillow==12.3.0
+# HEIC/HEIF photos (iPhone, recent Android) at import: pi-heif is pillow-heif's
+# decode-only build (BSD binding; LGPL libheif + libde265 wheels, no encoder).
+# Limited to the platforms it publishes wheels for: anywhere else pip would try to
+# BUILD libheif, fail, and take the whole core install down with it. Without it a
+# HEIC import fails as an unreadable file, as it always did (app/services/heif_decoder.py).
+pi-heif==1.4.0; (sys_platform == "win32" and platform_machine == "AMD64") or sys_platform == "darwin" or (sys_platform == "linux" and (platform_machine == "x86_64" or platform_machine == "aarch64"))
 psutil>=5.9.8
 huggingface-hub>=0.24     # Publish dataset to the HF Hub (pure-python, light): HfApi + upload_folder
 PyYAML>=6.0               # Parse ComfyUI's extra_model_paths.yaml (was only transitive via huggingface-hub); guarded import degrades gracefully if absent

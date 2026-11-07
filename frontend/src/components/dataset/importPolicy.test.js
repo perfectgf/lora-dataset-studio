@@ -10,8 +10,9 @@ import {
   preservesOriginalFiles,
 } from './importPolicy.js';
 
-test('the picker and policy name exactly the static formats that can be preserved', () => {
-  assert.equal(IMPORT_IMAGE_ACCEPT, 'image/jpeg,image/png,image/webp,image/bmp');
+test('the picker offers HEIC too, while the policy names only the formats kept byte-for-byte', () => {
+  assert.equal(IMPORT_IMAGE_ACCEPT,
+    'image/jpeg,image/png,image/webp,image/bmp,image/heic,image/heif,.heic,.heif');
   assert.equal(IMPORT_IMAGE_FORMATS, 'JPEG, PNG, WebP and BMP');
 });
 

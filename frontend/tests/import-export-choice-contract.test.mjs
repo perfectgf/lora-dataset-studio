@@ -75,7 +75,7 @@ test('manual import makes server-side file refusals actionable instead of silent
   // 20 files / ~64 MiB), so the refusal count is the drop's, not one batch's.
   assert.match(importFiles, /if \((?:d\.)?failed\) toast\.warning\(/);
   assert.match(importFiles, /failed \+= d\.failed \|\| 0/);
-  assert.match(importFiles, /JPEG, PNG, WebP or BMP/);
+  assert.match(importFiles, /JPEG, PNG, WebP, BMP or HEIC/);
   // No literal limit here any more: the budget is a setting, so the toast points
   // at it instead of carrying a copy that goes stale the moment it is changed.
   assert.ok(!/\d+ Mi-pixels/.test(importFiles),

@@ -522,9 +522,10 @@ def sanitize_external_reference(image_bytes: bytes, *, label: str = 'reference i
         with warnings.catch_warnings():
             warnings.simplefilter('error', Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(raw)) as source:
-                # This shared header validator admits only static JPEG/PNG/WebP/BMP
-                # and applies the global side/pixel budget before ``load``.
-                _preserved_import_header_extension(source, label=label)
+                # This shared header validator admits only static JPEG/PNG/WebP/BMP,
+                # plus HEIC/HEIF (re-encoded below like everything else), and applies
+                # the global side/pixel budget before ``load``.
+                _preserved_import_header_extension(source, label=label, transcodable=True)
                 source.load()
                 oriented = ImageOps.exif_transpose(source)
                 has_alpha = ('A' in oriented.getbands()
@@ -4613,7 +4614,7 @@ def start_reference_edit(app, user_id, dataset_id, engine, prompt,
     # Sanitize the dialog's uploads HERE — once, and before anything
     # destructive. start_batch below SUPERSEDES the batch on screen: it unlinks
     # the previous candidate and cancels a render still in flight. A rejected
-    # image (HEIC, animated GIF, truncated PNG — all of which pass the browser's
+    # image (animated GIF, truncated PNG — both pass the browser's
     # image/* filter) must therefore fail before it, or dropping the wrong file
     # destroys a candidate the user had not kept yet. The API lane always did
     # this; the local lane used to be refused outright, so no ordering existed.
@@ -5636,6 +5637,18 @@ _PRESERVED_IMPORT_EXTENSIONS = {
     'BMP': '.bmp',
 }
 
+# Static photo formats an import READS but never stores as they arrived. A HEIC/
+# HEIF photo (iPhone, recent Android) opens in no browser but Safari, in neither
+# trainer and in none of the OpenCV workers, so keeping its bytes would park a file
+# that nothing after the import can open. Preserve mode stores its picture as a
+# lossless PNG instead: an honest extension, no pixel lost on the way, the colour
+# profile kept and the orientation baked, like every edit. The WebP modes and the
+# head crop re-encode every format already. Decoded by pi-heif (heif_decoder.py).
+_TRANSCODED_IMPORT_FORMATS = frozenset({'HEIF'})
+_TRANSCODED_IMPORT_EXTENSION = '.png'
+_IMPORT_FORMATS_TEXT = 'JPEG, PNG, WebP, or BMP'
+_TRANSCODABLE_IMPORT_FORMATS_TEXT = 'JPEG, PNG, WebP, BMP, or HEIC'
+
 # A raw master is intentionally NOT resized on import, but importing it must not
 # turn the process into an unbounded decompressor. These limits apply uniformly to
 # every image ingress path (preserve, crop, explicit normalisation, ZIP and scrape)
@@ -5723,22 +5736,34 @@ def _import_header_dimensions(image_bytes: bytes, *, label: str = 'import') -> t
         raise ValueError(f'{label} received an unreadable image') from exc
 
 
-def _preserved_import_header_extension(im: Image.Image, *, label: str = 'preserve mode') -> str:
+def _preserved_import_header_extension(im: Image.Image, *, label: str = 'preserve mode',
+                                       transcodable: bool = False) -> str:
     """Validate a raw static source header and return its content extension.
 
     This is deliberately called before ``im.load()``.  A file can advertise a
     huge raster in a very small compressed payload, so dimensions must be
     rejected before the decoder allocates its full pixel buffer.
+
+    ``transcodable=True`` also admits `_TRANSCODED_IMPORT_FORMATS`, for callers
+    that re-encode what they store (it returns the PNG extension they write).
+    The byte-preserving callers keep the default: a HEIF may never reach a
+    dataset folder under its own bytes.
     """
     fmt = (getattr(im, 'format', None) or '').upper()
+    if transcodable and fmt in _TRANSCODED_IMPORT_FORMATS:
+        # A HEIF container's other top-level images (a burst, alternates) are not
+        # a timeline: its primary picture IS the photo, and that is what decodes.
+        _validate_import_header_dimensions(im, label=label)
+        return _TRANSCODED_IMPORT_EXTENSION
+    formats = _TRANSCODABLE_IMPORT_FORMATS_TEXT if transcodable else _IMPORT_FORMATS_TEXT
     ext = _PRESERVED_IMPORT_EXTENSIONS.get(fmt)
     if ext is None:
         raise ValueError(
-            f'{label} supports only static JPEG, PNG, WebP, or BMP images '
+            f'{label} supports only static {formats} images '
             f'(got {fmt or "unknown"})')
     if getattr(im, 'n_frames', 1) != 1:
         raise ValueError(
-            f'{label} supports only static JPEG, PNG, WebP, or BMP images '
+            f'{label} supports only static {formats} images '
             '(animated images are not supported)')
     _validate_import_header_dimensions(im, label=label)
     return ext
@@ -5772,6 +5797,37 @@ def _preserved_import_extension(image_bytes: bytes, *, label: str = 'preserve mo
     return ext
 
 
+def _preserve_mode_payload(image_bytes: bytes, *, label: str = 'preserve mode') -> tuple[bytes, str]:
+    """What preserve mode stores for one source, and under which extension.
+
+    The source's own bytes for a format the pipeline reads (the validator above,
+    unchanged), or a lossless PNG of the picture for `_TRANSCODED_IMPORT_FORMATS`
+    (see that table for why). One open, the same header budget before decoding.
+    """
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(image_bytes)) as im:
+                ext = _preserved_import_header_extension(im, label=label, transcodable=True)
+                im.load()
+                if (im.format or '').upper() not in _TRANSCODED_IMPORT_FORMATS:
+                    return image_bytes, ext
+                icc = _valid_icc_profile(im.info.get('icc_profile'))
+                picture = ImageOps.exif_transpose(im)
+        # The PNG writer falls back to `info['icc_profile']` when none is passed, so
+        # an unparsable profile must leave the copy, not just the argument list.
+        picture.info.pop('icc_profile', None)
+        out = io.BytesIO()
+        image_encoding.save_edit(picture, out, 'PNG', image_encoding.LOSSLESS, icc_profile=icc)
+    except ValueError:
+        raise
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise image_encoding.ImageTooLargeError(f'{label} rejected an unsafe image header') from exc
+    except (OSError, UnidentifiedImageError, MemoryError) as exc:
+        raise ValueError(f'{label} received an unreadable image') from exc
+    return out.getvalue(), ext
+
+
 def _load_import_derivative_image(image_bytes: bytes) -> Image.Image:
     """Decode a bounded, visually upright temporary image for derived imports.
 
@@ -5797,13 +5853,14 @@ def _load_import_derivative_image(image_bytes: bytes) -> Image.Image:
 def import_store_image(image_bytes: bytes) -> tuple[bytes, str]:
     """Return exactly what a non-cropped import should store and its extension.
 
-    `preserve` keeps approved source bytes byte-for-byte. The three legacy
+    `preserve` keeps approved source bytes byte-for-byte (a HEIC/HEIF photo, which
+    nothing downstream reads, becomes a lossless PNG). The three legacy
     encoding modes intentionally still create WebP derivatives, preserving their
     historical resizing and quality controls for users who explicitly choose them.
     """
     p = import_encode_policy()
     if p['preserve']:
-        return image_bytes, _preserved_import_extension(image_bytes)
+        return _preserve_mode_payload(image_bytes)
     return (normalize_to_webp(image_bytes, size=p['max_side'],
                               quality=p['quality'], lossless=p['lossless']),
             '.webp')
@@ -6545,7 +6602,7 @@ DATASET_ZIP_MAX_FILES = 400
 DATASET_ZIP_MAX_BYTES = 2 * 1024 * 1024 * 1024
 DATASET_ZIP_MAX_IMAGE_BYTES = 128 * 1024 * 1024
 _DATASET_ZIP_MAX_CENTRAL_DIRECTORY_BYTES = 8 * 1024 * 1024
-_DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp')
+_DATASET_ZIP_IMG_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.heic', '.heif')
 
 
 @_serialize_dataset_ingest
