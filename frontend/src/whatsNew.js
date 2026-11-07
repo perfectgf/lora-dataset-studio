@@ -84,6 +84,13 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-07-zzzzz-krea-negative-prompt',
+    date: '2026-11-07',
+    title: 'A negative prompt for Krea test runs above CFG 1',
+    blurb: 'The Test Studio offered no negative prompt for Krea, even on a Raw base that samples at CFG 4, where it changes the image. '
+      + 'The Negative section now appears as soon as a Krea run uses a CFG above 1. At CFG 1 the sampler ignores it.',
+  },
+  {
     id: '2026-11-07-zzzz-bank-heic-avif',
     date: '2026-11-07',
     title: 'Your Bank shows HEIC and AVIF photos too',

@@ -4,6 +4,15 @@ export function supportsNegativePrompt(capabilities, family) {
     ? capabilities.negative_prompt : family === 'zimage';
 }
 
+/** Whether to show the negative prompt for the CFG values a run will use. When it only acts
+ *  above CFG 1 (Krea 2: ComfyUI skips the negative branch at CFG 1), show it once one of those
+ *  values exceeds 1, a Raw base's own default included. */
+export function showsNegativePrompt(capabilities, family, cfgs) {
+  if (!supportsNegativePrompt(capabilities, family)) return false;
+  if (!capabilities?.negative_prompt_needs_cfg) return true;
+  return (cfgs || []).some((value) => Number(value) > 1);
+}
+
 /** Keep an explicit missing model visible instead of rendering on another base. */
 export function modelSelectionError(models, selected) {
   if (!Array.isArray(models)) return null;

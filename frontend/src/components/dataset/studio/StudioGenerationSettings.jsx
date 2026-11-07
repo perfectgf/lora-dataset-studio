@@ -18,7 +18,7 @@ import LockableSlider from '../../shared/LockableSlider';
 import ZImageLoraConfig from '../../shared/ZImageLoraConfig';
 import StudioSection from './StudioSection';
 import { MemberOptions } from '../../patreon/MemberPreviews.jsx';
-import { supportsNegativePrompt } from '../../../utils/studioFamilySettings';
+import { showsNegativePrompt } from '../../../utils/studioFamilySettings';
 import {
   KREA_SAMPLER_PRESETS_FALLBACK, presetChoice, splitSamplerChoice,
 } from '../../../utils/kreaSamplerChoice';
@@ -65,8 +65,9 @@ const STUDIO_ASPECTS = [
 
 const basename = (p) => String(p || '').split(/[\\/]/).pop();
 
-export default function StudioGenerationSettings({ family = 'zimage', capabilities = null, storagePrefix = 'studioGen', permanentLoras = null, aspectPicker = false, onChange }) {
-  const hasNegative = supportsNegativePrompt(capabilities, family);
+export default function StudioGenerationSettings({ family = 'zimage', capabilities = null, cfgs = null, storagePrefix = 'studioGen', permanentLoras = null, aspectPicker = false, onChange }) {
+  // `cfgs` = the CFG values the run will use: Krea's negative only acts above CFG 1.
+  const hasNegative = showsNegativePrompt(capabilities, family, cfgs);
   const isSdxl = family === 'sdxl';
   const isKrea = family === 'krea';
 
@@ -437,6 +438,11 @@ export default function StudioGenerationSettings({ family = 'zimage', capabiliti
               aria-label="Negative prompt"
               className="rounded-lg border border-border bg-app/60 px-2.5 py-1.5 text-content text-sm resize-y min-h-[4rem]"
             />
+            {capabilities?.negative_prompt_needs_cfg && (
+              <span className="normal-case tracking-normal text-[0.625rem] text-content-muted/70">
+                Applies to cells above CFG 1. At CFG 1 the sampler ignores it.
+              </span>
+            )}
           </label>
         </StudioSection>
       )}

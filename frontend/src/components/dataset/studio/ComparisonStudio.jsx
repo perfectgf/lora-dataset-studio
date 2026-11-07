@@ -37,7 +37,7 @@ import RunSelector from './RunSelector';
 import QuickVoteModal from './QuickVoteModal';
 import StudioResultViewer from './StudioResultViewer';
 import {
-  modelSelectionError, readComparisonAxis, studioModelSettingsLink, supportsNegativePrompt, writeComparisonAxis,
+  modelSelectionError, readComparisonAxis, showsNegativePrompt, studioModelSettingsLink, writeComparisonAxis,
 } from '../../../utils/studioFamilySettings';
 
 const rollSeed = () => Math.floor(Math.random() * 2 ** 31);
@@ -429,6 +429,7 @@ export default function ComparisonStudio({ selection, baseOnly = false, baseMode
           key={runType}
           family={runType}
           capabilities={generationCapabilities}
+          cfgs={effectiveCfgs}
           storagePrefix={`${baseOnly ? 'studioGenBase' : 'studioGenComp'}_${runType}`}
           permanentLoras={baseOnly ? NO_LORAS : null}
           aspectPicker
@@ -545,7 +546,7 @@ export default function ComparisonStudio({ selection, baseOnly = false, baseMode
             { id: 'st-engine', emoji: '⚙️', label: 'Engine' },
           ] : []),
           ...(runType === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: 'Detail' }] : []),
-          ...(supportsNegativePrompt(generationCapabilities, runType) ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
+          ...(showsNegativePrompt(generationCapabilities, runType, effectiveCfgs) ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
           { id: 'st-results', emoji: '🖼️', label: 'Results' },
         ]}
         canRun={(baseOnly || (!!selection.length && (combine || !!strengths.length))) && !launching && !data?.gpu_busy && !launchBlocked}

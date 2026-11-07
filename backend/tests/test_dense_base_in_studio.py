@@ -189,3 +189,18 @@ def test_a_base_outside_the_list_is_still_refused(app, comfy):
             {'20': {'inputs': {'unet_name': 'krea2_turbo_fp8.safetensors'}}},
             lora_name=None, strength=1.0, prompt='p', seed=1, width=8, height=8,
             base_model='..\\evil.safetensors', allowed_bases=allowed)
+
+
+def test_a_raw_base_carries_the_negative_prompt_to_the_sampler(app, comfy):
+    """A Raw base samples at CFG 4, where ComfyUI evaluates the negative branch.
+    Krea was left out of the negative-prompt families: the panel hid the field,
+    the knobs dropped the text and the cell builder never wrote node 24."""
+    from app.services import lora_test_studio as lts
+    caps = lts.generation_capabilities('krea')
+    assert caps['negative_prompt'] and caps['negative_prompt_needs_cfg']
+    assert lts._sanitize_gen_knobs('krea', negative=' blurry ')['negative'] == 'blurry'
+    with app.app_context():
+        wf = lts._build_cell_workflow(1, None, 1.0, 'a photo', 7, None, set(), cfg=4.0,
+                                      train_type='krea', negative='blurry')
+    assert wf['24']['inputs']['text'] == 'blurry'
+    assert wf['26']['inputs']['cfg'] == 4.0

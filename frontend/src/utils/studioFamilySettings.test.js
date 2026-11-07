@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  defaultModelSelection, modelSelectionError, readComparisonAxis, supportsNegativePrompt, writeComparisonAxis,
+  defaultModelSelection, modelSelectionError, readComparisonAxis, showsNegativePrompt, supportsNegativePrompt,
+  writeComparisonAxis,
 } from './studioFamilySettings.js';
 
 const storage = (initial = {}) => {
@@ -17,6 +18,16 @@ test('server capability controls negative prompts, including explicit disable an
   assert.equal(supportsNegativePrompt({ negative_prompt: false }, 'zimage'), false);
   assert.equal(supportsNegativePrompt(null, 'flux'), false);
   assert.equal(supportsNegativePrompt(null, 'zimage'), true);
+});
+
+test('a negative that only acts above CFG 1 is shown once a selected CFG exceeds it', () => {
+  const krea = { negative_prompt: true, negative_prompt_needs_cfg: true };
+  assert.equal(showsNegativePrompt(krea, 'krea', [1]), false);
+  assert.equal(showsNegativePrompt(krea, 'krea', [1, 3]), true);
+  assert.equal(showsNegativePrompt(krea, 'krea', [4]), true); // a Raw base's own default
+  assert.equal(showsNegativePrompt(krea, 'krea', null), false);
+  assert.equal(showsNegativePrompt({ negative_prompt: true }, 'zimage', [1]), true);
+  assert.equal(showsNegativePrompt({ negative_prompt: false }, 'krea', [3]), false);
 });
 
 test('missing selected models are reported without substituting an installed model', () => {
