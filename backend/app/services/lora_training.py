@@ -847,6 +847,20 @@ def _assert_qwenimage21_ready(family) -> None:
             'Python environment before training.')
 
 
+# The AI Toolkit image a cloud trainer boots for a core family whose architecture
+# is newer than the provider's shared trainer image (bf16 GPU, larger disk).
+# lds_sdk.training_runtime.cloud_trainer_image serves it to providers, which name
+# no family. Keep each pin in step with its _aitoolkit_supports_* check.
+CLOUD_TRAINER_IMAGES = {
+    'qwenimage21': 'vastai/ostris-ai-toolkit:0bd3411-2026-09-23-cuda-12.9',
+}
+
+
+def cloud_trainer_image(family) -> str | None:
+    """The trainer image the core pins for ``family``; None: the provider's shared image."""
+    return CLOUD_TRAINER_IMAGES.get(str(family or '').lower())
+
+
 def _aitoolkit_supports_automagic3() -> bool:
     """Whether this checkout can resolve the Automagic3 optimizer.
 

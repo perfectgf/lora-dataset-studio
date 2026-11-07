@@ -10,7 +10,16 @@ from app.services.lora_training import (
     FULL_TRANSFORMER_MAX_STEP_SAVES, KREA_TURBO_BASE)
 from app.services.hf_storage import DENSE_CHECKPOINT_FALLBACK_BYTES
 
-__all__ = ['assert_full_transformer_recipe', 'default_variant_for', 'dir_size', 'parse_training_log', 'run_dir', 'run_name', 'train_settings', 'train_type', 'valid_variants_for', 'assert_resume_checkpoint_record', 'assert_trainable', 'assert_zimage_custom_recipe_confirmed', 'build_job_config', 'checkpoint_file_path', 'default_steps', 'dense_fp8_export_enabled', 'dense_inference_hint', 'dense_keep_bf16_master', 'dense_max_step_saves_for', 'download_bytes_seen', 'export_dataset_to_aitoolkit', 'failed_local_run', 'import_checkpoint', 'launch_settings_snapshot', 'legacy_lokr_resume_error', 'list_checkpoints', 'normalize_training_mode', 'official_base_repo', 'parse_download_progress', 'preflight_custom_paths', 'resolve_masked', 'resolve_resume_lr', 'slider_mode_enabled', 'training_status', 'validate_resume_overrides', 'validate_resume_record_id', 'zimage_recipe_diagnostic', 'zimage_training_recipe', 'custom_combo_hash', 'is_custom_weights', 'foreign_base_message', 'dense_checkpoint_bytes', 'training_mode', 'SAMPLE_RE', 'UNVERIFIED_MARKER', 'launch_transaction_lock', 'FULL_TRANSFORMER_MAX_STEP_SAVES', 'KREA_TURBO_BASE', 'DENSE_CHECKPOINT_FALLBACK_BYTES']
+__all__ = ['assert_full_transformer_recipe', 'default_variant_for', 'dir_size', 'parse_training_log', 'run_dir', 'run_name', 'train_settings', 'train_type', 'valid_variants_for', 'assert_resume_checkpoint_record', 'assert_trainable', 'assert_zimage_custom_recipe_confirmed', 'build_job_config', 'checkpoint_file_path', 'default_steps', 'dense_fp8_export_enabled', 'dense_inference_hint', 'dense_keep_bf16_master', 'dense_max_step_saves_for', 'download_bytes_seen', 'export_dataset_to_aitoolkit', 'failed_local_run', 'import_checkpoint', 'launch_settings_snapshot', 'legacy_lokr_resume_error', 'list_checkpoints', 'normalize_training_mode', 'official_base_repo', 'parse_download_progress', 'preflight_custom_paths', 'resolve_masked', 'resolve_resume_lr', 'slider_mode_enabled', 'training_status', 'validate_resume_overrides', 'validate_resume_record_id', 'zimage_recipe_diagnostic', 'zimage_training_recipe', 'custom_combo_hash', 'is_custom_weights', 'foreign_base_message', 'dense_checkpoint_bytes', 'training_mode', 'SAMPLE_RE', 'UNVERIFIED_MARKER', 'launch_transaction_lock', 'FULL_TRANSFORMER_MAX_STEP_SAVES', 'KREA_TURBO_BASE', 'DENSE_CHECKPOINT_FALLBACK_BYTES', 'cloud_trainer_image']
+
+
+
+def cloud_trainer_image(family):
+    """The container image a cloud trainer boots for ``family`` when the host pins one
+    (an architecture newer than the provider's shared image), else None. Every core
+    from LDS 2026.11.06.1 has it, whatever its plugin API minor."""
+    from app.services.lora_training import cloud_trainer_image as operation
+    return operation(family)
 
 
 
