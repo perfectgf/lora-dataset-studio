@@ -76,11 +76,17 @@ the bounded in-memory tracker does not backfill or persist run identifiers.
 Bank requests report acceptance
 and the selected bank worker separately reports its terminal result: filter out
 accepted rows when calculating terminal failure rates. Caption and import skips
-are marked partial/failed where the service exposes their counts.
+are marked partial/failed where the service exposes their counts. An import that
+skipped files carries the dominant cause of those skips (`import_file_unreadable`:
+unreadable or unsupported format; `import_file_too_large`: over the image size
+budget), counted by the server without any file name; an import refused with an
+HTTP error never carries one, so the two stay apart. Older builds reported both
+as `operation_failed`/`unknown`.
 
 `error_reason` is an additional closed category, not an exception message. It
 distinguishes known refusals such as training already running, a caption backend
-unavailable, GPU/dataset/bank occupied, or a missing/unusable bank folder. The
+unavailable, GPU/dataset/bank occupied, a missing/unusable bank folder, or why an
+import skipped files. The
 allowlist in `usage_statistics.py` is checked both when recording and before
 sending. Older pending events without this property remain valid. Unknown reasons
 stay unknown; the dashboard must not reinterpret historical `busy` or

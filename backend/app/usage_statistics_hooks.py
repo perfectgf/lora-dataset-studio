@@ -24,6 +24,23 @@ OPERATIONS = {
     'setup_state.complete': ('setup', 'setup', 'completed'),
 }
 
+# Import route cause -> closed reason, in tie-break order. The routes count WHY each
+# skipped file was refused (face_dataset_service.IMPORT_FAILURE_CAUSES); only those
+# integers are read here, never a file name or a message.
+_IMPORT_FAILURE_REASONS = (('unreadable', 'import_file_unreadable'),
+                           ('too_large', 'import_file_too_large'))
+
+
+def _import_refusal_reason(counts):
+    """The dominant cause of an import's skipped files, or 'unknown' without counts."""
+    reason, best = 'unknown', 0
+    if isinstance(counts, dict):
+        for cause, candidate in _IMPORT_FAILURE_REASONS:
+            count = counts.get(cause)
+            if type(count) is int and count > best:
+                reason, best = candidate, count
+    return reason
+
 
 def install_hooks(app):
     @app.before_request
@@ -65,8 +82,11 @@ def install_hooks(app):
                 result = 'cancelled'
             elif (action == 'import' and isinstance(data, dict)
                   and isinstance(data.get('failed'), (int, float)) and data['failed'] > 0):
+                # Files refused one by one in a request that succeeded: never confused
+                # with the HTTP error branch above, which keeps its own categories.
                 result = 'partial' if data.get('imported', 0) else 'failed'
                 error = 'operation_failed'
+                reason = _import_refusal_reason(data.get('failed_reasons'))
             elif (action == 'caption' and isinstance(data, dict)
                   and isinstance(data.get('skipped'), (int, float)) and data['skipped'] > 0):
                 result = 'partial' if data.get('captioned', 0) else 'failed'

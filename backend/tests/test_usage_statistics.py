@@ -354,6 +354,77 @@ def test_error_reasons_reject_untrusted_values_and_accept_older_queued_events(re
     assert not sent
 
 
+def test_import_refusal_reasons_send_and_older_queued_import_events_stay_valid(recorder):
+    """A build from before the import causes queued the same refusal as
+    operation_failed/unknown; an update must still deliver it, beside the new one."""
+    from app.usage_statistics import _valid_row
+    service, sent, _ = recorder
+    service.set_enabled(True)
+    service.operation(service.consent_generation(), 'datasets', 'import', 'failed',
+                      error_code='operation_failed', error_reason='import_file_too_large')
+    row = service._state['events'][-1]
+    assert row['properties']['failure_stage'] == 'validation'
+    older = json.loads(json.dumps(row))
+    older['uuid'] = '00000000-0000-4000-8000-000000000001'
+    older['properties'].update(error_reason='unknown', failure_stage='unknown')
+    service._state['events'].append(older)
+    assert _valid_row(row) and _valid_row(older)
+    assert service.flush_once()
+    reasons = [event['properties']['error_reason'] for event in sent[0]['batch']
+               if event['event'] == 'lds_action_result']
+    assert reasons == ['import_file_too_large', 'unknown']
+
+
+def test_import_hook_reports_why_files_were_skipped_and_keeps_http_errors_apart(configured_app):
+    import io
+    from PIL import Image
+    from app.config import LOCAL_USER, save_config
+    from app.services import face_dataset_service as svc
+    from app.usage_statistics_hooks import _import_refusal_reason
+
+    client = configured_app.test_client()
+    _enable(client)
+    with configured_app.app_context():
+        dataset_id = svc.create_dataset(LOCAL_USER, 'private-name-content', 'private_trigger').id
+        save_config({'image_input': {'max_side': 32, 'max_pixels': 0}})
+
+    def png(side, colour):
+        out = io.BytesIO()
+        Image.new('RGB', (side, side), colour).save(out, 'PNG')
+        return out.getvalue()
+
+    def upload(*files):
+        return client.post(f'/api/dataset/{dataset_id}/import', content_type='multipart/form-data',
+                           data={'crop': '0', 'files': [(io.BytesIO(raw), name) for name, raw in files]})
+
+    def last_result():
+        return [row['properties'] for row in configured_app.extensions['lds_usage_statistics']._state['events']
+                if row['event'] == 'lds_action_result'][-1]
+
+    refused = upload(('private-file-one.jpg', b'private-content-bytes'),
+                     ('private-file-two.png', png(64, 'red')), ('private-file-three.png', png(48, 'red')))
+    assert refused.status_code == 200
+    assert (refused.json['imported'], refused.json['failed']) == (0, 3)
+    assert refused.json['failed_reasons'] == {'unreadable': 1, 'too_large': 2}
+    props = last_result()
+    assert (props['result'], props['error_code'], props['error_reason'], props['failure_stage']) == (
+        'failed', 'operation_failed', 'import_file_too_large', 'validation')
+
+    partial = upload(('private-file-four.png', png(16, 'blue')), ('private-file-five.jpg', b'private-content'))
+    assert (partial.json['imported'], partial.json['failed_reasons']) == (1, {'unreadable': 1})
+    assert (last_result()['result'], last_result()['error_reason']) == ('partial', 'import_file_unreadable')
+
+    # A refused REQUEST keeps its HTTP category and never borrows a file cause.
+    assert client.post(f'/api/dataset/{dataset_id}/import', data={}).status_code == 400
+    assert (last_result()['error_code'], last_result()['error_reason']) == ('invalid_input', 'unknown')
+
+    outbox = configured_app.extensions['lds_usage_statistics'].path.read_text(encoding='utf-8')
+    assert 'private-' not in outbox
+    assert _import_refusal_reason({'unreadable': 2, 'too_large': 2}) == 'import_file_unreadable'
+    for counts in (None, {}, {'too_large': True}, {'unreadable': '3'}, {'private-content': 4}):
+        assert _import_refusal_reason(counts) == 'unknown'
+
+
 @pytest.mark.parametrize('endpoint,suffix,action', [
     ('dataset_train', '', 'train_start'),
     ('dataset_train_continue', '/continue', 'train_resume'),
