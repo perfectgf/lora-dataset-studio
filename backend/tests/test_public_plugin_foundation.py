@@ -216,6 +216,84 @@ def test_environment_file_check_finds_deleted_and_zeroed_package_files(tmp_path)
     (site / 'lds_probe_demo/weights.bin').write_bytes(files['lds_probe_demo/weights.bin'])
     (site / 'lds_probe_demo/__init__.py').unlink()
     assert states()['lds-probe-demo'] == 'damaged'
+    (site / 'lds_probe_demo/__init__.py').write_bytes(files['lds_probe_demo/__init__.py'])
+
+    # A directory still identifies an installed package when METADATA loses
+    # its Name/Version. Calling it absent makes pip keep the broken copy.
+    metadata_path = info / 'METADATA'
+    metadata_bytes = metadata_path.read_bytes()
+    metadata_path.write_bytes(b'\0' * len(metadata_bytes))
+    assert states()['lds-probe-demo'] == 'damaged'
+    metadata_path.unlink()
+    assert states()['lds-probe-demo'] == 'damaged'
+    metadata_path.write_bytes(metadata_bytes)
+
+    # Empty or zeroed RECORD files cannot certify a package without hashes.
+    record_path = info / 'RECORD'
+    record_bytes = record_path.read_bytes()
+    for invalid_record in (b'', b'\0' * len(record_bytes), b'lds_probe_demo-1.0.dist-info/RECORD,,\n'):
+        record_path.write_bytes(invalid_record)
+        assert states()['lds-probe-demo'] == 'damaged'
+    record_path.write_bytes(record_bytes)
+    assert states()['lds-probe-demo'] == 'ok'
+
+
+@pytest.mark.parametrize('failure', ['none', 'damaged_files', 'pip_failed', 'persistent_damage', 'retry_failed'])
+def test_environment_repair_retries_only_failed_packages_once_without_cache(host, monkeypatch, failure):
+    from app import setup_installer as si
+    app, csrf, _ = host
+    directory = write(host, requirements='requirements.txt')
+    (directory / 'requirements.txt').write_text('sample==1.0\n')
+    loaded = load_plugins(app, csrf)
+    record = loaded.records['sample.feature']
+    env_dir = environment._owned_dir(record, create=True)
+    python = Path(si._venv_python(env_dir))
+    python.parent.mkdir(parents=True)
+    python.touch()
+    (env_dir / 'pyvenv.cfg').touch()
+    monkeypatch.setattr(environment, '_verify_interpreter', lambda *_a: None)
+    monkeypatch.setattr(environment, '_check_existing_packages', lambda *_a: None)
+    monkeypatch.setattr(si, '_ensure_modern_pip', lambda *_a, **_k: None)
+    logs, installs = [], []
+    monkeypatch.setattr(si, '_append', lambda _action, message: logs.append(message))
+    healthy = {'sample': 'ok', 'stable': 'ok'}
+    damaged = {'sample': 'damaged', 'stable': 'ok'}
+    states = iter([damaged, healthy if failure in ('none', 'pip_failed') else damaged,
+                   damaged if failure == 'persistent_damage' else healthy])
+    monkeypatch.setattr(environment, '_package_states', lambda *_a: next(states))
+
+    def run(_action, cmd, *, env):
+        assert env['PIP_CONFIG_FILE']
+        if '--dry-run' in cmd:
+            report = {'install': [
+                {'metadata': {'name': name, 'version': '1.0'},
+                 'download_info': {'url': f'https://lds.perfectgf.fr/models/tools/packages/{name}-1.0-py3-none-any.whl',
+                                   'archive_info': {'hashes': {'sha256': 'a' * 64}}}}
+                for name in ('sample', 'stable')]}
+            Path(cmd[cmd.index('--report') + 1]).write_text(json.dumps(report))
+        elif '-r' in cmd:
+            requirements = Path(cmd[cmd.index('-r') + 1]).read_text()
+            installs.append((cmd, requirements))
+            if '--no-cache-dir' in cmd:
+                return int(failure == 'retry_failed')
+            if '--force-reinstall' in cmd and failure == 'pip_failed':
+                return 1
+        return 0
+
+    monkeypatch.setattr(si, '_run_pip', run)
+    result = environment.install(environment.action_id(record.id), record)
+    unsuccessful = failure in ('persistent_damage', 'retry_failed')
+    assert result == int(unsuccessful)
+    assert (env_dir / environment.RECEIPT).exists() is not unsuccessful
+    retries = [(cmd, requirements) for cmd, requirements in installs if '--no-cache-dir' in cmd]
+    assert len(retries) == (0 if failure == 'none' else 1)
+    if retries:
+        cmd, requirements = retries[0]
+        assert all(flag in cmd for flag in ('--force-reinstall', '--no-deps', '--no-index', '--require-hashes'))
+        assert 'sample-1.0' in requirements and 'stable-1.0' not in requirements
+        assert '--hash=sha256:' in requirements
+    if unsuccessful:
+        assert any('has not been marked ready' in line for line in logs)
 
 
 def test_netfetch_uses_existing_public_host_primitive(host):
