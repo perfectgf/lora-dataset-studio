@@ -91,6 +91,9 @@ def test_actual_stop_marks_only_a_confirmed_termination(receipt, monkeypatch, st
     monkeypatch.setattr(lt.os, 'kill', lambda *a: None)
     monkeypatch.setattr(lt, '_save_queue', lambda items: None)
     monkeypatch.setattr(lt, '_clear_training_identity', lambda **kw: None)
+    monkeypatch.setattr(lt, '_STOPPED_RUN_TOKENS', set())
     assert lt.stop_training() is stopped
+    # Only a confirmed kill tells the watcher that the non-zero exit is the Stop.
+    assert ('test-run' in lt._STOPPED_RUN_TOKENS) is stopped
     training_usage.finish('test-run', 1)
     assert receipt._state['events'][0]['properties']['result'] == ('cancelled' if stopped else 'failed')

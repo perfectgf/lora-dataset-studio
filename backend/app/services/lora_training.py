@@ -8323,7 +8323,12 @@ def _watch_training(
             # Stop publishes cancellation while holding this same lock.
             with _queue_lock:
                 training_usage.finish(usage_run_token, rc, resume_failed=bool(bridge_reason))
-            if rc not in (0, None) or bridge_reason:
+                stopped = usage_run_token in _STOPPED_RUN_TOKENS
+                _STOPPED_RUN_TOKENS.discard(usage_run_token)
+            if stopped and not bridge_reason:
+                logger.info("ai-toolkit training for dataset %s stopped on request (rc=%s); "
+                            "its saved checkpoints are kept.", dataset_id, rc)
+            elif rc not in (0, None) or bridge_reason:
                 payload = _crash_payload(log_path, dataset_id, rc)
                 if bridge_reason:
                     try:
@@ -9885,6 +9890,8 @@ def stop_training(expected_dataset_id=None, expected_run_token=None,
 
         if pid_alive:
             training_usage.cancelled(current_token)
+            if current_token:
+                _STOPPED_RUN_TOKENS.add(current_token)
 
         # Stop is intentional: clear the queue before publishing the idle state.
         _save_queue([])
@@ -10539,6 +10546,12 @@ TRAIN_QUEUE_KEY = 'lora_train_queue'
 # reentrant lock so queue advancement can call helpers safely. Keep costly
 # preflights outside the short duplicate-check/read/write transaction.
 _queue_lock = threading.RLock()
+
+# Local runs a Stop ended on purpose, by run token. stop_training adds one once
+# the kill is confirmed and _watch_training takes it back, both under _queue_lock:
+# the killed ai-toolkit exits non-zero, and that exit is the Stop itself, not a
+# crash to report or offer ↻ Retry for. Its saved checkpoints stay the run's.
+_STOPPED_RUN_TOKENS: set = set()
 
 _TRAIN_IDENTITY_KEYS = (
     'training_pid', 'training_pid_create_time', 'training_dataset_id',

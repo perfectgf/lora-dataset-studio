@@ -84,6 +84,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-07-zz-stopped-local-run-checkpoints',
+    date: '2026-11-07',
+    title: 'A stopped local training keeps its checkpoints in Runs',
+    blurb: 'Stopping a local training showed it as a crash, with an error and ↻ Retry, and the Runs page offered no ◉ Graph '
+      + 'for a local run on its own. A Stop now reads as a stop, and every local run opens its ◉ Graph with the checkpoints it saved.',
+    to: '/cloud',
+  },
+  {
     id: '2026-11-07-z-regenerate-keeps-its-source',
     date: '2026-11-07',
     title: 'Regenerate no longer remakes a camera view from the wrong picture',
