@@ -423,7 +423,7 @@ export default function SettingsPage({ plugin = null, groups = [] }) {
   }
 
   const sectionProps = {
-    config, setField, secretsPresence, secretInputs, setSecretInputs,
+    config, savedConfig, setField, secretsPresence, secretInputs, setSecretInputs,
     testResults, recordTestResult, saveSecretIfPending, saveConfigSection, saveConfigPatch,
     handleDeleteSecret,
     toggleEngine, handleSave, saving, runtime, promptDefaults, promptDefaultsBySubject,
