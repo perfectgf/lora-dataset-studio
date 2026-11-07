@@ -1,7 +1,7 @@
 """Config core: layered config.json over DEFAULTS, secrets in .env."""
 import copy, json, os, secrets as _secrets, threading, unicodedata
 from pathlib import Path
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 LOCAL_USER = 'local'
 
@@ -37,6 +37,41 @@ SECRET_KEYS = ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'HF_TOK
                # other credential in this app is reported as presence only. A token
                # is a secret whatever it unlocks.
                'LMSTUDIO_API_KEY')
+
+
+def _prefer_env_file_secrets(env_path=None, environ=None) -> list:
+    """Make the secrets saved in ``.env`` win over copies the process inherited.
+
+    Settings saves a secret to ``.env`` (``set_secrets``), so the file holds the
+    CURRENT value. The ``load_dotenv`` above never overrides a variable that is
+    already in the environment, and a launcher that outlives the server hands
+    every relaunch the environment IT started with: start.bat's supervisor
+    relaunches the backend after an in-app restart with its own snapshot. A key
+    replaced in Settings since that snapshot came back stale after the next
+    restart — a rotated Hugging Face token answered "could not be
+    authenticated" with the right value sitting in ``.env``.
+
+    Only the app's own secrets get this precedence, and only for a non-empty
+    line: every other variable keeps the usual rule (the real environment wins
+    over ``.env``), and a secret the file does not hold keeps its environment
+    value. Returns the names it changed.
+    """
+    path = Path(env_path) if env_path is not None else ENV_PATH
+    target = os.environ if environ is None else environ
+    try:
+        values = dotenv_values(path) if path.exists() else {}
+    except (OSError, UnicodeDecodeError, ValueError):
+        return []
+    changed = []
+    for name in SECRET_KEYS:
+        value = values.get(name)
+        if value and target.get(name) != value:
+            target[name] = value
+            changed.append(name)
+    return changed
+
+
+_prefer_env_file_secrets()
 
 # A Krea install saved by a previous release can carry its old *defaults* in
 # config.json, so a changed DEFAULTS value alone would never reach it. This

@@ -53,6 +53,19 @@ def test_comfyui_dir_derivation(tmp_path, monkeypatch):
     assert config.comfyui_dir('loras') == base / 'models' / 'loras'
     assert config.comfyui_dir('output') == base / 'output'
 
+def test_saved_secret_beats_a_stale_inherited_copy(tmp_path, monkeypatch):
+    """start.bat's supervisor relaunches the server with the environment it
+    started with. A secret replaced in Settings since then must come from .env,
+    not from that stale copy; other variables keep the environment's precedence."""
+    config = _fresh(monkeypatch, tmp_path)
+    (tmp_path / '.env').write_text("HF_CLOUD_TOKEN='hf_new'\nLDS_PORT='6000'\n",
+                                   encoding='utf-8')
+    env = {'HF_CLOUD_TOKEN': 'hf_stale', 'LDS_PORT': '5050', 'VAST_API_KEY': 'kept'}
+    assert config._prefer_env_file_secrets(tmp_path / '.env', env) == ['HF_CLOUD_TOKEN']
+    assert env == {'HF_CLOUD_TOKEN': 'hf_new', 'LDS_PORT': '5050', 'VAST_API_KEY': 'kept'}
+    assert config._prefer_env_file_secrets(tmp_path / 'missing.env', env) == []
+
+
 def test_secrets_roundtrip(tmp_path, monkeypatch):
     config = _fresh(monkeypatch, tmp_path)
     monkeypatch.delenv('OPENAI_API_KEY', raising=False)
