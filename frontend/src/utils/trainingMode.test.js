@@ -607,7 +607,8 @@ test('full run cards surface Hub status and suppress LoRA-only actions', () => {
   assert.match(runsPage, /function FullArtifactStatus/);
   assert.match(runsPage, /!fullModel && run\.checkpoint_ready/);
   assert.match(runsPage, /!fullModel && run\.dataset_id != null/);
-  assert.match(runsPage, /!fullModel && run\.record_id != null/);
+  // The graph is LoRA-only too: runOpensGraph refuses a full model (runGraph.test.js).
+  assert.match(runsPage, /runOpensGraph\(run, \{ fullModel \}\)/);
   assert.match(runsPage, /isFullTransformerRun\(run\) && \([\s\S]*?<FullArtifactStatus run=\{run\}/);
   // The stop consequence moved into pages/cloudStopDialog.js when the confirm
   // became a dialog — same sentence, one testable home, still the sentence a
