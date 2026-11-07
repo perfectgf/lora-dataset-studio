@@ -564,7 +564,13 @@ def studio_family_defaults(family):
 
 
 def generation_capabilities(family):
-    return {'negative_prompt': family in ('zimage', 'anima', 'qwenimage21')}
+    caps = {'negative_prompt': family in ('zimage', 'anima', 'qwenimage21', 'krea')}
+    if family == 'krea':
+        # Krea 2 Turbo samples at CFG 1, where ComfyUI never evaluates the
+        # negative branch. The panel offers the field once a cell runs above
+        # CFG 1 (a Raw base, or a CFG axis value): the only cells it can change.
+        caps['negative_prompt_needs_cfg'] = True
+    return caps
 
 
 def family_base_models(family):
@@ -1566,9 +1572,9 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
                                   weight_dtype=None,
                                   base_model=None, allowed_bases=None,
                                   sampler_preset=None, hires_scale=None,
-                                  hires_steps=None, hires_denoise=None):
+                                  hires_steps=None, hires_denoise=None, negative=None):
     """Configure a Krea 2 Turbo test cell: inject the tested LoRA after the
-    UNETLoader (node 20 -> KSampler node 26), plus prompt/seed/dims/steps/cfg.
+    UNETLoader (node 20 -> KSampler node 26), plus prompt/negative/seed/dims/steps/cfg.
     `extra_loras` are additional always-on style/utility LoRAs in the same chain,
     applied unchanged to this cell outside the batch axis. Krea has one pass
     (no steps2).
@@ -1602,6 +1608,10 @@ def apply_krea_lora_test_settings(workflow, *, lora_name, strength, prompt, seed
             _set("20", "unet_name", elected)
 
     _set("23", "text", prompt)                    # prompt (CLIPTextEncode Krea)
+    if negative:
+        # Node 24 feeds the KSampler's negative input. ComfyUI only evaluates it
+        # above CFG 1, so a Turbo cell at CFG 1 renders exactly as before.
+        _set("24", "text", str(negative))
     _set("25", "width", int(width))
     _set("25", "height", int(height))
     _set("25", "batch_size", int(batch_size))
@@ -1812,7 +1822,7 @@ def _build_cell_workflow(user_id, checkpoint, strength, prompt, seed, z_model,
             batch_size=1, filename_prefix=fname, allowed_loras=allowed_krea,
             extra_loras=extra_loras,
             sampler=sampler, scheduler=scheduler, weight_dtype=weight_dtype,
-            sampler_preset=sampler_preset,
+            sampler_preset=sampler_preset, negative=negative,
             # Optional local Krea base (z_model, as for SDXL/Z-Image). None keeps the
             # workflow UNET. The disk-scan allowlist prevents path injection.
             base_model=z_model, allowed_bases=set(get_krea_models()),

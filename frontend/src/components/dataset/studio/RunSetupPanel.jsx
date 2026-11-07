@@ -17,7 +17,7 @@ import { readInjectTrigger, writeInjectTrigger } from './triggerPref';
 import ScenePromptsPanel from './ScenePromptsPanel';
 import { combinedPromptBatch } from './scenePrompts';
 import { heavyRunConfirm, heavyRunNotice, runCost } from './runCost';
-import { studioModelSettingsLink, supportsNegativePrompt } from '../../../utils/studioFamilySettings';
+import { showsNegativePrompt, studioModelSettingsLink } from '../../../utils/studioFamilySettings';
 
 // Left run-setup rail: pickers, seed/launch controls and status banners, extracted unchanged from
 // LoraTestStudio.jsx. Preserve gpu_busy, pending/cancel and resumable/resume banners and the
@@ -286,6 +286,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
           <StudioGenerationSettings
             family={d.family}
             capabilities={d.generation_capabilities}
+            cfgs={form.effectiveCfgs}
             // The canvas overrides the namespace: its runs are cross-dataset, so
             // "the engine settings of dataset 7" would be restored (and saved)
             // under whichever pick happened to be first — the same reason
@@ -352,7 +353,7 @@ export default function RunSetupPanel({ d, studio, form, datasetId,
             { id: 'st-engine', emoji: '⚙️', label: 'Engine' },
           ] : []),
           ...(d.family === 'sdxl' ? [{ id: 'st-detail', emoji: '✨', label: 'Detail' }] : []),
-          ...(supportsNegativePrompt(d.generation_capabilities, d.family) ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
+          ...(showsNegativePrompt(d.generation_capabilities, d.family, form.effectiveCfgs) ? [{ id: 'st-negative', emoji: '🚫', label: 'Negative' }] : []),
           { id: 'st-results', emoji: '🖼️', label: 'Results' },
         ]}
         canRun={canLaunch}
