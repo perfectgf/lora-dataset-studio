@@ -84,6 +84,13 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-07-z-plugin-zip-size',
+    date: '2026-11-07',
+    title: 'Install from a ZIP takes the same plugins as the Store',
+    blurb: 'Install from a ZIP refused any archive over 64 MiB, even one the Store installs without trouble. '
+      + 'It now accepts the same size as the Store.',
+  },
+  {
     id: '2026-11-07-setup-opens-on-tools',
     date: '2026-11-07',
     title: 'Setup opens on your tools',
