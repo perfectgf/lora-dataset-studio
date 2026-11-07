@@ -1109,12 +1109,13 @@ def _image_path(row) -> str:
 
 def _prompt_as_generated(row, ds) -> str:
     """The prompt the workflow actually ran: the stored cell prompt is RAW and
-    the trigger is prefixed at generation unless the box was unticked."""
+    the trigger, spelled as the LoRA learned it, is prefixed at generation unless
+    the box was unticked."""
     prompt = (row.prompt or '').strip()
     if row.inject_trigger is False or ds is None:
         return prompt
-    from .lora_test_studio import _prompt_with_trigger
-    return _prompt_with_trigger(prompt, (ds.trigger_word or '').strip())
+    from .lora_test_studio import _inject_triggers
+    return _inject_triggers(prompt, row.checkpoint, (ds.trigger_word or '').strip())
 
 
 def _extra_loras(row) -> list:

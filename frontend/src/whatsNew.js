@@ -205,6 +205,12 @@ export const WHATS_NEW = [
     to: '/datasets',
   },
   {
+    id: '2026-10-19-zz-studio-trigger-as-trained', date: '2026-10-19',
+    title: 'Test Studio sends the trigger your LoRA learned',
+    blurb: 'A trigger typed with spaces, like "Double pen", trains as "Double_pen", and the Studio used to send the typed words, which the LoRA never learned. It now sends the trigger recorded in each LoRA file, in every model family, and respells the typed one in your prompt.',
+    to: '/studio',
+  },
+  {
     id: '2026-10-19-plugins-membership-features', date: '2026-10-19',
     title: 'See what Patreon members get in each plugin',
     blurb: 'Plugin cards now show their Membership features: members-only plugins, and the plugin versions that come with the members version of LDS. Members see what they already have.',
