@@ -21,6 +21,15 @@ for %%V in (3.12 3.11 3.10) do (
   if not defined PY ( py -%%V -c "import sys" >nul 2>nul && set "PY=py -%%V" )
 )
 
+REM 1b) ... or a `python` on PATH that IS a 3.10-3.12 itself: python.org installs
+REM     made without the py launcher, scoop, pyenv-win, conda. Issue #77: such a 3.11
+REM     was skipped for a download, then used anyway once the download failed. Its
+REM     version is checked, so a newer default `python` -- the 3.14 trap above --
+REM     still can't slip through.
+if not defined PY (
+  python -c "import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>nul && set "PY=python"
+)
+
 REM 2) A self-contained Python we fetched on a previous run? (skip the PowerShell hop)
 REM    Relative path on purpose: cwd is pinned to the repo root above, so this stays
 REM    space-safe even if the folder was unzipped under a path that has spaces.

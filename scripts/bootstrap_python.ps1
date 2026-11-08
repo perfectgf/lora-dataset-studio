@@ -42,7 +42,16 @@ Invoke-WebRequest -Headers $UA -Uri $asset.browser_download_url -OutFile $tmp
 
 if ($asset.digest -and $asset.digest -match '^sha256:(.+)$') {
   $want = $Matches[1].ToLower()
-  $got = (Get-FileHash -Algorithm SHA256 $tmp).Hash.ToLower()
+  # Hashed through .NET, not Get-FileHash. In Windows PowerShell 5.1 Get-FileHash is a
+  # function of the Microsoft.PowerShell.Utility module, loaded from PSModulePath on
+  # first use. Run from a PowerShell 7 prompt, cmd hands this script PowerShell 7's
+  # PSModulePath: 5.1 finds PowerShell 7's copy of that module first, cannot load it,
+  # and calls Get-FileHash "not recognized" (issue #77). Any other module function
+  # would fail the same way, so keep this script to compiled cmdlets and .NET calls.
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead($tmp)
+  try { $got = [System.BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '').ToLower() }
+  finally { $stream.Dispose(); $sha.Dispose() }
   if ($got -ne $want) { Remove-Item -Force $tmp -ErrorAction SilentlyContinue; throw "SHA-256 mismatch for $($asset.name)." }
   Write-Host "Checksum OK."
 }

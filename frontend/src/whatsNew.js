@@ -84,6 +84,14 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-08-y-start-bat-powershell-7',
+    date: '2026-11-08',
+    title: 'start.bat works from a PowerShell 7 prompt',
+    blurb: 'Launched from PowerShell 7, start.bat could not fetch its own Python ("Get-FileHash is not recognized") and warned '
+      + 'that the ML extras would not install. The download now works from any prompt, and a Python 3.10–3.12 already on '
+      + 'your PATH is used as is, even without the py launcher.',
+  },
+  {
     id: '2026-11-07-zzzzz-krea-negative-prompt',
     date: '2026-11-07',
     title: 'A negative prompt for Krea test runs above CFG 1',
