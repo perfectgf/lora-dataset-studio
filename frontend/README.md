@@ -47,8 +47,12 @@ platform fails with something like:
 Error: Cannot find module @rollup/rollup-linux-x64-gnu
 ```
 
-If that happens: delete `node_modules` and `package-lock.json`, then run
-`npm install` again **on the target platform** — that regenerates the lockfile
-with the correct optional-dependency entries. Do not hand-add a specific
-`@rollup/rollup-*` package to `dependencies`; that's what breaks installs on
-every other platform.
+If this occurs, inspect the missing package and the lockfile for the target
+platform. Reuse an existing compatible environment when it is sufficient for the
+task. Do not delete shared `node_modules` or regenerate `package-lock.json` as an
+automatic verification step for an unrelated change.
+
+Changing the lockfile belongs to a dependency repair with its own reviewed diff.
+If an isolated reinstall is necessary, preserve the shared installation and
+other active work. Do not add an OS-specific `@rollup/rollup-*` package to the
+application's direct dependencies.
