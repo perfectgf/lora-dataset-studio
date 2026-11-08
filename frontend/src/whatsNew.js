@@ -84,6 +84,15 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-08-z-diagnostic-report-firefox',
+    date: '2026-11-08',
+    title: 'The diagnostic report copies in Firefox',
+    blurb: 'In Firefox, 📋 Copy diagnostic report could fail with "Clipboard write was blocked due to lack of user activation" '
+      + 'when the report took more than a few seconds to build. The copy now starts with your click and finishes once the '
+      + 'report is ready. If a browser still refuses, the report appears under the button so you can copy it by hand.',
+    to: '/settings/maintenance',
+  },
+  {
     id: '2026-11-08-y-start-bat-powershell-7',
     date: '2026-11-08',
     title: 'start.bat works from a PowerShell 7 prompt',

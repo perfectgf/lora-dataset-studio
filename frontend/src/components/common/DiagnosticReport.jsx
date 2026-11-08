@@ -2,20 +2,37 @@ import { useState } from 'react'
 import { apiFetch } from '../../api/fetchClient'
 import { useToast } from './Toast'
 import { formatDiagnostic } from './diagnosticFormat'
+import { copyWhenReady } from './clipboardWhenReady'
 
 export { formatDiagnostic }
 
 export default function DiagnosticReport() {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  // The report, kept on screen when the browser refused the copy, to copy by hand.
+  const [refused, setRefused] = useState('')
   const copy = async () => {
     setBusy(true)
+    setRefused('')
+    const report = apiFetch('/api/diagnostic').then(formatDiagnostic)
+    // Before any await: Firefox only lets the click that asked write the clipboard.
+    const copied = copyWhenReady(report)
+    copied.catch(() => {})
     try {
-      const d = await apiFetch('/api/diagnostic')
-      await navigator.clipboard.writeText(formatDiagnostic(d))
-      toast.success('Diagnostic report copied — paste it into your bug report.')
-    } catch (err) {
-      toast.error(`Could not build the report: ${err.message}`)
+      let text
+      try {
+        text = await report
+      } catch (err) {
+        toast.error(`Could not build the report: ${err.message}`)
+        return
+      }
+      try {
+        await copied
+        toast.success('Diagnostic report copied — paste it into your bug report.')
+      } catch {
+        setRefused(text)
+        toast.error('Your browser blocked the copy. The report is shown below: copy it from there.')
+      }
     } finally {
       setBusy(false)
     }
@@ -33,6 +50,11 @@ export default function DiagnosticReport() {
         className="mt-3 rounded-md bg-gradient-primary px-3 py-1.5 text-sm font-semibold text-gray-950 disabled:opacity-50">
         {busy ? 'Building…' : '📋 Copy diagnostic report'}
       </button>
+      {refused && (
+        <textarea readOnly value={refused} rows={8} aria-label="Diagnostic report"
+          onFocus={(e) => e.target.select()}
+          className="mt-3 w-full resize-y rounded-md border border-border bg-app/60 p-2 font-mono text-[0.6875rem] text-content" />
+      )}
     </div>
   )
 }
