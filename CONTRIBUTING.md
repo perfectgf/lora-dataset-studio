@@ -6,7 +6,7 @@ Thanks for wanting to make LoRA Dataset Studio better. This is a small, self-hos
 
 For anything bigger than a typo or a one-line fix, **talk about it first**. It saves you from building something that's already in progress or that doesn't fit the direction.
 
-- **Discord** ([join](https://discord.gg/j6hnJBFtXE)) — usually the fastest way. Ask in **#help**; float feature ideas in **#feature-requests**; talk implementation in **#dev-chat**. The curated **#community-ideas** board shows what people voted for.
+- **Discord** ([join](https://discord.gg/j6hnJBFtXE)) — usually the fastest way. Ask in **#help**; float feature ideas in **#feature-requests**; talk implementation in **#dev-chat**. The curated **#community-ideas** board shows what people voted for (the roadmap follows it), and **#roadmap** shows what's shipped and coming.
 - **[GitHub issues](https://github.com/perfectgf/lora-dataset-studio/issues)** — bug reports and feature requests. There are templates for both; for a bug, the app can write most of the report for you (**Guide → Getting help → Copy diagnostic report** — it includes version, OS and a log tail, no keys, no paths).
 
 A quick "I'm going to look at X" in an issue or on Discord means nobody duplicates your work.
@@ -50,7 +50,7 @@ npm run build    # writes frontend/dist/
 
 ⚠ **`npm run dev` drives a real backend.** `/api` is proxied to `http://127.0.0.1:5050` — your actual install — and write requests go through. Set `LDS_DEV_API_TARGET` (shell, or `frontend/.env.local`) to point it at a throwaway instance instead; see [frontend/README.md](frontend/README.md).
 
-**If you change anything under `frontend/src`, run `npm run build` and commit the regenerated `frontend/dist/` in the same PR** — otherwise people running from source won't see your change. There's no TypeScript step; a clean `npm run build` plus `npm run lint` (ESLint, correctness rules only — unused variables, undefined names, hook rules; config in `frontend/eslint.config.mjs`) is the bar. CI runs both.
+**If you change anything under `frontend/src`, run `npm run build` and commit the regenerated `frontend/dist/` in the same PR** — otherwise people running from source won't see your change. There's no TypeScript step. Lint the relevant source files with ESLint (config in `frontend/eslint.config.mjs`); CI runs the frontend build and lint.
 
 ### Lint
 
@@ -66,82 +66,55 @@ cd frontend && npm run lint                   # ESLint — rules in frontend/esl
 
 ## Tests
 
-The backend has a large test suite (7000+ tests) and it must stay green:
+Use the [verification policy](CLAUDE.md#scope-and-verification): choose the
+smallest check that can detect a problem introduced by your change. A docs-only
+edit needs a diff/link review. For a trivial code change whose effect is clear
+from the diff, review can also suffice. Otherwise choose an existing test for
+that behavior, direct execution or a relevant UI interaction.
 
 ```bash
-pip install -r backend/requirements-dev.txt   # pytest + the two test-only ML extras
-# optional: execute the 16 Torch/ai-toolkit bridge runtime tests instead of skipping them
-pip install -r backend/requirements-torch-tests.txt
-python -m pytest backend/tests -q -n 8 --dist loadfile
+# From the repository root: select the relevant file or case.
+python -m pytest backend/tests/test_<area>.py -q
+
+# From frontend/: select the relevant module or feature test.
+node --test <path-to-test>
 ```
 
-**Run it in parallel — `-n` is not an optimisation, it is the normal way to
-run this suite.** Sequentially it takes about 30 minutes; on 8 workers it takes
-about 3-4 minutes. The cost is flat rather than concentrated (the ten slowest
-tests are 7.5% of the total; the long tail is 74%), so there is no subset worth
-running instead. Keep `--dist loadfile`: it keeps each file's tests on one
-worker, which several files depend on. Drop to `-n0` when you want a debugger,
-live output, or a readable single-file run.
+Always pass a backend test path: it loads `backend/pytest.ini`, including the
+plugin exclusions used by CI. Use the existing environment; test dependencies
+are in `backend/requirements-dev.txt` if you need to prepare one.
 
-Prefer a fixed worker count over `-n auto`. A few tests assert on elapsed time
-rather than on a result — `test_bank_scan_no_db_lock` gives a concurrent writer
-a 400 ms budget — and those get less true the busier the machine is. On a
-many-core box `-n auto` saturates every core and they start reporting on the
-machine's load instead of on the code. (They can fail sequentially too, on a
-loaded machine; parallelism is not what makes them fragile.)
+Add a durable test for a meaningful regression or contract. Avoid tests that
+only repeat a label, class name or constant without checking a useful behavior.
+Frontend module tests live beside the module as `*.test.js`; contracts spanning
+several modules live in `frontend/tests/*.test.mjs`.
 
-⚠ Pass the `backend/tests` path. A bare `python -m pytest` from the repo root
-finds no `pytest.ini` at all (the config lives in `backend/`), so it silently
-runs *without* `-p no:flask` — the exact configuration that once made nine
-tests pass locally and fail on the release tag.
+Do not run both complete suites, all contract tests or both linters for every
+commit or PR. Lint relevant source files and build the frontend when needed for
+delivery. State what you checked, including any meaningful gaps.
 
-`requirements-dev.txt` is the common CI/release baseline. CI adds the CPU-only `requirements-torch-tests.txt` overlay when training-state code changes (and for manual runs), while the release job always adds it. A suite green against a different set of packages is not evidence about CI: a stray `pytest-flask` on one dev machine once made nine tests pass locally and fail on the release tag. (The suite runs with `-p no:flask` for that reason; you do not need to uninstall anything.)
+The full suites and linters belong to the
+[public release gate](.claude/rules/release-mechanics.md), on the final public
+tree. That document contains the full commands and environment requirements.
+Reuse valid results through a wave instead of rerunning them at each step.
 
-This is exactly what CI runs on a release tag, so run it locally before you open a PR. If you add or change behavior, add or update a test for it. The suite mocks external tools (ComfyUI, ai-toolkit, Ollama), so it runs without a GPU or any of those installed.
+## Work already in progress
 
-For the frontend, run `node --test` from `frontend/` (about a minute — it
-carries the help-registry, What's-new and layout contracts) and finish with a
-successful `npm run build`. Tests live in two places, on purpose:
+Check relevant open PRs and issues before starting substantial work. Discuss
+overlap in the existing thread so contributors can coordinate.
 
-- `src/**/<module>.test.js` — the module's own tests, colocated with the file
-  they cover. Put a new test here when it is about one module (these often read
-  their sibling's source to pin a contract, so they stay next to it).
-- `frontend/tests/*.test.mjs` — cross-cutting feature contracts that span
-  several modules (render-mounting a component tree, repo-wide censuses like
-  the fp8 or direct-fetch disciplines). Only a contract that genuinely spans
-  modules belongs here.
-
-## Before you start: see what is already in flight
-
-This is the part we got wrong for a long time, and a contributor was right to
-say so. Work used to land on `main` in one jump, so there was no way to tell
-what was already being built — twice, two people built the same feature without
-knowing about each other.
-
-So anything non-trivial now lives on a **pushed branch** before it lands, ours
-included. Before you start something bigger than a one-file fix:
-
-```
-git ls-remote --heads origin      # what is being worked on right now
-gh pr list                        # and what is already up for review
-```
-
-A branch named for the job means someone is on it. If it looks like yours, say
-so in the issue or on Discord — overlapping is easy to sort out beforehand and
-miserable to discover afterwards. If nothing matches, it is free.
-
-Target pull requests at `v2`, the maintained default branch. The former `main`
-branch is now `v1`, read-only and no longer maintained.
-
-`v2` stays releasable at all times. A branch may be broken while it cooks;
-`v2` may not.
+Maintainer work branches and `nightly` live in a private repository. Public
+release refs do not show unfinished maintainer work. Contributors use their fork
+and a focused PR; maintainers qualify approved changes for public `v2`.
+Keep private product history out of public merges and keep `v2` releasable.
+The former `main` branch is now `v1`, read-only and no longer maintained.
 
 ## Pull requests
 
 - **Keep PRs small and focused** — one change per PR reviews faster and reverts cleanly.
 - **Explain the *why*, not just the what.** What problem does this solve? Link the issue or Discord thread if there is one. The feature-request template's framing applies here too: the job you're doing matters more than the mechanism.
 - **UI text is English.** Match the tone of what's already there — concrete and direct.
-- **Screenshots for any UI change** (before/after if you're changing something that exists).
+- **Screenshots when useful for review.** One relevant view usually suffices for a small visual change; check responsive widths when the change affects adaptation or overflow.
 - **No secrets or local paths.** Don't commit API keys, tokens, `config.json`, `.env`, or absolute paths from your machine — and scrub them from screenshots, logs and PR descriptions too. `.gitignore` already covers the usual suspects; the diagnostic report is built to be paste-safe for the same reason.
 - Be kind. See the [Code of Conduct](CODE_OF_CONDUCT.md).
 
