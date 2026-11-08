@@ -85,11 +85,17 @@ def environment_dir(record):
         # it must not take down the manager or the startup UI registry request.
         raise EnvironmentError(str(exc)) from exc
     if record.manifest.contract.get('schema_version', 1) >= 2:
-        # A different package/dependency set gets a different interpreter. Old
-        # environments remain usable after code rollback and are never repaired
-        # in place for the next release. Keep them out of mutable data snapshots.
-        key = hashlib.sha256(json.dumps(_signature(record), sort_keys=True).encode()).hexdigest()
-        return _inside(anchor / 'plugin-environments' / record.id / key, anchor)
+        # Code-only updates share an interpreter; dependency/runtime changes
+        # retain separate environments for rollback. Older LDS versions also
+        # keyed by plugin version: reuse their verified folders without copying
+        # packages, moving venvs or installing anything during a readiness probe.
+        signature = _signature(record)
+        key = hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()
+        parent = _inside(anchor / 'plugin-environments' / record.id, anchor)
+        target = _inside(parent / key, anchor)
+        if target.exists():
+            return target
+        return _reusable_dir(parent, anchor, signature) or target
     return _inside(data / '.venv', anchor)
 
 
@@ -100,6 +106,40 @@ def _metadata(path):
         return json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return None
+
+
+def _matches_signature(receipt, signature):
+    if not isinstance(receipt, dict):
+        return False
+    if 'version' not in signature and isinstance(receipt.get('version'), str):
+        receipt = {key: value for key, value in receipt.items() if key != 'version'}
+    return receipt == signature
+
+
+def _reusable_dir(parent, anchor, signature):
+    from ..setup_installer import _venv_python
+
+    if not parent.is_dir():
+        return None
+    candidates = []
+    for child in parent.iterdir():
+        if not re.fullmatch(r'[0-9a-f]{64}', child.name):
+            continue
+        try:
+            child = _inside(child, anchor)
+            marker = _inside(child / MARKER, anchor)
+            receipt = _inside(child / RECEIPT, anchor)
+            config = _inside(child / 'pyvenv.cfg', anchor)
+            if (_metadata(marker) == {'plugin': signature['plugin']}
+                    and _matches_signature(_metadata(receipt), signature)
+                    and config.is_file() and config.stat().st_nlink == 1
+                    and Path(_venv_python(child)).is_file()):
+                candidates.append((receipt.stat().st_mtime_ns, child))
+        except (OSError, EnvironmentError):
+            # An unrelated incomplete/linked folder must not make a compatible
+            # owned environment unusable. Never modify a rejected candidate.
+            continue
+    return max(candidates)[1] if candidates else None
 
 
 def _owned_dir(record, *, create=False):
@@ -129,7 +169,8 @@ def interpreter(record, *, ready=True):
     python = Path(_venv_python(env_dir))
     if not python.is_file() or not (env_dir / 'pyvenv.cfg').is_file():
         raise EnvironmentError('No environment yet — install the Python environment on this plugin’s card in Setup ▸ Plugins.')
-    if ready and _metadata(_inside(env_dir / RECEIPT, env_dir.parent.parent)) != _signature(record):
+    if ready and not _matches_signature(_metadata(_inside(env_dir / RECEIPT, env_dir.parent.parent)),
+                                       _signature(record)):
         raise EnvironmentError('The plugin environment needs installation or repair from Setup ▸ Plugins.')
     return str(python)
 
@@ -178,6 +219,7 @@ def _signature(record):
                  'runtime_policy': CPU_RUNTIME_POLICY,
                  'requirements_sha256': hashlib.sha256(content.encode()).hexdigest()}
     if record.manifest.contract.get('schema_version', 1) >= 2:
+        signature.pop('version')
         signature['python_abi'] = sys.implementation.cache_tag
         signature['platform'] = sys.platform
     return signature
