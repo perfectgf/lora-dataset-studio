@@ -202,7 +202,7 @@ export const WHATS_NEW = [
     title: 'Plugin updates keep compatible Python engines',
     blurb: 'Updating a plugin no longer asks you to reinstall its CPU engine when its dependencies have not changed. '
       + 'Compatible engines installed by earlier versions are reused automatically; different dependencies keep separate environments.',
-    to: '/settings/plugins',
+    to: '/plugins',
   },
   {
     id: '2026-11-08-z-diagnostic-report-firefox',
