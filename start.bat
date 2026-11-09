@@ -16,9 +16,15 @@ REM     or `python` grab the NEWEST installed one -- which is exactly the trap.
 set "PY="
 set "PY_SUPPORTED=1"
 
+REM     Every interpreter started below, except the venv's own python.exe, goes
+REM     through CALL: `py` or `python` can be a batch-file shim (pyenv-win writes
+REM     python.bat, other version managers python.cmd), and cmd never comes back
+REM     from a batch file started without CALL. Issue #77: start.bat ended inside
+REM     the check in 1b, with no message and no app.
+
 REM 1) A CPython 3.10-3.12 already installed (via the Windows py launcher)?
 for %%V in (3.12 3.11 3.10) do (
-  if not defined PY ( py -%%V -c "import sys" >nul 2>nul && set "PY=py -%%V" )
+  if not defined PY ( call py -%%V -c "import sys" >nul 2>nul && set "PY=py -%%V" )
 )
 
 REM 1b) ... or a `python` on PATH that IS a 3.10-3.12 itself: python.org installs
@@ -27,7 +33,7 @@ REM     was skipped for a download, then used anyway once the download failed. I
 REM     version is checked, so a newer default `python` -- the 3.14 trap above --
 REM     still can't slip through.
 if not defined PY (
-  python -c "import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>nul && set "PY=python"
+  call python -c "import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>nul && set "PY=python"
 )
 
 REM 2) A self-contained Python we fetched on a previous run? (skip the PowerShell hop)
@@ -58,9 +64,12 @@ if not defined PY (
 )
 
 REM 5) Truly no Python anywhere and no download -> can't build a venv, stop.
+REM    A double-clicked window closes the moment this script ends: from here on,
+REM    every stop says why and waits for a key, so the reason stays readable.
 if not defined PY (
   echo Python 3.10-3.12 is required and the automatic download failed.
   echo Install it from https://www.python.org/downloads/ then re-run start.bat
+  pause
   exit /b 1
 )
 
@@ -110,12 +119,23 @@ if "%REBUILD%"=="0" if "%PY_SUPPORTED%"=="1" (
 
 if "%REBUILD%"=="1" (
   if exist .venv rmdir /s /q .venv
-  %PY% -m venv .venv || exit /b 1
+  call %PY% -m venv .venv || (
+    echo.
+    echo [!] Could not create .venv with %PY% -- see the messages above.
+    pause
+    exit /b 1
+  )
 )
 
-"%VPY%" -m pip install -q -r backend\requirements.txt || exit /b 1
+"%VPY%" -m pip install -q -r backend\requirements.txt || (
+  echo.
+  echo [!] Installing the backend requirements failed -- see the pip messages above.
+  pause
+  exit /b 1
+)
 if not exist frontend\dist\index.html (
   echo frontend\dist is missing -- this repo ships it prebuilt. Run: cd frontend ^&^& npm install ^&^& npm run build
+  pause
   exit /b 1
 )
 rem Port 5000 is a frequent collision (macOS AirPlay, another local Flask app).
@@ -132,4 +152,11 @@ if "%LDS_SUPERVISE%"=="0" (
   "%VPY%" backend\run.py
 ) else (
   "%VPY%" backend\supervise.py
+)
+rem Compared as text: a crash code such as 0xC0000005 is negative to `if errorlevel`.
+if not "%errorlevel%"=="0" (
+  echo.
+  echo [!] LoRA Dataset Studio stopped with an error -- see the messages above.
+  pause
+  exit /b %errorlevel%
 )
