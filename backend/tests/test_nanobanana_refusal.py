@@ -462,6 +462,44 @@ def test_a_successful_batch_row_records_no_failure_kind(app, monkeypatch):
         assert saved.filename and saved.fail_kind is None and saved.fail_reason is None
 
 
+def test_a_wide_generated_image_is_not_stored_below_the_dataset_minimum_side(app, monkeypatch):
+    import concurrent.futures
+    import io
+    import os
+    from PIL import Image
+    from app.config import LOCAL_USER
+    from app.models import FaceDatasetImage
+    from app.services import face_dataset_service as svc
+
+    def rendered(width, height):
+        buf = io.BytesIO()
+        Image.new('RGB', (width, height), 'red').save(buf, format='PNG')
+        return buf.getvalue()
+
+    outputs = iter([rendered(1536, 1024), rendered(2048, 2048)])
+    monkeypatch.setattr(concurrent.futures, 'ThreadPoolExecutor', _SerialPool)
+    monkeypatch.setattr(svc, '_api_generate_fn',
+                        lambda engine: (lambda *a, **k: next(outputs)))
+    with app.app_context():
+        ds = svc.create_dataset(LOCAL_USER, 'NBWIDE', 'nbwide')
+        os.makedirs(svc._dataset_dir(ds.id), exist_ok=True)
+        rows = [FaceDatasetImage(dataset_id=ds.id, status='pending', klein_model='nanobanana')
+                for _ in range(2)]
+        svc.db.session.add_all(rows)
+        svc.db.session.commit()
+        svc._run_nanobanana_batch(app, [(rows[0].id, 'p', '3:2'), (rows[1].id, 'p', '1:1')],
+                                  [_real_png()], engine='nanobanana')
+        svc.db.session.expire_all()
+        sizes = []
+        for row in rows:
+            saved = svc.db.session.get(FaceDatasetImage, row.id)
+            with Image.open(os.path.join(svc._dataset_dir(ds.id), saved.filename)) as stored:
+                sizes.append(stored.size)
+        # The limit is 1024 on the SHORT side. A long-side limit stored the wide
+        # frame at 1024x683, under the 768 minimum a dataset accepts.
+        assert sizes == [(1536, 1024), (1024, 1024)]
+
+
 def test_the_imageconfig_retry_still_happens_before_any_refusal_is_declared(
         app, monkeypatch):
     """A model that rejects imageConfig answers 400 on the first payload. That is
