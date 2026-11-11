@@ -132,6 +132,45 @@ def test_finished_gallery_exports_require_owned_existing_done_images(client, app
         assert GalleryExports('other').finished([good.id]) == ()
 
 
+def test_a_derived_picture_exports_the_generation_it_was_made_from(client, app):
+    """A camera angle, an upscale or an improve keeps its own columns for the pass
+    that made it. An export names the render it comes from, through a chain; a link
+    that is missing or names another render leaves the picture its own facts."""
+    from app.extensions import db
+    from lds_sdk.gallery_exports import GalleryExports
+    with app.app_context():
+        ds = _create(client)
+        rec = _record(db, ds)
+        source = _image(db, ds, rec, step=2500)
+        source.strength, source.z_model = 0.8, 'base.safetensors'
+        source.extra_loras = json.dumps([{'filename': 'second.safetensors', 'strength': 0.85}])
+        pass_loras = json.dumps([{'filename': 'details.safetensors', 'strength': 0.6}])
+
+        def derived(step, parent, **own):
+            row = _image(db, ds, rec, step=step)
+            row.checkpoint, row.parent_image_id = source.checkpoint, parent
+            row.derivation_kind, row.z_model, row.extra_loras = 'camera_angle', None, pass_loras
+            for key, value in own.items():
+                setattr(row, key, value)
+            db.session.commit()
+            return row
+
+        angle = derived(2400, source.id)
+        chain = derived(2300, angle.id)
+        orphan = derived(2200, 999999)
+        stale = derived(2100, source.id, checkpoint='another.safetensors')
+        exports = {r.id: r for r in GalleryExports('local').finished(
+            [source.id, angle.id, chain.id, orphan.id, stale.id])}
+        for row in (angle, chain):
+            assert (exports[row.id].z_model, exports[row.id].extra_loras, exports[row.id].strength) == (
+                'base.safetensors', source.extra_loras, 0.8)
+            assert exports[row.id].step == 2500
+        for row in (orphan, stale):
+            assert (exports[row.id].z_model, exports[row.id].extra_loras) == (None, pass_loras)
+        # Nothing is written back: the row still describes its own pass.
+        assert db.session.get(type(angle), angle.id, populate_existing=True).z_model is None
+
+
 def test_civitai_registered_hooks_use_the_existing_link_table(client, app, civitai):
     from app.extensions import db
     from app.models import CivitaiLink
