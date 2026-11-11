@@ -10,9 +10,9 @@ Free local LoRA training studio: turn one reference photo or a whole image folde
 [Install](#setup--install) · [Documentation](docs/README.md) · [Plugins](#plugins) · [Releases](https://github.com/perfectgf/lora-dataset-studio/releases) · [Discord](https://discord.gg/j6hnJBFtXE)
 
 > [!IMPORTANT]
-> **New LDS versions reach Patreon members first.** Each new version is available early to [Patreon](https://www.patreon.com/c/Loraperfectgf) members (**LDS Member**), then to everyone; exclusive plugins stay members-only. The version you have stays free and keeps working.
+> **The public edition is free; member features require an active LDS Member subscription.** Updates reach [Patreon](https://www.patreon.com/c/Loraperfectgf) members first. Bug fixes also reach the public edition; exclusive features and plugins remain members-only. Link an active **LDS Member** membership in LDS to use them, including in an already installed version. Your files and datasets remain yours when membership ends.
 
-The current core and public plugins are free under the [PolyForm Noncommercial license](LICENSE), and running them needs no account; optional usage statistics are off by default. External APIs and rented GPUs have their own charges. A Patreon membership is needed for new versions and exclusive plugins, not to keep using the version you have.
+The public core and public plugins are free under the [PolyForm Noncommercial license](LICENSE), and running them needs no account; optional usage statistics are off by default. External APIs and rented GPUs have their own charges. Public features keep working without a membership.
 
 <table>
   <tr>
@@ -41,6 +41,22 @@ People shown in the demo and screenshots are AI-generated.
 
 Dependencies vary by feature. Bank search ranks matches; it does not guarantee exclusions. Undo covers specific actions, and **Delete rejected** can remove source files after confirmation. Video and slider workflows are experimental. See the [feature reference](docs/guide/features.md), [requirements](docs/guide/requirements.md) and [known limitations](docs/guide/known-limitations.md) for the detailed behavior.
 
+## Latest member updates
+
+The following improvements are available in the **2026.11.12.21 member update**. Install the member core from **Settings → Maintenance → Updates** and member plugins from **Plugins → Store / Updates**. The public GitHub download has its own release schedule.
+
+| Area | What's new |
+|---|---|
+| H3 Image workspace | **Create, Edit and Combine** have their own controls. Edit one source or combine up to **16 ordered references**, with a role for each image. Import originals from the **Gallery**, filter by the main or additional LoRAs recorded on each image, and keep your selection as you change filters. |
+| H3 sampling and finishing | Use the native **6-step** recipe or prepare the optional pDMD adapter for **Turbo at 2, 3 or 4 steps**. Standard refinement supports one, two or three passes: **6, 12 or 18 total sampling steps**, with optional enlargement up to 2× within the size limit, sharpening and film grain. References and settings stay with each result. |
+| Image Test Studio | Drop an image file or a previous result onto H3 references, the prompt or **Describe**. Earlier results stay in the grid when you change sampling settings, including tests without a LoRA. Each tile shows its settings; generation status sits directly above the bottom shortcuts. Compatible **Always LoRAs** also work without a selected dataset. |
+| Image Bank | Clear **Analyze, Review and Create dataset** action groups. Right-click an image to find similar images, or the grid to select a diverse or balanced set, search by description and apply quality-based rejection. Each tool exposes its settings before running. |
+| H3 Image training | Train image LoRAs locally or on a rented GPU. Start from the sourced AI Toolkit rank-16 recipe or the rank-32 adaptation of DiffSynth's image recipe for Character, Style and Concept datasets. The default quantized cloud recipe starts its GPU search at an estimated **48 GB VRAM**; larger settings can need more. |
+| Trainer maintenance | Update the configured **AI Toolkit** and its dependencies from the dataset, follow the log and refresh readiness automatically. Local jobs are protected during the update. |
+| Civitai prompts | Search by image tag name, choose a suggestion and keep that filter across further pages or a model's gallery, with the original prompts available. |
+
+H3 Image training, its Studio workspace and automatic trainer updates are member features. H3 model terms and the hardware requirements still apply. The in-app **What's new** panel and Guide describe the controls available in your installed version.
+
 ## Plugins
 
 Install optional features from **Plugins → Store**, configure and prepare them in their own settings, and update them through **Plugins → Updates**. Several plugins can be installed together with one LDS restart. Each is independently installable; model downloads, hardware and provider credentials depend on the feature.
@@ -63,6 +79,23 @@ Install optional features from **Plugins → Store**, configure and prepare them
 | [Web scraping](bundled/scrape/) | Import selected images or clips from searches and supported gallery URLs into datasets or banks | Source-dependent credentials and permissions; Pexels requires explicit dataset/ML authorization |
 
 API providers apply their own billing and content policies. Model licenses also apply, including MiniMax H3's territory restrictions; check the [video limits](docs/guide/features.md#video-bank-beta--first-release-read-the-limits) before using it. Plugin authors can start with the [SDK and package guide](docs/plugins/README.md).
+
+### Member plugins
+
+These plugins are delivered through the member catalog and require an active, linked **LDS Member** membership. Their cards list the included features, dependencies and preparation steps.
+
+| Plugin | Available version | What it adds |
+|---|---|---|
+| Dataset Pilot | **1.4.0** | Prepare independent face datasets from selected references with saved multi-engine recipes, identity and quality checks, framing balance, profile review, optional watermark repair and JoyCaption. Resume interrupted work and fill missing shots within the original budget. Completion rounds favor engines that produced usable images; near-identical compositions are set aside. Follow each identity's progress and choose which dataset to view. |
+| LoRA Manager | **1.8.2** | Manage, deploy, combine and merge LoRAs, including MiniMax H3 Image adapters. |
+| Civitai Studio | **1.1.2** | Prepare editable LoRA or checkpoint drafts with example images, resume uploads, publish video checkpoints and stamp posted images with their LoRA name and strength. |
+| PiD 4K Upscale | **1.0.1** | Decode a Krea 2 Test Studio result at 4× size, about 4096 × 4096 for a square image, and keep it beside the original. Prepares its additional models when needed. |
+| Angle Variations | **1.0.2** | Generate new dataset viewpoints with Qwen-Image 2.1 Turbo, from three-quarter and profile views to back, high and low angles. |
+| Multi-subject | **1.1.2** | Place 2–8 people in one Krea 2 Test Studio image, each with their own LoRA, strength, description and drawn region. Requires Krea2 Regional nodes. |
+| Full Model Files | **1.0.0** | Prepare INT8 convrot and Turbo files automatically after a full Krea 2 model returns from cloud training. |
+| H3 Video Decoders | **1.0.0** | Prepare and select the optional Sol-H3 video decoder in FP16 or INT8, with verified downloads and ComfyUI compatibility checks. |
+| Qwen Watermark Cleaner | **1.0.0** | Add Qwen watermark-cleaning engines to Dataset Forge. |
+| Creative Library | **1.0.8** | Browse visual prompt libraries, save favorites and compose prompts from outfits, scenes, poses and lighting. Use the online library or import your own Sick Ollie packs. |
 
 ## Screenshots
 
@@ -105,7 +138,7 @@ Complete **Setup**, then create a dataset or install the plugins you need. Impor
 | Pinokio | [One-click installation](docs/guide/installation.md#pinokio) |
 | Rented RunPod GPU | [RunPod guide](docs/guide/runpod.md) |
 
-**Updates:** new LDS versions reach Patreon members first, then everyone, and install from **Settings → Maintenance → Updates**. Git and Pinokio checkouts fast-forward to a verified release; ZIP installations swap in a verified archive and retain their datasets, media, settings and history. Docker installations from the Windows ZIP install them from the host with `update-docker.bat patreon`. Without a membership, the installed version keeps working; `v1` is frozen and old `main` installations must [migrate to V2](docs/guide/migrate-to-v2.md). Pinokio and Docker keep their own [update procedures](docs/guide/installation.md).
+**Updates:** install core updates from **Settings → Maintenance → Updates** and plugin updates from **Plugins → Updates**. Member updates come through the linked Patreon service; public releases are available on GitHub. Git and Pinokio checkouts fast-forward to a verified release; ZIP installations swap in a verified archive and retain their datasets, media, settings and history. Docker installations from the Windows ZIP install member updates from the host with `update-docker.bat patreon`. Public features remain available without a membership; reserved features require an active **LDS Member** membership. `v1` is frozen and old `main` installations must [migrate to V2](docs/guide/migrate-to-v2.md). Pinokio and Docker keep their own [update procedures](docs/guide/installation.md).
 
 ### Minimum requirements
 
