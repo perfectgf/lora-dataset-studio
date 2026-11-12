@@ -1,20 +1,12 @@
-[![Support us on Patreon](https://img.shields.io/badge/Patreon-Support%20us-FF424D?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/c/Loraperfectgf) [![Join our Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/j6hnJBFtXE) [![Sign up on Vast.ai](https://img.shields.io/badge/Vast.ai-Sign%20up-F7B32B?style=for-the-badge)](https://cloud.vast.ai/?ref_id=683073)
-
-> [!WARNING]
-> **No affiliation with loradataset.com.** That website is not operated, endorsed, or supported by the LoRA Dataset Studio team. Any payments made to that service do not support this project. Use this repository and the links provided here to find our official downloads and community channels.
-
 # LoRA Dataset Studio V2
 
-Free local LoRA training studio: turn one reference photo or a whole image folder into a captioned LoRA dataset, train character, style and concept LoRAs for Krea 2, FLUX.1, FLUX.2 Klein, Qwen-Image 2.1, Z-Image, SDXL and Anima, then pick the best checkpoint side by side. LDS runs on your machine in one browser tab and uses [ai-toolkit](https://github.com/ostris/ai-toolkit) for training and [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for local generation and checkpoint testing, without a node graph to wire.
+**From one reference photo to a trained, ranked LoRA, on your own PC.**
 
-The [member edition](#latest-member-updates) also trains and tests **MOSS-Image** and **MiniMax H3-Image** LoRAs, with additional editing, refinement and workflow tools.
+LDS builds the dataset for you: it generates the shots your photos are missing, sorts a big image folder, cleans watermarks and writes the captions. It then trains the LoRA with [ai-toolkit](https://github.com/ostris/ai-toolkit) and renders your checkpoints side by side at the same seed, with votes and a face similarity ranking, so you can pick the best one. Character, style and concept LoRAs for Krea 2, FLUX.1, FLUX.2 Klein, Qwen-Image 2.1, Z-Image, SDXL and Anima. Free and local, with no account, in one browser tab: [ComfyUI](https://github.com/comfyanonymous/ComfyUI) runs behind it for local generation and checkpoint testing, without a node graph to wire.
 
-[Install](#setup--install) · [Documentation](docs/README.md) · [Plugins](#plugins) · [Releases](https://github.com/perfectgf/lora-dataset-studio/releases) · [Discord](https://discord.gg/j6hnJBFtXE)
+[Install](#setup--install) · [Which GPU do I need?](#minimum-requirements) · [What it does](#what-it-does) · [Plugins](#plugins) · [Member edition](#latest-member-updates) · [Documentation](docs/README.md) · [Releases](https://github.com/perfectgf/lora-dataset-studio/releases) · [Discord](https://discord.gg/j6hnJBFtXE)
 
-> [!IMPORTANT]
-> **The public edition is free; member features require an active LDS Member subscription.** Updates reach [Patreon](https://www.patreon.com/c/Loraperfectgf) members first. Bug fixes also reach the public edition; exclusive features and plugins remain members-only. Link an active **LDS Member** membership in LDS to use them, including in an already installed version. Your files and datasets remain yours when membership ends.
-
-The public core and public plugins are free under the [PolyForm Noncommercial license](LICENSE), and running them needs no account; optional usage statistics are off by default. External APIs and rented GPUs have their own charges. Public features keep working without a membership.
+[![Support us on Patreon](https://img.shields.io/badge/Patreon-Support%20us-FF424D?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/c/Loraperfectgf) [![Join our Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/j6hnJBFtXE) [![Sign up on Vast.ai](https://img.shields.io/badge/Vast.ai-Sign%20up-F7B32B?style=for-the-badge)](https://cloud.vast.ai/?ref_id=683073)
 
 <table>
   <tr>
@@ -28,6 +20,43 @@ A complete Character LoRA workflow in seven minutes:
 https://github.com/user-attachments/assets/d51ff89c-34e9-41a9-b47d-08939a8c867b
 
 People shown in the demo and screenshots are AI-generated.
+
+> [!WARNING]
+> **No affiliation with loradataset.com.** That website is not operated, endorsed, or supported by the LoRA Dataset Studio team. Any payments made to that service do not support this project. Use this repository and the links provided here to find our official downloads and community channels.
+
+## Setup & install
+
+1. Download `LoRA-Dataset-Studio-windows.zip` from the [latest release](https://github.com/perfectgf/lora-dataset-studio/releases/latest) and extract it into a new folder.
+2. Double-click `start.bat`. It prepares Python and opens LDS in your browser.
+
+Complete **Setup**, then create a dataset or install the plugins you need. Importing, organizing and manually captioning images require no GPU or API key. Local training also needs [ai-toolkit](https://github.com/ostris/ai-toolkit) and local generation needs [ComfyUI](https://github.com/comfyanonymous/ComfyUI): see [external tools](docs/guide/installation.md#external-tools).
+
+| Installation | Instructions |
+|---|---|
+| Git checkout or manual Python environment | [Native installation](docs/guide/installation.md#windows) |
+| Docker with an existing or fresh ComfyUI | [Docker guide](docs/guide/docker.md) |
+| Docker without a GPU | [API-only setup](docs/guide/installation.md#docker-without-a-gpu) |
+| Pinokio | [One-click installation](docs/guide/installation.md#pinokio) |
+| Rented RunPod GPU | [RunPod guide](docs/guide/runpod.md) |
+
+**Updates:** install core updates from **Settings → Maintenance → Updates** and plugin updates from **Plugins → Updates**. Member updates come through the linked Patreon service; public releases are available on GitHub. Git and Pinokio checkouts fast-forward to a verified release; ZIP installations swap in a verified archive and retain their datasets, media, settings and history. Docker installations from the Windows ZIP install member updates from the host with `update-docker.bat patreon`. Public features remain available without a membership; reserved features require an active **LDS Member** membership. `v1` is frozen and old `main` installations must [migrate to V2](docs/guide/migrate-to-v2.md). Pinokio and Docker keep their own [update procedures](docs/guide/installation.md).
+
+### Minimum requirements
+
+The core runs without a GPU. Each task has its own floor:
+
+| What you want to do | Smallest NVIDIA card |
+|---|---|
+| Import, sort, crop, caption by hand, export | No GPU |
+| Caption automatically | About 8 GB |
+| Generate dataset shots locally | About 16 GB |
+| Train Z-Image or SDXL | 16 GB |
+| Train FLUX.2 Klein 4B | 16 to 24 GB (9B: 32 to 48 GB) |
+| Train Krea 2 | 24 GB at 1024 px, 768 px only below 24 GB |
+| Train FLUX.1 or Anima | About 24 GB |
+| No suitable card | Train on a rented [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU with the [Cloud training](bundled/cloud_training/) plugin, or run LDS on a [RunPod GPU](docs/guide/runpod.md) |
+
+These floors come from a 24 GB reference card; training below 16 GB has not been measured. Python 3.10–3.12 supports the local ML extras; the Windows launcher downloads Python 3.12 if needed. See the [hardware and dependency tables](docs/guide/requirements.md) before downloading models or renting a GPU.
 
 ## What it does
 
@@ -43,31 +72,32 @@ People shown in the demo and screenshots are AI-generated.
 
 Dependencies vary by feature. Bank search ranks matches; it does not guarantee exclusions. Undo covers specific actions, and **Delete rejected** can remove source files after confirmation. Video and slider workflows are experimental. See the [feature reference](docs/guide/features.md), [requirements](docs/guide/requirements.md) and [known limitations](docs/guide/known-limitations.md) for the detailed behavior.
 
-## Latest member updates
+## Screenshots
 
-The following improvements are available in the **2026.11.12.21 member update**. Install the member core from **Settings → Maintenance → Updates** and member plugins from **Plugins → Store / Updates**. The public GitHub download has its own release schedule.
+Click a screenshot to view it at full size.
 
-| Area | What's new |
-|---|---|
-| H3 Image workspace | **Create, Edit and Combine** have their own controls. Edit one source or combine up to **16 ordered references**, with a role for each image. Import originals from the **Gallery**, filter by the main or additional LoRAs recorded on each image, and keep your selection as you change filters. |
-| H3 sampling and finishing | Use the native **6-step** recipe or prepare the optional pDMD adapter for **Turbo at 2, 3 or 4 steps**. Standard refinement supports one, two or three passes: **6, 12 or 18 total sampling steps**, with optional enlargement up to 2× within the size limit, sharpening and film grain. References and settings stay with each result. |
-| Image Test Studio | Drop an image file or a previous result onto H3 references, the prompt or **Describe**. Earlier results stay in the grid when you change sampling settings, including tests without a LoRA. Each tile shows its settings; generation status sits directly above the bottom shortcuts. Compatible **Always LoRAs** also work without a selected dataset. |
-| Image Bank | Clear **Analyze, Review and Create dataset** action groups. Right-click an image to find similar images, or the grid to select a diverse or balanced set, search by description and apply quality-based rejection. Each tool exposes its settings before running. |
-| H3 Image training | Train image LoRAs locally or on a rented GPU. Start from the sourced AI Toolkit rank-16 recipe or the rank-32 adaptation of DiffSynth's image recipe for Character, Style and Concept datasets. The default quantized cloud recipe starts its GPU search at an estimated **48 GB VRAM**; larger settings can need more. |
-| Trainer maintenance | Update the configured **AI Toolkit** and its dependencies from the dataset, follow the log and refresh readiness automatically. Local jobs are protected during the update. |
-| Civitai prompts | Search by image tag name, choose a suggestion and keep that filter across further pages or a model's gallery, with the original prompts available. |
-
-H3 Image training, its Studio workspace and automatic trainer updates are member features. H3 model terms and the hardware requirements still apply. The in-app **What's new** panel and Guide describe the controls available in your installed version.
-
-The member edition also includes these previously released tools:
-
-| Area | Member capabilities |
-|---|---|
-| MOSS-Image | Train locally or in the cloud on image-and-caption datasets, then generate and compare LoRAs in Test Studio. Use Base or compatible SFT models, with sampler, scheduler, second-pass and finishing controls. The optional SFT distillation LoRA offers 4 steps up to 1 MP, 6 around 1536 px and 8 at 2048 px; output is limited to 4 MP. Image-edit training pairs are not supported for this family. |
-| Krea 2 image tools | Optional **Krea2T prompt enhancer** with adjustable strength, plus a **2.25× two-stage upscale**: a 1.5× latent pass followed by a 1.5× image upscale and light refinement. Model and node preparation depend on the selected tool. |
-| Training recipes | Edit learning rates, layer exclusions, caching and preview settings together. Saved presets and run snapshots keep the recipe for local and cloud training, with model-specific safeguards. |
-| Suggested crops and recovery | Ask a local vision model to suggest a crop around the visible subject, adjust it before applying, then undo new dataset crops or restore their saved original. This does not recover edits discarded before crop history was available. |
-| Remake one image | Render one Test Studio result again with a new seed without restarting the whole test. |
+<table>
+  <tr>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-overview.png"><img src="docs/screenshots/bank/bank-overview.png" alt="Image Bank: sort a large image folder before building a LoRA dataset" width="100%"></a><br><sub>Image Bank</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="Image Bank analysis and dataset coverage" width="100%"></a><br><sub>Analysis and coverage</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-launch-all.png"><img src="docs/screenshots/bank/bank-launch-all.png" alt="Batch image analysis in the Image Bank" width="100%"></a><br><sub>Batch analysis</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="LoRA dataset curation: keep, reject and crop training images" width="100%"></a><br><sub>Dataset curation</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/bank/find-text-launch.png"><img src="docs/screenshots/bank/find-text-launch.png" alt="Text detection on training images" width="100%"></a><br><sub>Text detection</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/training/runs-hub.png"><img src="docs/screenshots/training/runs-hub.png" alt="LoRA training runs with ai-toolkit" width="100%"></a><br><sub>Training runs</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><a href="docs/screenshots/studio/studio-grid.png"><img src="docs/screenshots/studio/studio-grid.png" alt="Test Studio grid comparing LoRA checkpoints at a fixed seed" width="100%"></a><br><sub>Checkpoint comparisons</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/canvas/canvas-board.png"><img src="docs/screenshots/canvas/canvas-board.png" alt="LoRA Canvas: compare and blend LoRAs on a board" width="100%"></a><br><sub>LoRA Canvas</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/studio/civitai-prompt-browser.png"><img src="docs/screenshots/studio/civitai-prompt-browser.png" alt="Civitai prompt browser for LoRA tests" width="100%"></a><br><sub>Civitai prompts</sub></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="Camera angles: new viewpoints for a character dataset" width="100%"></a><br><sub>Camera angles</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/video/video-studio-clips.png"><img src="docs/screenshots/video/video-studio-clips.png" alt="Video Test Studio comparing video LoRA clips" width="100%"></a><br><sub>Video Test Studio</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/video/dlss5-compare.png"><img src="docs/screenshots/video/dlss5-compare.png" alt="DLSS 5 neural rendering before and after comparison" width="100%"></a><br><sub>DLSS 5 comparison</sub></td>
+  </tr>
+</table>
 
 ## Plugins
 
@@ -110,52 +140,38 @@ These plugins are delivered through the member catalog and require an active, li
 | Qwen Watermark Cleaner | **1.0.0** | Clean watermarks in datasets and the Bank with Qwen-Image 2.1 or its 8-step Turbo engine, with model preparation included. |
 | Creative Library | **1.0.8** | Browse visual prompt libraries, save favorites and compose prompts from outfits, scenes, poses and lighting. Batch prompts or individual parts in Test Studio, and fill multi-subject scenes or templates. Use the online library or import your own Sick Ollie packs. |
 
-## Screenshots
+## Latest member updates
 
-Click a screenshot to view it at full size.
+> [!IMPORTANT]
+> **The public edition is free; member features require an active LDS Member subscription.** Updates reach [Patreon](https://www.patreon.com/c/Loraperfectgf) members first. Bug fixes also reach the public edition; exclusive features and plugins remain members-only. Link an active **LDS Member** membership in LDS to use them, including in an already installed version. Your files and datasets remain yours when membership ends.
 
-<table>
-  <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-overview.png"><img src="docs/screenshots/bank/bank-overview.png" alt="Image Bank: sort a large image folder before building a LoRA dataset" width="100%"></a><br><sub>Image Bank</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="Image Bank analysis and dataset coverage" width="100%"></a><br><sub>Analysis and coverage</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-launch-all.png"><img src="docs/screenshots/bank/bank-launch-all.png" alt="Batch image analysis in the Image Bank" width="100%"></a><br><sub>Batch analysis</sub></td>
-  </tr>
-  <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="LoRA dataset curation: keep, reject and crop training images" width="100%"></a><br><sub>Dataset curation</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/find-text-launch.png"><img src="docs/screenshots/bank/find-text-launch.png" alt="Text detection on training images" width="100%"></a><br><sub>Text detection</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/training/runs-hub.png"><img src="docs/screenshots/training/runs-hub.png" alt="LoRA training runs with ai-toolkit" width="100%"></a><br><sub>Training runs</sub></td>
-  </tr>
-  <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/studio/studio-grid.png"><img src="docs/screenshots/studio/studio-grid.png" alt="Test Studio grid comparing LoRA checkpoints at a fixed seed" width="100%"></a><br><sub>Checkpoint comparisons</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/canvas/canvas-board.png"><img src="docs/screenshots/canvas/canvas-board.png" alt="LoRA Canvas: compare and blend LoRAs on a board" width="100%"></a><br><sub>LoRA Canvas</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/studio/civitai-prompt-browser.png"><img src="docs/screenshots/studio/civitai-prompt-browser.png" alt="Civitai prompt browser for LoRA tests" width="100%"></a><br><sub>Civitai prompts</sub></td>
-  </tr>
-  <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="Camera angles: new viewpoints for a character dataset" width="100%"></a><br><sub>Camera angles</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/video/video-studio-clips.png"><img src="docs/screenshots/video/video-studio-clips.png" alt="Video Test Studio comparing video LoRA clips" width="100%"></a><br><sub>Video Test Studio</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/video/dlss5-compare.png"><img src="docs/screenshots/video/dlss5-compare.png" alt="DLSS 5 neural rendering before and after comparison" width="100%"></a><br><sub>DLSS 5 comparison</sub></td>
-  </tr>
-</table>
+The public core and public plugins are free under the [PolyForm Noncommercial license](LICENSE), and running them needs no account; optional usage statistics are off by default. External APIs and rented GPUs have their own charges. Public features keep working without a membership.
 
-## Setup & install
+The [member edition](#latest-member-updates) also trains and tests **MOSS-Image** and **MiniMax H3-Image** LoRAs, with additional editing, refinement and workflow tools.
 
-**Windows:** download `LoRA-Dataset-Studio-windows.zip` from the [latest release](https://github.com/perfectgf/lora-dataset-studio/releases/latest), extract it into a new folder and run `start.bat`. The launcher prepares Python and opens LDS in your browser.
+The following improvements are available in the **2026.11.12.21 member update**. Install the member core from **Settings → Maintenance → Updates** and member plugins from **Plugins → Store / Updates**. The public GitHub download has its own release schedule.
 
-Complete **Setup**, then create a dataset or install the plugins you need. Importing, organizing and manually captioning images require no GPU or API key.
-
-| Installation | Instructions |
+| Area | What's new |
 |---|---|
-| Git checkout or manual Python environment | [Native installation](docs/guide/installation.md#windows) |
-| Docker with an existing or fresh ComfyUI | [Docker guide](docs/guide/docker.md) |
-| Docker without a GPU | [API-only setup](docs/guide/installation.md#docker-without-a-gpu) |
-| Pinokio | [One-click installation](docs/guide/installation.md#pinokio) |
-| Rented RunPod GPU | [RunPod guide](docs/guide/runpod.md) |
+| H3 Image workspace | **Create, Edit and Combine** have their own controls. Edit one source or combine up to **16 ordered references**, with a role for each image. Import originals from the **Gallery**, filter by the main or additional LoRAs recorded on each image, and keep your selection as you change filters. |
+| H3 sampling and finishing | Use the native **6-step** recipe or prepare the optional pDMD adapter for **Turbo at 2, 3 or 4 steps**. Standard refinement supports one, two or three passes: **6, 12 or 18 total sampling steps**, with optional enlargement up to 2× within the size limit, sharpening and film grain. References and settings stay with each result. |
+| Image Test Studio | Drop an image file or a previous result onto H3 references, the prompt or **Describe**. Earlier results stay in the grid when you change sampling settings, including tests without a LoRA. Each tile shows its settings; generation status sits directly above the bottom shortcuts. Compatible **Always LoRAs** also work without a selected dataset. |
+| Image Bank | Clear **Analyze, Review and Create dataset** action groups. Right-click an image to find similar images, or the grid to select a diverse or balanced set, search by description and apply quality-based rejection. Each tool exposes its settings before running. |
+| H3 Image training | Train image LoRAs locally or on a rented GPU. Start from the sourced AI Toolkit rank-16 recipe or the rank-32 adaptation of DiffSynth's image recipe for Character, Style and Concept datasets. The default quantized cloud recipe starts its GPU search at an estimated **48 GB VRAM**; larger settings can need more. |
+| Trainer maintenance | Update the configured **AI Toolkit** and its dependencies from the dataset, follow the log and refresh readiness automatically. Local jobs are protected during the update. |
+| Civitai prompts | Search by image tag name, choose a suggestion and keep that filter across further pages or a model's gallery, with the original prompts available. |
 
-**Updates:** install core updates from **Settings → Maintenance → Updates** and plugin updates from **Plugins → Updates**. Member updates come through the linked Patreon service; public releases are available on GitHub. Git and Pinokio checkouts fast-forward to a verified release; ZIP installations swap in a verified archive and retain their datasets, media, settings and history. Docker installations from the Windows ZIP install member updates from the host with `update-docker.bat patreon`. Public features remain available without a membership; reserved features require an active **LDS Member** membership. `v1` is frozen and old `main` installations must [migrate to V2](docs/guide/migrate-to-v2.md). Pinokio and Docker keep their own [update procedures](docs/guide/installation.md).
+H3 Image training, its Studio workspace and automatic trainer updates are member features. H3 model terms and the hardware requirements still apply. The in-app **What's new** panel and Guide describe the controls available in your installed version.
 
-### Minimum requirements
+The member edition also includes these previously released tools:
 
-The core runs without a GPU. Python 3.10–3.12 supports the local ML extras; the Windows launcher downloads Python 3.12 if needed. Local generation typically needs about 16 GB NVIDIA VRAM; training requirements depend on the family and settings. See the [hardware and dependency tables](docs/guide/requirements.md) before downloading models or renting a GPU.
+| Area | Member capabilities |
+|---|---|
+| MOSS-Image | Train locally or in the cloud on image-and-caption datasets, then generate and compare LoRAs in Test Studio. Use Base or compatible SFT models, with sampler, scheduler, second-pass and finishing controls. The optional SFT distillation LoRA offers 4 steps up to 1 MP, 6 around 1536 px and 8 at 2048 px; output is limited to 4 MP. Image-edit training pairs are not supported for this family. |
+| Krea 2 image tools | Optional **Krea2T prompt enhancer** with adjustable strength, plus a **2.25× two-stage upscale**: a 1.5× latent pass followed by a 1.5× image upscale and light refinement. Model and node preparation depend on the selected tool. |
+| Training recipes | Edit learning rates, layer exclusions, caching and preview settings together. Saved presets and run snapshots keep the recipe for local and cloud training, with model-specific safeguards. |
+| Suggested crops and recovery | Ask a local vision model to suggest a crop around the visible subject, adjust it before applying, then undo new dataset crops or restore their saved original. This does not recover edits discarded before crop history was available. |
+| Remake one image | Render one Test Studio result again with a new seed without restarting the whole test. |
 
 ## Documentation
 
