@@ -75,7 +75,10 @@ _EXTRACT_MAX = 2 * 1024 * 1024 * 1024
 _NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
 STEPS = ('source', 'python', 'torch', 'deps', 'check', 'config')
-_IMPORTS = 'import torch, torchvision, torchaudio, diffusers, transformers, accelerate, safetensors'
+# What image and video training import, as the trainer update checks it.
+# torchaudio is installed with the pinned trio but not a gate: AI Toolkit's own
+# manager treats it as maintenance-mode and version-agnostic.
+_IMPORTS = 'import torch, torchvision, diffusers, transformers, accelerate, safetensors'
 
 
 class Cancelled(Exception):
@@ -695,10 +698,13 @@ def _labels(source, build):
 
 
 def install(dest, *, log, step=None, progress=None, cancel_event=None, find_python=None,
-            runner=None, fetch=None, probe_torch=None, facts=None, register=None):
+            runner=None, fetch=None, probe_torch=None, facts=None, register=None,
+            fallback_python=None):
     """Run (or resume) the install into `dest`. Returns 0; raises InstallError with
     the user-facing reason, or Cancelled. Collaborators are injectable for tests;
-    `register(runner)` hands the caller the runner its cancel button stops."""
+    `register(runner)` hands the caller the runner its cancel button stops, and
+    `fallback_python()` supplies LDS's own Python when the machine's cannot make
+    a venv (a Linux Python without its venv package)."""
     step, progress = step or _noop, progress or _noop
     cancel_event = cancel_event or threading.Event()
     checked = plan(dest, facts=facts)
@@ -743,7 +749,7 @@ def install(dest, *, log, step=None, progress=None, cancel_event=None, find_pyth
     git = checked['git'] or 'git'
     work = {
         'source': lambda: _step_source(dest, source, git, runner, log, progress, cancel_event, fetch),
-        'python': lambda: _step_python(dest, runner, log, find_python),
+        'python': lambda: _step_python(dest, runner, log, find_python, fallback_python),
         'torch': lambda: _step_torch(dest, build, runner, progress),
         'deps': lambda: _step_deps(dest, source, build, runner, progress),
         'check': lambda: _step_check(dest, runner, log, probe_torch),
@@ -831,7 +837,7 @@ def _step_source(dest, source, git, runner, log, progress, cancel_event, fetch):
         _rmtree(staging)
 
 
-def _step_python(dest, runner, log, find_python):
+def _step_python(dest, runner, log, find_python, fallback_python=None):
     if not (dest / STAMP).is_file():
         raise InstallError('This folder was not created by the LDS installer. Choose a new folder.')
     venv = dest / VENV_DIR
@@ -844,8 +850,16 @@ def _step_python(dest, runner, log, find_python):
                            'environment. Check the connection and the free space, then '
                            'click Install again.')
     if runner.run([base, '-m', 'venv', venv], env=subprocess_env()):
-        raise InstallError(f'Python could not create the AI Toolkit environment with {base}. '
-                           'On Linux, install the python3-venv package, then click Install again.')
+        managed = ''
+        if fallback_python:
+            log(f'{base} could not create a venv; using the LDS-managed Python instead.')
+            _rmtree(venv)
+            with contextlib.suppress(Exception):
+                managed = fallback_python() or ''
+        if (not managed or os.path.normcase(managed) == os.path.normcase(str(base))
+                or runner.run([managed, '-m', 'venv', venv], env=subprocess_env())):
+            raise InstallError(f'Python could not create the AI Toolkit environment with {base}. '
+                               'On Linux, install the python3-venv package, then click Install again.')
     python = venv_python(dest)
     if not python.is_file():
         raise InstallError('The new AI Toolkit environment has no Python. Click Install again.')

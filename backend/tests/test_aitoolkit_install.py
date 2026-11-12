@@ -118,8 +118,9 @@ def test_requirements_without_git_install_the_same_ref(tmp_path):
 class FakeRunner:
     """Simulates git/venv/pip by their visible effects; `fail` maps a step to a code."""
 
-    def __init__(self, fail=None, cancel_on=None, on_deps=None):
+    def __init__(self, fail=None, cancel_on=None, on_deps=None, fail_first=()):
         self.calls, self.fail, self.cancel_on, self.on_deps = [], fail or {}, cancel_on, on_deps
+        self.fail_first = set(fail_first)
 
     @staticmethod
     def kind(argv):
@@ -147,6 +148,9 @@ class FakeRunner:
             raise aitk.Cancelled()
         if kind in self.fail:
             return self.fail[kind]
+        if kind in self.fail_first:
+            self.fail_first.discard(kind)
+            return 1
         a = [str(x) for x in argv]
         if kind == 'clone':
             staging = aitk.Path(a[-1])
@@ -210,6 +214,14 @@ def test_a_failed_step_resumes_and_rebuilds_a_half_installed_torch(roomy, tmp_pa
     _install(dest, runner)
     assert runner.kinds() == ['venv', 'pip-upgrade', 'torch', 'deps', 'imports']
     assert cfg.get('aitoolkit.dir') == str(dest)
+
+
+def test_a_python_that_cannot_make_a_venv_falls_back_to_the_lds_python(roomy, tmp_path):
+    runner = FakeRunner(fail_first={'venv'})
+    _install(tmp_path / 'ai-toolkit', runner, fallback_python=lambda: 'C:/LDS/python-3.12/python.exe')
+    bases = [a[0] for k, a, _e in runner.calls if k == 'venv']
+    assert bases == ['C:/Python312/python.exe', 'C:/LDS/python-3.12/python.exe']
+    assert cfg.get('aitoolkit.dir') == str(tmp_path / 'ai-toolkit')
 
 
 def test_cancel_keeps_completed_steps(roomy, tmp_path, monkeypatch):
@@ -290,7 +302,7 @@ def test_setup_worker_streams_steps_and_cancel_reaches_the_child(app, monkeypatc
         def kill(self):
             stopped.set()
 
-    def fake_install(dest, *, log, step, progress, cancel_event, find_python, register):
+    def fake_install(dest, *, log, step, progress, cancel_event, register, **_hooks):
         register(Child())
         step(3, 6, 'Installing PyTorch')
         progress(1024, 0)

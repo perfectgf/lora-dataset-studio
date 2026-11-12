@@ -2954,7 +2954,9 @@ def _run_aitoolkit_install(action):
                 run['options']['dest'], log=lambda line: _append(action, line),
                 step=lambda index, total, label: _set_step(action, index, total, label),
                 progress=progress, cancel_event=run['cancel_event'],
-                find_python=lambda: _find_base_python(action), register=register)
+                find_python=lambda: _find_base_python(action), register=register,
+                fallback_python=lambda: managed_python.ensure_python(
+                    lambda line: _append(action, line)))
         except aitoolkit_install.Cancelled:
             raise Cancelled() from None
         finally:
