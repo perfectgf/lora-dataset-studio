@@ -1,13 +1,13 @@
 <#
   bootstrap_python.ps1 — fetch a self-contained CPython when the machine has no
-  CPython 3.10-3.12 that start.bat can build its .venv on.
+  CPython 3.11-3.12 that start.bat can build its .venv on.
 
   Downloads the official `install_only` build from astral-sh/python-build-standalone
   (the runtime source used by the Windows start.bat flow), verifies its SHA-256 against
   the GitHub asset digest, and extracts it to <Dest> so <Dest>\python.exe is a ready
   3.12 interpreter — no system install, no admin rights, nothing added to PATH.
 
-  Idempotent: a valid existing <Dest>\python.exe (already 3.10-3.12) is reused, so
+  Idempotent: a valid existing <Dest>\python.exe (already 3.11-3.12) is reused, so
   a second run is instant. Windows x86_64 only; needs PowerShell 5.1+ and the
   built-in tar.exe (Windows 10 1803+). Exits non-zero on any failure so the caller
   (start.bat) can fall back cleanly.
@@ -24,7 +24,7 @@ $UA = @{ 'User-Agent' = 'lora-dataset-studio-bootstrap' }
 
 $exe = Join-Path $Dest 'python.exe'
 if (Test-Path $exe) {
-  $ok = & $exe -c "import sys; print(1 if (3,10)<=sys.version_info[:2]<=(3,12) else 0)" 2>$null
+  $ok = & $exe -c "import sys; print(1 if (3,11)<=sys.version_info[:2]<=(3,12) else 0)" 2>$null
   if ($ok -eq '1') { Write-Host "Reusing the standalone Python already at $exe"; exit 0 }
   Remove-Item -Recurse -Force $Dest                      # stale/unsupported -> refetch
 }

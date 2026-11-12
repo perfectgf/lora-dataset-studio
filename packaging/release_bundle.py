@@ -15,18 +15,20 @@ import subprocess
 import zipfile
 
 ROOT_FILES = {'start.bat', 'README.md', 'LICENSE', 'config.example.json', '.env.example'}
-BACKEND_FILES = {'bootstrap_dependencies.py', 'port_utils.py', 'requirements.txt',
+BACKEND_FILES = {'bootstrap_dependencies.py', 'port_utils.py', 'python_floor.py', 'requirements.txt',
                  'requirements-ml.txt', 'requirements-scrape.txt', 'run.py',
                  'single_instance.py', 'supervise.py'}
+# start.bat runs these: one fetches a Python, the other sets an old .venv aside.
+LAUNCHER_SCRIPTS = {'scripts/bootstrap_python.ps1', 'scripts/retire_venv.ps1'}
 BACKEND_DIRS = {'app', 'comfy_nodes', 'infer', 'lds_sdk', 'workflows'}
 LOCAL_DIRS = {'extensions', '__pycache__', 'node_modules', 'tests', 'data',
               'bundled', 'venv', '.venv', '.pytest_cache'}
 ARCHIVE_SUFFIXES = ('.zip', '.whl', '.tar', '.gz', '.bz2', '.xz', '.tgz',
                     '.tbz2', '.txz', '.7z', '.rar', '.pyz')
 PUBLIC_STORE_FILES = {'store/bootstrap.json', 'store/public-root.json', 'store/patreon.json'}
-REQUIRED = ROOT_FILES | {'backend/run.py', 'backend/requirements.txt',
+REQUIRED = ROOT_FILES | {'backend/run.py', 'backend/python_floor.py', 'backend/requirements.txt',
                         'backend/app/version.py', 'backend/lds_sdk/__init__.py',
-                        'frontend/dist/index.html', 'scripts/bootstrap_python.ps1'} | PUBLIC_STORE_FILES
+                        'frontend/dist/index.html'} | LAUNCHER_SCRIPTS | PUBLIC_STORE_FILES
 
 
 def runtime_member(name: str) -> bool:
@@ -35,7 +37,7 @@ def runtime_member(name: str) -> bool:
     if (not parts or name.startswith('/') or any(part in {'', '.', '..'} for part in parts)
             or '\\' in name or ':' in name):
         raise ValueError('Invalid Git member path')
-    if name in ROOT_FILES or name == 'scripts/bootstrap_python.ps1' or name in PUBLIC_STORE_FILES:
+    if name in ROOT_FILES or name in LAUNCHER_SCRIPTS or name in PUBLIC_STORE_FILES:
         return True
     if any(part.casefold() in LOCAL_DIRS or part.startswith('.') for part in parts):
         return False

@@ -34,8 +34,12 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+# start.bat sets the old .venv aside here while it rebuilds one (scripts/retire_venv.ps1).
+/.venv-previous/
 # Pinokio builds the app's venv here (install.js), next to the sources it runs.
 /env/
+# ...and retires one built on an unsupported Python here (scripts/pinokio_env_floor.js).
+/env-python*-retired/
 .pytest_cache/
 .pytest-basetemp-*/
 **/.pytest-basetemp-*/

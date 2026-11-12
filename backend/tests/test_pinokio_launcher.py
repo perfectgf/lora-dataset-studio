@@ -69,6 +69,21 @@ def test_update_stays_compatible_with_the_in_app_updater():
     assert 'git pull --ff-only' in read('update.js')
 
 
+@pytest.mark.parametrize('name', ('install.js', 'start.js', 'update.js'))
+def test_every_env_is_built_on_a_python_the_core_supports(name):
+    """The core needs Python 3.11+ (Pillow 13, filelock 4.2), so env/ can no
+    longer come from Pinokio's bundled 3.10: each step that may create it names
+    the interpreter. Pinokio honours that only when it CREATES env/, so install
+    and update first retire an env/ built on an older Python, before the step
+    that installs the requirements into it."""
+    src = read(name)
+    assert src.count('venv: "env"') == src.count('venv_python: "3.12"') >= 1
+    if name != 'start.js':
+        floor = src.index('node scripts/pinokio_env_floor.js')
+        assert floor < src.index('uv pip install -r backend/requirements.txt')
+        assert (ROOT / 'scripts' / 'pinokio_env_floor.js').is_file()
+
+
 def test_start_declares_the_runtime_the_updater_keys_off():
     """Without this the app cannot tell it was launched by Pinokio, and its
     Updates card offers an in-app restart that would detach the server from the
