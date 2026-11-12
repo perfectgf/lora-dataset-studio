@@ -9,12 +9,35 @@ from .api import LDS_PLUGIN_API_MAJOR, LDS_PLUGIN_API_MINOR
 from .package_contract import compatibility_issues
 from .ownership import conflict
 
+# Host libraries this core moved past the exact pin that existing packages
+# recorded: the SDK writes host_dependencies from the backend/requirements.txt of
+# the core a package was built against. Pillow 12.3.0 -> 13.0.0 and filelock
+# 3.32.5 -> 4.2.10 close security advisories, and the official packages were
+# checked on the new releases. A package recorded against the previous pin keeps
+# loading when the core updates instead of turning incompatible; a package built
+# against the new pin still refuses an older core through its own constraint.
+# Canonical name -> {previous exact version: the release this core installs}.
+HOST_DEPENDENCY_SUCCESSORS = {
+    'pillow': {'12.3.0': '13.0.0'},
+    'filelock': {'3.32.5': '4.2.10'},
+}
+
+
+def _recorded_host_version(name, specifier, installed):
+    """The installed version as the package's recorded constraint sees it."""
+    spec = str(specifier).strip()
+    if spec.startswith('==') and not spec.startswith('==='):
+        previous = spec[2:].strip()
+        if HOST_DEPENDENCY_SUCCESSORS.get(name, {}).get(previous) == installed:
+            return previous
+    return installed
+
 
 def host_issues(manifest, *, dependencies=None):
     installed = {}
-    for name in manifest.contract.get('host_dependencies', {}):
+    for name, specifier in manifest.contract.get('host_dependencies', {}).items():
         try:
-            installed[name] = version(name)
+            installed[name] = _recorded_host_version(name, specifier, version(name))
         except PackageNotFoundError:
             pass
     issues = compatibility_issues(
