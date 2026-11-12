@@ -51,6 +51,10 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 # on a Python this version no longer supports, say what to do and stop.
 from python_floor import enforce as _enforce_python_floor
 _enforce_python_floor(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Then the pins an update moved: under the start.bat supervisor, the restart after
+# an in-app update reuses .venv as it is, and nothing else would install them.
+from requirements_sync import ensure as _sync_requirements
+_sync_requirements(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from bootstrap_dependencies import ensure_pillow_consistent
 
