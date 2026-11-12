@@ -842,6 +842,46 @@ to compare in Test Studio, not as proof that a specific step will be best.
 
 - **Dual captions (long + short)** — off by default. When on, the run uses ai-toolkit's native `short_and_long_captions`: every image trains with **both** its full caption and a short one (text-side augmentation, so the LoRA leans less on any single wording). The short variant is **derived from the long caption** the next time you (re-)caption — text-only, via the local vision model, honouring the same kind rules (no trigger; the identity/concept/aesthetic stays omitted) — and you can edit it per image in the **⛶** caption editor. **Local training only for now:** the cloud pod's dataset upload doesn't carry the JSON caption file the short is read from, so cloud runs train on the long caption alone. **Not available on Krea 2 or Anima:** those families pre-cache their text embeddings and unload the text encoder, so no second caption can be encoded — the toggle is reported as ignored on the training panel and in the pre-launch check, and the run trains on the long caption alone (issue #22, reported by 1Tomber).
 
+## Install AI Toolkit
+
+No AI Toolkit yet? **Setup ▸ LoRA training — ai-toolkit** offers **Install AI Toolkit**.
+LDS installs AI Toolkit 0.13.42 (commit `4a7f285`) into a new folder, following AI
+Toolkit's own installation instructions for that commit:
+
+1. It downloads the source: a Git clone of the `main` branch reset to that commit or,
+   when Git is not installed, the GitHub archive of the same commit.
+2. It creates a `venv` inside that folder from a Python 3.10–3.12 found on the machine.
+   When there is none, LDS first downloads its own Python 3.12.
+3. It installs PyTorch 2.13.0, torchvision 0.28.0 and torchaudio 2.11.0 from the PyTorch
+   CUDA index AI Toolkit names: `cu130` when the NVIDIA driver supports CUDA 13.0, `cu126`
+   for a driver from CUDA 12.6 with a card older than the RTX 50 series. An older driver is
+   refused: update it first.
+4. It installs `requirements.txt` with that PyTorch build held by a constraint.
+5. It checks the imports and that PyTorch sees the GPU (the training preflight's check),
+   fills **ai-toolkit directory** and **Python interpreter** under
+   [Local tools](#ai-toolkit), then checks the trainer again.
+
+Before anything is downloaded, Setup shows the plan: GPU and CUDA build, source, Python,
+free space, and the exact commands under **Show the exact commands**. It needs an
+**NVIDIA GPU** and about **12 GB** free on the destination drive; pip's temporary files
+stay on that drive. The proposed folder sits next to the LDS folder (your home folder in
+Pinokio). Any new or empty folder outside LDS works, spaces included. Setup refuses a
+folder that already holds files, and never changes an AI Toolkit that is already
+configured and working: it reports it as already installed.
+
+The log follows each step. **Cancel install** stops the running step; **Resume install**,
+or Install again after an error, keeps the completed steps and rebuilds only an interrupted
+Python environment. Setup does not install while local training runs. In Docker the button
+is replaced by an explanation: the container would lose the environment on every rebuild.
+
+To update a Git install later, finish local training, run `git pull --ff-only` in its
+folder, then `venv\Scripts\python -m pip install -r requirements.txt` (Linux:
+`venv/bin/python`). A copy installed without Git does not update itself: install Git, run
+`git init`, `git remote add origin https://github.com/ostris/ai-toolkit.git`,
+`git fetch origin main` and `git checkout -f -B main origin/main` in its folder, then
+reinstall the requirements the same way. The venv, outputs and downloaded models stay in
+place.
+
 ## Storage
 
 Everything about the disk in one place: which folder holds what, how big it is,

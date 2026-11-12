@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-15-setup-install-ai-toolkit', date: '2026-11-15',
+    title: 'Install AI Toolkit from Setup',
+    blurb: 'No trainer yet? Setup can install AI Toolkit for you. It checks your NVIDIA GPU and free space, downloads AI Toolkit with the CUDA build of PyTorch it documents into a new folder, confirms that the GPU is visible and selects it in Settings. Follow the log, cancel at any time and resume after an interruption.',
+    to: '/setup?step=training',
+  },
+  {
     id: '2026-11-12-pillow-13-python-3-11',
     date: '2026-11-12',
     title: 'Image decoding security update, on Python 3.11 or newer',

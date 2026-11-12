@@ -116,12 +116,14 @@ The app needs Python 3.11 or newer. Pinokio creates `env/` on Python 3.12 (`venv
 
 | Tool | Unlocks | Connect it |
 |---|---|---|
-| [ai-toolkit](https://github.com/ostris/ai-toolkit) | Local LoRA training and JoyCaption | Set its directory and Python interpreter in **Settings → Local tools**; conda, uv, venv and portable Python installs are supported |
+| [ai-toolkit](https://github.com/ostris/ai-toolkit) | Local LoRA training and JoyCaption | On an NVIDIA machine, **Setup → LoRA training** installs it in one click: a new folder, the CUDA build of PyTorch it documents, then its directory and Python set for you ([details](settings-reference.md#install-ai-toolkit)). An existing install is selected in **Settings → Local tools**; conda, uv, venv and portable Python installs are supported |
 | [ComfyUI](https://github.com/comfyanonymous/ComfyUI) | Klein/Krea local generation, Studio, Canvas generation and deployment; SDXL base discovery | Keep its API reachable and set the install/models paths in **Settings → Local tools** |
 | [Ollama](https://ollama.com) | Auto-captioning, framing, head-crop and watermark detection | In Docker, choose none/host/companion in **Setup**, then pull the model explicitly from LDS; native installs can use their configured URL |
 | [LM Studio](https://lmstudio.ai) | The same, if that is the local model server you already run | Pick it in **Settings ▸ Local tools**. It only serves a model you have loaded (no JIT by default), and LDS cannot start it for you — its Developer tab has the switch |
 
 Which of the two serves those features is a single setting (**Settings ▸ Local tools ▸ Local LLM provider**); Ollama stays the default. The full path rules, model layouts and provider states are in the [settings reference](settings-reference.md#local-tools). If a tool remains unavailable, use the [troubleshooting guide](troubleshooting.md).
+
+The one-click AI Toolkit install needs an NVIDIA GPU and about 12 GB free on the chosen drive. It works on the Windows ZIP without Git (it then downloads a fixed copy of AI Toolkit, which you can turn into a Git checkout later to update it), on Git checkouts and on Linux. It is not offered in Docker. In Pinokio you can also install AI Toolkit from Pinokio itself and select its folder.
 
 ## API keys
 

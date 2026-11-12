@@ -323,9 +323,16 @@ _BUNDLED_STAMP = '.lds-version'
 # to all of them; only the FETCH differs between the two registries.
 _ALL_NODE_PACKS = tuple(_NODE_PACKS) + tuple(_BUNDLED_NODE_PACKS)
 
-INSTALL_ACTIONS = ('ml_extras', 'ollama_model', 'face_scoring', 'masks',
+# aitoolkit_install puts the trainer itself into a NEW folder of its own
+# (services/aitoolkit_install). Public core: no member lock. Not a pip-FIFO
+# action -- it builds its own venv, so it never races the app's environment --
+# and never part of "Install everything": several GB land only on an explicit
+# click, with a chosen folder.
+INSTALL_ACTIONS = ('aitoolkit_install', 'ml_extras', 'ollama_model', 'face_scoring', 'masks',
                    'watermark_inpaint', 'bank_scoring', 'bank_siglip2',
                    'watermark_detect', 'video_text') + tuple(_MODEL_DOWNLOADS) + _ALL_NODE_PACKS
+# Actions that can be stopped mid-run: their worker owns the only child process.
+_CANCELLABLE_ACTIONS = ('ollama_model', 'aitoolkit_install')
 
 _ML_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-ml.txt'
 _SCRAPE_REQUIREMENTS = cfg.BACKEND_DIR / 'requirements-scrape.txt'
@@ -520,7 +527,7 @@ class Cancelled(Exception):
 def _new_run():
     return {'state': 'running', 'returncode': None, 'log': [], 'progress': None,
             'waiting_for': None, 'cancel_event': threading.Event(), 'response': None,
-            'runtime_notice': None}
+            'runtime_notice': None, 'step': None}
 
 
 def _append(action, line):
@@ -534,7 +541,7 @@ def _append(action, line):
     if run is None:
         return
     log = run['log']
-    if plugin_action_spec(action) is not None:
+    if action == 'aitoolkit_install' or plugin_action_spec(action) is not None:
         line = redact_user_paths(redact_tokens(line))
     log.append(line.rstrip('\n'))
     if len(log) > _LOG_MAX:
@@ -565,11 +572,19 @@ def _set_progress(action, done, total):
     run = _runs.get(action)
     if run is None:
         return
-    run['progress'] = {
+    run['progress'] = None if done is None else {
         'done': done,
         'total': total,
         'pct': (done * 100 // total) if total else None,
     }
+
+
+def _set_step(action, index, total, label):
+    """Which stage of a multi-step install is running ("3 of 6 · Installing
+    PyTorch…"), next to the byte progress of the download inside it."""
+    run = _runs.get(action)
+    if run is not None:
+        run['step'] = {'index': index, 'total': total, 'label': label}
 
 
 def _quote(p: str) -> str:
@@ -741,6 +756,11 @@ def manual_command(action) -> str:
     land in the wrong environment and the extras would never be importable)."""
     if action in ('ml_extras', 'face_scoring', 'masks', 'video_text', 'watermark_inpaint'):
         return '(Use Install in Setup: LDS creates and verifies the isolated Python first.)'
+    if action == 'aitoolkit_install':
+        # Polled with every status read, so never the plan itself (it runs
+        # nvidia-smi and Python probes); GET /api/setup/aitoolkit-install/plan
+        # lists the exact commands for this machine.
+        return '(Use Install in Setup: LDS checks the GPU, the folder and the free space first.)'
     spec = plugin_action_spec(action)
     if spec is not None:
         if callable(spec.get('run')):
@@ -873,9 +893,10 @@ def status(action) -> dict:
     if run is None:
         return {'state': 'idle', 'returncode': None, 'log': [], 'progress': None,
                 'waiting_for': None, 'cancel_requested': False,
-                'manual_command': cmd, 'runtime_notice': None}
+                'manual_command': cmd, 'runtime_notice': None, 'step': None}
     return {'state': run['state'], 'returncode': run['returncode'],
             'log': list(run['log']), 'progress': run.get('progress'),
+            'step': dict(run['step']) if run.get('step') else None,
             # 'queued' -> which action it's waiting behind (the UI shows an honest
             # "waiting for another install" instead of a dead-looking button).
             'waiting_for': run.get('waiting_for'),
@@ -887,24 +908,28 @@ def status(action) -> dict:
             'runtime_notice': dict(run['runtime_notice']) if run.get('runtime_notice') else None}
 
 
-def start(action) -> dict:
+def start(action, options=None) -> dict:
     # The same short admission lock protects plugin removal/disable/replace.
     # Install work itself remains in the existing FIFO worker, outside it.
+    # `options` is read by the one action that takes any (the AI Toolkit
+    # destination folder); every other action ignores it.
     from .plugins.lifecycle import state_change_lock
     with state_change_lock:
-        return _start_locked(action)
+        return _start_locked(action, options)
 
 
 def cancel(action) -> dict:
-    """Request cancellation of the only streamed remote install.
+    """Request cancellation of an install whose interruption is safe.
 
     Pip/model-file workers are not process-safe to interrupt. Ollama's pull is:
     closing its response releases a blocked reader while the event handles the
-    race before/after the response is registered.
+    race before/after the response is registered. The AI Toolkit install is too:
+    it writes only its own new folder, journals every completed step and
+    rebuilds an interrupted one, so its worker stops its current child process.
     """
-    if action != 'ollama_model':
-        raise Precondition('only the Ollama model pull can be cancelled')
-    response = None
+    if action not in _CANCELLABLE_ACTIONS:
+        raise Precondition('only the Ollama model pull and the AI Toolkit install can be cancelled')
+    response = stopper = None
     with _lock:
         run = _runs.get(action)
         if run is None or run.get('state') != 'running':
@@ -915,11 +940,17 @@ def cancel(action) -> dict:
             run['cancel_event'] = event
         event.set()
         response = run.get('response')
+        stopper = run.get('stopper')
     if response is not None:
         try:
             response.close()
         except Exception:
             pass
+    if stopper is not None:
+        try:
+            stopper()
+        except Exception:
+            logger.debug('could not stop the child process of %s', action, exc_info=True)
     return status(action)
 
 
@@ -2906,7 +2937,45 @@ def _run_dlss5nr_bridge(action) -> int:
     return neural_render.install_bridge(log=lambda line: _append(action, line))
 
 
-_WORKERS = {'ml_extras': _run_ml_extras,
+def _run_aitoolkit_install(action):
+    """The trainer, into the folder admitted at start (see aitoolkit_install)."""
+    from .services import aitoolkit_install
+    run = _runs[action]
+
+    def progress(done, total):
+        _set_progress(action, done, total)
+
+    def register(runner):
+        run['stopper'] = runner.kill
+
+    with run['app'].app_context():
+        try:
+            return aitoolkit_install.install(
+                run['options']['dest'], log=lambda line: _append(action, line),
+                step=lambda index, total, label: _set_step(action, index, total, label),
+                progress=progress, cancel_event=run['cancel_event'],
+                find_python=lambda: _find_base_python(action), register=register)
+        except aitoolkit_install.Cancelled:
+            raise Cancelled() from None
+        finally:
+            run['stopper'] = None
+
+
+def _aitoolkit_install_options(options) -> dict:
+    """Admit an AI Toolkit install: the dry-run plan must say 'ready' for the
+    requested folder (or the default one). Raises Precondition with its reason."""
+    from .services import aitoolkit_install
+    dest = options.get('dest') if isinstance(options, dict) else None
+    if dest is not None and not isinstance(dest, str):
+        raise Precondition('dest must be a folder path')
+    checked = aitoolkit_install.plan(dest)
+    if checked['state'] != 'ready':
+        raise Precondition(checked['reason'] or 'AI Toolkit cannot be installed here.')
+    return {'dest': checked['dest']}
+
+
+_WORKERS = {'aitoolkit_install': _run_aitoolkit_install,
+            'ml_extras': _run_ml_extras,
             'ollama_model': _run_ollama_model,
             **{a: _run_ml_capability for a in _CAPABILITY_ML_ACTIONS if a in INSTALL_ACTIONS},
             'watermark_inpaint': _run_watermark_inpaint,
@@ -3153,16 +3222,31 @@ def _worker_for(action):
     return worker
 
 
-def _start_locked(action) -> dict:
+def _start_locked(action, options=None) -> dict:
     if not known_action(action):
         raise ValueError(f'unknown action: {action}')
     global _pip_current
+    admitted = None
+    if action == 'aitoolkit_install':
+        # Its plan runs nvidia-smi and Python probes: check it BEFORE taking the
+        # registry lock every status poll needs, then re-check the run below.
+        with _lock:
+            run = _runs.get(action)
+            if run and run['state'] in ('running', 'queued'):
+                raise AlreadyRunning(action)
+        admitted = _aitoolkit_install_options(options)
     with _lock:
         run = _runs.get(action)
         if run and run['state'] in ('running', 'queued'):
             raise AlreadyRunning(action)
-        check_start_preconditions(action)
+        if admitted is None:
+            check_start_preconditions(action)
         _runs[action] = _new_run()
+        if admitted is not None:
+            _runs[action]['options'] = admitted
+        if action == 'aitoolkit_install':
+            from flask import current_app
+            _runs[action]['app'] = current_app._get_current_object()
         if _is_pip_action(action) and _pip_current is not None:
             # A pip install already owns the worker -> queue this one (FIFO, click
             # order) instead of racing it into the same environment. It starts on its
@@ -3186,6 +3270,8 @@ def check_start_preconditions(action):
     """
     if not known_action(action):
         raise ValueError(f'unknown action: {action}')
+    if action == 'aitoolkit_install':
+        _aitoolkit_install_options(None)
     if action == 'ollama_model':
         _check_ollama_precondition()
     if model_download_spec(action) is not None:
