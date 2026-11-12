@@ -35,13 +35,18 @@ export function InstallRuntimeNotice({ result, onChoose }) {
 // installs are serialized by the backend: a second one requested while one runs
 // comes back 'queued' and starts on its own, so this shows an honest "waiting"
 // state instead of a dead-looking button.
-export default function InstallRunner({ action, buttonLabel, onDone }) {
+// `body` is posted with the start request (the AI Toolkit install sends its
+// folder); `cancellable` shows a Cancel button for actions the backend can stop.
+export default function InstallRunner({ action, buttonLabel, busyLabel = 'Installing…', onDone,
+  body = null, disabled = false, cancellable = action === 'ollama_model',
+  cancelLabel = 'Cancel download', cancelledNote = '' }) {
   const toast = useToast()
   const [state, setState] = useState('idle')  // idle|queued|running|success|error|cancelled
   const [cancelling, setCancelling] = useState(false)
   const [log, setLog] = useState([])
   const [returncode, setReturncode] = useState(null)
   const [progress, setProgress] = useState(null)  // {done,total,pct} for streaming downloads
+  const [step, setStep] = useState(null)  // {index,total,label} for multi-step installs
   const [runtimeNotice, setRuntimeNotice] = useState(null)
   const [pythonPicker, setPythonPicker] = useState(null)
   const timer = useRef(null)
@@ -51,6 +56,7 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
   const apply = (s) => {
     setState(s.state); setLog(s.log || []); setReturncode(s.returncode)
     setProgress(s.progress || null)
+    setStep(s.step || null)
     setRuntimeNotice(s.runtime_notice || null)
     if (s.state !== 'running') setCancelling(false)
   }
@@ -71,7 +77,7 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
         toast[completion.tone](completion.message)
         if (s.runtime_notice?.managed_installed) onDone?.()
       } else if (s.state === 'cancelled') {
-        toast.info('Download cancelled.')
+        toast.info(action === 'ollama_model' ? 'Download cancelled.' : 'Install cancelled.')
       }
     } catch {
       if (!mountedRef.current) return
@@ -102,11 +108,11 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
   }, [action])
 
   const start = async () => {
-    setLog([]); setReturncode(null); setProgress(null); setState('running')
+    setLog([]); setReturncode(null); setProgress(null); setStep(null); setState('running')
     setRuntimeNotice(null); setPythonPicker(null)
     setCancelling(false); fails.current = 0
     try {
-      const s = await postJson(`/api/setup/install/${action}`, {})
+      const s = await postJson(`/api/setup/install/${action}`, body || {})
       if (mountedRef.current && s && s.state) apply(s)  // immediate queued/running feedback
       poll()
     } catch (e) {
@@ -116,7 +122,7 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
   }
 
   const cancel = async () => {
-    if (action !== 'ollama_model' || state !== 'running' || cancelling) return
+    if (!cancellable || state !== 'running' || cancelling) return
     setCancelling(true)
     try {
       const s = await postJson(`/api/setup/install/${action}/cancel`, {})
@@ -126,7 +132,7 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
       timer.current = setTimeout(poll, 0)
     } catch (error) {
       setCancelling(false)
-      toast.error(error.message || 'Could not cancel the download.')
+      toast.error(error.message || 'Could not cancel.')
     }
   }
 
@@ -136,14 +142,14 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={start} disabled={busy}
+        <button type="button" onClick={start} disabled={busy || disabled}
           className="rounded-md bg-gradient-primary px-3 py-1.5 text-xs font-semibold text-gray-950 disabled:opacity-50">
-          {state === 'queued' ? 'Queued…' : running ? 'Installing…' : buttonLabel}
+          {state === 'queued' ? 'Queued…' : running ? busyLabel : buttonLabel}
         </button>
-        {action === 'ollama_model' && running && (
+        {cancellable && running && (
           <button type="button" onClick={cancel} disabled={cancelling}
             className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-raised disabled:opacity-50">
-            {cancelling ? 'Cancelling…' : 'Cancel download'}
+            {cancelling ? 'Cancelling…' : cancelLabel}
           </button>
         )}
       </div>
@@ -151,6 +157,17 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
         <p className="text-[11px] text-content-muted">
           Another install is running — this one starts automatically when it finishes.
         </p>
+      )}
+      {running && step && (
+        <div className="space-y-1" role="status">
+          <p className="text-[11px] text-content-muted">
+            Step {step.index} of {step.total} · {step.label}
+          </p>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-raised">
+            <div className="h-full rounded-full bg-gradient-primary transition-[width] duration-300"
+              style={{ width: `${Math.round(((step.index - 1) / step.total) * 100)}%` }} />
+          </div>
+        </div>
       )}
       {running && progress && (
         <div className="space-y-1">
@@ -182,8 +199,8 @@ export default function InstallRunner({ action, buttonLabel, onDone }) {
       )}
       {state === 'cancelled' && (
         <p className="text-xs text-content-muted">
-          Download cancelled. The partial Ollama transfer can be resumed safely by clicking
-          “{buttonLabel}” again.
+          {cancelledNote || <>Download cancelled. The partial Ollama transfer can be resumed safely by clicking
+          “{buttonLabel}” again.</>}
         </p>
       )}
       {pythonPicker && (
