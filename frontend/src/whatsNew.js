@@ -84,6 +84,16 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-12-pillow-13-python-3-11',
+    date: '2026-11-12',
+    title: 'Image decoding security update, on Python 3.11 or newer',
+    blurb: 'LDS now runs Pillow 13 and filelock 4.2, which fix the security advisories filed against image decoding and '
+      + 'file locking. Both need Python 3.11 or newer. An installation still on Python 3.10 stops after updating and says '
+      + 'what to do: run start.bat again and it rebuilds its environment on Python 3.12, keeping datasets, settings and the '
+      + 'Image Bank; optional ML extras installed in the old environment are installed again from Setup. In Pinokio, '
+      + 'Update rebuilds the environment. Installed plugins keep working.',
+  },
+  {
     id: '2026-11-09-start-bat-python-shim',
     date: '2026-11-09',
     title: 'start.bat starts when python is a version-manager shim',
