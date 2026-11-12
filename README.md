@@ -56,7 +56,7 @@ The core runs without a GPU. Each task has its own floor:
 | Train FLUX.1 or Anima | About 24 GB |
 | No suitable card | Train on a rented [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU with the [Cloud training](bundled/cloud_training/) plugin, or run LDS on a [RunPod GPU](docs/guide/runpod.md) |
 
-These floors come from a 24 GB reference card; training below 16 GB has not been measured. Python 3.10–3.12 supports the local ML extras; the Windows launcher downloads Python 3.12 if needed. See the [hardware and dependency tables](docs/guide/requirements.md) before downloading models or renting a GPU.
+These floors come from a 24 GB reference card; training below 16 GB has not been measured. The app needs Python 3.11–3.12 (3.13+ runs the core but not the local ML extras); the Windows launcher downloads Python 3.12 if needed. See the [hardware and dependency tables](docs/guide/requirements.md) before downloading models or renting a GPU.
 
 ## What it does
 

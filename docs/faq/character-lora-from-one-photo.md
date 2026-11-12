@@ -35,7 +35,7 @@ Import your photos by drag and drop. On a Character dataset they are cropped to 
 ## Limits
 
 - Face similarity is refused on Anime datasets, because InsightFace is trained on photographs and cannot read a drawn face.
-- Face scoring needs the optional ML extras, which require Python 3.10 to 3.12.
+- Face scoring needs the optional ML extras, which require Python 3.11 or 3.12.
 - Generated shots are candidates, not guarantees. Reference quality still matters for likeness, so review each shot before keeping it.
 - A full composition meter does not prove variety. Coverage reads caption words rather than pixels, does not parse negation and refuses to judge under five captions.
 - An API provider can filter a request or return no image; LDS reports the provider's reason but cannot override it.
