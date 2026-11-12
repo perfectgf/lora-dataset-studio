@@ -851,7 +851,8 @@ Toolkit's own installation instructions for that commit:
 1. It downloads the source: a Git clone of the `main` branch reset to that commit or,
    when Git is not installed, the GitHub archive of the same commit.
 2. It creates a `venv` inside that folder from a Python 3.10–3.12 found on the machine.
-   When there is none, LDS first downloads its own Python 3.12.
+   When there is none, or when that Python cannot create a venv (a Linux Python without
+   its venv package), LDS uses its own Python 3.12, downloaded once.
 3. It installs PyTorch 2.13.0, torchvision 0.28.0 and torchaudio 2.11.0 from the PyTorch
    CUDA index AI Toolkit names: `cu130` when the NVIDIA driver supports CUDA 13.0, `cu126`
    for a driver from CUDA 12.6 with a card older than the RTX 50 series. An older driver is
