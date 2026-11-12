@@ -16,7 +16,7 @@ import zipfile
 
 ROOT_FILES = {'start.bat', 'README.md', 'LICENSE', 'config.example.json', '.env.example'}
 BACKEND_FILES = {'bootstrap_dependencies.py', 'port_utils.py', 'python_floor.py', 'requirements.txt',
-                 'requirements-ml.txt', 'requirements-scrape.txt', 'run.py',
+                 'requirements-ml.txt', 'requirements-scrape.txt', 'requirements_sync.py', 'run.py',
                  'single_instance.py', 'supervise.py'}
 # start.bat runs these: one fetches a Python, the other sets an old .venv aside.
 LAUNCHER_SCRIPTS = {'scripts/bootstrap_python.ps1', 'scripts/retire_venv.ps1'}
@@ -26,7 +26,8 @@ LOCAL_DIRS = {'extensions', '__pycache__', 'node_modules', 'tests', 'data',
 ARCHIVE_SUFFIXES = ('.zip', '.whl', '.tar', '.gz', '.bz2', '.xz', '.tgz',
                     '.tbz2', '.txz', '.7z', '.rar', '.pyz')
 PUBLIC_STORE_FILES = {'store/bootstrap.json', 'store/public-root.json', 'store/patreon.json'}
-REQUIRED = ROOT_FILES | {'backend/run.py', 'backend/python_floor.py', 'backend/requirements.txt',
+REQUIRED = ROOT_FILES | {'backend/run.py', 'backend/python_floor.py', 'backend/requirements_sync.py',
+                         'backend/requirements.txt',
                         'backend/app/version.py', 'backend/lds_sdk/__init__.py',
                         'frontend/dist/index.html'} | LAUNCHER_SCRIPTS | PUBLIC_STORE_FILES
 
