@@ -1,6 +1,7 @@
 # Operator environment only. The LDS client does not require signing libraries.
+# Python 3.11 or newer: Pillow 13 and filelock 4.2 no longer support 3.10.
 tuf==7.0.1
 securesystemslib[crypto]==1.5.1
-filelock==3.32.5
+filelock==4.2.10
 packaging==26.0
-Pillow==12.3.0
+Pillow==13.0.0
