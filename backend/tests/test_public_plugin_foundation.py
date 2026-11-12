@@ -258,6 +258,30 @@ def test_v2_package_api_floor_is_checked_before_import(host):
     assert any(item['field'] == 'compatibility.api' for item in host_issues(parsed))
 
 
+def test_packages_recorded_against_the_previous_pillow_and_filelock_keep_loading(host, monkeypatch):
+    """Every published package recorded host_dependencies pillow ==12.3.0 and
+    filelock ==3.32.5. The core moving to 13.0.0 / 4.2.10 must not disable them,
+    yet only that exact predecessor carries over, and a package recorded against
+    the new pin still refuses an older core."""
+    from app.plugins import compatibility
+
+    def parsed(**host_dependencies):
+        return parse_manifest(manifest(
+            schema_version=2, publisher={'id': 'sample', 'name': 'Sample'},
+            compatibility={'lds': '>=1', 'api': '>=1.0', 'python': '>=3.10',
+                           'os': ['windows', 'linux', 'darwin'], 'arch': ['x86_64', 'arm64']},
+            host_dependencies=host_dependencies), Path('/fixture'))
+
+    installed = {'pillow': '13.0.0', 'filelock': '4.2.10'}
+    monkeypatch.setattr(compatibility, 'version', lambda name: installed[name])
+    assert host_issues(parsed(Pillow='==12.3.0', filelock='==3.32.5')) == []
+    assert host_issues(parsed(Pillow='==13.0.0', filelock='==4.2.10')) == []
+    assert [item['field'] for item in host_issues(parsed(Pillow='==12.2.0'))] == ['host_dependencies.pillow']
+    installed.update(pillow='12.3.0', filelock='3.32.5')
+    assert [item['field'] for item in host_issues(parsed(Pillow='==13.0.0', filelock='==4.2.10'))] == [
+        'host_dependencies.pillow', 'host_dependencies.filelock']
+
+
 @pytest.mark.parametrize('name', ['../escape.py', '/absolute.py', 'C:/escape.py', 'normal/../../escape.py'])
 def test_archive_paths_rejected_before_staging(host, name):
     _, _, root = host
