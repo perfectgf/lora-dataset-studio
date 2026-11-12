@@ -1735,7 +1735,9 @@ export default function SetupPage() {
       { label: 'LoRA training — ai-toolkit', stepId: 'training', optional: true,
         state: stepById.training.valid ? 'ready'
           : (detected && detected.aitoolkit && detected.aitoolkit.dir ? 'partial' : 'missing'),
-        partial: 'found on disk — one click to use' },
+        partial: 'found on disk — one click to use',
+        // Its step installs it (AiToolkitInstall); Docker explains instead.
+        missing: oll.dockerManaged ? '' : 'one-click install' },
       { label: 'Quality tools — scoring, masks and cleanup', stepId: 'quality', optional: true,
         state: isReady('quality') ? 'ready' : 'missing' },
     ]
@@ -1778,7 +1780,7 @@ export default function SetupPage() {
               const m = soft ? { ...SCAN_META[r.state], ...NEUTRAL } : SCAN_META[r.state]
               const word = ['partial', 'initializing'].includes(r.state) ? r.partial
                 : r.state === 'skipped' && r.partial ? r.partial
-                : r.state === 'missing' ? (r.optional ? 'optional' : m.word)
+                : r.state === 'missing' ? (r.missing || (r.optional ? 'optional' : m.word))
                 : m.word
               return (
                 <li key={r.label}>

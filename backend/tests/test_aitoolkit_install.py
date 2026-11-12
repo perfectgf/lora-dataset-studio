@@ -321,6 +321,20 @@ def test_setup_worker_streams_steps_and_cancel_reaches_the_child(app, monkeypatc
     setup_installer._runs.pop('aitoolkit_install', None)
 
 
+def test_http_plan_is_a_dry_run_and_start_refuses_with_its_reason(app, monkeypatch, tmp_path):
+    monkeypatch.setattr(aitk, 'machine_facts', lambda: _facts(nvidia=None))
+    monkeypatch.delitem(setup_installer._runs, 'aitoolkit_install', raising=False)
+    client = app.test_client()
+    dest = str(tmp_path / 'ai-toolkit')
+    plan = client.get('/api/setup/aitoolkit-install/plan', query_string={'dest': dest})
+    body = plan.get_json()
+    assert plan.status_code == 200 and body['state'] == 'blocked' and 'NVIDIA GPU' in body['reason']
+    assert body['commands'] and not (tmp_path / 'ai-toolkit').exists()
+    started = client.post('/api/setup/install/aitoolkit_install', json={'dest': dest})
+    assert started.status_code == 400 and 'NVIDIA GPU' in started.get_json()['error']
+    assert 'aitoolkit_install' not in setup_installer._runs
+
+
 def test_setup_installer_admits_it_as_a_cancellable_action(app, monkeypatch):
     monkeypatch.delitem(setup_installer._runs, 'aitoolkit_install', raising=False)
     assert setup_installer.known_action('aitoolkit_install')
