@@ -134,7 +134,10 @@ REM     position, wherever that falls. A .venv on Python 3.11-3.12 whose core pa
 REM     import is never rebuilt, whatever REBUILD says; scripts\retire_venv.ps1 checks
 REM     the same, and a new .venv is only created where none is left.
 if "%REBUILD%"=="1" if exist "%VPY%" (
-  "%VPY%" -c "import sys; sys.exit(0 if (3,11)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>nul && "%VPY%" -c "import flask, werkzeug, sqlalchemy, PIL.Image" >nul 2>nul && set "REBUILD=0"
+  "%VPY%" -c "import sys; sys.exit(0 if (3,11)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>nul && "%VPY%" -c "import flask, werkzeug, sqlalchemy, PIL.Image" >nul 2>nul && (
+    echo [i] .venv runs Python 3.11-3.12 and its core packages import: kept, not rebuilt.
+    set "REBUILD=0"
+  )
 )
 
 REM --- Replace a venv without ever leaving a half-built one, nor losing the last
@@ -167,18 +170,18 @@ if not "%RETIRE_RC%"=="skip" if not "%RETIRE_RC%"=="0" if not "%RETIRE_RC%"=="2"
   exit /b 1
 )
 if "%RETIRE_RC%"=="0" set "SET_ASIDE=1"
-if "%REBUILD%"=="1" if not exist "%VPY%" (
-  call %PY% -m venv .venv || (
+if "%REBUILD%"=="1" (
+  if not exist "%VPY%" call %PY% -m venv .venv || (
     echo.
     echo [!] Could not create .venv with %PY% -- see the messages above.
     if exist .venv-previous (
-      if exist .venv rmdir /s /q .venv
+      if exist .venv-previous if exist .venv rmdir /s /q .venv
       if exist .venv (
         echo [!] The unfinished .venv could not be removed ^(a file in it is still open,
         echo     for example by an antivirus^). The previous environment is kept unchanged
         echo     in .venv-previous; run start.bat again once nothing holds .venv.
       ) else (
-        ren .venv-previous .venv
+        if not exist .venv if exist .venv-previous ren .venv-previous .venv
         if exist .venv-previous ( echo [!] .venv-previous could not be renamed back to .venv; it is kept as it is. ) else ( echo     The previous .venv was put back unchanged. )
       )
     )
@@ -191,20 +194,20 @@ if "%REBUILD%"=="1" if not exist "%VPY%" (
   echo.
   echo [!] Installing the backend requirements failed -- see the pip messages above.
   if "%SET_ASIDE%"=="1" if exist .venv-previous (
-    if exist .venv rmdir /s /q .venv
+    if "%SET_ASIDE%"=="1" if exist .venv-previous if exist .venv rmdir /s /q .venv
     if exist .venv (
       echo [!] The unfinished .venv could not be removed ^(a file in it is still open,
       echo     for example by an antivirus^). The previous environment is kept unchanged
       echo     in .venv-previous; run start.bat again once nothing holds .venv.
     ) else (
-      ren .venv-previous .venv
+      if not exist .venv if exist .venv-previous ren .venv-previous .venv
       if exist .venv-previous ( echo [!] .venv-previous could not be renamed back to .venv; it is kept as it is. ) else ( echo     The previous .venv was put back unchanged. )
     )
   )
   pause
   exit /b 1
 )
-if exist .venv-previous rmdir /s /q .venv-previous
+if exist .venv-previous if exist "%VPY%" if exist .venv\pyvenv.cfg rmdir /s /q .venv-previous
 if not exist frontend\dist\index.html (
   echo frontend\dist is missing -- this repo ships it prebuilt. Run: cd frontend ^&^& npm install ^&^& npm run build
   pause
