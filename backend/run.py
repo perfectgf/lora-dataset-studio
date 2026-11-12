@@ -15,7 +15,7 @@ def _reexec_into_venv():
     start.bat/start.sh flow, a bare `python backend/run.py`, a double-click, an
     IDE, a shell with a newer Python first on PATH — converge on the SAME
     interpreter. That is what lets the optional ML extras (insightface / numpy<2
-    / onnxruntime, which only publish wheels for CPython 3.10-3.12) install into
+    / onnxruntime, which only publish wheels up to CPython 3.12) install into
     a supported Python: the in-app installer and the capability probes both key
     off sys.executable, so if run.py runs on e.g. the machine's default 3.14 the
     extras can never install. Skipped for the frozen/portable build (it bundles
@@ -47,6 +47,11 @@ def _reexec_into_venv():
 _reexec_into_venv()
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# First, before anything that could change the environment or the data folder:
+# on a Python this version no longer supports, say what to do and stop.
+from python_floor import enforce as _enforce_python_floor
+_enforce_python_floor(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from bootstrap_dependencies import ensure_pillow_consistent
 
 # Must run before importing ``app`` (which eventually imports PIL).  This fixes
