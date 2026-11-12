@@ -60,15 +60,135 @@ These floors come from a 24 GB reference card; training below 16 GB has not been
 
 ## What it does
 
-| Area | Capabilities |
-|---|---|
-| Datasets | Character, Concept and Style workflows; image and ZIP/folder import; subject-aware shot catalogs; local Klein and Krea 2 Edit generation; reference editing and exact retries |
-| Image Bank | Review folders in place, score quality, group duplicates and people, search by text or similarity, and build balanced shortlists to promote into datasets |
-| Curation | Keep/reject, crop, mirror, rotate, face similarity, composition checks, editable watermark masks, text detection and recoverable cleaning |
-| Captioning | Local vision models or JoyCaption, family-appropriate prose or tags, appearance policies, bulk editing, targeted re-captioning and external image/`.txt` round trips |
-| Local training | Guided ai-toolkit recipes for Z-Image, SDXL, Krea 2, FLUX.1, FLUX.2 Klein, Anima and Qwen-Image 2.1; queues, advanced settings, checkpoint continuation and experimental slider LoRAs |
-| Review and testing | Generate with all seven image training families; fixed-seed checkpoint/strength comparisons, prompt batches, runs, logs, lineage, votes, rankings and a generated-image Gallery |
-| Files | Standard training ZIPs and sidecars, backup/restore without API keys, ComfyUI deployment, configurable storage and Trash |
+**81 tools, from a few pictures to a LoRA you can trust.** Each one works on its own, and they hand off to each other. The [feature reference](docs/guide/features.md) describes every one in detail.
+
+[Build a dataset from one photo](#build-a-dataset-from-one-photo) (10) · [Sort a big folder with the Image Bank](#sort-a-big-folder-with-the-image-bank) (15) · [Curate, caption and clean](#curate-caption-and-clean) (8) · [Train without writing a config](#train-without-writing-a-config) (9) · [Pick the best checkpoint with evidence](#pick-the-best-checkpoint-with-evidence) (10) · [Keep control of your files](#keep-control-of-your-files) (7) · [Build video datasets (beta)](#build-video-datasets-beta) (22)
+
+### Build a dataset from one photo
+
+Give LDS one reference photo of your character: it proposes the shots a LoRA needs and generates the missing ones, locally or through an API engine. Your own photos, ZIPs and folders work too. The demo above shows the whole Character workflow.
+
+- **Character, Concept and Style datasets**: each kind has its own captioning, masking, readiness checks and training policies.
+- **Human, animal, creature, object and anime subjects**: identity wording and shot catalogs adapted to the subject; Anime keeps the illustrated rendering.
+- **Five generation engines**: Nano Banana Pro (Gemini), ChatGPT (`gpt-image-2`), OpenRouter, or local Klein and Krea 2 Edit through ComfyUI.
+- **Several engines in one batch**: split one shot list across engines; every result stays labelled with the engine that made it.
+- **Generation queue**: generations, upscale batches and retries line up, and a dock shows what the GPU is doing and what is waiting.
+- **Krea 2 Edit**: restage a single reference while preserving identity, without a character LoRA first.
+- **Variation catalog**: balanced expression, angle, lighting, framing, outfit and background shots, with your own entries and JSON import and export.
+- **Shot-type views**: sort or group the grid by shot type to see what you have too many or too few of.
+- **Reference editing and exact retry**: edit the reference with any engine, compare before and after, then retry with the exact prompt.
+- **Import or scrape**: drag in images, merge ZIP or folder datasets, search Reddit, Pexels or the open web, or scan a gallery URL.
+
+### Sort a big folder with the Image Bank
+
+Point the Bank at a folder and review it in place: it scores, groups and searches thousands of images, then builds a balanced shortlist to promote into a dataset.
+
+<p align="center"><a href="docs/screenshots/bank/bank-overview.png"><img src="docs/screenshots/bank/bank-overview.png" alt="Image Bank: sort a large image folder before building a LoRA dataset" width="800"></a></p>
+
+- **Folder or web scrape to bank**: inventory a live folder in place, or scrape straight into a bank.
+- **One scoring pass, many answers**: one pass gives aesthetic, NSFW and style rankings, groups, and the embeddings later tools reuse.
+- **Quality and similarity passes**: flag blur, noise, flat frames, small images and black bars; group duplicates, crops, recompressions and near-duplicates.
+- **Auto-reject by flag**: turn any set of quality flags into one bulk rejection, and undo it as one decision.
+- **People, framing and captions**: cluster faces without a reference, classify face, bust, body and back, and caption the bank for full-text search.
+- **Medium and head angle**: split photographs, anime, 3D renders and illustrations, and filter by frontal, three-quarter, profile or back view.
+- **Find and shortlist**: find by text, pick diverse or framing-balanced sets, find similar images, or describe the set you want in a sentence.
+- **Coverage advice**: names what the pool never shows, such as no profile views or a single outfit. Advice only: nothing is rejected.
+- **Fast review tools**: filter, sort, review one by one, rotate without rewriting the source, and re-run only the passes that apply.
+- **Editable watermark masks**: detect marks, redraw the mask zones, then crop or repaint into a separate clean copy; the source file is never written to.
+- **Crop and upscale in the bank**: reframe a shot, or re-render it at a higher resolution with Klein or SeedVR2, without leaving the bank.
+- **Find text**: read burned-in lettering (speech bubbles, subtitles, Latin or CJK) into the same masks, on the CPU.
+- **Dataset and bank round trip**: promote bank keepers into a dataset, or copy dataset keepers into a bank, with their metadata.
+- **Safe bulk work**: undo the last bulk decision, tune thresholds where you work, move a bank without losing its analysis, or run the whole chain overnight.
+- **One destructive action**: **Delete rejected** is the only Bank action that touches the source folder, behind a typed confirmation that says where the files go.
+
+### Curate, caption and clean
+
+Reject what would end up in the LoRA, remove watermarks and burned-in text, and caption in the style your model reads.
+
+<p align="center"><a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="LoRA dataset curation: keep, reject and crop training images" width="800"></a></p>
+
+- **Curation grid**: keep or reject, crop, mirror, rotate, zoom, resize and multi-select, with non-destructive upscale candidates from Klein or SeedVR2.
+- **Identity and composition checks**: InsightFace similarity, score-based auto-triage, framing badges and a live composition meter for characters.
+- **Model-matched captions**: prose or booru tags chosen by target family, with leak checks for Concept and content-only rules for Style.
+- **Appearance policy**: per trait, choose whether captions omit or describe hair, makeup and nails, facial hair and glasses.
+- **Caption Lab and recovery**: find and replace, tag frequencies, targeted re-captioning, stoppable batches and recovery after a reload.
+- **External caption round trip**: export image and `.txt` pairs, caption them in any tool, then re-import without duplicates or overwritten captions.
+- **Dual long and short captions**: text-side augmentation for the local families that support it; both wordings stay editable.
+- **Watermark review**: detect, review and edit masks, then crop, inpaint with LaMa or re-render with Klein; every edit keeps a backup of the original.
+
+### Train without writing a config
+
+Pick a recipe and start: LDS fills in the ai-toolkit settings and scales the steps with the dataset, on your GPU or a rented one.
+
+<p align="center"><a href="docs/screenshots/training/runs-hub.png"><img src="docs/screenshots/training/runs-hub.png" alt="LoRA training runs with ai-toolkit" width="800"></a></p>
+
+- **Guided local training**: ai-toolkit underneath, starters per family, adaptive step policies, launch guards, a queue and advanced controls.
+- **Slider LoRA (beta)**: train a two-sided slider from positive and negative prompts, so strength moves the trait either way.
+- **Cloud training**: rent a [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU from the same launch flow, stream progress and checkpoints home, and terminate pods automatically.
+- **Parallel cloud runs**: several cloud trainings on one dataset at once to compare settings, each on its own pod.
+- **Full-model training (Krea 2)**: train the whole transformer instead of an adapter, on a rented GPU only.
+- **Merge a LoRA into a checkpoint**: fold one or more LoRAs into a base, each at its own weight, with a plan shown before anything is written.
+- **Custom bases and continuation**: train compatible custom weights and continue from any saved epoch.
+- **Runs**: local and cloud runs together, with progress, logs, stop, retry, continue and download.
+- **Experiment lineage**: inspect, annotate and diff the tree of runs and the checkpoint each continuation resumed from.
+
+### Pick the best checkpoint with evidence
+
+Render every checkpoint with the same seed and prompts, vote, rank by face similarity, and keep everything you generated.
+
+<p align="center"><a href="docs/screenshots/studio/studio-grid.png"><img src="docs/screenshots/studio/studio-grid.png" alt="Test Studio grid comparing LoRA checkpoints at a fixed seed" width="800"></a></p>
+
+- **LoRA Canvas**: every dataset's lineage on one board: compare runs, generate from checkpoints and blend several of them.
+- **Test Studio**: fixed-seed checkpoint and strength grids, multi-LoRA comparisons or combined stacks, votes, Wilson ranking and face ranking.
+- **Prompt batch**: tick several prompts and one launch renders them all with the same checkpoints, settings and seed.
+- **Scenes**: run a bank's or a dataset's captions in order as one batch of prompts.
+- **Gallery**: one feed of every image the app generated, across datasets, with filters, downloads and upscale.
+- **Camera angles**: re-photograph a generated or dataset image from other camera positions, locally with Qwen-Image-Edit.
+- **Civitai top prompts**: browse Civitai's most-reacted images next to their prompts and reuse one or several, with a free Civitai API key.
+- **Video Test Studio**: the same comparison for a video LoRA: one clip per start frame, with the same seed and prompt.
+- **DLSS 5 Neural Rendering**: re-render a finished clip through NVIDIA's DLSS 5 model and compare both side by side. Windows and NVIDIA only; you supply the model file.
+- **Studio shortcuts and recovery**: open Studio from a run, draw prompts from kept captions, and pause safely when ComfyUI drops.
+
+### Keep control of your files
+
+Your datasets stay yours: standard exports, one-file backups and storage you can move.
+
+- **Training ZIP and sidecars**: kept images with same-name `.txt` captions, for ai-toolkit and Kohya-compatible tools.
+- **Portable backup and restore**: datasets, decisions, captions, settings and run history in one file; API keys stay out.
+- **Hugging Face publishing**: publish kept pairs to a dataset repository, private by default, after a rights confirmation.
+- **Publish to Civitai**: push a checkpoint and the images you pick to a Civitai model page; checkpoints stay drafts by default.
+- **ComfyUI deployment**: deploy LoRA checkpoints or downloaded cloud results into your ComfyUI LoRA folder.
+- **Recoverable deletion**: deleted app data goes to the Trash, and destructive Bank actions state their destination first.
+- **Storage you can see and move**: every folder the app writes to, with its size, and the option to move data to another drive.
+
+### Build video datasets (beta)
+
+Turn long videos into training clips: cut, measure, clean and caption the shots before you train. This lane is in beta.
+
+<p align="center"><a href="docs/screenshots/video/video-studio-clips.png"><img src="docs/screenshots/video/video-studio-clips.png" alt="Video Test Studio comparing video LoRA clips" width="800"></a></p>
+
+- **Folder to video bank**: point a bank at a folder of videos; it is referenced in place and never written to.
+- **Create a video dataset directly**: add local files or selected web videos, encoded to the model, length and size you choose.
+- **Automatic shot detection**: finds the cuts, so a long file becomes individually reviewable shots.
+- **Review without waiting**: thumbnails first, and a click plays the shot from the source; nothing is encoded before you decide.
+- **Target-aware cutting**: clip lengths are limited to the frame counts your model accepts (Wan, LTX, MiniMax H3).
+- **Encode only what you keep**: re-encoding is paid once, at promotion, for the clips you kept.
+- **Fix a bad cut instead of rejecting it**: trim either bound, split a shot at the playhead, or draw a shot the detector missed.
+- **Measure every shot**: one pass scores stillness, blur, black moments and frozen stretches; nothing is auto-rejected.
+- **Sound measured, not assumed**: every shot gets its share of silence and its level, for the models that keep audio.
+- **Cap one source's share**: limit how many clips a single file contributes.
+- **Trim the transition off both ends**: optional trim at export; a clip made too short is dropped, never exported short.
+- **Train it without leaving the app**: a promoted set gets a Train button that runs it through your ai-toolkit.
+- **Shots described in words**: a pass writes what happens in each shot, which becomes its caption; your edits are never overwritten.
+- **Spot the shot you already have**: groups near-identical takes and keeps the sharpest one unflagged.
+- **Spot the watermarked shots**: runs the watermark detector on each shot's sharpest frame.
+- **See the bands and the subtitles**: measures letterbox bars and text that holds still, and shows the crop that would remove them.
+- **Catch encoding damage**: duplicated frames, compression blocking and upscales that hide at thumbnail size.
+- **Find a scene by typing a word**: ranks the shots by a phrase and tells you which second matched. A ranking, not a filter.
+- **Triage one keystroke per shot**: keep, reject or skip from the keyboard.
+- **Sort shots by what the camera did**: labels pans, tilts, push-ins, handheld and locked-off shots.
+- **Find the shots that are secretly two shots**: flags the soft cuts that detection misses.
+- **See which shots may be generated**: flags clips whose motion looks generated. A hint, not a verdict.
 
 Dependencies vary by feature. Bank search ranks matches; it does not guarantee exclusions. Undo covers specific actions, and **Delete rejected** can remove source files after confirmation. Video and slider workflows are experimental. See the [feature reference](docs/guide/features.md), [requirements](docs/guide/requirements.md) and [known limitations](docs/guide/known-limitations.md) for the detailed behavior.
 
@@ -78,23 +198,16 @@ Click a screenshot to view it at full size.
 
 <table>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/bank/bank-overview.png"><img src="docs/screenshots/bank/bank-overview.png" alt="Image Bank: sort a large image folder before building a LoRA dataset" width="100%"></a><br><sub>Image Bank</sub></td>
     <td width="33%" align="center"><a href="docs/screenshots/bank/bank-analyze-and-overview.png"><img src="docs/screenshots/bank/bank-analyze-and-overview.png" alt="Image Bank analysis and dataset coverage" width="100%"></a><br><sub>Analysis and coverage</sub></td>
     <td width="33%" align="center"><a href="docs/screenshots/bank/bank-launch-all.png"><img src="docs/screenshots/bank/bank-launch-all.png" alt="Batch image analysis in the Image Bank" width="100%"></a><br><sub>Batch analysis</sub></td>
-  </tr>
-  <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/03-curate.png"><img src="docs/screenshots/03-curate.png" alt="LoRA dataset curation: keep, reject and crop training images" width="100%"></a><br><sub>Dataset curation</sub></td>
     <td width="33%" align="center"><a href="docs/screenshots/bank/find-text-launch.png"><img src="docs/screenshots/bank/find-text-launch.png" alt="Text detection on training images" width="100%"></a><br><sub>Text detection</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/training/runs-hub.png"><img src="docs/screenshots/training/runs-hub.png" alt="LoRA training runs with ai-toolkit" width="100%"></a><br><sub>Training runs</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/studio/studio-grid.png"><img src="docs/screenshots/studio/studio-grid.png" alt="Test Studio grid comparing LoRA checkpoints at a fixed seed" width="100%"></a><br><sub>Checkpoint comparisons</sub></td>
     <td width="33%" align="center"><a href="docs/screenshots/canvas/canvas-board.png"><img src="docs/screenshots/canvas/canvas-board.png" alt="LoRA Canvas: compare and blend LoRAs on a board" width="100%"></a><br><sub>LoRA Canvas</sub></td>
     <td width="33%" align="center"><a href="docs/screenshots/studio/civitai-prompt-browser.png"><img src="docs/screenshots/studio/civitai-prompt-browser.png" alt="Civitai prompt browser for LoRA tests" width="100%"></a><br><sub>Civitai prompts</sub></td>
+    <td width="33%" align="center"><a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="Camera angles: new viewpoints for a character dataset" width="100%"></a><br><sub>Camera angles</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><a href="docs/screenshots/release/camera-angles-picker.png"><img src="docs/screenshots/release/camera-angles-picker.png" alt="Camera angles: new viewpoints for a character dataset" width="100%"></a><br><sub>Camera angles</sub></td>
-    <td width="33%" align="center"><a href="docs/screenshots/video/video-studio-clips.png"><img src="docs/screenshots/video/video-studio-clips.png" alt="Video Test Studio comparing video LoRA clips" width="100%"></a><br><sub>Video Test Studio</sub></td>
     <td width="33%" align="center"><a href="docs/screenshots/video/dlss5-compare.png"><img src="docs/screenshots/video/dlss5-compare.png" alt="DLSS 5 neural rendering before and after comparison" width="100%"></a><br><sub>DLSS 5 comparison</sub></td>
   </tr>
 </table>
