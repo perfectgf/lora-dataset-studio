@@ -128,30 +128,59 @@ if "%REBUILD%"=="0" if "%PY_SUPPORTED%"=="1" (
   )
 )
 
-REM --- Replace a venv without ever leaving a half-built one. The old folder is set
-REM     aside whole: scripts\retire_venv.ps1 waits for the app that used it to exit
-REM     (an in-app update restarts it from that venv), then renames it. The new one
-REM     is built in its place; if creating it or installing into it fails, the old
-REM     one comes back unchanged. It is deleted only once the new one is installed.
+REM --- Recheck right before rebuilding, whatever led here: a start.bat that an update
+REM     replaced while cmd was running it resumes reading the NEW file from the old
+REM     position, wherever that falls. A .venv on Python 3.11-3.12 whose core packages
+REM     import is never rebuilt, whatever REBUILD says; scripts\retire_venv.ps1 checks
+REM     the same, and a new .venv is only created where none is left.
+if "%REBUILD%"=="1" if exist "%VPY%" (
+  "%VPY%" -c "import sys; sys.exit(0 if (3,11)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>nul && "%VPY%" -c "import flask, werkzeug, sqlalchemy, PIL.Image" >nul 2>nul && set "REBUILD=0"
+)
+
+REM --- Replace a venv without ever leaving a half-built one, nor losing the last
+REM     usable one. scripts\retire_venv.ps1 waits for the app that used the old folder
+REM     to exit (an in-app update restarts it from that venv), then renames it whole to
+REM     .venv-previous. The new one is built in its place; if creating it or installing
+REM     into it fails, the old one comes back -- unless the new one cannot be removed:
+REM     then the old one stays in .venv-previous, and the next run keeps it set aside.
+REM     It is deleted only once the new one is installed.
 set "SET_ASIDE=0"
-if "%REBUILD%"=="1" (
-  if exist .venv (
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\retire_venv.ps1" -Venv "%~dp0.venv" -Backup "%~dp0.venv-previous"
-    if errorlevel 1 (
-      echo.
-      echo [!] The old .venv is still in use, so it was left as it is. Close every
-      echo     LoRA Dataset Studio window, then run start.bat again.
-      pause
-      exit /b 1
-    )
-    set "SET_ASIDE=1"
-  )
+set "RETIRE_RC=skip"
+if "%REBUILD%"=="1" if exist .venv (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\retire_venv.ps1" -Venv "%~dp0.venv" -Backup "%~dp0.venv-previous"
+  call set "RETIRE_RC=%%errorlevel%%"
+)
+if "%RETIRE_RC%"=="3" set "REBUILD=0"
+if "%RETIRE_RC%"=="2" (
+  echo.
+  echo [!] The old .venv is still in use, so it was left as it is. Close every
+  echo     LoRA Dataset Studio window, then run start.bat again.
+  pause
+  exit /b 1
+)
+if not "%RETIRE_RC%"=="skip" if not "%RETIRE_RC%"=="0" if not "%RETIRE_RC%"=="2" if not "%RETIRE_RC%"=="3" (
+  echo.
+  echo [!] PowerShell could not run scripts\retire_venv.ps1 ^(exit code %RETIRE_RC%^), so the
+  echo     old .venv was left as it is. To rebuild it by hand: close LoRA Dataset Studio,
+  echo     rename the .venv folder ^(for example to .venv-old^), then run start.bat again.
+  pause
+  exit /b 1
+)
+if "%RETIRE_RC%"=="0" set "SET_ASIDE=1"
+if "%REBUILD%"=="1" if not exist "%VPY%" (
   call %PY% -m venv .venv || (
     echo.
     echo [!] Could not create .venv with %PY% -- see the messages above.
     if exist .venv-previous (
       if exist .venv rmdir /s /q .venv
-      ren .venv-previous .venv && echo     The previous .venv was put back unchanged.
+      if exist .venv (
+        echo [!] The unfinished .venv could not be removed ^(a file in it is still open,
+        echo     for example by an antivirus^). The previous environment is kept unchanged
+        echo     in .venv-previous; run start.bat again once nothing holds .venv.
+      ) else (
+        ren .venv-previous .venv
+        if exist .venv-previous ( echo [!] .venv-previous could not be renamed back to .venv; it is kept as it is. ) else ( echo     The previous .venv was put back unchanged. )
+      )
     )
     pause
     exit /b 1
@@ -163,7 +192,14 @@ if "%REBUILD%"=="1" (
   echo [!] Installing the backend requirements failed -- see the pip messages above.
   if "%SET_ASIDE%"=="1" if exist .venv-previous (
     if exist .venv rmdir /s /q .venv
-    ren .venv-previous .venv && echo     The previous .venv was put back unchanged.
+    if exist .venv (
+      echo [!] The unfinished .venv could not be removed ^(a file in it is still open,
+      echo     for example by an antivirus^). The previous environment is kept unchanged
+      echo     in .venv-previous; run start.bat again once nothing holds .venv.
+    ) else (
+      ren .venv-previous .venv
+      if exist .venv-previous ( echo [!] .venv-previous could not be renamed back to .venv; it is kept as it is. ) else ( echo     The previous .venv was put back unchanged. )
+    )
   )
   pause
   exit /b 1

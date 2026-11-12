@@ -54,6 +54,11 @@ def test_any_other_interpreter_is_left_alone(tmp_path, monkeypatch):
     calls = []
     for prefix in (sys.base_prefix, str(root / 'env'), str(tmp_path / 'elsewhere' / '.venv')):
         assert requirements_sync.ensure(root, prefix=prefix, run=lambda *a, **k: calls.append(a)) is None
+    # Docker images hold /app/.venv too, but install their requirements when built.
+    for runtime in ('docker', 'docker-gpu', 'docker-external-comfy'):
+        monkeypatch.setenv('LDS_RUNTIME', runtime)
+        assert requirements_sync.ensure(root, prefix=str(root / '.venv'),
+                                        run=lambda *a, **k: calls.append(a)) is None
     assert calls == []
 
 

@@ -10,14 +10,22 @@ does not satisfy backend/requirements.txt, pip installs the file once and the bo
 goes on. A failure is reported and the boot goes on with what is installed, as it
 did before.
 
-Only the environment start.bat owns is touched: the repository's own .venv.
-Any other interpreter -- a system Python, a hand-made venv, Pinokio's env (its
-Update tab installs with uv, into an env without pip), Docker's immutable image,
-a frozen build -- is left to whoever installs it.
+Only the app's own environment is touched: the repository's .venv, the one
+start.bat builds and the one the manual install of docs/guide/getting-started.md
+creates under the same name; installing backend/requirements.txt into it is what
+both already do on every update. Docker images also hold /app/.venv, but each
+image installs its requirements when it is built and the update path rebuilds it,
+so the Docker lanes (LDS_RUNTIME docker, docker-gpu, docker-external-comfy) are
+left alone, as are Pinokio (its Update tab installs into env/ with uv), any other
+interpreter -- a system Python, a venv elsewhere -- and a frozen build.
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+_IMAGE_RUNTIMES = {'docker', 'docker-gpu', 'docker-external-comfy'}
+
 
 def owned_venv(repo_root, prefix=None) -> bool:
     """Whether this interpreter runs from the repository's own .venv (start.bat's)."""
@@ -54,6 +62,8 @@ def unsatisfied(requirements_path) -> list:
 def ensure(repo_root, *, run=subprocess.run, out=print, prefix=None):
     """Bring start.bat's .venv up to backend/requirements.txt; never stops the boot."""
     if getattr(sys, 'frozen', False) or not owned_venv(repo_root, prefix):
+        return None
+    if os.environ.get('LDS_RUNTIME', '').strip().lower() in _IMAGE_RUNTIMES:
         return None
     requirements = Path(repo_root) / 'backend' / 'requirements.txt'
     try:

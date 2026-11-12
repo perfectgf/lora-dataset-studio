@@ -53,8 +53,9 @@ def refusal(*, repo_root, executable, version, runtime=None) -> str:
     if kind == 'pinokio':
         return (f'[LDS] This version of LoRA Dataset Studio needs Python {floor} or newer,\n'
                 f'      and the Pinokio environment (env) still runs Python {version}.\n'
-                f'      Nothing was changed. In Pinokio: Stop, click Update (it rebuilds env on\n'
-                f'      Python 3.12), then Start.')
+                f'      Nothing was changed. In Pinokio 3.8.27 or newer: Stop, click Update (it\n'
+                f'      rebuilds env on Python 3.12; the first Update after this version may only\n'
+                f'      fetch the new installer, then click it again), then Start.')
     return (f'[LDS] This version of LoRA Dataset Studio needs Python {floor} or newer;\n'
             f'      {executable} is Python {version}. Nothing was changed.\n'
             f'      Recreate the virtual environment on Python 3.11 or 3.12, install\n'
