@@ -5,7 +5,8 @@ SQLAlchemy==2.0.52
 Werkzeug==3.1.9
 requests==2.34.2
 python-dotenv==1.2.3
-Pillow==12.3.0
+# Pillow 13 and filelock 4.2 (below) need Python 3.11 or newer.
+Pillow==13.0.0
 # HEIC/HEIF photos (iPhone, recent Android) at import: pi-heif is pillow-heif's
 # decode-only build (BSD binding; LGPL libheif + libde265 wheels, no encoder).
 # Limited to the platforms it publishes wheels for: anywhere else pip would try to
@@ -27,4 +28,4 @@ packaging==26.0
 # Signed plugin catalog and isolated local metadata cache.
 tuf==7.0.1
 securesystemslib[crypto]==1.5.1
-filelock==3.32.5
+filelock==4.2.10
