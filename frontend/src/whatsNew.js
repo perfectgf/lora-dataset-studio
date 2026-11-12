@@ -90,8 +90,9 @@ export const WHATS_NEW = [
     blurb: 'LDS now runs Pillow 13 and filelock 4.2, which fix the security advisories filed against image decoding and '
       + 'file locking. Both need Python 3.11 or newer. An installation still on Python 3.10 stops after updating and says '
       + 'what to do: run start.bat again and it rebuilds its environment on Python 3.12, keeping datasets, settings and the '
-      + 'Image Bank; optional ML extras installed in the old environment are installed again from Setup. In Pinokio, '
-      + 'Update rebuilds the environment. Installed plugins keep working.',
+      + 'Image Bank; optional ML extras installed in the old environment are installed again from Setup. In Pinokio '
+      + '(3.8.27 or newer), click Update twice: the second one rebuilds the environment on Python 3.12. Installed '
+      + 'plugins keep working.',
   },
   {
     id: '2026-11-09-start-bat-python-shim',

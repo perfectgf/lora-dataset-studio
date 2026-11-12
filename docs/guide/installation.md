@@ -110,6 +110,8 @@ In [Pinokio](https://pinokio.computer), open **Discover → Download from URL** 
 
 Only the core app is installed this way. Complete **Setup**, then choose your optional features in **Plugins → Store**; each plugin carries its own settings and preparation steps. Updates go through Pinokio's **Update** tab: because Pinokio starts and stops the server, the app detects this install shape and shows *Stop → Update → Start* instead of its own **Update & restart** button, which would relaunch the server outside Pinokio's control.
 
+The app needs Python 3.11 or newer. Pinokio creates `env/` on Python 3.12 (`venv_python`), which requires **Pinokio 3.8.27 or newer**: update Pinokio first if it is older. An installation made on Pinokio's bundled Python 3.10 needs **Update twice** when it reaches this version: the first Update still runs the previous installer, which cannot install the new requirements, and Start then says so; the second one moves the old `env/` aside and rebuilds it on Python 3.12. Datasets, settings and the Image Bank are not touched.
+
 ## External tools
 
 | Tool | Unlocks | Connect it |
