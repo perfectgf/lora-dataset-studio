@@ -36,7 +36,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from urllib.parse import urlencode, urljoin
+from urllib.parse import quote, urlencode, urljoin
 
 import requests
 from flask import current_app
@@ -1229,6 +1229,31 @@ def fetch_object_info_classes(timeout=None):
     install's number, and the payload grows with every node pack and every model
     file the user adds. See `object_info_timeout()`."""
     return _fetch_object_info(timeout)[0]
+
+
+def node_description_fails(class_type, timeout=10):
+    """True when the target ComfyUI HAS `class_type` but cannot describe it.
+
+    /object_info leaves such a node out exactly as it leaves out one it never had:
+    ComfyUI logs the error and builds the rest. A built-in loader goes missing that
+    way when a model folder ComfyUI had listed is moved or deleted while it runs —
+    its cached listing then raises on every description until ComfyUI restarts, and
+    updating ComfyUI fixes nothing. Asking for the one node tells the two apart: an
+    empty answer for a class this ComfyUI does not have, its own server error for
+    one it cannot describe.
+
+    False when the node is absent or described, None when the question got no answer
+    (a proxy's 502 included: that is not ComfyUI speaking)."""
+    try:
+        resp = requests.get(urljoin(api_address(), '/object_info/' + quote(str(class_type), safe='')),
+                            timeout=network_timeout((_OBJECT_INFO_CONNECT_TIMEOUT, timeout)),
+                            allow_redirects=False)
+    except Exception as e:  # noqa: BLE001 — could not ask: the caller keeps its own verdict
+        logger.debug('node description probe failed for %s: %s', class_type, e)
+        return None
+    if resp.status_code == 500:
+        return True
+    return False if resp.status_code == 200 else None
 
 
 def fetch_object_info_model_files(timeout=None):
