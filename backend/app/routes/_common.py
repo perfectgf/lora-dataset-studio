@@ -172,6 +172,10 @@ _STUDIO_FAMILY_LABELS = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2 Tu
                          'anima': 'Anima', 'qwenimage21': 'Qwen-Image 2.1'}
 
 
+_UNREADABLE_NODE = ('This happens when a model folder is moved or deleted while ComfyUI is '
+                    'running: restart ComfyUI. If it persists, the ComfyUI log names the cause.')
+
+
 def _studio_missing_response(e):
     """Turn a StudioAssetsMissing into a structured 409 (same spirit as Klein's
     missing-models 409): a human message + the itemized file/node lists the front
@@ -198,16 +202,25 @@ def _studio_missing_response(e):
         msg += (f"{len(invalid)} model file(s) are present but not real weights "
                 f"(an HTML download page saved as .safetensors, or a truncated "
                 f"download) — delete and re-download them. ")
-    node_packs = []
+    node_packs, unreadable = [], []
     if e.missing_nodes:
         # Name WHAT to install for the nodes we recognise (pack + ComfyUI-Manager
         # search term + URL), so the user doesn't have to reverse-map a class_type.
         from ..services.lora_test_studio import studio_missing_node_hints
+        from ..utils.comfyui import node_description_fails
         from ..utils.trained_image_workflows import REQUIRED_NODES
-        node_packs = studio_missing_node_hints(e.missing_nodes)
+        # A node ComfyUI has but cannot describe is not a node to install or an old
+        # ComfyUI: it comes back with a restart, so it is told apart before any advice.
+        unreadable = [name for name in e.missing_nodes if node_description_fails(name)]
+        absent = [name for name in e.missing_nodes if name not in unreadable]
+        node_packs = studio_missing_node_hints(absent)
         core = set().union(*REQUIRED_NODES.values()) | {'EmptyFlux2LatentImage'}
-        native_missing = [name for name in e.missing_nodes if name in core]
-        msg += f"{len(e.missing_nodes)} required ComfyUI node(s) are missing. "
+        native_missing = [name for name in absent if name in core]
+        if unreadable:
+            msg += (f"ComfyUI has {', '.join(unreadable)} but cannot describe "
+                    f"{'it' if len(unreadable) == 1 else 'them'}. {_UNREADABLE_NODE} ")
+        if absent:
+            msg += f"{len(absent)} required ComfyUI node(s) are missing. "
         if native_missing:
             msg += 'Update ComfyUI to add its built-in nodes, then restart ComfyUI. '
         for h in node_packs:
@@ -224,9 +237,18 @@ def _studio_missing_response(e):
             else:
                 msg += (f"For “{h['class_type']}”, install “{h['pack']}” from "
                         f"{h.get('setup', 'Setup')}, then restart ComfyUI. ")
+        node_packs += [{'class_type': name, 'pack': 'a ComfyUI restart',
+                        'unavailable': _UNREADABLE_NODE} for name in unreadable]
         node_packs += [{'class_type': name, 'pack': 'ComfyUI', 'core': True}
                        for name in native_missing]
     msg += "Then relaunch the test."
+    # The banner names what is missing; the log must too, or a refusal that clears
+    # itself (a ComfyUI restart) leaves nothing to explain it afterwards.
+    logger.warning('%s test pipeline refused: files=%s invalid=%s nodes=%s, of which ComfyUI '
+                   'cannot describe %s', e.family,
+                   [f.get('path') if isinstance(f, dict) else f for f in e.missing_files],
+                   [f.get('path') if isinstance(f, dict) else f for f in invalid],
+                   e.missing_nodes, unreadable)
     return jsonify({'ok': False, 'error': msg,
                     'studio_missing': {'family': e.family,
                                        'files': e.missing_files,

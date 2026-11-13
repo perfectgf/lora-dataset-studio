@@ -159,6 +159,23 @@ def _no_live_comfyui_input_visibility_probe(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_live_comfyui_node_description_probe(request, monkeypatch):
+    """A refused Studio run now ASKS ComfyUI why a node is missing
+    (`node_description_fails`, GET `<comfyui>/object_info/<class>`), to tell a node it
+    cannot describe from one it does not have. Same undeclared dependency as the
+    fixtures above: on a machine running ComfyUI the question is answered by someone
+    else's install, and the wording of a refusal would follow that machine's state.
+
+    None is the function's own "could not ask", which keeps every refusal on the
+    wording it had before the probe. Tests that are ABOUT the probe opt back in with
+    @pytest.mark.comfyui_http and stub `requests` themselves; tests of the refusal
+    set their own verdict, and a later setattr wins."""
+    if request.node.get_closest_marker('comfyui_http'):
+        return
+    monkeypatch.setattr('app.utils.comfyui.node_description_fails', lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_live_comfyui_node_info(request, monkeypatch):
     """Building an H3 graph with sparse attention now ASKS ComfyUI which
     H3-Optimizations release it runs (`fit_node_inputs`), and the Sage probe

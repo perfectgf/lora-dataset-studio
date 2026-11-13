@@ -198,6 +198,44 @@ def test_missing_native_node_and_setup_node_have_actionable_409(app):
             body['studio_missing']['node_packs'])
 
 
+def test_a_node_comfyui_cannot_describe_asks_for_a_restart_not_an_update(app, monkeypatch, caplog):
+    """A model folder deleted under a running ComfyUI drops UNETLoader from its node
+    list until it restarts; sending the user to update ComfyUI fixes nothing."""
+    from app.routes._common import _studio_missing_response
+    from app.utils import comfyui
+    monkeypatch.setattr(comfyui, 'node_description_fails', lambda name: name == 'UNETLoader')
+    with app.app_context(), caplog.at_level('WARNING'):
+        response, status = _studio_missing_response(studio.StudioAssetsMissing(
+            'krea', [], ['UNETLoader', 'LDSKrea2PresetSampler']))
+        body = response.get_json()
+    assert status == 409
+    assert 'ComfyUI has UNETLoader but cannot describe it' in body['error']
+    assert 'restart ComfyUI' in body['error'] and 'Update ComfyUI' not in body['error']
+    assert '1 required ComfyUI node(s) are missing' in body['error']
+    packs = {pack['class_type']: pack for pack in body['studio_missing']['node_packs']}
+    assert 'restart ComfyUI' in packs['UNETLoader']['unavailable'] and 'core' not in packs['UNETLoader']
+    assert packs['LDSKrea2PresetSampler']['pack'] == 'Krea 2 preset sampler'
+    assert "cannot describe ['UNETLoader']" in caplog.text
+
+
+@pytest.mark.comfyui_http
+@pytest.mark.parametrize('answer, verdict', [(500, True), (200, False), (502, None), (None, None)])
+def test_only_comfyuis_own_error_says_a_node_cannot_be_described(monkeypatch, answer, verdict):
+    from types import SimpleNamespace
+    from app.utils import comfyui
+    asked = []
+
+    def get(url, **_kw):
+        asked.append(url)
+        if answer is None:
+            raise comfyui.requests.exceptions.ConnectionError('refused')
+        return SimpleNamespace(status_code=answer)
+
+    monkeypatch.setattr(comfyui.requests, 'get', get)
+    assert comfyui.node_description_fails('UNet loader/x') is verdict
+    assert asked == [comfyui.urljoin(comfyui.api_address(), '/object_info/UNet%20loader%2Fx')]
+
+
 def test_preflight_reads_nodes_from_the_built_qwen_graph(monkeypatch):
     from app.utils import comfyui
     base = _install_family(monkeypatch, 'qwenimage21')
