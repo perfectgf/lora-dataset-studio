@@ -160,6 +160,12 @@ export const WHATS_NEW = [
     to: '/studio',
   },
   {
+    id: '2026-11-15-zz-bank-pass-waits-and-retries', date: '2026-11-15',
+    title: 'Long Bank passes survive sleep and a refused save',
+    blurb: 'A framing or caption pass over a large bank no longer skips its remaining images after the computer slept. When the database refuses a save for a moment, the pass tries again; when it stays refused, the pass stops and says what to check. What was already saved is kept in every case.',
+    to: '/bank',
+  },
+  {
     id: '2026-11-15-z-krea-identity-lora-lds-server', date: '2026-11-15',
     title: 'Krea 2 Edit installs without depending on Civitai',
     blurb: 'Setup now downloads the Krea 2 Identity Edit LoRA from the LDS download server. It is the unmodified file its author publishes, checked against its published size and fingerprint, so installing Krea 2 Edit no longer depends on Civitai being reachable or on a Civitai key.',

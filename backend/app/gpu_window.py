@@ -110,18 +110,54 @@ def bind_vision_window_context(callback):
 
 
 def _renew_owned_vision_token(token: str, ttl: int) -> bool:
-    """Refresh exactly one claimed token, including from a heartbeat thread."""
+    """Refresh exactly one claimed token, including from a heartbeat thread.
+
+    Two situations look like a lost reservation and are not one:
+
+    * The persisted record EXPIRED while its window was still running: the
+      machine slept for longer than the TTL, or every renewal was starved. No
+      other owner could take the GPU meanwhile, because the in-process fence
+      (``_active_vision_window_tokens``) stayed up, so the record is written
+      again. Before this, a pass that woke up refused every remaining image.
+    * The WRITE is refused for a moment (a full disk, a file another program
+      holds) while the stored record is still this token and has not expired:
+      the reservation stands and the next renewal tries again.
+
+    Still ``False``, fail-closed: another owner holds the record, the window of
+    this token has exited (a worker that outlived it cannot bring it back), or
+    ownership cannot be confirmed at all.
+    """
     def _renew():
-        try:
-            with GPU_ARBITER_LOCK:
-                if queue_manager._get_system_state('vision_in_progress') != token:
-                    return False
+        from .extensions import db
+        with GPU_ARBITER_LOCK:
+            try:
+                current = queue_manager._get_system_state('vision_in_progress')
+                if current != token:
+                    if current is not None or token not in _active_vision_window_tokens:
+                        return False
+                    logger.warning(
+                        'vision GPU window: its reservation had expired while the pass was '
+                        'still running (the machine slept, or the renewals were starved); '
+                        'written again')
                 queue_manager._set_system_state('vision_in_progress', token,
                                                 ttl_seconds=ttl)
                 return True
-        except Exception:
-            logger.exception('vision GPU window renewal failed')
-            return False
+            except Exception:
+                logger.exception('vision GPU window renewal failed')
+                # A commit that failed leaves its session unusable until it is
+                # rolled back, and on the pass's own thread that session is the
+                # pass's: without this, its next write fails with "This session
+                # is in 'prepared' state" instead of the real cause.
+                try:
+                    db.session.rollback()
+                    return queue_manager._get_system_state('vision_in_progress') == token
+                except Exception:
+                    logger.exception('vision GPU window: ownership could not be read back')
+                    try:
+                        db.session.rollback()
+                    except Exception:   # noqa: BLE001 — nothing left to undo
+                        pass
+                    return False
 
     return bool(_in_app_context(_renew))
 
@@ -134,8 +170,9 @@ def _heartbeat_interval_seconds(ttl: int) -> float:
 def renew_gpu_exclusive_vision_window(flag_ttl=None) -> bool:
     """Refresh this context's persisted Vision ownership before an Ollama call.
 
-    A worker that outlives the outer Vision window cannot revive it: it must
-    still own the exact token in ``SystemState``. ``False`` is fail-closed and
+    A worker that outlives the outer Vision window cannot revive it: the record
+    is only written again while that window is still running in this process
+    (see :func:`_renew_owned_vision_token`). ``False`` is fail-closed and
     callers must not start another local inference after it.
     """
     owned = _vision_window_context.get()
@@ -184,6 +221,7 @@ def gpu_exclusive_vision_window(flag_ttl=300):
     context_token = _vision_window_context.set((token, ttl))
     claimed = False
     active_registered = False
+    body_failed = False
     heartbeat_stop = threading.Event()
     heartbeat = None
     try:
@@ -239,14 +277,22 @@ def gpu_exclusive_vision_window(flag_ttl=300):
         # cleanup stops and joins it before clearing, so a stale thread cannot
         # revive a released or replacement window.
         def _heartbeat():
+            lost = False
             while not heartbeat_stop.wait(_heartbeat_interval_seconds(ttl)):
-                if not _renew_owned_vision_token(token, ttl):
+                if _renew_owned_vision_token(token, ttl):
+                    if lost:
+                        lost = False
+                        logger.warning('vision GPU window heartbeat renewed its reservation again')
+                elif not lost:
                     # The process-local active-token fence remains set until the
                     # outer window exits, so Queue/Training stay blocked even if
-                    # this persisted TTL has expired.
+                    # this persisted TTL has expired. The heartbeat keeps asking:
+                    # it used to stop here for good, so one refused write (a full
+                    # disk for a minute) left a pass of several hours without any
+                    # renewal, and the record expired under it.
+                    lost = True
                     logger.error(
                         'vision GPU window heartbeat lost ownership; in-process GPU fence retained')
-                    return
 
         heartbeat = threading.Thread(
             target=_heartbeat, name='lds-vision-gpu-heartbeat', daemon=True)
@@ -261,7 +307,11 @@ def gpu_exclusive_vision_window(flag_ttl=300):
             claimed = False
             raise GpuBusyError('Could not keep the Vision GPU reservation alive safely.') from exc
 
-        yield
+        try:
+            yield
+        except BaseException:
+            body_failed = True
+            raise
     finally:
         heartbeat_stop.set()
         if heartbeat is not None and heartbeat is not threading.current_thread():
@@ -272,7 +322,17 @@ def gpu_exclusive_vision_window(flag_ttl=300):
                     with GPU_ARBITER_LOCK:
                         if queue_manager._get_system_state('vision_in_progress') == token:
                             queue_manager._set_system_state('vision_in_progress', None)
-                _in_app_context(_clear_owned)
+                try:
+                    _in_app_context(_clear_owned)
+                except Exception:
+                    # The failure of the pass is the one to report. A cleanup
+                    # that fails for the same reason (a database that refuses
+                    # every write) used to replace it with its own error, and a
+                    # full disk was reported as a session in 'prepared' state.
+                    if not body_failed:
+                        raise
+                    logger.exception('vision GPU window: its reservation could not be cleared '
+                                     'after the pass failed; it expires on its own')
         finally:
             # Keep this after stop/join and database cleanup. Even if the app
             # context is unavailable during teardown, the in-process fence must
