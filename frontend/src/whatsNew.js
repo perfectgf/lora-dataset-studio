@@ -107,6 +107,12 @@ export const WHATS_NEW = [
     blurb: 'A local engine added by a plugin, such as Dataset Forge, was reported as a part of your setup that stopped working whenever ComfyUI was not running. The background check now waits for ComfyUI to answer before it judges such an engine.',
   },
   {
+    id: '2026-11-15-z-krea-identity-lora-lds-server', date: '2026-11-15',
+    title: 'Krea 2 Edit installs without depending on Civitai',
+    blurb: 'Setup now downloads the Krea 2 Identity Edit LoRA from the LDS download server. It is the unmodified file its author publishes, checked against its published size and fingerprint, so installing Krea 2 Edit no longer depends on Civitai being reachable or on a Civitai key.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-11-15-setup-install-ai-toolkit', date: '2026-11-15',
     title: 'Install AI Toolkit from Setup',
     blurb: 'No trainer yet? Setup can install AI Toolkit for you. It checks your NVIDIA GPU and free space, downloads AI Toolkit with the CUDA build of PyTorch it documents into a new folder, confirms that the GPU is visible and selects it in Settings. Follow the log, cancel at any time and resume after an interruption.',

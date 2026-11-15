@@ -18,8 +18,8 @@ thread and expose their live state for polling. Actions:
   krea_model         -> the Krea 2 Turbo base into <ComfyUI>/models/diffusion_models/krea/
   krea_text_encoder  -> qwen3vl_4b_fp8_scaled into <ComfyUI>/models/text_encoders/
   krea_vae           -> qwen_image_vae into <ComfyUI>/models/vae/
-  krea_identity_lora -> the Krea 2 Identity Edit LoRA (Civitai) into
-                        <ComfyUI>/models/loras/krea/
+  krea_identity_lora -> the Krea 2 Identity Edit LoRA (its author's file, served by the
+                        LDS download server) into <ComfyUI>/models/loras/krea/
   krea_nodes         -> prepare the pinned node pack in a supported ComfyUI portable;
                         existing unmanaged folders are preserved. Restart and a loaded-node
                         check are required before the engine can be considered ready.
@@ -150,21 +150,19 @@ _KREA_DOWNLOADS = {
         'min_free_gb': 1, 'gated': False, 'min_bytes': 8 * 1024 ** 2,
         'license_url': 'https://huggingface.co/Comfy-Org/Krea-2',
     },
-    # The identity LoRA is hosted on Civitai, not Hugging Face — hence `auth`:
-    # the HF bearer token must NEVER be sent to another host, and a Civitai key
-    # (the one the scraper already reads) IS sent when the user has one.
-    #
-    # Whether Civitai serves this file anonymously is NOT something this code
-    # asserts: measured open on 2026-07-27 from one IP, and Civitai gates parts
-    # of its catalogue (NSFW, early access, creator restrictions) with rules that
-    # have changed before and vary by country. So: try without a key, send one
-    # when it exists, and turn a 401/403 into instructions. The filename matches
+    # The identity LoRA is a community file published on Civitai. LDS serves its
+    # own unmodified copy of it, so installing Krea 2 Edit depends on no other
+    # site's login; the author's page (`license_url`) stays the reference for the
+    # terms. `auth: 'none'`: neither the Hugging Face token nor a Civitai key is
+    # ever sent to the LDS server. The size and the SHA256 are the published
+    # file's, checked before the download takes its place. The filename matches
     # the krea.identity_lora default so the resolver finds it by canonical name.
     'krea_identity_lora': {
-        'url': 'https://civitai.com/api/download/models/3139172',
+        'url': 'https://lds.perfectgf.fr/models/krea/krea2_identity_edit_v1_2.safetensors',
         'dest': ('loras', 'krea', 'krea2_identity_edit_v1_2.safetensors'),
-        'min_free_gb': 3, 'gated': False, 'auth': 'civitai',
-        'min_bytes': 512 * 1024,
+        'min_free_gb': 3, 'gated': False, 'auth': 'none',
+        'min_bytes': 512 * 1024, 'expected_bytes': 1828256432,
+        'sha256': '6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf',
         'license_url': 'https://civitai.com/models/2761113',
     },
 }
@@ -2293,9 +2291,12 @@ def _civitai_key():
 def _download_auth(spec):
     """(headers, provider) for a download. A provider's token is NEVER sent to
     another host: the HF bearer only goes to Hugging Face URLs, the Civitai key
-    only to Civitai. No credential at all is a legitimate case for both — public
+    only to Civitai, and a file LDS serves itself ('none') gets no credential.
+    No credential at all is a legitimate case for both — public
     files download fine and a 401/403 is handled below."""
     provider = spec.get('auth', 'hf')
+    if provider == 'none':
+        return {}, provider
     token = _civitai_key() if provider == 'civitai' else cfg.secret('HF_TOKEN')
     return ({'Authorization': f'Bearer {token}'} if token else {}), provider
 
@@ -3448,6 +3449,10 @@ def _log_denied(action, status, license_url, provider):
     """The recovery steps for a 401/403, the same four lines whichever file of
     an action the host refused — a companion can be gated while its main file
     was not (the INT8 row's adapters live on another repository)."""
+    if provider == 'none':
+        # A file LDS serves itself takes no credential: there is no key to create.
+        _append(action, f'HTTP {status} - the LDS download server refused this file. Retry later.')
+        return
     host, key_url, key_name, verb = _AUTH_RECOVERY.get(provider, _AUTH_RECOVERY['hf'])
     _append(action, f'HTTP {status} - {host} denied access to this file.')
     if license_url:
