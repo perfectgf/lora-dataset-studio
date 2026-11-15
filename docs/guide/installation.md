@@ -123,7 +123,7 @@ The app needs Python 3.11 or newer. Pinokio creates `env/` on Python 3.12 (`venv
 
 Which of the two serves those features is a single setting (**Settings ▸ Local tools ▸ Local LLM provider**); Ollama stays the default. The full path rules, model layouts and provider states are in the [settings reference](settings-reference.md#local-tools). If a tool remains unavailable, use the [troubleshooting guide](troubleshooting.md).
 
-The one-click AI Toolkit install needs an NVIDIA GPU and about 12 GB free on the chosen drive. It works on the Windows ZIP without Git (it then downloads a fixed copy of AI Toolkit, which you can turn into a Git checkout later to update it), on Git checkouts and on Linux. It is not offered in Docker. In Pinokio you can also install AI Toolkit from Pinokio itself and select its folder.
+The one-click AI Toolkit install needs an NVIDIA GPU and about 8 GB free on the chosen drive (10 GB with an older NVIDIA driver, whose PyTorch build is larger). It works on the Windows ZIP without Git (it then downloads a fixed copy of AI Toolkit, which you can turn into a Git checkout later to update it), on Git checkouts and on Linux. It is not offered in Docker. In Pinokio you can also install AI Toolkit from Pinokio itself and select its folder.
 
 ## API keys
 
