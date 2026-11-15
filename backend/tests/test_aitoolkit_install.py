@@ -81,7 +81,19 @@ def test_disk_space_is_checked_and_announced(app, tmp_path, monkeypatch):
     monkeypatch.setattr(aitk, '_free_gb', lambda path: (7.9, 'C:\\'))
     out = aitk.plan(str(tmp_path / 'ai-toolkit'), facts=_facts())
     assert out['state'] == 'blocked'
-    assert f'about {aitk.MIN_FREE_GB} GB free on C:\\ (7.9 GB free now)' in out['reason']
+    assert 'about 8 GB free on C:\\ (7.9 GB free now)' in out['reason']
+
+
+def test_the_space_needed_follows_the_pytorch_build(app, tmp_path, monkeypatch):
+    # A real install (cu130) left 4.5 GB on disk and peaked near 6 GB; the cu126 wheel is larger.
+    monkeypatch.setattr(aitk, '_free_gb', lambda path: (8.5, 'D:\\'))
+    recent = aitk.plan(str(tmp_path / 'ai-toolkit'), facts=_facts())
+    assert recent['state'] == 'ready' and recent['cuda_build'] == 'cu130' and recent['disk']['need_gb'] == 8
+    older = _facts()
+    older['nvidia'] = dict(older['nvidia'], cuda=(12, 6))
+    out = aitk.plan(str(tmp_path / 'ai-toolkit'), facts=older)
+    assert out['cuda_build'] == 'cu126' and out['disk']['need_gb'] == 10
+    assert out['state'] == 'blocked' and 'about 10 GB free on D:\\ (8.5 GB free now)' in out['reason']
 
 
 def test_commands_follow_the_pinned_source(roomy, tmp_path):
@@ -209,7 +221,9 @@ def test_a_failed_step_resumes_and_rebuilds_a_half_installed_torch(roomy, tmp_pa
     assert journal['state'] == 'error' and journal['done'] == ['source', 'python']
     assert not cfg.get('aitoolkit.dir'), 'nothing is configured before the checks pass'
     again = aitk.plan(str(dest), facts=_facts())
-    assert again['state'] == 'ready' and again['resume']['done'] == ['source', 'python']
+    # The journal keeps what ran; the plan lists what Resume keeps. The environment is
+    # rebuilt, so the screen must not call it done.
+    assert again['state'] == 'ready' and again['resume']['done'] == ['source']
     runner = FakeRunner()
     _install(dest, runner)
     assert runner.kinds() == ['venv', 'pip-upgrade', 'torch', 'deps', 'imports']

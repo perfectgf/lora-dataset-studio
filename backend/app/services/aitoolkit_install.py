@@ -56,13 +56,16 @@ AITOOLKIT_RELEASE = {
     'python': ((3, 10), (3, 12)),
 }
 
-# Free space needed on the destination drive before anything is downloaded.
-# Measured on 2026-11-12 with HEAD requests on download.pytorch.org: the Windows
-# torch 2.13.0 wheel is 1.92 GB compressed for cu130 and 2.59 GB for cu126. The
-# unpacked environment takes roughly 8-9 GB with AI Toolkit's requirements, and
-# pip's temporary download stays on the same drive (TMP points inside the
-# destination) until it is unpacked.
-MIN_FREE_GB = 12
+# Free space needed on the destination drive before anything is downloaded, by
+# PyTorch build. A real install on Windows (2026-11-15, cu130) left 4.5 GB on
+# disk, 4.4 GB of it the environment. The peak comes while pip unpacks PyTorch:
+# its wheel (1.92 GB for cu130, 2.59 GB for cu126, HEAD requests on
+# download.pytorch.org) is still in pip's temporary folder, which stays on the
+# same drive (TMP points inside the destination): about 6 GB for cu130. cu126
+# was not installed for real; scaled from its wheel, about 8 GB. Each figure
+# keeps about 2 GB free at that peak. The first estimate, 12 GB for every
+# build, refused machines that had the room.
+MIN_FREE_GB = {'cu130': 8, 'cu126': 10}
 # Still needed to resume once PyTorch is installed: the requirements and pip's
 # temporary files (roughly 2-3 GB).
 RESUME_FREE_GB = 4
@@ -400,6 +403,25 @@ def update_note(source) -> str:
             '`venv/bin/python`). Your venv, outputs and downloaded models stay in place.')
 
 
+def min_free_gb(build) -> int:
+    """Free space a first install needs; the largest figure when the build is unknown."""
+    return MIN_FREE_GB.get(build) or max(MIN_FREE_GB.values())
+
+
+def _resume_done(journal, build) -> list:
+    """The completed steps a resume really keeps, for the plan and the install alike,
+    so the screen never lists as done a step that Resume runs again. A driver that
+    now needs another CUDA build keeps the download alone (PyTorch must follow the
+    driver); an environment whose PyTorch install did not finish is rebuilt, because
+    a half-installed torch is not trusted."""
+    done = list((journal or {}).get('done') or [])
+    if (journal or {}).get('cuda_build') not in (None, build):
+        done = [s for s in done if s == 'source']
+    if 'torch' not in done:
+        done = [s for s in done if s != 'python']
+    return done
+
+
 def plan(dest=None, *, facts=None) -> dict:
     """What Install would do here, without side effects -- the dry run.
 
@@ -417,8 +439,8 @@ def plan(dest=None, *, facts=None) -> dict:
     free, drive = _free_gb(target)
     # Resuming after PyTorch is in place only needs room for the requirements:
     # asking for the full amount again would block the very repair it offers.
-    need = (RESUME_FREE_GB if pending and 'torch' in (journal.get('done') or [])
-            else MIN_FREE_GB)
+    kept = _resume_done(journal, build) if pending else []
+    need = RESUME_FREE_GB if 'torch' in kept else min_free_gb(build)
     out = {
         'dest': str(target), 'default_dest': str(default_destination(facts, journal)),
         'source': source, 'git': facts.get('git') or '',
@@ -428,8 +450,7 @@ def plan(dest=None, *, facts=None) -> dict:
         'gpus': [g.get('name') for g in ((facts.get('nvidia') or {}).get('gpus') or [])],
         'python': python, 'disk': {'free_gb': None if free is None else round(free, 1),
                                     'need_gb': need, 'drive': drive},
-        'resume': ({'done': list(journal.get('done') or []), 'state': journal.get('state')}
-                   if pending else None),
+        'resume': {'done': kept, 'state': journal.get('state')} if pending else None,
         'update_note': update_note(source),
         'pinokio': bool(facts.get('pinokio')),
         'commands': commands(target, source=source, build=build,
@@ -717,14 +738,10 @@ def install(dest, *, log, step=None, progress=None, cancel_event=None, find_pyth
         if _alive(journal.get('child')):
             log(f"Stopping the unfinished step left by a previous LDS session (process {journal['child']['pid']}).")
             _kill_tree(journal['child']['pid'])
-        done = list(journal.get('done') or [])
         if journal.get('cuda_build') not in (None, build):
-            # The driver changed between attempts: PyTorch must follow it.
             log(f"The NVIDIA driver now needs {build} instead of {journal['cuda_build']}: "
                 'rebuilding the Python environment.')
-            done = [s for s in done if s == 'source']
-        if 'torch' not in done:
-            done = [s for s in done if s != 'python']   # a half-installed torch is rebuilt
+        done = _resume_done(journal, build)
         journal.update(done=done)
         log(f"Resuming the install in {dest}. Completed: {', '.join(done) or 'nothing yet'}.")
     else:

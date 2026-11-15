@@ -864,7 +864,7 @@ Toolkit's own installation instructions for that commit:
 
 Before anything is downloaded, Setup shows the plan: GPU and CUDA build, source, Python,
 free space, and the exact commands under **Show the exact commands**. It needs an
-**NVIDIA GPU** and about **12 GB** free on the destination drive; pip's temporary files
+**NVIDIA GPU** and about **8 GB** free on the destination drive (10 GB with an older NVIDIA driver, whose PyTorch build is larger); pip's temporary files
 stay on that drive. The proposed folder sits next to the LDS folder (your home folder in
 Pinokio). Any new or empty folder outside LDS works, spaces included. Setup refuses a
 folder that already holds files, and never changes an AI Toolkit that is already
