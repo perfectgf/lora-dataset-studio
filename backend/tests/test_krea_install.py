@@ -9,6 +9,7 @@ and therefore the one whose rules are worth enforcing (fixed URL, no shell, no
 overwrite, restart required).
 """
 import io
+import hashlib
 import os
 import struct
 import zipfile
@@ -119,55 +120,92 @@ def test_only_one_krea_base_variant_is_installed():
     assert 'turbo' in setup_installer._KREA_DOWNLOADS['krea_model']['url'].lower()
 
 
-def test_the_civitai_lora_never_receives_the_hugging_face_token(app, tmp_path, monkeypatch):
-    """Sending HF_TOKEN to civitai.com would hand a Hugging Face credential to a
-    third party. Per-host auth is the rule; no credential at all is fine."""
+def _pin_identity_lora_to(monkeypatch, payload):
+    """Point the pinned size and SHA256 of the identity LoRA at a test payload, so
+    a download test exercises the real verification instead of tripping it."""
+    from app import setup_installer
+    spec = setup_installer._MODEL_DOWNLOADS['krea_identity_lora']
+    monkeypatch.setitem(spec, 'expected_bytes', len(payload))
+    monkeypatch.setitem(spec, 'sha256', hashlib.sha256(payload).hexdigest())
+
+
+def test_the_identity_lora_is_the_published_file_served_by_the_lds_server():
+    """The identity LoRA comes from the LDS download server, pinned to the size
+    and SHA256 of the file its author publishes. The author's page stays the
+    reference for the terms."""
+    from app import setup_installer
+    spec = setup_installer._MODEL_DOWNLOADS['krea_identity_lora']
+    assert spec['url'] == 'https://lds.perfectgf.fr/models/krea/krea2_identity_edit_v1_2.safetensors'
+    assert spec['auth'] == 'none'
+    assert spec['expected_bytes'] == 1828256432
+    assert spec['sha256'] == '6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf'
+    assert spec['license_url'] == 'https://civitai.com/models/2761113'
+
+
+def test_the_identity_lora_download_sends_no_credential_at_all(app, tmp_path, monkeypatch):
+    """Neither the Hugging Face token nor a Civitai key belongs to the LDS
+    download server: per-host auth is the rule, and this host takes none."""
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
-    cap = {}
+    cap, payload = {}, _safetensors()
     monkeypatch.setenv('HF_TOKEN', 'hf_secret_value')
-    monkeypatch.setattr(setup_installer, '_civitai_key', lambda: None)
+    monkeypatch.setattr(setup_installer, '_civitai_key', lambda: 'civ_key')
+    _pin_identity_lora_to(monkeypatch, payload)
     with app.app_context():
         config.save_config({'comfyui': {'base_dir': str(base)}})
         monkeypatch.setattr(setup_installer.requests, 'get',
-                            _FakeGet(payload=_safetensors(), capture=cap))
+                            _FakeGet(payload=payload, capture=cap))
         setup_installer._runs['krea_identity_lora'] = setup_installer._new_run()
         rc = setup_installer._run_model_download('krea_identity_lora')
     assert rc == 0
-    assert 'civitai.com' in cap['url']
+    assert cap['url'].startswith('https://lds.perfectgf.fr/models/')
     assert not (cap['headers'] or {}).get('Authorization')
 
 
-def test_the_civitai_lora_uses_the_civitai_key_when_there_is_one(app, tmp_path, monkeypatch):
+def test_a_file_that_is_not_the_published_identity_lora_is_refused(app, tmp_path, monkeypatch):
+    """Valid weights that are not the published file (another size, another
+    content) must not take the LoRA's place."""
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
-    cap = {}
-    monkeypatch.setattr(setup_installer, '_civitai_key', lambda: 'civ_key')
+    _pin_identity_lora_to(monkeypatch, _safetensors(2048))
     with app.app_context():
         config.save_config({'comfyui': {'base_dir': str(base)}})
-        monkeypatch.setattr(setup_installer.requests, 'get',
-                            _FakeGet(payload=_safetensors(), capture=cap))
+        monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(payload=_safetensors()))
         setup_installer._runs['krea_identity_lora'] = setup_installer._new_run()
-        setup_installer._run_model_download('krea_identity_lora')
-    assert cap['headers']['Authorization'] == 'Bearer civ_key'
+        rc = setup_installer._run_model_download('krea_identity_lora')
+        dest = setup_installer._download_dest_path('krea_identity_lora')
+    log = ' '.join(setup_installer._runs['krea_identity_lora']['log'])
+    assert rc == 1
+    assert not os.path.exists(dest)
+    assert 'download verification failed' in log
 
 
-def test_a_civitai_401_points_at_a_civitai_key_not_a_hugging_face_one(app, tmp_path, monkeypatch):
-    """Civitai gates part of its catalogue (NSFW, early access, creator
-    restrictions) and those rules have changed before, so the app must never
-    assume the file is open: a denial says where to get a CIVITAI key and where to
-    paste it — never Hugging Face's."""
+def test_the_lds_server_refusing_the_identity_lora_asks_for_no_key(app, tmp_path, monkeypatch):
+    """A 401/403 from the LDS download server is not a credential problem: the
+    message sends nobody to create a Civitai key or a Hugging Face token."""
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
     with app.app_context():
         config.save_config({'comfyui': {'base_dir': str(base)}})
-        monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(status=401))
+        monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(status=403))
         setup_installer._runs['krea_identity_lora'] = setup_installer._new_run()
         rc = setup_installer._run_model_download('krea_identity_lora')
     log = ' '.join(setup_installer._runs['krea_identity_lora']['log'])
     assert rc == 1
-    assert 'Civitai' in log and 'CIVITAI_API_KEY' in log
-    assert 'HF_TOKEN' not in log
+    assert 'LDS download server' in log
+    assert 'CIVITAI_API_KEY' not in log and 'HF_TOKEN' not in log
+
+
+def test_a_civitai_download_keeps_its_own_key_and_never_the_hugging_face_token(monkeypatch):
+    """The Civitai provider stays available to a download hosted there: its key
+    goes to Civitai only, and the Hugging Face token never does."""
+    from app import setup_installer
+    monkeypatch.setattr(setup_installer.cfg, 'secret', lambda name: 'hf_secret_value')
+    monkeypatch.setattr(setup_installer, '_civitai_key', lambda: 'civ_key')
+    assert setup_installer._download_auth({'auth': 'civitai'}) == (
+        {'Authorization': 'Bearer civ_key'}, 'civitai')
+    monkeypatch.setattr(setup_installer, '_civitai_key', lambda: None)
+    assert setup_installer._download_auth({'auth': 'civitai'}) == ({}, 'civitai')
 
 
 def test_a_login_page_served_as_200_is_rejected_and_deleted(app, tmp_path, monkeypatch):

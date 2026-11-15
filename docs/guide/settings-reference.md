@@ -124,7 +124,7 @@ Good to know:
 
 The second local engine. Where Klein *restages* your reference with a general instruction-edit model, **Krea 2 Identity Edit** is trained specifically to keep an identity: from a **single** reference photo it holds the face, the body and the permanent markings while changing the angle, framing, light, background and clothes — **with no character LoRA**. That is what makes it useful *before* a LoRA exists, which is the whole point of building a dataset.
 
-**Setup installs it on request.** On the install screen of **Setup**, the **Krea 2 Edit** card has an **Install Krea 2 Edit** button that puts the node pack and the four model files below into your ComfyUI (about 20 GB), then asks you to restart ComfyUI so it loads the nodes. It is not part of **Install everything**, because a second local engine is a large download that a Klein user may not want. Setup fetches the LoRA from Civitai without an account first, and if Civitai asks for one, it says how to add a Civitai API key.
+**Setup installs it on request.** On the install screen of **Setup**, the **Krea 2 Edit** card has an **Install Krea 2 Edit** button that puts the node pack and the four model files below into your ComfyUI (about 20 GB), then asks you to restart ComfyUI so it loads the nodes. It is not part of **Install everything**, because a second local engine is a large download that a Klein user may not want. Setup downloads the LoRA from the LDS download server: it is the unmodified file its author publishes on Civitai, checked against its published size and SHA256, and no account or API key is involved.
 
 To place the files yourself instead, the engine needs, inside your own ComfyUI:
 

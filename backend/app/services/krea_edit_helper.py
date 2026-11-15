@@ -67,16 +67,16 @@ one moment that became an architecture decision for weeks):
     `text_encoders/qwen3vl_4b_fp8_scaled.safetensors` (5.2 GB) and
     `vae/qwen_image_vae.safetensors` (254 MB). Measured: anonymous HTTP 200 on
     each, no token, `gated=false`.
-  * The identity LoRA (Civitai 2761113) also downloaded anonymously on that date
-    — 307 to a signed CDN URL, then real safetensors bytes, no API key.
+  * The identity LoRA (Civitai 2761113) is a community file. The installer now
+    fetches its author's unmodified file from the LDS download server, pinned
+    to the published size and SHA256: no account and no API key are involved.
   * The node pack declares `dependencies = []`, so installing it is a clone, not
     a pip run.
 
 None of it sits behind a licence checkbox a human has to tick in a browser. That
-said, an OPEN download today is not a guarantee: the installer sends a Civitai
-key when the user has one, tries without when they do not, and turns a 401/403
-into instructions — because Civitai gates part of its catalogue with rules that
-have changed before and vary by country.
+said, an OPEN download today is not a guarantee: for the Hugging Face files the
+installer sends the user's token when there is one, tries without when there is
+none, and turns a 401/403 into instructions.
 
 The preflight still publishes the full `_studio_missing_response` shape (every
 gap, its expected path inside the user's ComfyUI, the page it comes from): a
