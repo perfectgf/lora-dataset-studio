@@ -1079,16 +1079,21 @@ def _detect_safetensors_arch(keys) -> str | None:
     return None
 
 
-# --- Trained-LoRA architecture detector (the deploy/Studio guardrail) ---------
+# --- Trained-LoRA architecture detector (a label, never a gate) ---------------
 # The base sniff above targets full UNET checkpoints (a BASE); a TRAINED LoRA has
 # a different, prefixed key layout (lora_A/lora_B, lokr_w*, kohya lora_unet_*). A
 # wrong-arch LoRA is invisible to ComfyUI: it drops every incompatible key
 # SILENTLY, so the whole grid renders as if the LoRA were off (the 2026-07-13
 # incident — a Z-Image LoRA mislabelled Krea produced 117 no-op tiles). We read
-# the real arch from the header and check it wherever a LoRA is deployed or run.
+# the arch from the header and FLAG a file that reads as another family.
+#
+# The read is a best effort, so it only ever labels. Which LoRA goes into a run
+# or a deploy is the user's call and nothing refuses it on this read: a refusal
+# built on it turned real, working LoRAs away (2026-11-15: kohya-named Krea 2
+# files read as SDXL). ComfyUI stays the judge of what it can load.
 #
 # Verdict = FAMILY key ('zimage'|'sdxl'|'krea'|'flux'|'flux2klein') or None
-# (undetectable → callers MUST NOT block; the guarantee is simply absent).
+# (undetectable → no label; the guarantee is simply absent).
 _LORA_ARCH_LABEL = {'zimage': 'Z-Image', 'sdxl': 'SDXL', 'krea': 'Krea 2',
                     'flux': 'FLUX.1', 'flux2klein': 'FLUX.2 Klein',
                     'qwenimage21': 'Qwen-Image 2.1'}
@@ -1128,14 +1133,31 @@ def _family_from_base_model_version(value) -> str | None:
     return None
 
 
+# kohya writes a LoRA module as 'lora_unet_<module path, dots as underscores>'
+# for EVERY model it trains, and ComfyUI maps that form onto whichever model it
+# loads — so the prefix alone names no family. Only the SD UNet's own block
+# vocabulary does (LDM input/middle/output, diffusers down/mid/up). Measured on
+# a real 226-file collection: 35 of the 36 files the bare prefix tagged SDXL
+# were WAN or Krea 2.
+_KOHYA_SD_UNET_KEY = re.compile(
+    r'^lora_unet_(?:input_blocks|middle_block|output_blocks'
+    r'|down_blocks|mid_block|up_blocks)_')
+# Krea 2's blocks in that kohya form: lora_unet_blocks_N_attn_{wk,wq,gate}.
+_KOHYA_KREA_KEY = re.compile(r'^lora_unet_blocks_\d+_attn_(?:wk|wq|gate)\b')
+
+
 def _lora_arch_from_keys(keys) -> str | None:
     """Best-effort FAMILY from a trained LoRA's tensor NAMES (fallback when the
     metadata is absent/foreign). Signatures verified against real deployed LoRAs:
-      - kohya SD/SDXL: 'lora_unet_*' / 'lora_te*' prefixes                → sdxl
+      - kohya SD/SDXL: 'lora_unet_' followed by the SD UNet's block names, or
+        a text-encoder-only 'lora_te*' file                              → sdxl
+        A 'lora_unet_' file of any other layout gets no SDXL verdict: it falls
+        through to the signatures below, and to None when none matches (WAN).
       - FLUX-family DiT: 'double_blocks.'/'single_blocks.' (BFL) or the
         diffusers 'single_transformer_blocks.' — FLUX.1 AND FLUX.2 Klein  → flux
       - Krea2 SingleStreamDiT: 'txtfusion' is unique to it (present even
-        in a header-only stub); or diffusion_model.blocks.*.attn.{wk,wq,gate} → krea
+        in a header-only stub); or diffusion_model.blocks.*.attn.{wk,wq,gate},
+        or the same blocks in kohya form                                  → krea
       - Z-Image NextDiT: 'diffusion_model.layers.*' (adaLN / attention.to_*) → zimage
       - Anima (Cosmos Predict2 DiT): the ComfyUI-converted keys use
         'diffusion_model.llm_adapter.*' (text conditioner) and, inside
@@ -1147,7 +1169,9 @@ def _lora_arch_from_keys(keys) -> str | None:
     A name-only sniff can't separate FLUX.1 from FLUX.2 Klein → 'flux' for both."""
     def has(sub):
         return any(sub in k for k in keys)
-    if has('lora_unet_') or has('lora_te'):
+    kohya_unet = [k for k in keys if k.startswith('lora_unet_')]
+    if any(_KOHYA_SD_UNET_KEY.match(k) for k in kohya_unet) \
+            or (not kohya_unet and has('lora_te')):
         return 'sdxl'
     if has('transformer_blocks.') and has('.img_mlp.gate_up.'):
         return 'qwenimage21'
@@ -1156,7 +1180,8 @@ def _lora_arch_from_keys(keys) -> str | None:
         return 'flux'
     if has('txtfusion') or (has('diffusion_model.blocks.')
                             and (has('.attn.wk') or has('.attn.wq')
-                                 or has('.attn.gate'))):
+                                 or has('.attn.gate'))) \
+            or any(_KOHYA_KREA_KEY.match(k) for k in kohya_unet):
         return 'krea'
     # Anima BEFORE the generic zimage 'layers.' check. Its signature keys off the
     # Cosmos-specific tensor names so it can never match a Krea block (which uses
@@ -6585,19 +6610,16 @@ def import_checkpoint(user_id, dataset_id, filename, base_model=_PERSISTED, fami
             user_id, dataset_id, base_model, family, variant)}
     if filename not in allowed:
         raise ValueError('unknown checkpoint')
-    # Arch guard: read the LoRA's REAL family from its header and refuse a deploy
-    # that would land it in the wrong ComfyUI folder. ComfyUI silently drops every
-    # incompatible key, so a Z-Image LoRA copied under loras/krea/ tests as a pure
-    # no-op with no error anywhere (the 2026-07-13 incident). Undetectable header →
-    # pass (no false block); only a POSITIVE cross-namespace mismatch stops here.
+    # No arch gate: where a LoRA is deployed is the user's call. A file whose
+    # header reads as another family deploys like any other. It is logged here,
+    # and list_imported_checkpoints flags it (arch_mismatch) next to its row.
     fam_target = _train_type(ds, family)
     detected = detect_lora_arch(os.path.join(run_dir, filename))
     if lora_arch_conflicts(detected, fam_target):
-        det_lbl = _LORA_ARCH_LABEL.get(detected, detected)
-        tgt_lbl = _LORA_ARCH_LABEL.get(fam_target, fam_target)
-        raise ValueError(
-            f'this file is a {det_lbl} LoRA — deploy it under the {det_lbl} '
-            f'family, not {tgt_lbl}.')
+        logger.warning(
+            'import: %s reads as a %s LoRA and is deployed under %s as asked',
+            filename, _LORA_ARCH_LABEL.get(detected, detected),
+            _LORA_ARCH_LABEL.get(fam_target, fam_target))
     # Deploy into the selected family folder so the corresponding generation
     # menu discovers it without exposing incompatible LoRAs to Z-Image Studio.
     dest_dir = _lora_dest_dir(ds, family)

@@ -2130,16 +2130,17 @@ class StudioAssetsMissing(Exception):
 
 
 class StudioArchMismatch(Exception):
-    """A selected checkpoint's REAL architecture (read from its safetensors header)
-    contradicts the family whose pipeline the Studio would run it under. ComfyUI
-    silently drops every incompatible LoRA key, so the entire grid renders as if
-    the LoRA were off (strength 0) with no error anywhere — the 2026-07-13
-    incident (a Z-Image LoRA mislabelled Krea produced 117 no-op tiles). Raised
-    BEFORE any row/job is created so the caller answers one actionable 409 (same
-    spirit as StudioAssetsMissing).
+    """A selected checkpoint's architecture, as read from its safetensors header,
+    contradicts the family whose pipeline the Studio would run it under.
 
-    `.family` = the Studio's pipeline key; `.detected` = the checkpoint's real
-    family; `.checkpoint` = the LoraLoader-form path that mismatched."""
+    The Studio no longer raises it: the header read is a best effort that turned
+    real, working LoRAs away (kohya-named Krea 2 files read as SDXL), and which
+    LoRA to test is the user's call — see `_preflight_checkpoint_arch`. The
+    class, its 409 mapping in the routes and the SDK re-export stay because
+    plugins built against the SDK import them.
+
+    `.family` = the Studio's pipeline key; `.detected` = the family the header
+    reads as; `.checkpoint` = the LoraLoader-form path that mismatched."""
     def __init__(self, family, detected, checkpoint):
         self.family = family
         self.detected = detected
@@ -2188,18 +2189,26 @@ def _resolve_lora_abs_path(checkpoint) -> str | None:
 
 
 def _preflight_checkpoint_arch(run_family, checkpoints):
-    """Raise StudioArchMismatch if any selected checkpoint's REAL arch (safetensors
-    header) contradicts `run_family`. family_of_lora keys off the FOLDER, which is
-    exactly the blind spot a mislabelled deploy exploits — so we read the header
-    here. Undetectable/foreign headers pass (no false block); only a POSITIVE
-    cross-namespace contradiction stops the run."""
+    """Log each selected checkpoint whose header reads as another family than
+    `run_family`, and return them as [(checkpoint, detected)]. It never refuses
+    the run: the user picked that LoRA, and the header read is a best effort
+    that has been wrong on real files. ComfyUI is the judge — it loads the keys
+    that match and logs 'lora key not loaded' for the others, so a LoRA of
+    another family renders as if it were off; this line in the LDS log is what
+    explains such a grid afterwards."""
+    doubts = []
     for cp in checkpoints:
         p = _resolve_lora_abs_path(cp)
         if not p:
             continue
         detected = lt.detect_lora_arch(p)
         if lt.lora_arch_conflicts(detected, run_family):
-            raise StudioArchMismatch(run_family, detected, cp)
+            doubts.append((cp, detected))
+            logger.warning(
+                'studio: %s reads as a %s LoRA in a %s run; it runs as asked, and '
+                'if its tiles look like the LoRA is off, that is the reason',
+                cp, detected, run_family)
+    return doubts
 
 
 # ComfyUI loader class_type -> (input keys carrying a model FILENAME, the models/
@@ -3117,10 +3126,9 @@ def create_run(user_id, dataset_id, checkpoints, strengths, settings=None, *,
     prompt_axis = _prompt_axis(prompts, prompt)
     prompt = prompt_axis[0]
 
-    # Architecture guard: family_of_lora derives family from the folder, which
-    # could misclassify a Z-Image LoRA deployed under loras/krea and silently do
-    # nothing. Inspect every selected checkpoint's actual header architecture
-    # before creating rows, returning an actionable 409 on mismatch.
+    # Architecture note: family_of_lora derives family from the folder, so a
+    # Z-Image LoRA deployed under loras/krea would do nothing. A checkpoint whose
+    # header reads as another family is logged; the run goes ahead regardless.
     _preflight_checkpoint_arch(run_family, cps_in)
     # Preflight every model and custom node required on the target ComfyUI.
     # Build a representative graph per base before creating rows. New installs
@@ -3414,14 +3422,13 @@ def _cmp_cell_knobs(run_type, batch_loras,
 
 def _cmp_preflight(user_id, run_type, selections, externals, valid_models,
                    prompt_axis, seeds, inject_trigger=True, sampler_preset=None):
-    """Run preflights, extracted unchanged: compare every checkpoint's actual
-    architecture (including externals) with the family, then try the family
-    workflow on the first valid selection. Raise one actionable 409 before
-    creating any rows. Return the memoized `_dataset_and_checkpoints` closure
-    shared by the stack and cell loop: one LoRA scan per dataset per call."""
-    # Architecture guard, as in create_run: each selected checkpoint's header
-    # must match the run family. Otherwise ComfyUI silently drops it, yielding
-    # a no-op grid. Check before creating any rows for an actionable 409.
+    """Run preflights: log every checkpoint (externals included) whose header
+    reads as another family than the run's — never a refusal — then try the
+    family workflow on the first valid selection, which raises one actionable
+    409 before creating any rows. Return the memoized `_dataset_and_checkpoints`
+    closure shared by the stack and cell loop: one LoRA scan per dataset per call."""
+    # Architecture note, as in create_run: a checkpoint whose header reads as
+    # another family is logged, never refused.
     _preflight_checkpoint_arch(
         run_type,
         [s.get('checkpoint') for s in selections if s.get('checkpoint')]

@@ -3,8 +3,8 @@
 An external LoRA is ANY models/loras file stacked on top of a run's cells via
 `external_loras=[{filename, strength}]`. Fail-closed: a filename that does not
 resolve under a loras root is a hard error (never a silent skip — the 2026-07
-privacy-guard lesson), and the arch preflight covers externals so a wrong-family
-file 409s before any row exists."""
+privacy-guard lesson). An external whose header reads as another family is not
+refused: that read is a label, and the choice of a LoRA is the user's."""
 
 import pytest
 
@@ -124,16 +124,17 @@ def test_external_lora_missing_file_is_a_hard_error(app, tmp_path, monkeypatch):
         assert LoraTestImage.query.count() == 0
 
 
-def test_external_lora_wrong_arch_409s_before_any_row(app, tmp_path, monkeypatch):
+def test_external_lora_that_reads_as_another_family_still_runs(app, tmp_path, monkeypatch):
     """detect_lora_arch monkeypatched to return 'sdxl' for the external in a
-    zimage run → StudioArchMismatch, and zero LoraTestImage rows created."""
+    zimage run: the header read is a label, so the run is NOT refused and the
+    external reaches the workflow builder like any other."""
     from app.config import LOCAL_USER
-    from app.models import LoraTestImage
     from app.services import lora_test_studio as lts
     with app.app_context():
         ds, trained = _ext_tree(tmp_path, monkeypatch, 'ext3',
                                 externals=['wrong-arch.safetensors'])
-        _wire(monkeypatch, lts)
+        seen = {}
+        _wire(monkeypatch, lts, seen)
         real_detect = lts.lt.detect_lora_arch
 
         def fake_detect(path):
@@ -142,12 +143,17 @@ def test_external_lora_wrong_arch_409s_before_any_row(app, tmp_path, monkeypatch
             return real_detect(path)
         monkeypatch.setattr(lts.lt, 'detect_lora_arch', fake_detect)
 
-        with pytest.raises(lts.StudioArchMismatch):
-            lts.create_comparison_run(
-                LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
-                lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': 'wrong-arch.safetensors',
-                                             'strength': 1.0}])
-        assert LoraTestImage.query.count() == 0
+        def fake_persist(img, user_id, dataset_id, prompt, build_workflow):
+            build_workflow()
+            return 'job-1'
+        monkeypatch.setattr(lts, '_persist_and_enqueue_cell', fake_persist)
+
+        lts.create_comparison_run(
+            LOCAL_USER, [{'dataset_id': ds.id, 'checkpoint': trained}], [1.0],
+            lts.StudioGenSettings(prompt='p'), external_loras=[{'filename': 'wrong-arch.safetensors',
+                                         'strength': 1.0}])
+        assert {'filename': 'wrong-arch.safetensors', 'strength': 1.0,
+                'external': True} in seen['extra_loras']
 
 
 def test_external_strength_clamped_and_defaulted(app, tmp_path, monkeypatch):

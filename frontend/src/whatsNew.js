@@ -154,6 +154,12 @@ export const WHATS_NEW = [
     blurb: 'A local engine added by a plugin, such as Dataset Forge, was reported as a part of your setup that stopped working whenever ComfyUI was not running. The background check now waits for ComfyUI to answer before it judges such an engine.',
   },
   {
+    id: '2026-11-15-zzz-studio-runs-the-lora-you-pick', date: '2026-11-15',
+    title: 'The Studio runs the LoRA you pick',
+    blurb: 'LDS no longer refuses a LoRA because of the model family it reads in the file. Krea 2 LoRAs saved in the kohya naming were turned away as "SDXL" although ComfyUI loads them; they are now recognized, and no LoRA is refused on that reading, in a test or at import. A file that reads as another family keeps a warning badge, nothing more.',
+    to: '/studio',
+  },
+  {
     id: '2026-11-15-z-krea-identity-lora-lds-server', date: '2026-11-15',
     title: 'Krea 2 Edit installs without depending on Civitai',
     blurb: 'Setup now downloads the Krea 2 Identity Edit LoRA from the LDS download server. It is the unmodified file its author publishes, checked against its published size and fingerprint, so installing Krea 2 Edit no longer depends on Civitai being reachable or on a Civitai key.',

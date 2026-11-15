@@ -118,7 +118,9 @@ def test_guest_missing_file_is_a_hard_error(app, tmp_path, monkeypatch):
         assert LoraTestImage.query.count() == 0
 
 
-def test_guest_wrong_arch_409s_before_any_row(app, tmp_path, monkeypatch):
+def test_guest_that_reads_as_another_family_still_gets_its_cell(app, tmp_path, monkeypatch):
+    """The header read is a label, never a refusal: a guest that reads as SDXL
+    in a z-image grid runs as its own cell, like any guest the user ticked."""
     from app.config import LOCAL_USER
     from app.models import LoraTestImage
     from app.services import lora_test_studio as lts
@@ -133,10 +135,10 @@ def test_guest_wrong_arch_409s_before_any_row(app, tmp_path, monkeypatch):
                 return 'sdxl'
             return real_detect(path)
         monkeypatch.setattr(lts.lt, 'detect_lora_arch', fake_detect)
-        with pytest.raises(lts.StudioArchMismatch):
-            lts.create_run(LOCAL_USER, ds.id, [trained, 'wrong-arch.safetensors'],
-                           [1.0], lts.StudioGenSettings(prompt='p', count=1))
-        assert LoraTestImage.query.count() == 0
+        lts.create_run(LOCAL_USER, ds.id, [trained, 'wrong-arch.safetensors'],
+                       [1.0], lts.StudioGenSettings(prompt='p', count=1, seed=7))
+        assert {r.checkpoint for r in LoraTestImage.query.all()} == {
+            trained, 'wrong-arch.safetensors'}
 
 
 def test_guest_in_other_family_folder_is_refused(app, tmp_path, monkeypatch):
