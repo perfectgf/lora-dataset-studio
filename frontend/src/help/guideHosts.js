@@ -141,6 +141,7 @@ export const CORE_GUIDE_ANCHORS = {
     "krea-2-the-checkpoints-on-your-disk-are-listed-as-bases",
     "concept-face-masking",
     "advanced-options-per-run",
+    "install-ai-toolkit",
     "storage",
     "moving-a-folder-to-another-drive",
     "why-checkpoints-have-their-own-folder",
