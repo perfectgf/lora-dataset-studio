@@ -29,7 +29,7 @@ People shown in the demo and screenshots are AI-generated.
 1. Download `LoRA-Dataset-Studio-windows.zip` from the [latest release](https://github.com/perfectgf/lora-dataset-studio/releases/latest) and extract it into a new folder.
 2. Double-click `start.bat`. It prepares Python and opens LDS in your browser.
 
-Complete **Setup**, then create a dataset or install the plugins you need. Importing, organizing and manually captioning images require no GPU or API key. Local training also needs [ai-toolkit](https://github.com/ostris/ai-toolkit) and local generation needs [ComfyUI](https://github.com/comfyanonymous/ComfyUI): see [external tools](docs/guide/installation.md#external-tools).
+Complete **Setup**, then create a dataset or install the plugins you need. Importing, organizing and manually captioning images require no GPU or API key. Local training also needs [ai-toolkit](https://github.com/ostris/ai-toolkit), which **Setup** can install for you in one click on a PC with an NVIDIA GPU, and local generation needs [ComfyUI](https://github.com/comfyanonymous/ComfyUI): see [external tools](docs/guide/installation.md#external-tools).
 
 | Installation | Instructions |
 |---|---|
@@ -321,7 +321,7 @@ Start from the guided recipe for your family: LDS fills in the ai-toolkit settin
 
 ### [Which LoRA trainer should I use? Do I need the command line?](docs/faq/which-lora-trainer.md)
 
-LDS trains with [ai-toolkit](https://github.com/ostris/ai-toolkit). Once ai-toolkit is installed and set in **Settings → Local tools**, LDS writes the training config: pick a recipe and start the run from the browser, with the queue and logs on the runs page. Datasets also export as standard ZIPs with `.txt` caption files, so the same set can feed kohya_ss, OneTrainer or another trainer.
+LDS trains with [ai-toolkit](https://github.com/ostris/ai-toolkit). **Setup** installs it in one click on a PC with an NVIDIA GPU, or you select a copy you already have in **Settings → Local tools**. LDS then writes the training config: pick a recipe and start the run from the browser, with the queue and logs on the runs page. Datasets also export as standard ZIPs with `.txt` caption files, so the same set can feed kohya_ss, OneTrainer or another trainer.
 
 ### [How much VRAM do I need to train a LoRA?](docs/faq/lora-training-vram.md)
 
