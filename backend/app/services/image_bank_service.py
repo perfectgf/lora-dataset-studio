@@ -55,6 +55,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 from sqlalchemy import and_, case, func, or_, text
+from sqlalchemy.exc import OperationalError
 
 from .. import config as cfg
 from ..generation_limits import improve_timeout_seconds
@@ -10291,6 +10292,83 @@ def start_framing(app, user_id, bank_id, rescan=False, statuses=None, ids=None):
                            total=_framing_pool(bank_id, rescan, want, ids).count())
 
 
+# How long a pass keeps trying a small write that SQLite refuses (a full disk, a
+# file another program holds, a lock that outlives the busy timeout) before it
+# gives the decision back. Long enough for a refusal that passes, short enough
+# that a disk that stays full ends the pass on its real cause instead of
+# keeping the GPU for nothing.
+_WRITE_PATIENCE_SECONDS = 120.0
+# Returned instead of a result when Stop landed while a write was being retried:
+# nothing was saved for that image, and the next pass takes it again.
+_UNSAVED = object()
+
+
+class BankWriteRefused(Exception):
+    """The database kept refusing a write of a long pass.
+
+    Not a RuntimeError: the caption brick re-wraps RuntimeErrors as engine
+    failures, and this is not one.
+    """
+
+
+def _write_retry_pause(seconds, job) -> bool:
+    """Wait before trying a refused write again. True when Stop was pressed."""
+    end = time.monotonic() + float(seconds)
+    while time.monotonic() < end:
+        if bank_jobs.cancelled(job):
+            return True
+        time.sleep(0.25)
+    return bank_jobs.cancelled(job)
+
+
+def _write_patiently(job, what, write):
+    """Run ``write()``, one small database write of a long pass, through a
+    refusal that passes.
+
+    One refused commit used to end a caption step of several hours (2026-11-15:
+    a disk that was full for a while), and under an error that named the wrong
+    thing, because the session was left unusable. Here the refusal is rolled
+    back, said on screen and tried again; a write that is still refused after
+    ``_WRITE_PATIENCE_SECONDS`` ends the pass on a sentence that says what to
+    check, and what was saved is kept.
+
+    ``write`` is called again FROM SCRATCH after a rollback, so it must re-read
+    what it needs and count nothing before its own commit. ``what`` is the
+    pass's plain progress word ('framing', 'captioning'); it comes back on
+    screen once a retried write lands.
+    """
+    started = time.monotonic()
+    delay = 1.0
+    told = False
+    while True:
+        try:
+            result = write()
+        except OperationalError as exc:
+            db.session.rollback()
+            reason = str(getattr(exc, 'orig', None) or exc).strip() or type(exc).__name__
+            waited = time.monotonic() - started
+            if not told:
+                told = True
+                logger.warning('bank %s pass: the database refused a write (%s); trying again',
+                               what, reason, exc_info=True)
+            if waited >= _WRITE_PATIENCE_SECONDS:
+                logger.error('bank %s pass: the database still refuses to save after %d s (%s); '
+                             'the pass stops', what, int(waited), reason)
+                raise BankWriteRefused(
+                    f'The database refused to save for {int(waited)} s ({reason}). Check the free '
+                    'space on the disk that holds the LDS data folder, then run the pass again: '
+                    'what was saved is kept.') from exc
+            bank_jobs.progress(job, detail=(
+                f'{what} — the database refused a write ({reason}); trying again'))
+            if _write_retry_pause(delay, job):
+                return _UNSAVED
+            delay = min(delay * 2, 15.0)
+            continue
+        if told:
+            bank_jobs.progress(job, detail=what)
+        return result
+
+
 # How many images in a row may fail to reach the vision model before the pass
 # says so ON SCREEN instead of at the end. Five is short enough to appear within
 # a few seconds of a real outage and long enough that a couple of unlucky images
@@ -10372,6 +10450,76 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
                         'fenced': fenced_call,
                         'fence_reason': str(exc) if fenced_call else ''}
 
+        def _store(rid, path, answer, error):
+            """Persist ONE answer and say what became of it. Called again from
+            scratch after a refused write (_write_patiently), so it re-reads the
+            row and counts nothing itself: the loop counts from what it returns."""
+            # Re-read: the classification we are about to store took a
+            # model call to arrive, and the image can be gone by now.
+            # no_autoflush for the same reason as in prepared() above.
+            with db.session.no_autoflush:
+                row = _live_image(rid)
+            if row is None:
+                logger.info('bank framing pass: image %s was deleted while it '
+                            'was being classified, skipping it', rid)
+                return 'vanished'
+            fingerprint = answer.get('fingerprint')
+            raw = answer.get('raw')
+            call_error = error or answer.get('error')
+            if ((call_error is not None or raw is not None)
+                    and not _prepare_analysis_write(
+                        row, path, fingerprint)):
+                # The bytes moved between the model call and this write,
+                # so the answer describes an image that no longer exists
+                # here. Nothing is stored — and it is COUNTED, because a
+                # pass that reached 204 images and reported "12
+                # classified" explained nothing about the other 192.
+                # This branch mutates too — _prepare_analysis_write
+                # invalidates the lanes it refused — so it owes the same
+                # per-image commit as the bottom of this function. Skipping it
+                # would carry a pending write into the next model call.
+                db.session.commit()
+                return 'stale'
+            if call_error is not None:  # one bad file never sinks the pass
+                outcome = 'fenced' if answer.get('fenced') else 'error'
+            elif raw is None:      # file gone: leave the row as it was
+                outcome = 'missing'
+            # Empty output = Ollama unreachable, NOT "unknown": leave the
+            # framing NULL so a retry can finish it (same reasoning as the
+            # watermark/dataset classifier), never mislabel everything.
+            elif not raw.strip():
+                # COUNTED, exactly like the watermark pass counts it: a
+                # run where every answer came back empty said "done — 0
+                # classified", which reads as "looked at them all", when
+                # in truth not one image was looked at.
+                outcome = 'unanswered'
+            else:
+                framing, _label = _parse_classify(raw)
+                row.framing = framing        # face|bust|body|back|unknown
+                outcome = 'classified'
+            # Per image, exactly like the watermark pass — and here the
+            # old rhythm ("commit every 25 CLASSIFIED images") was worse
+            # than slow, it was self-defeating. That counter only moves
+            # on a SUCCESS, so a pass whose answers erroured never
+            # committed at all; meanwhile every image costs an Ollama
+            # call (~1.7 s, measured at 5 s on the install that reported
+            # this), so the single SQLite write lock was parked for up
+            # to two minutes at a time. The writer starved behind it is
+            # not a sort click: `_set_system_state('vision_in_progress')`
+            # renews the vision GPU window before EVERY call, dies on
+            # `database is locked` past the 5 s busy_timeout, and
+            # _admit_local_ollama is fail-closed — so the pass locked
+            # out its own permission to work and fenced its remaining
+            # images out of the model (4 classified out of 12 on a
+            # 211-image bank, reported 2026-08-07).
+            # Cost of committing per image instead, measured on a WAL
+            # database over 500 rows: 0.17 ms median, 0.22 ms p90, 0.10 s
+            # in total — against model calls counted in seconds. The
+            # hold is now bounded by ONE image whatever the answers look
+            # like, which is the property, not the batch size.
+            db.session.commit()
+            return outcome
+
         with gpu_exclusive_vision_window(flag_ttl=1800):
             try:
                 # The calls overlap (see vision_pool); every write below still
@@ -10379,21 +10527,17 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
                 for (rid, _path), answer, error in map_vision(
                         prepared(), ask,
                         should_cancel=lambda: bank_jobs.cancelled(job)):
-                    # Re-read: the classification we are about to store took a
-                    # model call to arrive, and the image can be gone by now.
-                    # no_autoflush for the same reason as in prepared() above.
-                    with db.session.no_autoflush:
-                        row = _live_image(rid)
-                    if row is None:
-                        logger.info('bank framing pass: image %s was deleted while it '
-                                    'was being classified, skipping it', rid)
+                    answer = answer if isinstance(answer, dict) else {}
+                    # A write the database refuses for a moment is tried again
+                    # instead of ending the pass (_write_patiently).
+                    outcome = _write_patiently(
+                        job, 'framing', lambda: _store(rid, _path, answer, error))
+                    if outcome is _UNSAVED:
+                        continue    # Stop landed while the write was tried again
+                    if outcome == 'vanished':
                         vanished += 1
                         bank_jobs.bump(job)
                         continue
-                    answer = answer if isinstance(answer, dict) else {}
-                    fingerprint = answer.get('fingerprint')
-                    raw = answer.get('raw')
-                    call_error = error or answer.get('error')
                     if answer.get('fenced'):
                         fence_streak += 1
                         if fence_streak >= _FENCE_STREAK_WARN:
@@ -10414,65 +10558,20 @@ def _framing_job(bank_id, rescan, statuses=None, ids=None):
                     elif fence_streak:
                         fence_streak = 0
                         bank_jobs.progress(job, detail='framing')
-                    if ((call_error is not None or raw is not None)
-                            and not _prepare_analysis_write(
-                                row, _path, fingerprint)):
-                        # The bytes moved between the model call and this write,
-                        # so the answer describes an image that no longer exists
-                        # here. Nothing is stored — and it is COUNTED, because a
-                        # pass that reached 204 images and reported "12
-                        # classified" explained nothing about the other 192.
+                    if outcome == 'stale':
                         stale += 1
-                        bank_jobs.bump(job)
-                        # This branch mutates too — _prepare_analysis_write
-                        # invalidates the lanes it refused — so it owes the same
-                        # per-image commit as the bottom of the loop. Skipping it
-                        # would carry a pending write into the next model call.
-                        db.session.commit()
-                        continue
-                    if call_error is not None:  # one bad file never sinks the pass
-                        if answer.get('fenced'):
-                            fenced += 1
-                            fence_reason = fence_reason or (answer.get('fence_reason') or '')
-                        else:
-                            errors += 1
-                    elif raw is None:      # file gone: leave the row as it was
+                    elif outcome == 'fenced':
+                        fenced += 1
+                        fence_reason = fence_reason or (answer.get('fence_reason') or '')
+                    elif outcome == 'error':
+                        errors += 1
+                    elif outcome == 'missing':
                         missing += 1
-                    # Empty output = Ollama unreachable, NOT "unknown": leave the
-                    # framing NULL so a retry can finish it (same reasoning as the
-                    # watermark/dataset classifier), never mislabel everything.
-                    elif not raw.strip():
-                        # COUNTED, exactly like the watermark pass counts it: a
-                        # run where every answer came back empty said "done — 0
-                        # classified", which reads as "looked at them all", when
-                        # in truth not one image was looked at.
+                    elif outcome == 'unanswered':
                         unanswered += 1
                     else:
-                        framing, _label = _parse_classify(raw)
-                        row.framing = framing        # face|bust|body|back|unknown
                         classified += 1
                     bank_jobs.bump(job)
-                    # Per image, exactly like the watermark pass — and here the
-                    # old rhythm ("commit every 25 CLASSIFIED images") was worse
-                    # than slow, it was self-defeating. That counter only moves
-                    # on a SUCCESS, so a pass whose answers erroured never
-                    # committed at all; meanwhile every image costs an Ollama
-                    # call (~1.7 s, measured at 5 s on the install that reported
-                    # this), so the single SQLite write lock was parked for up
-                    # to two minutes at a time. The writer starved behind it is
-                    # not a sort click: `_set_system_state('vision_in_progress')`
-                    # renews the vision GPU window before EVERY call, dies on
-                    # `database is locked` past the 5 s busy_timeout, and
-                    # _admit_local_ollama is fail-closed — so the pass locked
-                    # out its own permission to work and fenced its remaining
-                    # images out of the model (4 classified out of 12 on a
-                    # 211-image bank, reported 2026-08-07).
-                    # Cost of committing per image instead, measured on a WAL
-                    # database over 500 rows: 0.17 ms median, 0.22 ms p90, 0.10 s
-                    # in total — against model calls counted in seconds. The
-                    # hold is now bounded by ONE image whatever the answers look
-                    # like, which is the property, not the batch size.
-                    db.session.commit()
             finally:
                 db.session.commit()
                 unload_vision_model()  # hand the VRAM back to ComfyUI
@@ -11038,18 +11137,19 @@ def _caption_job(bank_id, ids, force, vocabulary=None, length=None, *,
         # it and reads as "never recorded", not as "machine".
         unrecorded_writes = 0
 
-        def _on_caption(path, caption, engine=None):
-            nonlocal captioned, vanished, stale, spared_mid_pass, unrecorded_writes
+        def _store_caption(path, caption, engine):
+            """Persist ONE caption and say what became of it. Called again from
+            scratch after a refused write (_write_patiently), so it re-reads the
+            row and counts nothing itself: _on_caption counts from what it returns."""
             planned = by_path.get(path)
             if planned is None:
-                return           # a path this pass never asked about — not ours
+                return None, None   # a path this pass never asked about — not ours
             image_id, expected_fingerprint = planned
             row = _live_image(image_id)
             if row is None:      # deleted while it was being captioned — _live_image
                 logger.info('bank caption pass: image %s was deleted mid-pass, '
                             'skipping its caption', image_id)
-                vanished += 1
-                return
+                return 'vanished', None
             # Inference may take seconds. A tracked rotate/clean or an external
             # same-path replacement during that window must not attach the
             # caption computed from A to the now-current pixels B.
@@ -11059,14 +11159,12 @@ def _caption_job(bank_id, ids, force, vocabulary=None, length=None, *,
                     != expected_fingerprint):
                 logger.info('bank caption pass: image %s changed mid-pass, '
                             'skipping its stale caption', image_id)
-                stale += 1
-                return
+                return 'stale', None
             # A caption written while this image was in inference wins unless
             # the user explicitly allowed overwriting asserted captions.
             if ((not force and (row.caption or '').strip())
                     or (keep_asserted and caption_origin.is_protected(row))):
-                spared_mid_pass += 1
-                return
+                return 'spared', None
             # WHICH engine wrote this row, reported by the engine that wrote it —
             # not the backend that was asked for. 'auto' chains both, so the
             # requested value would mislabel roughly half the bank.
@@ -11078,11 +11176,29 @@ def _caption_job(bank_id, ids, force, vocabulary=None, length=None, *,
             # the stored value is what the row really carries, not what was passed.
             stored = row.caption_origin
             db.session.commit()
-            captioned += 1
-            if stored:
-                wrote[stored] = wrote.get(stored, 0) + 1
-            else:
-                unrecorded_writes += 1
+            return 'written', stored
+
+        def _on_caption(path, caption, engine=None):
+            nonlocal captioned, vanished, stale, spared_mid_pass, unrecorded_writes
+            # A write the database refuses for a moment is tried again instead of
+            # ending a pass of several hours (_write_patiently).
+            saved = _write_patiently(
+                job, 'captioning', lambda: _store_caption(path, caption, engine))
+            if saved is _UNSAVED:
+                return           # Stop landed while the write was tried again
+            outcome, stored = saved
+            if outcome == 'vanished':
+                vanished += 1
+            elif outcome == 'stale':
+                stale += 1
+            elif outcome == 'spared':
+                spared_mid_pass += 1
+            elif outcome == 'written':
+                captioned += 1
+                if stored:
+                    wrote[stored] = wrote.get(stored, 0) + 1
+                else:
+                    unrecorded_writes += 1
 
         # GPU-exclusive for the whole pass, exactly like the score/watermark passes:
         # frees ComfyUI VRAM and blocks a training start for the duration.
@@ -11315,6 +11431,11 @@ def _pipeline_job(user_id, bank_id, steps, reject_flags, resolve_dups):
                 entry['status'] = 'skipped'
                 entry['reason'] = f'GPU busy — {e}'
             except Exception as e:  # noqa: BLE001 — one bad pass never sinks the rest
+                # With its traceback: the report keeps one line, and that line was
+                # once the LAST exception of a chain ("This session is in
+                # 'prepared' state") while the cause, a refused write, was only
+                # in the chain. The log is where the whole chain can be read.
+                logger.exception('bank %s pipeline: step %s failed', bank_id, step)
                 entry['status'] = 'error'
                 entry['reason'] = f'{type(e).__name__}: {e}'
                 db.session.rollback()
