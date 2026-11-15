@@ -1,7 +1,7 @@
 # Which LoRA trainer should I use? Do I need the command line?
 <!-- description: LDS trains LoRAs with ai-toolkit and writes its config for you, so runs start from the browser. Exported ZIPs also feed kohya_ss or OneTrainer. -->
 
-LoRA Dataset Studio (LDS) trains with [ai-toolkit](https://github.com/ostris/ai-toolkit) and writes its training config for you: once ai-toolkit is installed and set in **Settings → Local tools**, you pick a recipe and start the run from the browser, with the queue and logs on the **Runs** page. Datasets also export as standard ZIPs of images with same-name `.txt` captions, so the same set can feed kohya_ss, OneTrainer or another trainer. The command line is needed once, to install ai-toolkit, which LDS does not install for you.
+LoRA Dataset Studio (LDS) trains with [ai-toolkit](https://github.com/ostris/ai-toolkit) and writes its training config for you: once ai-toolkit is installed and set in **Settings → Local tools**, which **Setup** can do for you in one click, you pick a recipe and start the run from the browser, with the queue and logs on the **Runs** page. Datasets also export as standard ZIPs of images with same-name `.txt` captions, so the same set can feed kohya_ss, OneTrainer or another trainer. The command line is needed once, to install ai-toolkit, which LDS does not install for you.
 
 ![Runs page listing local and cloud training runs side by side](../screenshots/training/runs-hub.png)
 
@@ -16,6 +16,10 @@ From the dataset's training panel, LDS:
 - queues local runs and lists every run, local or cloud, on the **Runs** page with progress, logs, samples, stop, retry, continue and download actions, plus a paste-safe **Share config** summary.
 
 ## Connect ai-toolkit once
+
+The quickest way is **Setup**, at the *LoRA training* step: **Install AI Toolkit** downloads it into a folder of its own with the CUDA build of PyTorch it documents, checks that your GPU is visible and selects the folder for you. It needs an NVIDIA GPU and about 8 GB free, and it is not offered in Docker. You can cancel it and resume later.
+
+To connect a copy you install yourself:
 
 1. Install ai-toolkit in its own folder. The [getting started guide](../guide/getting-started.md) recommends Python 3.11, or ai-toolkit's own installer, `python -m manager install`, which provisions a supported Python and the CUDA build of PyTorch that matches your driver. A plain `pip install torch` on Windows installs a CPU-only build, and training then runs on the CPU for hours without an error.
 2. In **Settings → Local tools → ai-toolkit**, set the folder that contains `run.py`. Fill **Python interpreter** only when there is no `venv` or `.venv` folder next to it, for example with conda, uv or a portable Python.
