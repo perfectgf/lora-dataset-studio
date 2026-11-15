@@ -56,6 +56,9 @@ _vision_window_context: ContextVar[tuple[str, int] | None] = ContextVar(
 # Vision/CUDA operation even if a background renewal fails, and is cleared only
 # after its heartbeat has stopped and the outer window has exited.
 _active_vision_window_tokens: set[str] = set()
+# Renewals that failed in a row, to log their traceback once per streak. Read and
+# written under GPU_ARBITER_LOCK only.
+_renewal_failures = [0]
 _MIN_FLAG_TTL_SECONDS = 30
 _MAX_FLAG_TTL_SECONDS = 3600
 
@@ -141,9 +144,19 @@ def _renew_owned_vision_token(token: str, ttl: int) -> bool:
                         'written again')
                 queue_manager._set_system_state('vision_in_progress', token,
                                                 ttl_seconds=ttl)
+                _renewal_failures[0] = 0
                 return True
-            except Exception:
-                logger.exception('vision GPU window renewal failed')
+            except Exception as exc:
+                # One traceback per streak. A pass now goes on through a refused
+                # write, and every call renews: a disk that stays full for half
+                # an hour would otherwise log the same forty lines hundreds of
+                # times, onto that same disk.
+                _renewal_failures[0] += 1
+                if _renewal_failures[0] == 1:
+                    logger.exception('vision GPU window renewal failed')
+                else:
+                    logger.warning('vision GPU window renewal failed again (%d in a row): %s',
+                                   _renewal_failures[0], exc)
                 # A commit that failed leaves its session unusable until it is
                 # rolled back, and on the pass's own thread that session is the
                 # pass's: without this, its next write fails with "This session
