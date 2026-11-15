@@ -1,12 +1,17 @@
-"""The LoRA-architecture guardrail: read a trained LoRA's REAL family from its
-safetensors header (metadata first, tensor-name sniff second) and refuse to
-deploy / test it under a contradicting family.
+"""The LoRA-architecture read: a trained LoRA's family from its safetensors
+header (metadata first, tensor-name sniff second), shown as a badge on a file
+that reads as another family than the folder it sits in.
 
 Root incident (2026-07-13): a Z-Image LoRA mislabelled 'krea' (pre-6952b11
 wrong-arch bug) was deployed under loras/krea/ and tested in the Krea Studio;
 ComfyUI silently dropped every incompatible key, so 117 tiles rendered with the
-LoRA effectively OFF and no error anywhere. These tests pin the detector, the
-deploy refusal, the Studio 409, and the cache.
+LoRA effectively OFF and no error anywhere.
+
+The read only ever LABELS. Until 2026-11-15 it also refused a deploy and a
+Studio run, and it turned real, working LoRAs away: the kohya 'lora_unet_'
+naming was taken for SDXL, whatever the model (Krea 2 and WAN files). These
+tests pin the detector, its cache, the badge, and that neither a deploy nor a
+run is refused on what the header reads as.
 """
 import json
 import os
@@ -59,6 +64,26 @@ _ANIMA_KEYS = ['diffusion_model.blocks.0.self_attn.q_proj.lora_A.weight',
                'diffusion_model.blocks.0.adaln_modulation_self_attn.1.lora_A.weight',
                'diffusion_model.llm_adapter.0.lora_A.weight']
 _UNKNOWN_KEYS = ['some.random.tensor.weight', 'foo.bar.baz.qux']
+# kohya naming ('lora_unet_<module path, dots as underscores>') — names read from
+# real third-party LoRAs. kohya writes that prefix for EVERY model and ComfyUI
+# loads it for every model, so it is not an SDXL tell: only the SD UNet's own
+# block names are.
+_KREA_KOHYA_KEYS = ['lora_unet_blocks_0_attn_wq.lora_down.weight',
+                    'lora_unet_blocks_0_attn_wq.lora_up.weight',
+                    'lora_unet_blocks_0_attn_wq.alpha',
+                    'lora_unet_blocks_0_mlp_down.lora_down.weight',
+                    'lora_unet_txtfusion_projector.lora_down.weight']
+_KREA_KOHYA_BLOCKS_ONLY = ['lora_unet_blocks_3_attn_gate.lora_down.weight',
+                           'lora_unet_blocks_3_attn_wk.lora_up.weight',
+                           'lora_unet_blocks_3_mlp_up.alpha']
+_WAN_KOHYA_KEYS = ['lora_unet_blocks_0_cross_attn_k.lora_down.weight',
+                   'lora_unet_blocks_0_cross_attn_k.alpha',
+                   'lora_unet_blocks_0_ffn_0.lora_up.weight']
+_SDXL_LDM_KEYS = ['lora_unet_input_blocks_4_1_transformer_blocks_0_attn1_to_q.lora_down.weight',
+                  'lora_unet_middle_block_1_proj_in.lora_up.weight',
+                  'lora_te1_text_model_encoder_layers_0_mlp_fc1.alpha']
+_SDXL_TE_ONLY_KEYS = ['lora_te1_text_model_encoder_layers_0_mlp_fc1.lora_down.weight',
+                      'lora_te2_text_model_encoder_layers_0_mlp_fc1.lora_down.weight']
 
 
 # --- Detector: metadata path --------------------------------------------------
@@ -89,6 +114,11 @@ def test_detect_by_metadata(app, tmp_path, version, expected):
     (_FLUX_KEYS, 'flux'),            # names can't split FLUX.1 vs FLUX.2 → generic
     (_ANIMA_KEYS, 'anima'),
     (_UNKNOWN_KEYS, None),
+    (_KREA_KOHYA_KEYS, 'krea'),          # the file that was refused as "SDXL"
+    (_KREA_KOHYA_BLOCKS_ONLY, 'krea'),   # no txtfusion key: the blocks alone tell
+    (_WAN_KOHYA_KEYS, None),             # a layout we do not label → no verdict
+    (_SDXL_LDM_KEYS, 'sdxl'),            # kohya SDXL, LDM block names
+    (_SDXL_TE_ONLY_KEYS, 'sdxl'),        # text-encoder-only kohya file: unchanged
 ])
 def test_detect_by_tensor_names_when_metadata_absent(app, tmp_path, keys, expected):
     from app.services import lora_training as lt
@@ -184,20 +214,26 @@ def test_cache_hits_and_invalidates(app, tmp_path, monkeypatch):
     assert lt.detect_lora_arch(p) == 'zimage'
 
 
-# --- Deploy guard: import_checkpoint -----------------------------------------
-def test_import_refuses_arch_mismatch(app, tmp_path):
-    """A Z-Image LoRA cannot be deployed under the Krea family (the exact incident)."""
+# --- Deploy: import_checkpoint never refuses on the header read ---------------
+def test_import_deploys_and_flags_a_file_that_reads_as_another_family(app, tmp_path):
+    """Where a LoRA is deployed is the user's call: a file whose header reads
+    Z-Image deploys under Krea when asked, and the listing flags it."""
     from app.services import lora_training as lt, face_dataset_service as svc
+    from app import config
     with app.app_context():
+        base = tmp_path / 'Comfy'
+        (base / 'models' / 'loras').mkdir(parents=True)
+        config.save_config({'comfyui': {'base_dir': str(base)}})
         ds = svc.create_dataset(LOCAL_USER, 'Kit', 'kitty')
         run_dir = tmp_path / 'run'
         run_dir.mkdir()
         f = run_dir / 'lora_kitty_000002000.safetensors'
         _write_st(f, _ZIMAGE_KEYS, {'ss_base_model_version': 'zimage'})
-        with pytest.raises(ValueError, match='Z-Image'):
-            lt.import_checkpoint(LOCAL_USER, ds.id, f.name, family='krea',
-                                 src_dir=str(run_dir))
-        # nothing was copied out (the refusal is BEFORE the deploy)
+        dest = lt.import_checkpoint(LOCAL_USER, ds.id, f.name, family='krea',
+                                    src_dir=str(run_dir))
+        assert os.path.isfile(dest)
+        rows = lt.list_imported_checkpoints(LOCAL_USER, ds.id, family='krea')
+        assert [r.get('arch_mismatch') for r in rows] == ['zimage']
 
 
 def test_import_accepts_matching_and_undetectable(app, tmp_path, monkeypatch):
@@ -224,7 +260,7 @@ def test_import_accepts_matching_and_undetectable(app, tmp_path, monkeypatch):
         assert os.path.isfile(dest2)
 
 
-# --- Studio guard: preflight 409-style on mismatch ---------------------------
+# --- Studio: the header read is logged, the run is never refused on it -------
 def _configure_comfy(tmp_path):
     from app import config
     base = tmp_path / 'Comfy'
@@ -233,12 +269,13 @@ def _configure_comfy(tmp_path):
     return base
 
 
-def test_create_run_refuses_wrong_arch_checkpoint(app, tmp_path, monkeypatch):
-    """A Z-Image LoRA sitting in loras/krea/ (mislabelled deploy) selected in the
-    Krea Studio → StudioArchMismatch BEFORE any row is created (no grid of no-op
-    tiles). family_of_lora keys off the folder; the header sniff catches it."""
+def test_create_run_does_not_refuse_a_checkpoint_that_reads_as_another_family(
+        app, tmp_path, monkeypatch):
+    """A file in loras/krea/ whose header reads Z-Image, selected in the Krea
+    Studio, is NOT turned away: the user picked it and the header read is a best
+    effort. The doubt is returned (and logged), and create_run goes on to the
+    asset preflight — absent here, which is the acceptable stop."""
     from app.services import lora_test_studio as lts, face_dataset_service as svc
-    from app.models import LoraTestImage
     with app.app_context():
         base = _configure_comfy(tmp_path)
         krea_dir = base / 'models' / 'loras' / 'krea'
@@ -246,14 +283,29 @@ def test_create_run_refuses_wrong_arch_checkpoint(app, tmp_path, monkeypatch):
         _write_st(krea_dir / 'lora_kitty_000002000.safetensors', _ZIMAGE_KEYS,
                   {'ss_base_model_version': 'zimage'})
         ck = 'krea\\lora_kitty_000002000.safetensors'
+        assert lts._preflight_checkpoint_arch('krea', [ck]) == [(ck, 'zimage')]
         monkeypatch.setattr(lts, 'gpu_busy_reason', lambda: None)
         ds = svc.create_dataset(LOCAL_USER, 'Kit', 'kitty')
-        with pytest.raises(lts.StudioArchMismatch) as ei:
+        with pytest.raises(Exception) as ei:
             lts.create_run(LOCAL_USER, ds.id, [ck], [1.0],
                            lts.StudioGenSettings(prompt='p', count=1),
                            family='krea')
-        assert ei.value.detected == 'zimage' and ei.value.family == 'krea'
-        assert LoraTestImage.query.filter_by(dataset_id=ds.id).count() == 0
+        assert not isinstance(ei.value, lts.StudioArchMismatch)
+
+
+def test_kohya_named_krea_lora_raises_no_doubt_in_the_krea_studio(app, tmp_path):
+    """The reported case: a Krea 2 LoRA saved in kohya naming, with no
+    ss_base_model_version, sitting in loras/krea/. It read as SDXL and the Studio
+    refused it; it now reads as Krea 2 and carries no flag at all."""
+    from app.services import lora_test_studio as lts, lora_training as lt
+    with app.app_context():
+        base = _configure_comfy(tmp_path)
+        krea_dir = base / 'models' / 'loras' / 'krea'
+        krea_dir.mkdir(parents=True)
+        path = _write_st(krea_dir / 'slider.safetensors', _KREA_KOHYA_KEYS,
+                         {'modelspec.architecture': 'Krea-2/lora'})
+        assert lt.detect_lora_arch(path) == 'krea'
+        assert lts._preflight_checkpoint_arch('krea', ['krea\\slider.safetensors']) == []
 
 
 def test_create_run_allows_matching_checkpoint_arch(app, tmp_path, monkeypatch):
@@ -281,7 +333,8 @@ def test_create_run_allows_matching_checkpoint_arch(app, tmp_path, monkeypatch):
 
 def test_arch_mismatch_route_maps_to_409(app, client, monkeypatch):
     """The lora-test/run route turns StudioArchMismatch into a structured 409 with
-    the studio_arch_mismatch payload (same contract as studio_missing)."""
+    the studio_arch_mismatch payload (same contract as studio_missing). The core
+    no longer raises it; the mapping stays for plugins built against the SDK."""
     from app.services import face_dataset_service as svc
     from app.services import lora_test_studio as lts
     from app.routes import _common

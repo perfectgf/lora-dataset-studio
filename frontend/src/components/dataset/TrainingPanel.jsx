@@ -3739,14 +3739,15 @@ export default function TrainingPanel({ ds, keptCount, kind, onCheckpointsChange
                     : <span className="text-content-subtle text-[0.625rem]"
                         title="Imported before run tagging — its source run is unknown">run ?</span>}
                   <span className="text-content break-all">{c.label}</span>
-                  {/* Retrofit signal: the file's REAL arch (read from its header)
-                      contradicts this folder's family — a mislabelled deploy that
-                      would test as a silent no-op. No auto-move; just flag it. */}
+                  {/* A hint, never a verdict: the arch read from the file's header
+                      contradicts this folder's family. The read is a best effort
+                      and the file still runs; the badge only explains a grid that
+                      looks as if the LoRA were off. */}
                   {c.arch_mismatch && (
                     <span
-                      title={`This file is a ${c.arch_label || c.arch_mismatch} LoRA, not ${checkpointLorasLabel} — testing it here has NO effect (ComfyUI silently drops it). Delete it and re-import under the ${c.arch_label || c.arch_mismatch} family.`}
+                      title={`LDS reads this file as a ${c.arch_label || c.arch_mismatch} LoRA, not ${checkpointLorasLabel}. It still runs here. If its images look as if the LoRA were off, this is the likely reason.`}
                       className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 whitespace-nowrap">
-                      ⚠ {c.arch_label || c.arch_mismatch} LoRA
+                      ⚠ reads as {c.arch_label || c.arch_mismatch}
                     </span>
                   )}
                   {/* Same operation as ⏏ Undeploy above, so it wears the same
