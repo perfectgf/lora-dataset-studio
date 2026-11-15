@@ -147,10 +147,13 @@ def start_install(action):
         return jsonify({'error': f'unknown action: {action}'}), 404
     if (denied := _plugin_action_admin_gate(action)) is not None:
         return denied
-    # Only the AI Toolkit install takes options (its destination folder).
-    options = request.get_json(silent=True) if action == 'aitoolkit_install' else None
     try:
-        state = setup_installer.start(action, options)
+        if action == 'aitoolkit_install':
+            # The one action that takes options (its destination folder). Every other
+            # action keeps the one-argument call the rest of the app and its tests use.
+            state = setup_installer.start(action, request.get_json(silent=True))
+        else:
+            state = setup_installer.start(action)
     except setup_installer.AlreadyRunning:
         return jsonify({'error': 'install already running'}), 409
     except (setup_installer.Precondition, ValueError) as e:
