@@ -105,6 +105,26 @@ def test_comfyui_or_ollama_merely_stopped_is_not_a_regression(app):
     assert setup_state.compare(down) == []
 
 
+def test_a_tracked_local_engine_is_unknown_while_comfyui_is_stopped(app):
+    """A plugin's local engine may declare a tracked capability, and its
+    readiness is answered by ComfyUI. Stopped, ComfyUI cannot be asked: that is
+    not a regression. Once it answers, a real "not ready" is one again."""
+    from app.engines import registry
+    registry.register(registry.EngineSpec(
+        id='t_local', label='Test local', kind=registry.LOCAL, order=99,
+        tracked_capability='Test local engine'))
+    try:
+        setup_state.observe(_caps(engines={'t_local': True}))
+        stopped = _caps(comfyui={'reachable': False}, studio_visible=False,
+                        engines={'klein': False, 't_local': False})
+        assert setup_state.compare(stopped) == []
+        setup_state.observe(stopped)                # must not re-baseline either
+        broken = _caps(engines={'t_local': False})  # ComfyUI answers, engine does not
+        assert [r['key'] for r in setup_state.compare(broken)] == ['engines.t_local']
+    finally:
+        registry.unregister('t_local')
+
+
 def test_never_installed_capability_is_not_a_regression(app):
     """"Not everything is installed" is the normal state of nearly every
     install; only losing something you HAD is worth an interruption."""

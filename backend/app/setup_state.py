@@ -92,15 +92,34 @@ def _dig(caps: dict, dotted: str):
     return cur
 
 
+def _daemon_bound_keys() -> frozenset:
+    """The tracked checks only ComfyUI itself can answer: a LOCAL engine's
+    readiness is read off the running server (its nodes, its accepted values)."""
+    return frozenset(f'engines.{s.id}' for s in _engines.all_specs()
+                     if s.tracked_capability and s.kind == _engines.LOCAL)
+
+
 def snapshot(caps: dict) -> dict:
     """The tracked checks as they stand in `caps`. Unknown keys are dropped
     rather than recorded as False — an older/newer payload must not manufacture
-    a regression out of a field it simply does not have."""
+    a regression out of a field it simply does not have.
+
+    A local engine that is not ready while ComfyUI is stopped is unknown too:
+    it could not be asked. Without this, a plugin engine that declares a tracked
+    capability was reported as "stopped working" every time ComfyUI was off —
+    the nag the module docstring rules out. Its "ready" still counts, and so
+    does its "not ready" once ComfyUI answers."""
+    caps = caps or {}
+    comfyui_answers = bool(_dig(caps, 'comfyui.reachable'))
+    daemon_bound = _daemon_bound_keys()
     out = {}
     for key in tracked_keys():
-        val = _dig(caps or {}, key)
-        if val is not None:
-            out[key] = bool(val)
+        val = _dig(caps, key)
+        if val is None:
+            continue
+        if not val and not comfyui_answers and key in daemon_bound:
+            continue
+        out[key] = bool(val)
     return out
 
 
