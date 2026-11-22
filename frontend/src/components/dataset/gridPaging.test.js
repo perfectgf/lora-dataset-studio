@@ -82,8 +82,15 @@ test('a non-array list degrades to an empty page instead of throwing', () => {
   assert.equal(view.page, 0);
 });
 
-test('the page size is the one the grid measured as smooth', () => {
-  // Changing this is a perf decision, not a cosmetic one: 6 211 tiles rendered
-  // at once measured ~41 ms/frame while a 300-tile grid measured 6 ms.
-  assert.equal(GRID_PAGE_SIZE, 500);
+test('a page stays under the smooth ceiling and ends on a whole row', () => {
+  // The ceiling is a perf fact, not a cosmetic one: 6 211 tiles rendered at once
+  // measured ~41 ms/frame, 500 and under measured 6 ms. Below it the size is
+  // chosen for the reader — a page of a few screens — and must divide by every
+  // column count the grid uses (S/M/L at each breakpoint), or a full page ends
+  // on a ragged row that looks like the end of the set.
+  assert.ok(GRID_PAGE_SIZE <= 500);
+  assert.ok(GRID_PAGE_SIZE >= 24, 'a page smaller than this turns review into page-turning');
+  for (const columns of [2, 3, 4, 6, 8]) {
+    assert.equal(GRID_PAGE_SIZE % columns, 0, `${GRID_PAGE_SIZE} tiles do not fill rows of ${columns}`);
+  }
 });

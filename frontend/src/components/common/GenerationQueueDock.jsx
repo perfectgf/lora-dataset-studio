@@ -136,7 +136,7 @@ export function QueueDockBody({ listing, open = false, pending = null, sharing =
   const paused = pausedReason(listing)
   const action = pausedAction(listing)
   return (
-    <div className={`fixed ${bottomClass} left-3 z-40 w-[min(23rem,calc(100vw-1.5rem))]`}>
+    <div className={`fixed ${bottomClass} left-[calc(var(--app-sidebar-w)+0.75rem)] z-40 w-[min(23rem,calc(100vw-1.5rem))]`}>
       {open && (
         <div className="mb-2 max-h-[min(60vh,28rem)] overflow-y-auto rounded-xl border border-indigo-400/40 bg-surface-overlay/95 shadow-lg backdrop-blur">
           {/* Above the list, because it explains the whole list: nothing here is

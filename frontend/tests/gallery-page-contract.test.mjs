@@ -146,8 +146,10 @@ test('the viewer walks the feed and stops AT the ends', () => {
 
 test('the route exists and the nav gates it like the other generation surfaces', () => {
   assert.match(app, /path="\/gallery" element=\{<GalleryPage \/>\}/)
+  // The menu's entries are built by one helper (the side menu and the panel
+  // below `xl` share them); the gate in front of Gallery's is what is pinned.
   assert.match(app,
-    /\(caps\.studio_visible \|\| caps\.cloud_training \|\| caps\.training_visible\) && \(\s*<NavLink to="\/gallery"/)
+    /\(caps\.studio_visible \|\| caps\.cloud_training \|\| caps\.training_visible\) && entry\('\/gallery', Images, 'Gallery'\)/)
   // Wide like Bank: a grid page reads better on the 1800-px measure.
   assert.match(app, /pathname === '\/gallery'/)
 })

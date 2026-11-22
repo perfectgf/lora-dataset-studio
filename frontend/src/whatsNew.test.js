@@ -10,6 +10,7 @@ import {
   hasUnseen,
   readSeenId,
   markAllSeen,
+  seedSeenBaseline,
   isValidTarget,
   parseTarget,
   WHATS_NEW_SEEN_KEY,
@@ -203,6 +204,31 @@ test('opening the panel after a partial read clears the whole badge', () => {
   assert.equal(unseenCount(readSeenId(store), SAMPLE), 1);
   markAllSeen(store, SAMPLE);
   assert.equal(unseenCount(readSeenId(store), SAMPLE), 0);
+});
+
+test('a first visit starts caught up, and counts what ships after it', () => {
+  // No marker yet: the newest entry of the feed becomes the baseline, so a new
+  // install does not open on the whole history as unread.
+  const store = fakeStorage();
+  const baseline = seedSeenBaseline(store, SAMPLE);
+  assert.equal(baseline, latestEntryId(SAMPLE));
+  assert.equal(store.getItem(WHATS_NEW_SEEN_KEY), baseline);
+  assert.equal(unseenCount(readSeenId(store), SAMPLE), 0);
+  // An update then brings two entries: exactly those are unread.
+  const later = [
+    { id: '2026-12-01-b', date: '2026-12-01', title: 'b', blurb: 'b' },
+    { id: '2026-12-01-a', date: '2026-12-01', title: 'a', blurb: 'a' },
+    ...SAMPLE,
+  ];
+  assert.equal(unseenCount(readSeenId(store), later), 2);
+});
+
+test('seeding the baseline never moves an existing marker', () => {
+  const oldest = sortedEntries(SAMPLE).at(-1).id;
+  const store = fakeStorage({ [WHATS_NEW_SEEN_KEY]: oldest });
+  assert.equal(seedSeenBaseline(store, SAMPLE), oldest);
+  assert.equal(store.getItem(WHATS_NEW_SEEN_KEY), oldest);
+  assert.equal(unseenCount(readSeenId(store), SAMPLE), SAMPLE.length - 1);
 });
 
 // ── Navigation targets ("Try it →") ──────────────────────────────────────────

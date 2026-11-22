@@ -24,12 +24,18 @@
  * action: they read the full filtered list, never this slice.
  */
 
-// Tiles here are much heavier than the Bank's (a caption textarea, ✓/✕, four
-// action buttons and the badge stack each), but they are also what curation
-// works on: too small a page turns "review this dataset" into a clicking chore.
-// 500 measured at ~6 ms/frame — same as a small dataset, i.e. the ceiling of
-// this machine — so it buys the ergonomics for free.
-export const GRID_PAGE_SIZE = 500;
+// How many tiles make a page. It was 500 — the most this machine scrolls at
+// full frame rate — which settled the performance question and left the other
+// one open: a 156-image dataset was a single page 10.9 screens tall (measured
+// 2026-11-22), and "where am I in this set" had no answer but the scrollbar.
+// A tile here is tall (the picture, ✓/✕, the caption field), so the page is
+// counted in rows: 48 is eight rows of six at the default tile size on a wide
+// window, about three screens, and it divides evenly by every column count the
+// grid uses (2, 3, 4, 6, 8) so a full page never ends on a ragged row.
+// The pager is numbered (components/common/Pager), so a long set is crossed by
+// jumping, not by pressing Next a hundred times. Selection, auto-triage and
+// every bulk action still read the whole filtered list (see above).
+export const GRID_PAGE_SIZE = 48;
 
 /** How many pages `total` items need (never 0 — an empty list is one empty page). */
 export function pageCount(total, size = GRID_PAGE_SIZE) {

@@ -65,7 +65,11 @@ test('the pager is drawn above AND below the wall of tiles', () => {
 });
 
 test('pager buttons stay thumb-sized at 400 px', () => {
-  const pager = source.slice(source.indexOf('function GridPager'), source.indexOf('export default function DatasetGrid'));
-  assert.match(pager, /min-h-11/);
+  // The grid's pager is the shared numbered one; the thumb-sized targets and
+  // the wrapping row live there.
+  const grid = source.slice(source.indexOf('function GridPager'), source.indexOf('export default function DatasetGrid'));
+  assert.match(grid, /<Pager page=\{view\.page \+ 1\} size=\{view\.size\} total=\{view\.total\}/);
+  const pager = readFileSync(new URL('../common/Pager.jsx', import.meta.url), 'utf8');
+  assert.match(pager, /min-h-11 min-w-11/);
   assert.match(pager, /flex flex-wrap items-center/);
 });

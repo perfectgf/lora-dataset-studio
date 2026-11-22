@@ -90,6 +90,12 @@ export const WHATS_NEW = [
     to: '/setup?step=comfyui',
   },
   {
+    id: '2026-11-24-zz-side-menu-wider-workspace', date: '2026-11-24',
+    title: 'A side menu, a wider workspace and larger text',
+    blurb: 'The pages now sit in a menu down the left edge, with Plugins and the pages your plugins add right under Gallery, so the top of the window is left to your work; fold it to a strip of icons when you want the width as well. An open dataset uses the width of the screen, its list of sections shows how far each step is, and no text is smaller than 12 px. Long image grids, in a dataset and in a bank, are split into numbered pages.',
+    to: '/datasets',
+  },
+  {
     id: '2026-11-24-z-selected-images-stand-out', date: '2026-11-24',
     title: 'Selected images stand out again',
     blurb: 'In the Bank, the selection mark was hidden behind the ✓ of a kept image and its frame was cut off, so a selected image looked like any other. The mark now has a corner of its own, on dataset images too, the frame is drawn inside the thumbnail, and the three buttons at its bottom no longer run over each other.',
@@ -2233,6 +2239,21 @@ export function markAllSeen(storage, entries = WHATS_NEW) {
     /* ignore */
   }
   return id;
+}
+
+// A browser that has never opened this install has no marker, and "no marker"
+// reads as "everything is unseen" (unseenEntries above). On its own that made
+// a brand-new install greet its user with the whole feed as unread — 242
+// entries on 2026-11-22, drawn as "9+" — and the count never came down for
+// someone who never opened the panel. The badge is there to say what changed
+// SINCE YOU HAVE HAD THE APP, so the first visit pins the newest entry as the
+// baseline: nothing unread today, and each later update counts its own
+// entries. The panel still lists the whole feed.
+// Returns the marker in force: the existing one, or the baseline just written.
+export function seedSeenBaseline(storage, entries = WHATS_NEW) {
+  const seen = readSeenId(storage);
+  if (seen) return seen;
+  return markAllSeen(storage, entries);
 }
 
 // ── Navigation targets ("Try it →") ──────────────────────────────────────────

@@ -6,6 +6,7 @@ import { useReviewLightbox } from './useReviewLightbox'
 import { useCaptionOptions } from './useCaptionOptions'
 import { useCurationLanes } from './useCurationLanes'
 import { useToast } from '../common/Toast'
+import Pager from '../common/Pager'
 import { useCapabilities } from '../../context/CapabilitiesContext'
 import { useConnectionStatus } from '../../hooks/useConnectionStatus'
 import DupGroupsPanel from './DupGroupsPanel'
@@ -2352,18 +2353,12 @@ export default function BankWorkspace({ bankId, onBack, onGone }) {
             {page.total === 0 && (
               <p className="text-sm text-content-muted">Nothing matches this filter.</p>
             )}
-            {page.total > PAGE_SIZE && (
-              <nav className="flex items-center gap-3 text-sm" aria-label="Grid pages">
-                <button type="button" disabled={offset === 0} onClick={() => goto(Math.max(0, offset - PAGE_SIZE))}
-                  className="rounded-md border border-border px-2 py-1 text-content disabled:opacity-40">← Prev</button>
-                <span className="text-content-muted">
-                  {offset + 1}–{Math.min(offset + PAGE_SIZE, page.total)} of {page.total}
-                </span>
-                <button type="button" disabled={offset + PAGE_SIZE >= page.total}
-                  onClick={() => goto(offset + PAGE_SIZE)}
-                  className="rounded-md border border-border px-2 py-1 text-content disabled:opacity-40">Next →</button>
-              </nav>
-            )}
+            {/* Numbered pages (the same control as the dataset grid's): a bank of
+                24 000 images is 200 pages, and ← Prev / Next → alone meant 199
+                presses to see the end. The server still serves a window at an
+                offset; the pager only turns its page number into that offset. */}
+            <Pager aria-label="Grid pages" page={Math.floor(offset / PAGE_SIZE) + 1} size={PAGE_SIZE}
+              total={page.total} onPage={(next) => goto((next - 1) * PAGE_SIZE)} />
             </>
           )}
         </main>

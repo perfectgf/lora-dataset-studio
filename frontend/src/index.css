@@ -2,118 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The global header keeps workspaces above a separate machine/tools shelf. */
+/* ── App chrome ─────────────────────────────────────────────────────────────
+   One menu, two placements (App.jsx NavBar), and only one of them is mounted:
+   a column down the left edge from 1280 px (.app-sidebar), a one-row bar whose
+   hamburger opens a panel below that (.app-header). The bar used to be the
+   desktop menu too — a wrapping row of pages over a tools shelf, 102 px tall
+   and 142 px once plugins had added ten pages. */
 .app-header {
   background: rgb(var(--surface-overlay));
   backdrop-filter: none;
 }
-.app-header-shell > a { letter-spacing: -0.025em; }
+.app-header-shell > a {
+  display: inline-flex;
+  align-items: center;
+  letter-spacing: -0.025em;
+}
 /* Keep long plugin menus inside the visible viewport below the sticky bar. */
 .app-mobile-nav {
   max-height: calc(100dvh - 100%);
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 .app-mobile-nav > * { flex-shrink: 0; }
+/* The bar only exists where a finger may be the pointer: thumb-sized targets. */
+.app-header a,
+.app-header button { min-height: 40px; }
+.app-header button { min-width: 40px; }
 .app-header a:focus-visible,
 .app-header button:focus-visible {
   outline: 2px solid rgb(var(--accent));
   outline-offset: 3px;
 }
-.app-header-workspaces > a {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  border-radius: 8px;
+/* Inside the column an outset ring would be clipped by the list's own scroll
+   box, so it is drawn inside the row. */
+.app-sidebar a:focus-visible,
+.app-sidebar button:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: -2px;
 }
-.app-header-workspaces > a[aria-current="page"] {
-  color: rgb(var(--accent));
-  background: rgb(var(--accent) / 0.1);
-}
-.app-header-workspaces > a[aria-current="page"]::after {
+/* The page you are on: the accent as a short bar at the row's left edge — the
+   same mark the dataset workspace's own rail uses, so "where am I" reads the
+   same way at both levels. The row's raised ground comes from its classes. */
+.app-sidebar .app-nav a[aria-current="page"]::before {
   content: '';
   position: absolute;
-  bottom: 0;
-  left: 12px;
-  right: 12px;
-  height: 2px;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
   border-radius: 2px;
   background: rgb(var(--accent));
 }
-.app-header-tools > button,
-.app-header-tools > .relative > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  height: 32px;
-  padding: 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-}
-.app-header-tools > button:hover,
-.app-header-tools > .relative > button:hover {
-  border-color: rgb(var(--border));
-  background: rgb(var(--surface-raised));
-}
-.app-header [data-testid="header-system-stats"] { gap: 8px; }
-.app-header [data-testid="header-system-stats"] > span:first-child {
+/* The machine-load readout is one line in the bar's panel and has 190 px in
+   the column: there its figures wrap, a pair to a line. */
+.app-header [data-testid="header-system-stats"],
+.app-sidebar [data-testid="header-system-stats"] { gap: 8px; }
+.app-header [data-testid="header-system-stats"] > span:first-child,
+.app-sidebar [data-testid="header-system-stats"] > span:first-child {
   flex-wrap: wrap;
-  gap: 0;
-  font-size: 11px;
+  column-gap: 12px;
+  row-gap: 2px;
 }
-.app-header [data-testid="header-system-stats"] > span:first-child > span {
-  padding: 3px 10px;
-  gap: 6px;
-  border-right: 1px solid rgb(var(--border));
-}
-.app-header [data-testid="header-system-stats"] > span:first-child > span:first-child { padding-left: 0; }
-.app-header [data-testid="header-system-stats"] > span:first-child > span:last-child { border-right: 0; }
-.app-header [data-testid="header-system-stats"] > button {
+.app-header [data-testid="header-system-stats"] > button,
+.app-sidebar [data-testid="header-system-stats"] > button {
   min-width: 28px;
   border-radius: 6px;
 }
-@media (min-width: 768px) {
-  .app-header .app-header-shell {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    max-width: 1280px;
-    column-gap: 28px;
-    row-gap: 8px;
-    padding-top: 10px;
-    padding-bottom: 8px;
+@media (min-width: 1280px) {
+  /* No bar above the page any more, and a column beside it. Whatever pins
+     itself to the top of the viewport or spans its bottom reads these two. */
+  :root[data-theme="dark"] {
+    --app-header-h: 0px;
+    --app-sidebar-w: 14rem;
   }
-  .app-header nav[aria-label="Main navigation"] { display: contents; }
-  .app-header-workspaces { justify-content: flex-end; }
-  .app-header-tools {
-    grid-column: 1 / -1;
-    width: 100%;
-    min-width: 0;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    border-top: 1px solid rgb(var(--border));
-    padding-top: 6px;
-  }
-  .app-header-tools > [data-testid="header-system-stats"] { margin-right: auto; }
-  :root[data-theme="dark"] { --app-header-h: 102px; }
-}
-@media (min-width: 768px) and (max-width: 1023px) {
-  .app-header .app-header-shell {
-    column-gap: 12px;
-    row-gap: 4px;
-    padding-top: 6px;
-    padding-bottom: 4px;
-  }
-  :root[data-theme="dark"] { --app-header-h: 102px; }
-  .app-header-workspaces > a,
-  .app-header-tools > button,
-  .app-header-tools > .relative > button { min-height: 40px; }
-}
-@media (max-width: 1023px) {
-  .app-header a,
-  .app-header button { min-height: 40px; }
-  .app-header button { min-width: 40px; }
-  .app-header-shell > a { display: inline-flex; align-items: center; }
+  /* The Test Studio's action bar spans the bottom of the window from its left
+     edge; it starts after the column instead of lying over the menu's foot. */
+  nav[data-probe-chrome="action-bar"] { left: var(--app-sidebar-w); }
 }
 
 /* ── Theme tokens ───────────────────────────────────────────────────────────
@@ -180,7 +143,10 @@
   --accent: 225 134 31;            /* #E1861F */
 
   /* Height of the sticky top bar (App.jsx `<header className="… sticky top-0">`),
-     measured at 57 px on every width where it is the desktop bar.
+     measured at 65 px: one row, 12 px of padding above and below a 40-px
+     target, and the hairline under it. The bar exists below 1280 px only; from
+     there the menu is a column and the "App chrome" block at the top of this
+     file sets this to 0.
      Anything else that pins itself to the top of the viewport has to clear it,
      or it slides UNDER the bar and loses its own header — which is what the
      Bank's filter rail did before this existed.
@@ -188,7 +154,11 @@
      bar growing (the suite runs on `node --test`, which has no layout engine).
      If you change the bar's padding or type size, change this with it — this is
      the single place that has to move. */
-  --app-header-h: 57px;
+  --app-header-h: 65px;
+  /* Width of the side menu: 0 while the menu is the top bar, 14rem (the
+     `w-56` of App.jsx's <aside>) from 1280 px. A fixed bar that starts at the
+     window's left edge adds it to its `left`. */
+  --app-sidebar-w: 0px;
 }
 
 
@@ -605,4 +575,68 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .gf-highlight { animation: none; box-shadow: 0 0 0 3px rgb(var(--accent) / 0.5); }
+}
+
+/* ── Type floor ─────────────────────────────────────────────────────────────
+   No size utility renders text under 12 px.
+
+   The interface carried 8- to 11-px text at about 1 190 call sites (and some
+   470 more in the bundled plugins): eyebrows, counts, hints, the second line
+   of nearly every row. Measured on 2026-11-22, 30 % of the characters on
+   screen were under 12 px, up to 52 % in Settings — the single largest reason
+   the screens read as dense, since small text is also what lets more of it fit.
+
+   The floor is applied HERE, to the classes, and not by editing the call
+   sites: 1 650 edits across hundreds of files would collide with every branch
+   in flight, and a plugin compiled on its own would still ship its own 10 px.
+   Each rule keeps the size its class names and raises it to the floor, so the
+   call sites stay truthful about the hierarchy they intended (a 10-px label is
+   still "smaller than" an 11-px one in the source) while the floor decides
+   what the eye gets.
+
+   Two selectors per size. The first is the core's own utility. The second is
+   the same utility inside a plugin: the plugin build renames every class to
+   lds-<plugin id>-<class> (sdk/frontend/styles.mjs), so its size utilities end
+   in "-text-[…]" — a hyphen where a variant of the core has a colon
+   ("sm:text-[…]"), which is what keeps this from catching a responsive variant
+   at the wrong width. `:root` in front outranks the utility itself, wherever
+   its stylesheet is loaded.
+
+   NOT covered, on purpose: text a plugin sizes in a stylesheet of its own
+   (its own class names), and .dataset-tile-badge above, whose 10 px is part of
+   a measured layout (tileBadgeLayout.js).
+
+   To add a size: one line in the same shape. A surface whose geometry is
+   computed for small text (a graph node of fixed size) opts out with
+   data-type-floor="off" on its root — the variable is inherited, so the whole
+   subtree keeps the sizes it wrote. */
+:root { --type-floor: 0.75rem; }
+[data-type-floor="off"] { --type-floor: 0px; }
+:root .text-\[0\.5rem\],
+:root [class*="-text-[0.5rem]"] { font-size: max(0.5rem, var(--type-floor)); }
+:root .text-\[0\.55rem\],
+:root [class*="-text-[0.55rem]"] { font-size: max(0.55rem, var(--type-floor)); }
+:root .text-\[0\.5625rem\],
+:root [class*="-text-[0.5625rem]"] { font-size: max(0.5625rem, var(--type-floor)); }
+:root .text-\[9px\],
+:root [class*="-text-[9px]"] { font-size: max(9px, var(--type-floor)); }
+:root .text-\[0\.625rem\],
+:root [class*="-text-[0.625rem]"] { font-size: max(0.625rem, var(--type-floor)); }
+:root .text-\[10px\],
+:root [class*="-text-[10px]"] { font-size: max(10px, var(--type-floor)); }
+:root .text-\[0\.66rem\],
+:root [class*="-text-[0.66rem]"] { font-size: max(0.66rem, var(--type-floor)); }
+:root .text-\[0\.68rem\],
+:root [class*="-text-[0.68rem]"] { font-size: max(0.68rem, var(--type-floor)); }
+:root .text-\[0\.6875rem\],
+:root [class*="-text-[0.6875rem]"] { font-size: max(0.6875rem, var(--type-floor)); }
+:root .text-\[11px\],
+:root [class*="-text-[11px]"] { font-size: max(11px, var(--type-floor)); }
+:root .text-\[0\.7rem\],
+:root [class*="-text-[0.7rem]"] { font-size: max(0.7rem, var(--type-floor)); }
+:root .text-\[0\.72rem\],
+:root [class*="-text-[0.72rem]"] { font-size: max(0.72rem, var(--type-floor)); }
+:root .after\:text-\[0\.625rem\]::after { font-size: max(0.625rem, var(--type-floor)); }
+@media (min-width: 640px) {
+  :root .sm\:text-\[0\.625rem\] { font-size: max(0.625rem, var(--type-floor)); }
 }

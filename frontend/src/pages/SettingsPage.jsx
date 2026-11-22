@@ -583,7 +583,7 @@ export default function SettingsPage({ plugin = null, groups = [] }) {
           the page never shows a dead "Save" button. */}
       {dirty && (
         <div role="status"
-          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-border bg-surface-overlay/95 px-4 py-2 shadow-lg backdrop-blur">
+          className="fixed left-[var(--app-sidebar-w)] right-0 bottom-4 z-40 mx-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-3 rounded-full border border-border bg-surface-overlay/95 px-4 py-2 shadow-lg backdrop-blur">
           <span aria-hidden className="text-amber-400">●</span>
           <span className="text-sm text-content">Unsaved changes</span>
           <button type="button" onClick={discard}

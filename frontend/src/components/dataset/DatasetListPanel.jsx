@@ -113,9 +113,10 @@ const TILE_SIZE_TITLE = {
   M: 'Medium tiles (default)',
   L: 'Large tiles — big reference previews',
 };
+// One more column from `2xl`, where the page is wider than the 1024 px these were sized for.
 const GRID_COLS = {
-  M: 'grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4',
-  L: 'grid grid-cols-1 gap-2.5 sm:grid-cols-2',
+  M: 'grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5',
+  L: 'grid grid-cols-1 gap-2.5 sm:grid-cols-2 2xl:grid-cols-3',
 };
 
 // Kind filter chips — only rendered when at least two kinds coexist in the

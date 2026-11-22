@@ -12,11 +12,12 @@ import SupportProjectNotice from '../components/common/SupportProjectNotice.jsx'
 export default function DatasetPage() {
   const ds = useDataset();
   return (
-    <div className="p-4 max-w-6xl mx-auto">
+    <div className="p-4">
       {ds.currentId ? (
         <DatasetWorkspace ds={ds} onBack={() => ds.setCurrentId(null)} />
       ) : (
-        /* Full page width (max-w-6xl above): the library is a desktop-first
+        /* Full page width (the shell caps this route at 1480 px, App.jsx): the
+           library is a desktop-first
            browsing surface — more columns beat a narrower reading measure.
            The empty-state hero and the creation form re-cap themselves. */
         <div className="flex flex-col gap-4">

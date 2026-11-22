@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Target, Trash2 } from 'lucide-react';
 import DatasetGridItem from './DatasetGridItem';
 import TileSizeControl from '../shared/TileSizeControl';
+import Pager from '../common/Pager';
 import KleinImproveNote from './KleinImproveNote';
 import { isSmallImageRescueRow } from '../../utils/smallImageRescue';
 import { partitionKleinImproveSelection } from '../../utils/kleinBulkImprove';
@@ -41,11 +42,14 @@ const AUTO_TRIAGE_HELP = [
 // Persist as a GLOBAL preference, not per dataset, like datasetGenerator: this controls display,
 // not dataset data. M keeps the existing grid-cols-2/3/4 layout. L reduces columns for large tiles
 // to judge portrait/landscape composition before cropping; S adds columns for dense browsing.
+// From `2xl` the workspace's column is wide enough (about 1000 to 1150 px, where it used to stop at
+// 704) for half as many columns again: the tiles keep the size the three steps stand for, instead
+// of each step growing by half.
 const TILE_SIZE_KEY = 'datasetGridTileSize';
 const TILE_SIZE_COLS = {
-  S: 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6',
-  M: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4',
-  L: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+  S: 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-8',
+  M: 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6',
+  L: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
 };
 const TILE_SIZE_TITLE = {
   S: 'Small tiles — more per row, quick overview',
@@ -229,30 +233,18 @@ function AutoTriageBar({ images, allImages, datasetId, faceThresholds, onBatch, 
   );
 }
 
-/* Page navigator for the image wall — deliberately the same shape and wording as
-   the Bank grid's (← Prev · "1–500 of 6211" · Next →), because it is the same
-   gesture on the same kind of surface. Rendered ABOVE and BELOW the grid: a full
-   page is tens of thousands of pixels tall, and a bottom-only pager would mean
-   scrolling all the way back up to move on. Buttons are min-h-11 (44 px) so the
-   whole thing is usable with a thumb at 400 px, where the row wraps. */
+/* Page navigator for the image wall — deliberately the same control as the Bank
+   grid's (components/common/Pager: the range shown, Previous and Next, numbered
+   pages), because it is the same gesture on the same kind of surface. Rendered
+   ABOVE and BELOW the grid: a bottom-only pager would mean scrolling back up
+   through a page of tiles to move on. The pager's buttons are 44 px below `lg`,
+   so the whole thing is usable with a thumb at 400 px.
+   `view.page` counts from 0, the pager from 1. */
 function GridPager({ view, onGo, where }) {
   if (!view.paged) return null;
-  const btn = 'min-h-11 rounded-lg border border-border bg-surface px-3 py-1 '
-    + 'text-content font-semibold disabled:opacity-40 hover:bg-surface-raised';
   return (
-    <nav aria-label={`Image grid pages (${where})`}
-      className="flex flex-wrap items-center gap-2 text-xs">
-      <button type="button" disabled={view.page === 0} onClick={() => onGo(view.page - 1)}
-        className={btn}>← Prev</button>
-      <button type="button" disabled={view.page >= view.pages - 1} onClick={() => onGo(view.page + 1)}
-        className={btn}>Next →</button>
-      <span className="text-content-muted tabular-nums">
-        {view.from}–{view.to} of {view.total}
-      </span>
-      <span className="text-content-subtle tabular-nums">
-        page {view.page + 1}/{view.pages}
-      </span>
-    </nav>
+    <Pager page={view.page + 1} size={view.size} total={view.total}
+      onPage={(page) => onGo(page - 1)} aria-label={`Image grid pages (${where})`} />
   );
 }
 
