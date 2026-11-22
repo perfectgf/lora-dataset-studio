@@ -1171,7 +1171,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               ⋯ More
             </summary>
             <div data-probe-chrome="more-menu" data-probe-panel="more-menu"
-              className="absolute right-0 top-full mt-1 z-20 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
+              className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
               <button type="button" onClick={() => setSettingsOpen(true)}
                 title={isStyle ? 'Edit the Style dataset name and review its always-on behavior.' : 'Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list.'}
                 className={MENU_ITEM}>
@@ -1193,14 +1193,18 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   </span>
                 </button>
               )}
-              {/* Where the images actually are, with the path to copy. It was a
-                  card across the top of all nine sections — 76 px above the work
-                  for an answer wanted now and then. It is asked for here, with
-                  the dataset's other "about this dataset" entries. */}
-              <DatasetFolderNote path={d.storage_path} />
             </div>
           </details>
         </div>
+      </div>
+
+      {/* Where the images actually are. Below `lg` it stays here, at the top:
+          the phone layout is built around it — it is what the open ⋯ More menu
+          drops onto, and without it that menu lies over the section chips (the
+          responsive probe counts both as chrome). From `lg` it is the first
+          block of Import & export instead (see DatasetFolderNote). */}
+      <div className="lg:hidden">
+        <DatasetFolderNote path={d.storage_path} />
       </div>
 
       {/* Two-column workspace: the persistent section rail on the left — which
@@ -2280,6 +2284,13 @@ export default function DatasetWorkspace({ ds, onBack }) {
            */}
           <div className={sectionCls('export')}>
             {heading('export')}
+            {/* Where the images actually are, with the path to copy — from `lg`
+                here, in the section about getting the dataset in and out, right
+                above the "Import to bank" it points at, instead of a card above
+                all nine sections. Below `lg` it keeps its place at the top. */}
+            <div className="hidden lg:block">
+              <DatasetFolderNote path={d.storage_path} />
+            </div>
             <div id="gf-export" className="scroll-mt-20 flex flex-col gap-2">
               <span className="text-content-subtle text-[0.625rem] uppercase tracking-wide">Bring images in</span>
               <div id="ds-export-import" tabIndex={-1}
