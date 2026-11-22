@@ -345,8 +345,7 @@ function NavBar() {
 
   if (sideNav) {
     return (
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface-overlay"
-        data-probe-chrome="app-sidebar">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface-overlay">
         <div className="px-5 pb-3 pt-5">
           <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
             className="whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold tracking-tight text-transparent no-underline">
