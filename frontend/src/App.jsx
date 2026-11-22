@@ -1,7 +1,7 @@
 import PluginSlot from './plugins/PluginSlot.jsx'
 import { Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useLocation } from 'react-router'
-import { Archive, ArrowUp, CircleHelp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, Settings, X } from 'lucide-react'
+import { Archive, ArrowUp, CircleHelp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, PanelLeftClose, PanelLeftOpen, Puzzle, Settings, X } from 'lucide-react'
 import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
@@ -48,7 +48,8 @@ function PluginRoute({ routeKey, page }) {
 }
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import HeaderMenu from './components/common/HeaderMenu'
-import { SIDE_ITEM_BASE, SIDE_ITEM_REST, SIDE_NAV_QUERY, sideItemClass } from './components/common/navItemStyles.js'
+import { SIDE_ITEM_BASE, SIDE_ITEM_REST, SIDE_NAV_QUERY, railItemClass, sideItemClass } from './components/common/navItemStyles.js'
+import { applySideNavCollapsed, readSideNavCollapsed, writeSideNavCollapsed } from './components/common/sideNavState.js'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { versionLabel } from './utils/versionLabel'
 import { useTrainingActivity } from './hooks/useTrainingActivity'
@@ -276,6 +277,20 @@ function NavBar() {
   const sideNav = useMediaQuery(SIDE_NAV_QUERY)
   const [open, setOpen] = useState(false)
   const close = () => setOpen(false)
+  // The column FOLDS to a strip of icons (56 px instead of 224) and stays that
+  // way across visits. The strip is the same menu with the words taken away:
+  // every workspace keeps its icon, and what has no icon of its own — the
+  // plugin pages, the two grouped menus — opens as a list beside the strip.
+  // The width itself is the stylesheet's (see sideNavState.js): this only
+  // records the choice and tells the root element.
+  const [collapsed, setCollapsed] = useState(() => readSideNavCollapsed())
+  const toggleCollapsed = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    writeSideNavCollapsed(next)
+    applySideNavCollapsed(next)
+  }
+  const rail = sideNav && collapsed
   const goHome = () => {
     // Home = the datasets LIST: clear the persisted open dataset and tell
     // the mounted page (same-route clicks don't remount) to close it.
@@ -291,13 +306,17 @@ function NavBar() {
   const machineLoad = (
     <PluginSlot slot="resource_monitor.readout" surface="header" />
   )
-  const itemClass = sideNav ? sideItemClass : navItemClass
+  const itemClass = rail ? railItemClass : sideNav ? sideItemClass : navItemClass
   // A destination with an icon, in the shape of whichever placement is mounted.
+  // On the folded strip the icon stands alone and the name is the link's title.
   const entry = (to, Icon, label, extra = null) => (
-    <NavLink to={to} className={itemClass} onClick={close}>
-      {sideNav
-        ? <><Icon aria-hidden="true" className="h-4 w-4 shrink-0" /><span>{label}</span>{extra}</>
-        : <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" className="h-3.5 w-3.5" /> {label}{extra}</span>}
+    <NavLink to={to} className={itemClass} onClick={close}
+      title={rail ? label : undefined} aria-label={rail ? label : undefined}>
+      {rail
+        ? <><Icon aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />{extra}</>
+        : sideNav
+          ? <><Icon aria-hidden="true" className="h-4 w-4 shrink-0" /><span>{label}</span>{extra}</>
+          : <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" className="h-3.5 w-3.5" /> {label}{extra}</span>}
     </NavLink>
   )
 
@@ -315,7 +334,7 @@ function NavBar() {
         /* Presence IS the message, so it must not be colour-only: the
            label is read out and shown on hover/long-press. */
         <span title={activityTitle} aria-label={activityTitle} role="status"
-          className={`relative inline-flex h-2 w-2 shrink-0 ${sideNav ? 'ml-auto' : 'ml-1'}`}>
+          className={`inline-flex h-2 w-2 shrink-0 ${rail ? 'absolute right-1.5 top-1.5' : sideNav ? 'relative ml-auto' : 'relative ml-1'}`}>
           <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
           <span aria-hidden className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
         </span>
@@ -335,41 +354,74 @@ function NavBar() {
   // see plugins/navLabel.js.
   const pluginItems = pluginNavItems(caps)
   const pluginLinks = pluginItems.map((item) => (
-    <NavLink key={`${item.plugin}:${item.to}`} to={item.to} className={itemClass} onClick={close}>
+    <NavLink key={`${item.plugin}:${item.to}`} to={item.to} className={sideNav ? sideItemClass : navItemClass} onClick={close}>
       {/* The side menu aligns these words with the workspaces' above, which
           carry an icon: an empty slot of the same width does it. */}
       {sideNav && <span aria-hidden className="h-4 w-4 shrink-0" />}
       <span className={sideNav ? 'min-w-0 truncate' : undefined}>{plainNavLabel(item.label)}</span>
     </NavLink>
   ))
+  const onPluginPage = pluginItems.some((item) => path === item.to || path.startsWith(`${item.to}/`))
 
   if (sideNav) {
+    const foldLabel = rail ? 'Expand the menu' : 'Fold the menu'
     return (
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface-overlay">
-        <div className="px-5 pb-3 pt-5">
-          <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
-            className="whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold tracking-tight text-transparent no-underline">
-            LoRA Dataset Studio
-          </NavLink>
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 flex w-[var(--app-sidebar-w)] flex-col border-r border-border bg-surface-overlay"
+        data-collapsed={rail || undefined}>
+        <div className={rail ? 'flex justify-center px-2 pb-2 pt-4' : 'flex items-center gap-1 pb-3 pl-5 pr-2 pt-4'}>
+          {!rail && (
+            <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
+              className="min-w-0 truncate bg-gradient-primary bg-clip-text text-base font-bold tracking-tight text-transparent no-underline">
+              LoRA Dataset Studio
+            </NavLink>
+          )}
+          <button type="button" onClick={toggleCollapsed} title={foldLabel}
+            aria-expanded={!rail} aria-controls="app-side-menu-pages"
+            className={`grid h-8 w-8 shrink-0 place-items-center rounded-md text-content-subtle hover:bg-surface-raised hover:text-content ${rail ? '' : 'ml-auto'}`}>
+            {rail
+              ? <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
+              : <PanelLeftClose aria-hidden="true" className="h-4 w-4" />}
+            <span className="sr-only">{foldLabel}</span>
+          </button>
         </div>
-        {/* The one part that scrolls: a long plugin list moves under the brand
-            and above the foot, both of which stay where they are. */}
-        <nav className="app-nav flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pb-3" aria-label="Main navigation">
-          <div className="flex flex-col gap-0.5">{workspaceLinks}</div>
-          {pluginItems.length > 0 && (
+        {/* Open: the one part that scrolls — a long plugin list moves under the
+            brand and above the foot, both of which stay where they are.
+            Folded: a handful of icons that never scroll, and the box must not
+            clip the plugin list that opens beside it. */}
+        <nav id="app-side-menu-pages" aria-label="Main navigation"
+          className={`app-nav flex min-h-0 flex-1 flex-col px-2 pb-3 ${rail ? 'items-center gap-1' : 'gap-4 overflow-y-auto'}`}>
+          <div className={`flex flex-col ${rail ? 'items-center gap-1' : 'gap-0.5'}`}>{workspaceLinks}</div>
+          {pluginItems.length > 0 && (rail ? (
+            /* Plugin pages declare no icon, so the strip gives them one door:
+               their list opens beside it, top aligned, and scrolls if it is long. */
+            <HeaderMenu placement="side-down" triggerClassName={railItemClass}
+              triggerLabel={<Puzzle aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />}
+              triggerTitle="Plugin pages" active={onPluginPage}>
+              {(closeMenu) => pluginItems.map((item) => (
+                <NavLink key={`${item.plugin}:${item.to}`} to={item.to} role="menuitem"
+                  className={menuItemClass} onClick={closeMenu}>
+                  {plainNavLabel(item.label)}
+                </NavLink>
+              ))}
+            </HeaderMenu>
+          ) : (
             <div className="flex flex-col gap-0.5">
               <p className="m-0 px-3 pb-1 font-mono text-xs uppercase tracking-[0.18em] text-content-subtle">Plugins</p>
               {pluginLinks}
             </div>
-          )}
+          ))}
         </nav>
         {/* The foot: what is about the app rather than about the work. The two
             grouped menus open beside the column, not below their trigger —
             there is no "below" at the bottom of the window. */}
-        <div className="app-sidebar-foot flex flex-col gap-0.5 border-t border-border p-2">
-          <div className="empty:hidden px-3 py-1">{machineLoad}</div>
-          <HeaderMenu placement="side" labelled triggerClassName={sideItemClass}
-            triggerLabel={<><CircleHelp aria-hidden="true" className="h-4 w-4 shrink-0" /><span>Help &amp; guide</span></>}
+        <div className={`app-sidebar-foot flex flex-col border-t border-border p-2 ${rail ? 'items-center gap-1' : 'gap-0.5'}`}>
+          {/* The machine-load readout is a line of figures: it has no folded
+              form, so the strip does not mount it (and its poll stops). */}
+          {!rail && <div className="empty:hidden px-3 py-1">{machineLoad}</div>}
+          <HeaderMenu placement="side" labelled={!rail} triggerClassName={rail ? railItemClass : sideItemClass}
+            triggerLabel={rail
+              ? <CircleHelp aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
+              : <><CircleHelp aria-hidden="true" className="h-4 w-4 shrink-0" /><span>Help &amp; guide</span></>}
             triggerTitle="Help & guide" active={helpMenuActive}>
             {(closeMenu) => (
               <>
@@ -380,8 +432,10 @@ function NavBar() {
               </>
             )}
           </HeaderMenu>
-          <HeaderMenu placement="side" labelled triggerClassName={sideItemClass}
-            triggerLabel={<><Settings aria-hidden="true" className="h-4 w-4 shrink-0" /><span>Setup &amp; settings</span></>}
+          <HeaderMenu placement="side" labelled={!rail} triggerClassName={rail ? railItemClass : sideItemClass}
+            triggerLabel={rail
+              ? <Settings aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />
+              : <><Settings aria-hidden="true" className="h-4 w-4 shrink-0" /><span>Setup &amp; settings</span></>}
             triggerTitle="Setup & settings" active={settingsMenuActive}>
             {(closeMenu) => (
               <>
@@ -391,8 +445,8 @@ function NavBar() {
               </>
             )}
           </HeaderMenu>
-          <WhatsNewButton withLabel />
-          <CheckUpdatesButton withLabel />
+          <WhatsNewButton withLabel={!rail} />
+          <CheckUpdatesButton withLabel={!rail} />
         </div>
       </aside>
     )
@@ -608,9 +662,10 @@ function Shell() {
      1024-px measure: their lines must not get longer. */
   const datasetRoute = pathname === '/datasets';
   return (
-    /* `xl:pl-56` is the side menu's width (NavBar, fixed at the left edge from
-       `xl`): the shell steps aside, the menu does not cover the page. */
-    <div className={`app-shell xl:pl-56 ${boardRoute ? 'flex h-svh flex-col' : ''}`}>
+    /* The left padding is the side menu's width (NavBar, fixed at the left edge
+       from `xl`): the shell steps aside, the menu does not cover the page. It
+       reads the same variable as the menu, so it follows when the menu folds. */
+    <div className={`app-shell xl:pl-[var(--app-sidebar-w)] ${boardRoute ? 'flex h-svh flex-col' : ''}`}>
       <NavBar />
       <WhatsNewModal />
       {/* Above the update banner: "can I reach the server at all" outranks

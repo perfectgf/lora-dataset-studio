@@ -12,6 +12,13 @@ export const SIDE_ITEM_REST = 'text-content-muted hover:bg-surface-raised hover:
 export const sideItemClass = ({ isActive }) =>
   `${SIDE_ITEM_BASE} ${isActive ? 'bg-surface-raised text-content' : SIDE_ITEM_REST}`
 
+// The same destination when the menu is folded to a strip: a square that holds
+// the icon alone. Its name travels as the link's title and accessible name.
+export const RAIL_ITEM_BASE =
+  'relative grid h-10 w-10 place-items-center rounded-md no-underline transition-colors'
+export const railItemClass = ({ isActive }) =>
+  `${RAIL_ITEM_BASE} ${isActive ? 'bg-surface-raised text-content' : SIDE_ITEM_REST}`
+
 // The media query the side menu and the shell's left padding agree on (the
 // `xl:` utilities in App.jsx and `--app-sidebar-w` in index.css use the same
 // 1280 px). Not 1024: the menu takes 224 px, and the page beside it must keep
