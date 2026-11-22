@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import './fonts.css'
 import './index.css'
 import { registerBundledPlugins } from './plugins/bundled'
 import { loadPlugins } from './plugins/loadPlugins'

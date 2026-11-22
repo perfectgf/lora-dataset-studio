@@ -1,7 +1,7 @@
 import { engineLabel } from '../../engines/catalog.js';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowUp, Ban, CheckCircle2, Copy, Download, Drama, Eraser, Filter, FolderOpen, Globe, Loader2, Package, PenLine, PersonStanding, RefreshCw, Save, Scissors, Search, Settings, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { ArrowLeft, ArrowUp, Ban, Check, CheckCircle2, Copy, Download, Drama, Eraser, Filter, FolderOpen, Globe, Lightbulb, Loader2, Package, PenLine, PersonStanding, RefreshCw, Save, Scissors, Search, Settings, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import CompositionBar from './CompositionBar';
 import CoveragePanel from './CoveragePanel';
 import ClassifyFramingButton from './ClassifyFramingButton';
@@ -63,8 +63,8 @@ import { useToast } from '../common/Toast';
 import { pickNativeFolder, FolderBrowserModal } from '../common/FolderPicker';
 import { useCapabilities } from '../../context/CapabilitiesContext';
 import InstallRunner from '../setup/InstallRunner';
-import GuidedChecklist from './GuidedChecklist';
 import NextStepCard from './NextStepCard';
+import { sectionProgress } from './sectionProgress.js';
 import TrainingReadiness from './TrainingReadiness';
 import useGuidedFlow from '../../hooks/useGuidedFlow';
 import { filterImages, normalizeTag } from '../../utils/tagFilter';
@@ -1030,6 +1030,35 @@ export default function DatasetWorkspace({ ds, onBack }) {
     );
   };
 
+  /*
+   * What the guided path says about each section, for the desktop rail. The rail used to sit
+   * above a second list, PROGRESS, that walked the same journey under other names ("Reference"
+   * and "Generate" for Add images, "Curate" for Images): two lists, two vocabularies, sixteen rows.
+   * The rail now carries the path's state itself. Concept and Style datasets have no guided path.
+   */
+  const railProgress = isConceptual ? {} : sectionProgress(steps, nextStep);
+  // The right edge of a desktop rail row. A count that asks for an action (amber, or the pulsing
+  // generation count) comes first; otherwise the path's own figure, then a tick once the section's
+  // steps are done. The bulb is the Next-step card's, so the row it points at is found by eye.
+  const railState = (id) => {
+    const badge = navBadges[id];
+    if (badge && badge.tone !== 'subtle') return <NavBadge badge={badge} />;
+    const p = railProgress[id];
+    if (!p) return <NavBadge badge={badge} />;
+    return (
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs font-normal tabular-nums text-content-subtle">
+        {p.next && <Lightbulb aria-hidden="true" className="h-3.5 w-3.5 text-primary" />}
+        {p.short && <span>{p.short}</span>}
+        {p.busy
+          ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+          : p.done && <Check aria-hidden="true" className="h-3.5 w-3.5 text-content-muted" />}
+        <span className="sr-only">
+          {p.busy ? ' — in progress' : p.done ? ' — done' : p.next ? ' — next step' : ''}
+        </span>
+      </span>
+    );
+  };
+
   // Sidebar item: a desktop vertical rail item (chip=false) or horizontal mobile chip (chip=true),
   // using the Settings sidebar's classes.
   const navItem = (s, chip) => {
@@ -1052,9 +1081,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
           <span aria-hidden className="absolute bottom-1.5 left-0 top-1.5 w-0.5 rounded bg-gradient-primary" />
         )}
         <s.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
-        <span>{s.title}</span>
-        <NavBadge badge={navBadges[s.id]} />
-        {!chip && <span aria-hidden className="text-content-subtle text-[0.625rem]">{isActive ? '▾' : '▸'}</span>}
+        <span className={chip ? undefined : 'min-w-0 truncate'}>{s.title}</span>
+        {chip ? <NavBadge badge={navBadges[s.id]} /> : railState(s.id)}
       </button>
     );
   };
@@ -1143,7 +1171,7 @@ export default function DatasetWorkspace({ ds, onBack }) {
               ⋯ More
             </summary>
             <div data-probe-chrome="more-menu" data-probe-panel="more-menu"
-              className="absolute right-0 top-full mt-1 z-20 w-72 rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
+              className="absolute right-0 top-full mt-1 z-20 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-overlay shadow-xl p-1.5 flex flex-col gap-0.5">
               <button type="button" onClick={() => setSettingsOpen(true)}
                 title={isStyle ? 'Edit the Style dataset name and review its always-on behavior.' : 'Edit the dataset name, trigger word, and (for concept datasets) the concept description that drives the caption avoid-list.'}
                 className={MENU_ITEM}>
@@ -1165,22 +1193,21 @@ export default function DatasetWorkspace({ ds, onBack }) {
                   </span>
                 </button>
               )}
+              {/* Where the images actually are, with the path to copy. It was a
+                  card across the top of all nine sections — 76 px above the work
+                  for an answer wanted now and then. It is asked for here, with
+                  the dataset's other "about this dataset" entries. */}
+              <DatasetFolderNote path={d.storage_path} />
             </div>
           </details>
         </div>
       </div>
 
-      {/* Where the images actually are. Shown here, at the top, because the
-          question "where is this on disk?" is asked before anything else — and
-          because the answer used to be findable only by hand, which is how a
-          dataset folder ended up pasted into a bank. */}
-      <DatasetFolderNote path={d.storage_path} />
-
-      {/* Two-column workspace: the persistent section sidebar on the left (with the
-          guided Progress checklist below it for character datasets), the ACTIVE
-          section's content on the right. On mobile the sidebar folds into a
+      {/* Two-column workspace: the persistent section rail on the left — which
+          also carries the guided path's state for character datasets — and the
+          ACTIVE section's content on the right. On mobile the rail folds into a
           horizontal chip rail — same responsive pattern as the Settings page. */}
-      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-4 lg:items-start">
+      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-4 lg:items-start xl:gap-6">
         <aside>
           {/* Mobile: horizontal chip rail.
 
@@ -1215,17 +1242,29 @@ export default function DatasetWorkspace({ ds, onBack }) {
               </ul>
             </nav>
           )}
-          {/* Desktop: sticky rail + guided progress below it */}
-          <div data-probe-panel="sections-rail" className="hidden lg:sticky lg:top-20 lg:flex lg:flex-col lg:gap-3">
+          {/* Desktop: sticky rail. Its top clears the app's top bar where there is
+              one (below 1280 px) and sits near the window's edge where the menu
+              is a column. */}
+          <div data-probe-panel="sections-rail" className="hidden lg:sticky lg:top-[calc(var(--app-header-h)+1.25rem)] lg:flex lg:flex-col lg:gap-3">
             <nav aria-label="Dataset sections">
               <p className="m-0 px-3 pb-2 font-mono text-[11px] uppercase tracking-[0.18em] text-content-subtle">Dataset</p>
               <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
                 {visibleSections.map((s) => {
                   const isActive = s.id === section;
                   const destinations = isActive ? getWorkspacePanels(s.id, navContext) : [];
+                  const blocked = railProgress[s.id]?.unavailable ? railProgress[s.id] : null;
                   return (
                     <li key={s.id}>
                       {navItem(s, false)}
+                      {/* A step this install cannot do yet (Studio without ComfyUI)
+                          says so under its row and leads to the setting that
+                          unlocks it — what the old checklist did with a gear. */}
+                      {blocked && (
+                        <Link to="/settings/local-tools?focus=comfyui-api-url" title={blocked.hint}
+                          className="ml-[2.375rem] block pb-1 text-xs text-content-subtle underline decoration-border-strong underline-offset-2 hover:text-content">
+                          {blocked.hint || 'Configure ComfyUI in Settings'}
+                        </Link>
+                      )}
                       {isActive && (
                         <ul id={`dataset-nav-panels-${s.id}`}
                           className="m-0 ml-4 flex list-none flex-col gap-0.5 border-l border-border py-1 pl-1 p-0">
@@ -1239,9 +1278,6 @@ export default function DatasetWorkspace({ ds, onBack }) {
                 })}
               </ul>
             </nav>
-            {!isConceptual && (
-              <GuidedChecklist steps={steps} currentId={nextStep ? nextStep.id : null} onJump={jumpTo} />
-            )}
           </div>
         </aside>
 
@@ -1324,25 +1360,28 @@ export default function DatasetWorkspace({ ds, onBack }) {
               exist (not just right after a batch): it is derived from stored rows,
               so it survives a reload and clears when they are purged or retried.
               Collapsed by default — the count is the headline, the policy detail
-              is one tap away and does not eat a 400 px screen. */}
-          {refusalNote && (
-            <div className="rounded-lg border-2 border-amber-400/60 bg-amber-500/10 px-3 py-2.5">
-              <div className="flex items-start gap-2">
-                <Ban aria-hidden="true" className="h-4 w-4 shrink-0 mt-0.5 text-amber-300" />
-                <div className="min-w-0 flex flex-col gap-1">
-                  <span className="text-content text-sm font-semibold break-words">
-                    {refusalNote}
+              is one tap away and does not eat a 400 px screen.
+              One row, and only where the images are (Add images, Images): it is
+              about generated pictures, and it stays for as long as the refused
+              rows do — on Captions or Training it was a permanent 85-px block
+              about something those sections do not show. */}
+          {refusalNote && (section === 'add' || section === 'images') && (
+            <details className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 [&::-webkit-details-marker]:hidden">
+                <Ban aria-hidden="true" className="h-4 w-4 shrink-0 text-amber-300" />
+                <span className="min-w-0 flex-1 basis-64 break-words text-sm font-medium text-content">
+                  {refusalNote}
+                </span>
+                <span className="shrink-0 text-xs text-amber-300 underline underline-offset-2">
+                  Why, and what this does and does not mean
+                </span>
+                {failureHeadline(outcome) && (
+                  <span className="basis-full break-words pl-7 text-xs text-content-subtle">
+                    {failureHeadline(outcome)}
                   </span>
-                  {failureHeadline(outcome) && (
-                    <span className="text-content-subtle text-[0.6875rem] break-words">
-                      {failureHeadline(outcome)}
-                    </span>
-                  )}
-                  <details className="text-content-subtle text-[0.6875rem]">
-                    <summary className="cursor-pointer text-amber-300">
-                      Why, and what this does and does not mean
-                    </summary>
-                    <div className="mt-1 flex flex-col gap-1 break-words">
+                )}
+              </summary>
+              <div className="mt-2 flex flex-col gap-1 break-words pl-7 text-xs text-content-subtle">
                       <p className="m-0">
                         {/* Named by the catalog: the engine that refused, whoever brought it. */}
                         {`${outcome.refusedEngines.map((e) => engineLabel(e)).join(' / ') || 'The provider'} screens the image it just produced`}
@@ -1363,11 +1402,8 @@ export default function DatasetWorkspace({ ds, onBack }) {
                         on your Google account. LDS never sends NSFW variations to an
                         API engine — those run only on the local Klein engine.
                       </p>
-                    </div>
-                  </details>
-                </div>
               </div>
-            </div>
+            </details>
           )}
 
           {/* Images grid: keep/reject triage, filters and automatic sorting. */}

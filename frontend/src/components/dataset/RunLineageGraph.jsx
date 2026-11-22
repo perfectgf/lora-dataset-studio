@@ -354,8 +354,14 @@ export default function RunLineageGraph({ tree, onSelect, onContinueCheckpoint,
         </div>
       </div>
     )}
+    {/* data-type-floor="off": the cards and pills below have a computed size
+        (CARD_W, cellH) and are drawn in the graph's own scaled coordinates, so
+        the app-wide 12-px text floor (index.css) would not mean 12 px on screen
+        here and cuts their labels short — "1500" became "1..". The graph keeps
+        the sizes it was laid out for. */}
     <div
       ref={scrollRef}
+      data-type-floor="off"
       className="lds-lgraph-scroll relative overflow-auto rounded-xl"
       style={{ maxHeight: MAX_H }}
       onPointerDown={onPointerDown}

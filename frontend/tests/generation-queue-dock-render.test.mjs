@@ -107,8 +107,11 @@ test('the dock takes the offset its screen asks for', () => {
   // is invisible AND unclickable, on one of the four surfaces that feed the
   // queue. The rule itself lives in utils/dockPlacement.js.
   const listing = { jobs: [job()], queued: 1 }
-  assert.match(render(listing, { bottomClass: 'bottom-20' }), /fixed bottom-20 left-3/)
-  assert.match(render(listing), /fixed bottom-4 left-3/)
+  // Its left edge clears the side menu: 0.75rem from the window's edge while
+  // the menu is the top bar, the same gap after the column once it is one.
+  const left = String.raw`left-\[calc\(var\(--app-sidebar-w\)\+0\.75rem\)\]`
+  assert.match(render(listing, { bottomClass: 'bottom-20' }), new RegExp(`fixed bottom-20 ${left}`))
+  assert.match(render(listing), new RegExp(`fixed bottom-4 ${left}`))
 })
 
 test('the dock stays inside a narrow window', () => {

@@ -16,11 +16,22 @@ import { useEffect, useRef, useState } from 'react';
  *                    trigger then reflects the active-nav style, discreetly.
  *   - dot          : true to paint a small primary attention dot on the trigger
  *                    (Setup's "recommended steps unmet" indicator moved up here).
- *   - align        : menu horizontal alignment; 'right' (default) or 'left'. */
+ *   - align        : menu horizontal alignment; 'right' (default) or 'left'.
+ *   - placement    : 'below' (default) drops the menu under the trigger; 'side'
+ *                    opens it beside the trigger, bottoms aligned — for a
+ *                    trigger at the foot of the side menu, where there is no
+ *                    room below.
+ *   - triggerClassName : ({ isActive }) => classes, replacing the trigger's own
+ *                    (a row of the side menu instead of a header button).
+ *   - labelled     : the trigger already shows its name as text, so neither the
+ *                    tooltip nor the screen-reader copy of triggerTitle is added. */
 const TRIGGER_BASE =
   'relative px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
 
-export default function HeaderMenu({ triggerLabel, triggerTitle, active = false, dot = false, align = 'right', children }) {
+export default function HeaderMenu({
+  triggerLabel, triggerTitle, active = false, dot = false, align = 'right',
+  placement = 'below', triggerClassName, labelled = false, children,
+}) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const triggerRef = useRef(null);
@@ -54,27 +65,31 @@ export default function HeaderMenu({ triggerLabel, triggerTitle, active = false,
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        title={triggerTitle}
+        title={labelled ? undefined : triggerTitle}
         onClick={() => setOpen((v) => !v)}
-        className={`${TRIGGER_BASE} ${
-          open || active
-            ? 'bg-surface-raised text-content'
-            : 'text-content-muted hover:text-content hover:bg-surface-raised'
-        }`}
+        className={triggerClassName
+          ? triggerClassName({ isActive: open || active })
+          : `${TRIGGER_BASE} ${
+            open || active
+              ? 'bg-surface-raised text-content'
+              : 'text-content-muted hover:text-content hover:bg-surface-raised'
+          }`}
       >
         {triggerLabel}
         {dot && (
           <span aria-hidden="true"
             className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
         )}
-        <span className="sr-only">{triggerTitle}</span>
+        {!labelled && <span className="sr-only">{triggerTitle}</span>}
       </button>
       {open && (
         <div
           role="menu"
           aria-label={triggerTitle}
-          className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1 z-50 min-w-[11rem]
-            flex flex-col gap-0.5 rounded-lg border border-border bg-surface-overlay p-1 shadow-2xl`}
+          className={`absolute z-50 flex min-w-[11rem] flex-col gap-0.5 rounded-lg border border-border bg-surface-overlay p-1 shadow-2xl ${
+            placement === 'side'
+              ? 'bottom-0 left-full ml-3'
+              : `${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1`}`}
         >
           {typeof children === 'function' ? children(close) : children}
         </div>

@@ -1,7 +1,7 @@
 import PluginSlot from './plugins/PluginSlot.jsx'
 import { Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useLocation } from 'react-router'
-import { Archive, ArrowUp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, Settings, X } from 'lucide-react'
+import { Archive, ArrowUp, CircleHelp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, Settings, X } from 'lucide-react'
 import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
@@ -32,6 +32,7 @@ const GalleryPage = lazyPage(() => import('./pages/GalleryPage'))
 const PluginsPage = lazyPage(() => import('./pages/PluginsPage'))
 const PluginSettingsPage = lazyPage(() => import('./pages/PluginSettingsPage'))
 import { navItems as pluginNavItems, routes as pluginRoutes, subscribePlugins, pluginRevision } from './plugins/registry'
+import { plainNavLabel } from './plugins/navLabel.js'
 import { watchMembership } from './plugins/membership.js'
 import { lazyRoute } from './plugins/lazyRoute'
 import UnavailablePluginPage from './pages/UnavailablePluginPage.jsx'
@@ -47,6 +48,7 @@ function PluginRoute({ routeKey, page }) {
 }
 import { HelpModeProvider, useHelpMode, TipHost } from './help/HelpMode'
 import HeaderMenu from './components/common/HeaderMenu'
+import { SIDE_ITEM_BASE, SIDE_ITEM_REST, SIDE_NAV_QUERY, sideItemClass } from './components/common/navItemStyles.js'
 import { useMediaQuery } from './hooks/useMediaQuery'
 import { versionLabel } from './utils/versionLabel'
 import { useTrainingActivity } from './hooks/useTrainingActivity'
@@ -57,17 +59,15 @@ import { waitForRelaunchedServer } from './utils/serverRestart'
 import { UsageStatisticsProvider } from './usage/UsageStatisticsContext'
 import UsageStatisticsBanner from './usage/UsageStatisticsBanner'
 
-// px-2 up to `lg`: the desktop bar starts at `md` (768 px) and now carries five
-// workspaces (Datasets · Bank · Runs · Canvas · Test Studio) plus the utility
-// icons. At the old px-3 that row overflowed the viewport at exactly 768 and
-// clipped the What's-new button off the right edge. Nothing is hidden — the
-// items simply breathe less until there is room for it.
+// The compact buttons of the top bar (below `xl`) and the rows of the panel its
+// hamburger opens.
 const NAV_ITEM_BASE =
   'px-2 lg:px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap no-underline transition-colors'
 const navItemClass = ({ isActive }) =>
   `${NAV_ITEM_BASE} ${
     isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:text-content hover:bg-surface-raised'
   }`
+
 
 // Full-width variant for links that live inside a HeaderMenu dropdown.
 const MENU_ITEM_BASE =
@@ -77,14 +77,21 @@ const menuItemClass = ({ isActive }) =>
     isActive ? 'bg-surface-raised text-content' : 'text-content-muted hover:text-content hover:bg-surface-raised'
   }`
 
-/** Nav action (right of Settings): force an update check and give immediate
- * feedback — a toast when up to date, and the actionable UpdateBanner (with the
- * one-click "Update & restart") when there is an update.
- * AUTO-DETECTION: on mount (and every 6 h while the tab stays open) it runs the
- * git-aware check — server-side TTL cache keeps the network cost to one fetch
- * per 6 h across all page loads. An available update lights a dot on the button
- * and surfaces the UpdateBanner without any click. */
-function CheckUpdatesButton() {
+/** Asks the update notices to open. An update is announced by the menu entry
+ * (lit, and worded "Update available" where it has a label); the notice that
+ * carries the action is opened by pressing that entry, never by itself. */
+const SHOW_UPDATE_NOTICE_EVENT = 'lds:show-update-notice'
+
+/** Nav action: force an update check and give immediate feedback — a toast when
+ * up to date, and the actionable UpdateBanner (with the one-click "Update &
+ * restart") when there is an update.
+ * AUTO-DETECTION: on mount (and every hour while the tab stays open) it runs
+ * the git-aware check — a server-side TTL cache keeps the network cost down
+ * across page loads. An available update LIGHTS THIS ENTRY and nothing else:
+ * the banner used to open on every page until dismissed, which put a block
+ * above the work for something the entry already says. `withLabel` is the row
+ * of the side menu; without it, the icon button of the top bar. */
+function CheckUpdatesButton({ withLabel = false }) {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   const [available, setAvailable] = useState(false)
@@ -107,12 +114,9 @@ function CheckUpdatesButton() {
         const d = await apiFetch('/api/update/check?auto=1', { background: true })
         if (!alive) return
         setAvailable(!!d?.update_available)
-        // The dot always lights up; the banner only surfaces if the user
-        // hasn't dismissed it this session (manual checks clear the flag).
-        if (d?.ok && (!d.update_available
-            || sessionStorage.getItem('updateBannerDismissed') !== '1')) {
-          window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
-        }
+        // Shares the status (this entry, the banner's content, Settings ›
+        // Updates). It does not open the banner: only a press does.
+        if (d?.ok) window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
       } catch { /* offline — the manual button stays available */ }
       const m = await membersUpdate()
       if (!alive) return
@@ -136,11 +140,9 @@ function CheckUpdatesButton() {
       const m = await membersUpdate(true)
       setAvailable(!!d?.update_available)
       window.dispatchEvent(new CustomEvent('lds:update-available', { detail: d }))
-      if (membersUpdateAvailable(m)) sessionStorage.removeItem('membersUpdateBannerDismissed')
       window.dispatchEvent(new CustomEvent('lds:patreon-status', { detail: m }))
-      if (d?.update_available) {
-        sessionStorage.removeItem('updateBannerDismissed')     // re-show even if dismissed
-      }
+      // After the statuses, so the notices open on what was just found.
+      window.dispatchEvent(new CustomEvent(SHOW_UPDATE_NOTICE_EVENT))
       const feedback = updateCheckFeedback(d, m)
       toast[feedback.type](feedback.message)
     } catch (e) {
@@ -150,17 +152,31 @@ function CheckUpdatesButton() {
     }
   }
   const lit = available || !!members
+  const icon = busy
+    ? <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" />
+    : <ArrowUp aria-hidden="true" className="h-4 w-4 shrink-0" />
+  // Lit = the app's one accent, not a second hue: the words (or the sr-only
+  // label) carry the meaning, the colour only draws the eye to them.
+  if (withLabel) {
+    return (
+      <button type="button" onClick={check} disabled={busy}
+        title={lit ? 'Update available — click to review' : 'Check for updates'}
+        className={`${SIDE_ITEM_BASE} ${lit ? 'text-primary hover:bg-surface-raised' : SIDE_ITEM_REST} disabled:opacity-50`}>
+        {icon}
+        <span>{lit ? 'Update available' : 'Check for updates'}</span>
+        {lit && <span aria-hidden className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+      </button>
+    )
+  }
   return (
     <button type="button" onClick={check} disabled={busy}
       title={lit ? 'Update available — click to review' : 'Check for updates'}
       className={`${NAV_ITEM_BASE} relative ${lit
-        ? 'text-emerald-300 hover:text-emerald-200'
+        ? 'text-primary'
         : 'text-content-muted hover:text-content'} hover:bg-surface-raised disabled:opacity-50`}>
-      {busy
-        ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-        : <ArrowUp aria-hidden="true" className="h-4 w-4" />}
+      {icon}
       {lit && (
-        <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
       )}
       <span className="sr-only">{lit ? 'Update available' : 'Check for updates'}</span>
     </button>
@@ -177,22 +193,36 @@ async function membersUpdate(force = false) {
   } catch (error) { return patreonCheckFailure(error) }
 }
 
+/** Whether the update notices are open: true from a press on the update entry
+ * (SHOW_UPDATE_NOTICE_EVENT) until their ✕. Each notice keeps its own copy, so
+ * closing one leaves the other. */
+function useUpdateNoticeShown() {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    const onShow = () => setShown(true)
+    window.addEventListener(SHOW_UPDATE_NOTICE_EVENT, onShow)
+    return () => window.removeEventListener(SHOW_UPDATE_NOTICE_EVENT, onShow)
+  }, [])
+  return [shown, setShown]
+}
+
 /** Says that the members version exists. Settings › Updates installs it: its
  * card owns the download, the progress and the restart. */
 function MembersUpdateBanner() {
   const [info, setInfo] = useState(null)
+  const [shown, setShown] = useUpdateNoticeShown()
   useEffect(() => {
     const onFound = (e) => setInfo(e.detail || null)
     window.addEventListener('lds:members-update', onFound)
     return () => window.removeEventListener('lds:members-update', onFound)
   }, [])
   const version = info?.release?.version || ''
-  if (!info || sessionStorage.getItem('membersUpdateBannerDismissed') === version) return null
+  if (!info || !shown) return null
   return (
     <div className="mx-auto max-w-5xl px-4 pt-3">
       <div role="status"
-        className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm">
-        <span aria-hidden>⬆</span>
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm">
+        <ArrowUp aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
         <span className="text-content">
           LDS members version <span className="font-semibold">{version || 'update'}</span> is available.
         </span>
@@ -201,7 +231,7 @@ function MembersUpdateBanner() {
           Install it from Updates
         </a>
         <button type="button"
-          onClick={() => { sessionStorage.setItem('membersUpdateBannerDismissed', version); setInfo(null) }}
+          onClick={() => setShown(false)}
           aria-label="Dismiss members update notice"
           className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
       </div>
@@ -231,16 +261,21 @@ function HelpModeToggle({ onToggle }) {
 
 function NavBar() {
   const { caps } = useCapabilities()
-  // 🏋️ Live indicator on Runs: a training can hold the GPU for hours (local) or
+  // Live indicator on Runs: a training can hold the GPU for hours (local) or
   // bill by the minute (cloud), and from any other page nothing said so.
   const activity = useTrainingActivity()
   const activityTitle = activityLabel(activity)
-  // Below `md` the horizontal link row has nowhere to go (it used to just wrap
-  // mid-word, brand included) -- collapse it into a hamburger-triggered panel
-  // instead. navLinks is shared markup: `hidden md:flex` on desktop, only
-  // mounted (not just hidden) inside the mobile panel so a closed menu costs
-  // nothing extra in the DOM.
+  // ONE MENU, TWO PLACEMENTS, chosen by width and never merely hidden: a column
+  // down the left edge from `xl`, and below it a one-row bar whose hamburger
+  // opens the same destinations as a panel. The bar used to carry every page in
+  // a wrapping row — five workspaces plus one entry per plugin page — and
+  // measured 142 px over two rows and a tools shelf on an install with ten
+  // plugin pages; a column takes no height at all, however many pages there are.
+  // Only one placement is mounted at a time, so the update check, the What's-new
+  // badge and the machine-load poll exist once (a CSS-hidden copy still polls).
+  const sideNav = useMediaQuery(SIDE_NAV_QUERY)
   const [open, setOpen] = useState(false)
+  const close = () => setOpen(false)
   const goHome = () => {
     // Home = the datasets LIST: clear the persisted open dataset and tell
     // the mounted page (same-route clicks don't remount) to close it.
@@ -248,147 +283,145 @@ function NavBar() {
     window.dispatchEvent(new CustomEvent('lds:home'))
     setOpen(false)
   }
-  // Which grouped menu owns the current route — so the ? / ⚙ triggers can
-  // reflect the active-nav style when you're on one of their screens.
+  // Which grouped menu owns the current route — so the Help and Settings
+  // triggers can reflect the active-nav style when you're on one of their screens.
   const path = useLocation().pathname
   const helpMenuActive = path === '/guide' || path === '/help'
   const settingsMenuActive = path === '/setup' || path.startsWith('/settings') || path.startsWith('/plugins')
-  // 📊 The machine-load readout is mounted ONCE and PLACED (useMediaQuery, the
-  // board's own rule): in the desktop bar's utility cluster, or in the mobile
-  // panel. Tailwind's `hidden` cannot serve here — a CSS-hidden mount still
-  // POLLS, and this is the only thing in the header that would.
-  const desktopNav = useMediaQuery('(min-width: 768px)')
   const machineLoad = (
     <PluginSlot slot="resource_monitor.readout" surface="header" />
   )
-
-  // The four workspaces, left-aligned on desktop AND reused (flat) in the
-  // mobile panel. Same caps gates in both places.
-  const workspaceLinks = (
-    <>
-      <NavLink to="/datasets" className={navItemClass} onClick={() => setOpen(false)}>
-        <span className="inline-flex items-center gap-1"><FolderOpen aria-hidden="true" className="h-3.5 w-3.5" /> Datasets</span>
-      </NavLink>
-      {/* Bank sits right after Datasets: it FEEDS them (triage a big unsorted
-          folder, then promote the keepers into a dataset). */}
-      <NavLink to="/bank" className={navItemClass} onClick={() => setOpen(false)}>
-        <span className="inline-flex items-center gap-1"><Archive aria-hidden="true" className="h-3.5 w-3.5" /> Bank</span>
-      </NavLink>
-      {/* Unified runs hub (cloud + local history) — useful as soon as ANY
-          training path exists, not just the cloud one. */}
-      {(caps.cloud_training || caps.training_visible) && (
-        <NavLink to="/cloud" className={navItemClass} onClick={() => setOpen(false)}>
-          <span className="inline-flex items-center gap-1"><Dumbbell aria-hidden="true" className="h-3.5 w-3.5" /> Runs
-            {activity.running && (
-              /* Presence IS the message, so it must not be colour-only: the
-                 label is read out and shown on hover/long-press. */
-              <span title={activityTitle} aria-label={activityTitle} role="status"
-                className="relative inline-flex h-2 w-2 shrink-0">
-                <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/70" />
-                <span aria-hidden className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-              </span>
-            )}
-          </span>
-        </NavLink>
-      )}
-      <NavLink to="/studio" className={navItemClass} onClick={() => setOpen(false)}>
-        <span className="inline-flex items-center gap-1"><FlaskConical aria-hidden="true" className="h-3.5 w-3.5" /> Test Studio</span>
-      </NavLink>
-      {/* 🖼 Gallery — every generated image, one feed. Last: it is where the
-          OUTPUT of the other workspaces accumulates, so it reads as the shelf
-          at the end of the row. Visible whenever any surface that generates
-          is: renders can outlive a broken ComfyUI, so the training gates keep
-          it reachable even while the studio gate is down. */}
-      {(caps.studio_visible || caps.cloud_training || caps.training_visible) && (
-        <NavLink to="/gallery" className={navItemClass} onClick={() => setOpen(false)}>
-          <span className="inline-flex items-center gap-1"><Images aria-hidden="true" className="h-3.5 w-3.5" /> Gallery
-          </span>
-        </NavLink>
-      )}
-    </>
+  const itemClass = sideNav ? sideItemClass : navItemClass
+  // A destination with an icon, in the shape of whichever placement is mounted.
+  const entry = (to, Icon, label, extra = null) => (
+    <NavLink to={to} className={itemClass} onClick={close}>
+      {sideNav
+        ? <><Icon aria-hidden="true" className="h-4 w-4 shrink-0" /><span>{label}</span>{extra}</>
+        : <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" className="h-3.5 w-3.5" /> {label}{extra}</span>}
+    </NavLink>
   )
 
-  // Mobile keeps every destination reachable as a flat stack — no nested
-  // dropdowns on touch. Order mirrors the old top bar.
-  const mobileLinks = (
+  // The workspaces: the top of the side menu, and the first rows of the panel.
+  // Same caps gates in both places.
+  const workspaceLinks = (
+    <>
+      {entry('/datasets', FolderOpen, 'Datasets')}
+      {/* Bank sits right after Datasets: it FEEDS them (triage a big unsorted
+          folder, then promote the keepers into a dataset). */}
+      {entry('/bank', Archive, 'Bank')}
+      {/* Unified runs hub (cloud + local history) — useful as soon as ANY
+          training path exists, not just the cloud one. */}
+      {(caps.cloud_training || caps.training_visible) && entry('/cloud', Dumbbell, 'Runs', activity.running && (
+        /* Presence IS the message, so it must not be colour-only: the
+           label is read out and shown on hover/long-press. */
+        <span title={activityTitle} aria-label={activityTitle} role="status"
+          className={`relative inline-flex h-2 w-2 shrink-0 ${sideNav ? 'ml-auto' : 'ml-1'}`}>
+          <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/70" />
+          <span aria-hidden className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+        </span>
+      ))}
+      {entry('/studio', FlaskConical, 'Test Studio')}
+      {/* Gallery — every generated image, one feed. Last: it is where the
+          OUTPUT of the other workspaces accumulates, so it reads as the shelf
+          at the end of the list. Visible whenever any surface that generates
+          is: renders can outlive a broken ComfyUI, so the training gates keep
+          it reachable even while the studio gate is down. */}
+      {(caps.studio_visible || caps.cloud_training || caps.training_visible) && entry('/gallery', Images, 'Gallery')}
+    </>
+  )
+  // Nav entries an enabled plugin contributes ({ to, label, when(caps) }), in
+  // both placements (measured missing on the desktop bar, 2026-09-04: a plugin's
+  // page was reachable from a phone and from nowhere on a desktop). Words only:
+  // see plugins/navLabel.js.
+  const pluginItems = pluginNavItems(caps)
+  const pluginLinks = pluginItems.map((item) => (
+    <NavLink key={`${item.plugin}:${item.to}`} to={item.to} className={itemClass} onClick={close}>
+      {/* The side menu aligns these words with the workspaces' above, which
+          carry an icon: an empty slot of the same width does it. */}
+      {sideNav && <span aria-hidden className="h-4 w-4 shrink-0" />}
+      <span className={sideNav ? 'min-w-0 truncate' : undefined}>{plainNavLabel(item.label)}</span>
+    </NavLink>
+  ))
+
+  if (sideNav) {
+    return (
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 flex w-56 flex-col border-r border-border bg-surface-overlay"
+        data-probe-chrome="app-sidebar">
+        <div className="px-5 pb-3 pt-5">
+          <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
+            className="whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold tracking-tight text-transparent no-underline">
+            LoRA Dataset Studio
+          </NavLink>
+        </div>
+        {/* The one part that scrolls: a long plugin list moves under the brand
+            and above the foot, both of which stay where they are. */}
+        <nav className="app-nav flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 pb-3" aria-label="Main navigation">
+          <div className="flex flex-col gap-0.5">{workspaceLinks}</div>
+          {pluginItems.length > 0 && (
+            <div className="flex flex-col gap-0.5">
+              <p className="m-0 px-3 pb-1 font-mono text-xs uppercase tracking-[0.18em] text-content-subtle">Plugins</p>
+              {pluginLinks}
+            </div>
+          )}
+        </nav>
+        {/* The foot: what is about the app rather than about the work. The two
+            grouped menus open beside the column, not below their trigger —
+            there is no "below" at the bottom of the window. */}
+        <div className="app-sidebar-foot flex flex-col gap-0.5 border-t border-border p-2">
+          <div className="empty:hidden px-3 py-1">{machineLoad}</div>
+          <HeaderMenu placement="side" labelled triggerClassName={sideItemClass}
+            triggerLabel={<><CircleHelp aria-hidden="true" className="h-4 w-4 shrink-0" /><span>Help &amp; guide</span></>}
+            triggerTitle="Help & guide" active={helpMenuActive}>
+            {(closeMenu) => (
+              <>
+                <NavLink to="/guide" role="menuitem" className={menuItemClass} onClick={closeMenu}>Guide</NavLink>
+                <NavLink to="/help" role="menuitem" className={menuItemClass} onClick={closeMenu}>Help</NavLink>
+                <NavLink to="/help?h=support-the-project" role="menuitem" className={menuItemClass} onClick={closeMenu}>Support LDS</NavLink>
+                <HelpModeToggle onToggle={closeMenu} />
+              </>
+            )}
+          </HeaderMenu>
+          <HeaderMenu placement="side" labelled triggerClassName={sideItemClass}
+            triggerLabel={<><Settings aria-hidden="true" className="h-4 w-4 shrink-0" /><span>Setup &amp; settings</span></>}
+            triggerTitle="Setup & settings" active={settingsMenuActive}>
+            {(closeMenu) => (
+              <>
+                <NavLink to="/setup" role="menuitem" className={menuItemClass} onClick={closeMenu}>Setup</NavLink>
+                <NavLink to="/settings" role="menuitem" className={menuItemClass} onClick={closeMenu}>Settings</NavLink>
+                <NavLink to="/plugins" role="menuitem" className={menuItemClass} onClick={closeMenu}>Plugins</NavLink>
+              </>
+            )}
+          </HeaderMenu>
+          <WhatsNewButton withLabel />
+          <CheckUpdatesButton withLabel />
+        </div>
+      </aside>
+    )
+  }
+
+  // Below `xl`: every destination as a flat stack — no nested dropdowns on
+  // touch. Order mirrors the side menu, top to bottom.
+  const panelLinks = (
     <>
       {workspaceLinks}
-      {/* Nav entries an enabled plugin contributes ({ to, label, when(caps) }). */}
-      {pluginNavItems(caps).map((item) => (
-        <NavLink key={`${item.plugin}:${item.to}`} to={item.to} className={navItemClass} onClick={() => setOpen(false)}>
-          {item.label}
-        </NavLink>
-      ))}
-      <NavLink to="/guide" className={navItemClass} onClick={() => setOpen(false)}>Guide</NavLink>
-      <NavLink to="/setup" className={navItemClass} onClick={() => setOpen(false)}>
-        <span className="inline-flex items-center gap-1">
-          Setup
-        </span>
-      </NavLink>
-      <NavLink to="/settings" className={navItemClass} onClick={() => setOpen(false)}>Settings</NavLink>
-      <NavLink to="/plugins" className={navItemClass} onClick={() => setOpen(false)}>Plugins</NavLink>
-      <NavLink to="/help" className={navItemClass} onClick={() => setOpen(false)}>Help</NavLink>
-      <NavLink to="/help?h=support-the-project" className={navItemClass} onClick={() => setOpen(false)}>Support LDS</NavLink>
-      <HelpModeToggle onToggle={() => setOpen(false)} />
+      {pluginLinks}
+      <NavLink to="/guide" className={navItemClass} onClick={close}>Guide</NavLink>
+      <NavLink to="/setup" className={navItemClass} onClick={close}>Setup</NavLink>
+      <NavLink to="/settings" className={navItemClass} onClick={close}>Settings</NavLink>
+      <NavLink to="/plugins" className={navItemClass} onClick={close}>Plugins</NavLink>
+      <NavLink to="/help" className={navItemClass} onClick={close}>Help</NavLink>
+      <NavLink to="/help?h=support-the-project" className={navItemClass} onClick={close}>Support LDS</NavLink>
+      <HelpModeToggle onToggle={close} />
     </>
   )
   return (
     <header className="app-header border-b border-border bg-surface-overlay/90 backdrop-blur-sm sticky top-0 z-40">
-      <div className="app-header-shell mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:gap-6">
+      <div className="app-header-shell flex items-center gap-3 px-4 py-3 sm:gap-6">
         <NavLink to="/datasets" title="Back to the datasets page" onClick={goHome}
           className="shrink-0 whitespace-nowrap bg-gradient-primary bg-clip-text text-base font-bold text-transparent no-underline">
           LoRA Dataset Studio
         </NavLink>
-        {/* Desktop: workspaces on the left, utilities grouped into icon menus
-            on the right (Guide/Help under ?, Setup/Settings under ⚙). */}
-        {/* Desktop CSS places workspaces beside the brand, with machine load
-            and utility menus on a separate full-width row. Links and readings
-            can wrap at narrow widths without clipping the menu popovers. */}
-        <nav className="hidden md:flex flex-1 min-w-0 flex-wrap items-center gap-x-1 gap-y-1.5" aria-label="Main navigation">
-          <div className="app-header-workspaces flex min-w-0 shrink grow basis-auto flex-wrap items-center gap-1">
-            {workspaceLinks}
-            {/* Nav entries an enabled plugin contributes — on the desktop bar as
-                on the phone panel below (measured missing here, 2026-09-04: a
-                plugin's page was reachable from a phone and from nowhere on a
-                desktop). */}
-            {pluginNavItems(caps).map((item) => (
-              <NavLink key={`${item.plugin}:${item.to}`} to={item.to} className={navItemClass}>
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
-          <div className="app-header-tools ml-auto flex shrink-0 items-center gap-1">
-            {desktopNav && machineLoad}
-            <HeaderMenu triggerLabel={<span aria-hidden>?</span>}
-              triggerTitle="Help & guide" active={helpMenuActive}>
-              {(close) => (
-                <>
-                  <NavLink to="/guide" role="menuitem" className={menuItemClass} onClick={close}>Guide</NavLink>
-                  <NavLink to="/help" role="menuitem" className={menuItemClass} onClick={close}>Help</NavLink>
-                  <NavLink to="/help?h=support-the-project" role="menuitem" className={menuItemClass} onClick={close}>Support LDS</NavLink>
-                  <HelpModeToggle onToggle={close} />
-                </>
-              )}
-            </HeaderMenu>
-            <HeaderMenu triggerLabel={<Settings aria-hidden="true" className="h-4 w-4" />}
-              triggerTitle="Setup & settings" active={settingsMenuActive}>
-              {(close) => (
-                <>
-                  <NavLink to="/setup" role="menuitem" className={menuItemClass} onClick={close}>
-                    <span className="inline-flex items-center gap-1">
-                      Setup
-                    </span>
-                  </NavLink>
-                  <NavLink to="/settings" role="menuitem" className={menuItemClass} onClick={close}>Settings</NavLink>
-                  <NavLink to="/plugins" role="menuitem" className={menuItemClass} onClick={close}>Plugins</NavLink>
-                </>
-              )}
-            </HeaderMenu>
-            <WhatsNewButton />
-            <CheckUpdatesButton />
-          </div>
-        </nav>
-        <div className="ml-auto flex items-center gap-1 md:hidden">
+        <div className="ml-auto flex items-center gap-1">
           <WhatsNewButton />
           <CheckUpdatesButton />
           <button type="button" onClick={() => setOpen((v) => !v)}
@@ -402,12 +435,12 @@ function NavBar() {
         </div>
       </div>
       {open && (
-        <nav id="mobile-navigation" aria-label="Main navigation (mobile)"
-          className="app-mobile-nav absolute inset-x-0 top-full flex flex-col gap-1 overflow-y-auto overscroll-contain border-t border-border bg-surface-overlay px-4 py-2 shadow-lg md:hidden">
-          {mobileLinks}
+        <nav id="mobile-navigation" aria-label="Main navigation"
+          className="app-mobile-nav absolute inset-x-0 top-full flex flex-col gap-1 overflow-y-auto overscroll-contain border-t border-border bg-surface-overlay px-4 py-2 shadow-lg">
+          {panelLinks}
           {/* Mounted only while the panel is open, so a phone pays for the
               poll exactly while someone is looking at the answer. */}
-          {!desktopNav && <div className="px-2 py-1.5">{machineLoad}</div>}
+          <div className="px-2 py-1.5">{machineLoad}</div>
         </nav>
       )}
     </header>
@@ -415,20 +448,16 @@ function NavBar() {
 }
 
 /** Cached installation-aware check, shared with the nav badge and Settings:
- * Git compares its branch; packaged installs compare releases. */
+ * Git compares its branch; packaged installs compare releases.
+ * The status reaches it through 'lds:update-available' (the update entry's own
+ * check, on mount and hourly, and Settings › Updates) — it asks the server
+ * nothing itself. It OPENS only when that entry is pressed. */
 function UpdateBanner() {
   const [info, setInfo] = useState(null)
+  const [shown, setShown] = useUpdateNoticeShown()
   const [applying, setApplying] = useState(false)
   const [phase, setPhase] = useState('')     // '' | 'pulling' | 'restarting'
   const [error, setError] = useState(null)
-  useEffect(() => {
-    if (sessionStorage.getItem('updateBannerDismissed') === '1') return
-    apiFetch('/api/update/check?auto=1', { background: true })
-      .then((d) => { if (d && d.update_available) setInfo(d) })
-      .catch(() => { /* best-effort */ })
-  }, [])
-  // A manual "Check for updates" (nav button) surfaces the banner even after it
-  // was dismissed this session, or when the passive mount check found nothing yet.
   useEffect(() => {
     const onFound = (e) => {
       if (e.detail?.update_available) setInfo(e.detail)
@@ -472,14 +501,14 @@ function UpdateBanner() {
     }
   }
 
-  if (!info) return null
+  if (!info || !shown) return null
   const dockerMode = installMode(info) === 'docker'
   const pinokioMode = installMode(info) === 'pinokio'
   return (
     <div className="mx-auto max-w-5xl px-4 pt-3">
       <div role="status"
-        className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm">
-        <span aria-hidden>⬆</span>
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm">
+        <ArrowUp aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
         {applying ? (
           <span className="text-content">
             {phase === 'restarting'
@@ -511,7 +540,7 @@ function UpdateBanner() {
                     place via the button — a release ZIP would be the wrong artifact). */}
                 {!info.is_git && (
                   <a href={info.url} target="_blank" rel="noreferrer"
-                    className="text-emerald-300 underline">
+                    className="text-primary underline">
                     Download
                   </a>
                 )}
@@ -519,7 +548,7 @@ function UpdateBanner() {
             )}
             {error && <span className="text-rose-300">{error}</span>}
             <button type="button"
-              onClick={() => { setInfo(null); sessionStorage.setItem('updateBannerDismissed', '1') }}
+              onClick={() => setShown(false)}
               aria-label="Dismiss update notice"
               className="ml-auto px-1.5 text-content-subtle hover:text-content">✕</button>
           </>
@@ -572,8 +601,17 @@ function Shell() {
      somewhere visible — it just ends at the edge of the screen, which is where
      a surface you pan and zoom should end. */
   const boardRoute = pathname === '/canvas';
+  /* The dataset library and the workspace of an open dataset: wider than a
+     reading page, narrower than the walls of images above. Inside the 1024-px
+     measure the workspace's own rail left the work 704 px — 37 % of a 1920-px
+     screen — which is what made every section read as a crowded strip. 1480 px
+     leaves it about 1160. Reading pages (Settings, Setup, the Guide) keep the
+     1024-px measure: their lines must not get longer. */
+  const datasetRoute = pathname === '/datasets';
   return (
-    <div className={boardRoute ? 'flex h-svh flex-col' : undefined}>
+    /* `xl:pl-56` is the side menu's width (NavBar, fixed at the left edge from
+       `xl`): the shell steps aside, the menu does not cover the page. */
+    <div className={`app-shell xl:pl-56 ${boardRoute ? 'flex h-svh flex-col' : ''}`}>
       <NavBar />
       <WhatsNewModal />
       {/* Above the update banner: "can I reach the server at all" outranks
@@ -594,7 +632,9 @@ function Shell() {
           ? 'flex min-h-0 w-full flex-1 flex-col p-0 sm:px-3 sm:py-3'
           : wideWorkspaceRoute
             ? 'mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-4 sm:py-6'
-            : 'mx-auto max-w-5xl px-4 py-6'}>
+            : datasetRoute
+              ? 'mx-auto w-full max-w-[1480px] px-4 py-4'
+              : 'mx-auto max-w-5xl px-4 py-6'}>
         {/* The Suspense sits INSIDE the shell on purpose: a page chunk loading
             on first navigation swaps only the content area, while the nav, the
             banners and the queue dock stay put — wrapping <Routes> instead

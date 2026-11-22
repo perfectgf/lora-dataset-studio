@@ -21,13 +21,20 @@ import {
   unseenCount,
   markAllSeen,
   readSeenId,
+  seedSeenBaseline,
   WHATS_NEW_SEEN_KEY,
   WHATS_NEW_OPEN_EVENT,
   WHATS_NEW_SEEN_EVENT,
 } from '../../whatsNew';
 
+import { SIDE_ITEM_BASE, SIDE_ITEM_REST } from './navItemStyles.js';
+
 const NAV_ITEM_BASE =
   'px-3 py-1.5 rounded-md text-sm font-medium no-underline transition-colors';
+
+// The count on the badge: the real number, up to two digits. It used to stop
+// at "9+", which said the same thing for 10 unread entries and for 240.
+const countLabel = (count) => (count > 99 ? '99+' : String(count));
 
 function formatDate(iso) {
   // iso is 'YYYY-MM-DD'. Parse as local midnight so the day never shifts.
@@ -37,13 +44,17 @@ function formatDate(iso) {
 }
 
 /**
- * Header trigger. Renders an icon button with a count badge when there are
- * unseen entries. Cheap to mount more than once (desktop + mobile); every
+ * Menu trigger. Renders an icon button with a count badge when there are
+ * unseen entries — or, with `withLabel`, a row of the side menu: icon, the
+ * words, the count at the right edge. Cheap to mount more than once; every
  * instance listens for the "seen" signal so opening the modal from one clears
  * the badge on all of them.
  */
-export function WhatsNewButton() {
-  const [seenId, setSeenId] = useState(() => readSeenId());
+export function WhatsNewButton({ withLabel = false }) {
+  // A browser that has never opened this install starts "caught up": see
+  // seedSeenBaseline. Done in the initializer so the first paint already has
+  // the right count instead of flashing the whole feed's length.
+  const [seenId, setSeenId] = useState(() => seedSeenBaseline());
   const count = unseenCount(seenId);
   const has = count > 0;
 
@@ -60,6 +71,28 @@ export function WhatsNewButton() {
 
   const open = () => window.dispatchEvent(new CustomEvent(WHATS_NEW_OPEN_EVENT));
 
+  if (withLabel) {
+    return (
+      <button
+        type="button"
+        onClick={open}
+        className={`${SIDE_ITEM_BASE} ${has ? 'text-content hover:bg-surface-raised' : SIDE_ITEM_REST}`}
+      >
+        <Gift aria-hidden="true" className="h-4 w-4 shrink-0" />
+        <span>What&apos;s new</span>
+        {has && (
+          <span
+            aria-hidden
+            className="ml-auto rounded-full bg-primary px-1.5 text-xs font-semibold leading-5 text-gray-950 tabular-nums"
+          >
+            {countLabel(count)}
+          </span>
+        )}
+        {has && <span className="sr-only">, {count} unread</span>}
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
@@ -73,9 +106,9 @@ export function WhatsNewButton() {
       {has && (
         <span
           aria-hidden
-          className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-gray-950"
+          className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold leading-none text-gray-950"
         >
-          {count > 9 ? '9+' : count}
+          {countLabel(count)}
         </span>
       )}
       <span className="sr-only">

@@ -22,29 +22,36 @@ export default function NextStepCard({ step, trainMode, busy, totalImages, onAct
   if (!step) return null;
   const key = step.id === 'finish' ? (trainMode ? 'finish_train' : 'finish_export') : step.id;
 
+  /* ONE ROW: the step, what it asks, the button that does it, the fold. It was
+     a two-storey card (title, then sentence and button) above every section —
+     78 px before the section's own title. On a row the same words take 44 px;
+     where there is no room for a row (a phone) the sentence and the button wrap
+     under the step, which is the old card's shape. Folding keeps the step's
+     name and drops the rest, as before. */
   return (
-    <div role="status" className="rounded-lg border border-border bg-surface-raised px-3 py-2">
-      <div className="flex items-center gap-2">
+    <div role="status"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border bg-surface-raised px-3 py-2">
+      <span className="flex items-center gap-2">
         <Lightbulb aria-hidden="true" className="h-4 w-4 shrink-0 text-primary" />
         <span className="text-content text-sm font-semibold">Next step: {step.label}</span>
+      </span>
+      {open && <p className="m-0 min-w-0 flex-1 basis-64 text-sm text-content-muted">{COPY[key]}</p>}
+      <span className="ml-auto flex items-center gap-2">
+        {open && (
+          <button type="button" onClick={onAction} disabled={busy}
+            className="px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
+            {actionLabel}
+          </button>
+        )}
         {!forceOpen && (
           <button type="button" onClick={() => setCollapsed((v) => !v)} aria-expanded={open}
-            className="ml-auto text-content-subtle hover:text-content px-1"
+            className="text-content-subtle hover:text-content px-1"
             title={open ? 'Collapse the guide' : 'Expand the guide'}>
             <span aria-hidden>{open ? '▾' : '▸'}</span>
             <span className="sr-only">{open ? 'Collapse' : 'Expand'} next-step guide</span>
           </button>
         )}
-      </div>
-      {open && (
-        <div className="mt-1 flex items-center gap-3 flex-wrap">
-          <p className="text-content-muted text-sm m-0">{COPY[key]}</p>
-          <button type="button" onClick={onAction} disabled={busy}
-            className="ml-auto px-3 py-1.5 rounded-lg bg-gradient-primary text-gray-950 text-sm font-semibold disabled:opacity-40">
-            {actionLabel}
-          </button>
-        </div>
-      )}
+      </span>
     </div>
   );
 }

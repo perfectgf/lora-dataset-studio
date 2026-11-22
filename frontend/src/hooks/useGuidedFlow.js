@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
 
 /* Pure derivation of the guided path from the dataset payload + capabilities.
-   No fetching here — lives at the workspace's existing poll rhythm. */
+   No fetching here — lives at the workspace's existing poll rhythm.
+   `subtitle` is the sentence-sized state of a step; `short` is its figure
+   alone, for the workspace rail's rows, which have no room for the words
+   (components/dataset/sectionProgress.js). */
 export function deriveSteps(d, caps, checkpointCount = 0) {
   const images = (d && d.images) || [];
   const live = images.filter((i) => i.status !== 'failed');
@@ -16,13 +19,16 @@ export function deriveSteps(d, caps, checkpointCount = 0) {
     { id: 'reference', label: 'Reference', targetId: 'gf-reference',
       done: !!(d && d.ref_filename), subtitle: d && d.ref_filename ? 'set' : 'one clear photo' },
     { id: 'generate', label: 'Generate', targetId: 'gf-generate',
-      done: live.length > 0, subtitle: `${live.length}/25`, busy: generating.length > 0 },
+      done: live.length > 0, subtitle: `${live.length}/25`, short: `${live.length}/25`,
+      busy: generating.length > 0 },
     { id: 'curate', label: 'Curate', targetId: 'gf-images',
       done: live.length > 0 && triage.length === 0 && kept.length > 0,
-      subtitle: triage.length ? `${triage.length} to triage` : `${kept.length} kept` },
+      subtitle: triage.length ? `${triage.length} to triage` : `${kept.length} kept`,
+      short: triage.length ? `${triage.length} to triage` : `${kept.length} kept` },
     { id: 'caption', label: 'Caption', targetId: 'gf-captions',
       done: kept.length > 0 && captioned.length === kept.length,
-      subtitle: `${captioned.length}/${kept.length} captioned` },
+      subtitle: `${captioned.length}/${kept.length} captioned`,
+      short: `${captioned.length}/${kept.length}` },
   ];
   if (caps && caps.face_scoring) {
     steps.push({ id: 'score', label: 'Score', targetId: 'gf-curation', optional: true,
@@ -35,7 +41,8 @@ export function deriveSteps(d, caps, checkpointCount = 0) {
         unavailable: false });
   if (trainMode) steps.push({ id: 'checkpoints', label: 'Checkpoints & LoRAs', targetId: 'gf-checkpoints',
     done: checkpointCount > 0,
-    subtitle: checkpointCount ? `${checkpointCount} available` : 'after training' });
+    subtitle: checkpointCount ? `${checkpointCount} available` : 'after training',
+    short: checkpointCount ? String(checkpointCount) : '' });
   steps.push({ id: 'studio', label: 'Studio', targetId: 'gf-studio',
     done: !!(d && d.best_settings),
     unavailable: !(caps && caps.studio_visible),
