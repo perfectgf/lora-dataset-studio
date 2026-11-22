@@ -20,7 +20,9 @@ import { useEffect, useRef, useState } from 'react';
  *   - placement    : 'below' (default) drops the menu under the trigger; 'side'
  *                    opens it beside the trigger, bottoms aligned — for a
  *                    trigger at the foot of the side menu, where there is no
- *                    room below.
+ *                    room below; 'side-down' opens it beside the trigger, tops
+ *                    aligned, and lets a long list scroll — for a trigger in
+ *                    the upper part of the folded menu.
  *   - triggerClassName : ({ isActive }) => classes, replacing the trigger's own
  *                    (a row of the side menu instead of a header button).
  *   - labelled     : the trigger already shows its name as text, so neither the
@@ -89,7 +91,9 @@ export default function HeaderMenu({
           className={`absolute z-50 flex min-w-[11rem] flex-col gap-0.5 rounded-lg border border-border bg-surface-overlay p-1 shadow-2xl ${
             placement === 'side'
               ? 'bottom-0 left-full ml-3'
-              : `${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1`}`}
+              : placement === 'side-down'
+                ? 'left-full top-0 ml-3 max-h-[75vh] overflow-y-auto'
+                : `${align === 'right' ? 'right-0' : 'left-0'} top-full mt-1`}`}
         >
           {typeof children === 'function' ? children(close) : children}
         </div>

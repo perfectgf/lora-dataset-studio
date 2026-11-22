@@ -74,9 +74,23 @@
     --app-header-h: 0px;
     --app-sidebar-w: 14rem;
   }
+  /* The column folded to a strip of icons (components/common/sideNavState.js
+     mirrors the choice on <html>). Everything that reads the variable — the
+     column itself, the shell's left padding, the fixed bars — follows. */
+  :root[data-theme="dark"][data-side-nav="collapsed"] { --app-sidebar-w: 3.5rem; }
   /* The Test Studio's action bar spans the bottom of the window from its left
      edge; it starts after the column instead of lying over the menu's foot. */
   nav[data-probe-chrome="action-bar"] { left: var(--app-sidebar-w); }
+}
+/* On the folded strip the two buttons that sit directly in the foot (What's new,
+   the update entry) take the square of its other entries; the grouped menus
+   are already squares. */
+.app-sidebar[data-collapsed] .app-sidebar-foot > button {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
 }
 
 /* ── Theme tokens ───────────────────────────────────────────────────────────
