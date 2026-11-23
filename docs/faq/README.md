@@ -1,7 +1,7 @@
 # LoRA training FAQ
 <!-- description: Answers to common LoRA training questions: image counts, captions, base models, steps, VRAM, trainers, checkpoint picking, style, concept and video LoRAs. -->
 
-These pages answer the questions that come up most in LoRA training threads, with what LoRA Dataset Studio (LDS) does about each; the [dataset guide](../DATASET_GUIDE.md) has the full detail.
+These pages answer the questions that come up most in LoRA training threads, with what LoRA Dataset Studio (LDS) does about each; the [dataset guide](../DATASET_GUIDE.md) has the full detail, and the [LoRA training guide](../LORA_TRAINING_GUIDE.md) walks through the whole process.
 
 - [How do I train a consistent character LoRA from one or a few photos?](character-lora-from-one-photo.md) Generate about 25 varied shots from one reference photo with Klein or Krea 2 Edit on your ComfyUI, then reject the shots where the face drifts.
 - [How many images do I need to train a LoRA?](how-many-images-to-train-a-lora.md) About 25 varied images make a balanced character LoRA; the minimum is 12 for Z-Image, 15 for Krea 2, FLUX.1 and FLUX.2 Klein, and 20 for SDXL.

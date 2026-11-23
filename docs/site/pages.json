@@ -110,6 +110,12 @@
       "parent": "docs/README.md",
       "pages": [
         {
+          "source": "docs/LORA_TRAINING_GUIDE.md",
+          "nav_label": "LoRA training guide",
+          "title": "LoRA training guide: dataset, captions, settings, checkpoints and fixes",
+          "description": "A full LoRA training guide: choosing the model, building and captioning the dataset, settings, picking a checkpoint and fixing a LoRA that fails."
+        },
+        {
           "source": "docs/DATASET_GUIDE.md",
           "nav_label": "Dataset guide",
           "title": "How to build a good LoRA dataset: images, captions and settings",

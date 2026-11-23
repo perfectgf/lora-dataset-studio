@@ -9,6 +9,7 @@
 | [Getting started](guide/getting-started.md) | You have just launched the app and want the shortest path to a first dataset |
 | [End-to-end workflow](guide/workflow.md) | You want the full source → curate → caption → clean → train → test → export walkthrough |
 | [Using the app](guide/using-the-app.md) | You need task-level instructions for a specific workspace, Image Bank, Canvas or Studio action |
+| [LoRA training guide](LORA_TRAINING_GUIDE.md) | You want the whole method in order, from the first image to the checkpoint you keep, with a symptom-by-symptom troubleshooting section and the LDS feature for each step |
 | [Dataset quality guide](DATASET_GUIDE.md) | You want guidance on image counts, variety, captions, masks and training-ready data |
 | [LoRA training FAQ](faq/README.md) | You have one question: how many images, which captions, which base model, which settings, how much VRAM, which checkpoint |
 | [Feature reference](guide/features.md) | Detailed capabilities, screenshots and the limits of each workflow |

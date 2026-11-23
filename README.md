@@ -289,7 +289,7 @@ The member edition also includes these previously released tools:
 ## Documentation
 
 - [Getting started](docs/guide/getting-started.md) and [end-to-end workflow](docs/guide/workflow.md)
-- [Task instructions](docs/guide/using-the-app.md) and [dataset quality](docs/DATASET_GUIDE.md)
+- [Task instructions](docs/guide/using-the-app.md), [dataset quality](docs/DATASET_GUIDE.md) and the full [LoRA training guide](docs/LORA_TRAINING_GUIDE.md)
 - [Settings, models and paths](docs/guide/settings-reference.md), [external tools and API keys](docs/guide/installation.md#external-tools)
 - [Troubleshooting](docs/guide/troubleshooting.md) and [known limitations](docs/guide/known-limitations.md)
 
