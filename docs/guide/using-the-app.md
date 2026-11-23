@@ -17,7 +17,7 @@ captioning rules and a few guards change with the dataset kind.
 
 1. **Create the dataset** — Datasets → New. Pick **Character**, name it, set a
    **trigger word** (the token your prompts will use), and choose the **target
-   model** (Z-Image / SDXL / Krea 2 / FLUX.1 / FLUX.2 Klein — changes the caption
+   model** (Z-Image / SDXL / Krea 2 / FLUX.1 / FLUX.2 Klein / Anima / Qwen-Image 2.1 — changes the caption
    style; you can change it later).
 2. **Upload the reference photo.** The app head-crops it automatically; use the
    crop editor (or *Reset to auto*) if the framing is off. Up to 3 extra angles
@@ -313,8 +313,9 @@ Pick **Style** at creation. What changes:
 - **No trigger word** — the style tints every image once the LoRA is loaded.
 - **Captions describe content only** (never the rendering), and they're
   optional; caption dropout rises so the style generalizes.
-- **Step count switches to a sublinear √n scale** built for the large sets
-  (hundreds of images) style LoRAs want.
+- **Step count switches to 50 per kept image**, rounded up to the hundred and
+  clamped by family: 1,200 to 3,000 on FLUX.2 Klein, 2,000 to 3,000 on Krea 2
+  Raw, 1,000 to 2,000 on Krea 2 Turbo and Z-Image Turbo, 1,500 to 3,000 otherwise.
 
 ## Caption your images in another tool
 
@@ -1986,8 +1987,6 @@ Two consequences worth stating plainly:
   with the automatic head-crop *are* still enlarged to 1024, so both shapes land
   under the same warning.)
 
-Images cropped **before** this change keep the enlarged pixels they have.
-
 Images you cropped **before** this changed keep the pixels they have — nothing is
 re-processed retroactively, and re-cropping an already-degraded file cannot bring
 back what the old encoder removed.
@@ -2025,8 +2024,8 @@ free, so it is worth knowing. Datasets normally hold WEBP, so this mostly
 concerns files restored from an old backup.
 
 Rotation is deliberately **not** part of ✂ Crop, even though that is where you
-might look for it first. Cropping **resamples** the image — it rescales the box
-you drew to a 1024 px long side — and resampling costs detail no matter how
+might look for it first. Cropping can **resample** the image (a box longer than
+1024 px is scaled down to a 1024 px long side), and resampling costs detail no matter how
 carefully the result is then saved. A quarter turn resamples nothing at all: it
 just moves existing pixels to new coordinates. Sending it through the crop lane
 would make it pay a price it does not owe.
@@ -2060,8 +2059,8 @@ Cropping decides nothing: the image stays under your cursor so you can judge it
 once it is framed properly.
 
 **Nothing is resampled here**, and that is the one real difference from the crop
-inside a dataset. A dataset crop rescales the box you drew to a 1024 px long
-side, because a dataset image is training material and that is its size. A bank
+inside a dataset. A dataset crop scales a box longer than 1024 px down to a
+1024 px long side, because a dataset image is training material and that is its size. A bank
 sits *upstream* of that choice — shrinking here would pick your training
 resolution before you have even picked a dataset, and would do it silently. So a
 bank crop is a pure cut: it keeps the pixels inside the box, and the dataset

@@ -1,7 +1,7 @@
 # How much VRAM do I need to train a LoRA?
 <!-- description: LoRA training VRAM in LDS: 16 GB+ for Z-Image and SDXL, 16-24 GB for FLUX.2 Klein 4B, 24 GB for Krea 2 at 1024 px. Sorting needs no GPU. -->
 
-Importing, sorting and manual captioning need no GPU; auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training in LoRA Dataset Studio (LDS) needs 16 GB or more for Z-Image and SDXL, 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px and about 24 GB for FLUX.1 and Anima. Under 24 GB, train Krea 2 at 768 px only, or rent a GPU for the run.
+Importing, sorting and manual captioning need no GPU; auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training in LoRA Dataset Studio (LDS) needs 16 GB or more for Z-Image and SDXL, 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px, about 24 GB for FLUX.1 and an estimated 10 GB for Anima. Under 24 GB, train Krea 2 at 768 px only, or rent a GPU for the run.
 
 ![Expert training options with the Memory saving switches and the VRAM detected on the card](../screenshots/training/expert-levers.png)
 
@@ -17,7 +17,7 @@ Importing, sorting and manual captioning need no GPU; auto-captioning takes abou
 | Training FLUX.2 Klein | 4B: 16–24 GB, 9B: 32–48 GB | 9B is practical in the cloud |
 | Training Krea 2 | 24 GB at 1024 px | Below 24 GB, select **768 only** |
 | Training FLUX.1 | About 24 GB | Local only |
-| Training Anima | About 24 GB listed | 2B model, trains without quantization by default; the panel estimates about 10 GB |
+| Training Anima | About 10 GB, estimated | 2B model, trains without quantization by default; the figure is the panel's estimate, not a measurement |
 | Training Qwen-Image 2.1 | Not measured in LDS | Cloud runs use 32 GB or more |
 | Full-model Krea 2 training (experimental) | 80 GB | Cloud only |
 

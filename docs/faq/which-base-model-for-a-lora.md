@@ -12,7 +12,7 @@ Choose the model family before you caption, because it sets the caption style, t
 | Krea 2 | Krea-2-Raw (default), Turbo, or a Krea 2 checkpoint on your disk | Prose | 15, 20+ | 24 GB at 1024 px | Local, cloud |
 | FLUX.1 | FLUX.1-dev (gated) | Prose | 15, 20+ | About 24 GB | Local only |
 | FLUX.2 Klein | FLUX.2-klein-base 4B (default) or 9B, both gated | Prose | 15, 20+ | 4B: 16–24 GB, 9B: 32–48 GB | Local, cloud |
-| Anima | Anima-Base-v1.0-Diffusers (public) | Prose or tags | 12, 20+ | About 24 GB listed | Local only |
+| Anima | Anima-Base-v1.0-Diffusers (public) | Prose or tags | 12, 20+ | About 10 GB (estimate) | Local only |
 | Qwen-Image 2.1 | Comfy-Org/Qwen-Image-2.1 | Prose | 12, 20+ | Not measured locally; cloud uses 32 GB+ | Local, cloud |
 
 Z-Image is the default family for new runs. "Cloud" means the [Cloud training](../../bundled/cloud_training/) plugin, which rents a GPU for each run.

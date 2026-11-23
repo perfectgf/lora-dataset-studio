@@ -85,7 +85,7 @@ Train on the model you will generate with. A LoRA loads only on the architecture
 | Krea 2 | Prose | 15 | 24 GB at 1024 px (768 only below that) | Yes |
 | FLUX.1 | Prose | 15 | About 24 GB | No |
 | FLUX.2 Klein | Prose | 15 | 4B: 16 to 24 GB. 9B: 32 to 48 GB | Yes |
-| Anima | Tags or prose | 12 | See [the VRAM page](faq/lora-training-vram.md#vram-by-task) | No |
+| Anima | Tags or prose | 12 | About 10 GB, an estimate (2B model) | No |
 | Qwen-Image 2.1 | Prose | 12 | Not measured in LDS (cloud: 32 GB or more) | Yes |
 
 ### Train on the base or on the distilled model?
@@ -152,7 +152,7 @@ You need one trainer that supports your family. ai-toolkit trains every family i
 
 ### Limits
 
-- Every LDS requirement figure was measured or enforced on the reference rig, an RTX 4090 with 24 GB. Training below 16 GB has not been measured, and the system RAM figure was never measured.
+- Every LDS requirement figure was measured or enforced on the reference rig, an RTX 4090 with 24 GB, except the Anima estimate. Training below 16 GB has not been measured, and the system RAM figure was never measured.
 - The memory panel's estimates are not measurements.
 - Cloud durations and costs are estimates.
 - The docs list NVIDIA cards only. Without one, **API-only mode** still runs API generation, import, curation, manual captions and export ([hardware and platform](guide/requirements.md#hardware-and-platform)).
@@ -308,7 +308,7 @@ Multi-resolution buckets are a good default, and the source resolution caps the 
 
 ### Limits
 
-- The docs describe the dataset crop size in two ways. Read [the crop page](guide/using-the-app.md#a-crop-is-never-enlarged) before you rely on exact pixel sizes.
+- A dataset crop longer than 1024 px is scaled down to a 1024 px long side, and that loses detail. A box of 1024 px or less keeps its own size ([the crop page](guide/using-the-app.md#a-crop-is-never-enlarged)).
 
 ## 8. Caption for the model
 

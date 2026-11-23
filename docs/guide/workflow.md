@@ -70,9 +70,9 @@ Every generated tile reopens the exact prompt used to make it. The separate refe
 
 Provider limits are part of the workflow:
 
-- Gemini screens returned images, may produce a successful response with no image, and applies invisible SynthID provenance. The filter is not configurable. LoRA Dataset Studio reports the provider reason but cannot override it. See [what the Gemini engine will and will not do](settings-reference.md#what-the-gemini-engine-will-and-will-not-do).
+- Gemini screens returned images, may produce a successful response with no image, and applies invisible SynthID provenance. The filter is not configurable. LoRA Dataset Studio reports the provider reason but cannot override it. The API image engines plugin's guide, inside the app, details what the Gemini engine will and will not do.
 - OpenRouter uses its own credits but forwards to the selected upstream model; it does not remove that model's restrictions. See [Image engines](settings-reference.md#image-engines).
-- The experimental ChatGPT-subscription lane is separate from OpenAI API billing and may stop working if the undocumented endpoint changes. See [ChatGPT subscription](settings-reference.md#chatgpt-subscription-experimental).
+- The experimental ChatGPT-subscription lane is separate from OpenAI API billing and may stop working if the undocumented endpoint changes. See the [API image engines plugin](../../bundled/api_engines/README.md).
 - NSFW catalog variations remain local-only. Do not send content a provider forbids.
 
 ### The Image Bank
@@ -265,7 +265,7 @@ Once rented, the launch reports each stage — searching for an offer, booting t
   <img src="../screenshots/training/cloud-provisioning.png" alt="Runs hub showing a cloud run provisioning, with each boot stage listed and a Cancel launch action" width="820">
 </p>
 
-Cloud support is family-specific and shown in the launch UI. Dense Krea 2 uses a separate, narrowly scoped Hugging Face delivery token; follow [Cloud training](settings-reference.md#cloud-training) before the first paid run.
+Cloud support is family-specific and shown in the launch UI. Dense Krea 2 uses a separate, narrowly scoped Hugging Face delivery token; follow the [cloud training requirements](requirements.md#dependencies-by-feature) before the first paid run.
 
 ### The Runs hub
 
@@ -326,7 +326,7 @@ Clicking a run there opens the same inspector as the per-dataset graph: the froz
   <img src="../screenshots/canvas/canvas-board.png" alt="LoRA Canvas board with a dataset lane, run cards and checkpoint pills, and the run inspector open on the frozen training settings" width="820">
 </p>
 
-The detailed board controls are in [The LoRA Canvas](using-the-app.md#the-lora-canvas-every-run-on-one-board).
+The detailed board controls are in the Canvas plugin's guide inside the app.
 
 ## 8. Pick the best checkpoint
 

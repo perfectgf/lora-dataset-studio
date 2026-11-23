@@ -1,7 +1,7 @@
 # Which LoRA trainer should I use? Do I need the command line?
 <!-- description: LDS trains LoRAs with ai-toolkit and writes its config for you, so runs start from the browser. Exported ZIPs also feed kohya_ss or OneTrainer. -->
 
-LoRA Dataset Studio (LDS) trains with [ai-toolkit](https://github.com/ostris/ai-toolkit) and writes its training config for you: once ai-toolkit is installed and set in **Settings → Local tools**, which **Setup** can do for you in one click, you pick a recipe and start the run from the browser, with the queue and logs on the **Runs** page. Datasets also export as standard ZIPs of images with same-name `.txt` captions, so the same set can feed kohya_ss, OneTrainer or another trainer. The command line is needed once, to install ai-toolkit, which LDS does not install for you.
+LoRA Dataset Studio (LDS) trains with [ai-toolkit](https://github.com/ostris/ai-toolkit) and writes its training config for you: once ai-toolkit is installed and set in **Settings → Local tools**, which **Setup** can do for you in one click, you pick a recipe and start the run from the browser, with the queue and logs on the **Runs** page. Datasets also export as standard ZIPs of images with same-name `.txt` captions, so the same set can feed kohya_ss, OneTrainer or another trainer. The command line is needed only if you install ai-toolkit yourself: the one-click install needs an NVIDIA GPU and is not offered in Docker, and an existing install can be selected instead.
 
 ![Runs page listing local and cloud training runs side by side](../screenshots/training/runs-hub.png)
 
