@@ -138,6 +138,9 @@ def studio_base_models():
         capabilities['default_model'] = (readiness.get('assets') or {}).get('diffusion_model', '')
         if readiness.get('config_error'):
             capabilities['base_note'] = readiness['config_error']
+    elif kind == 'zimage':
+        from ..services.trained_image_models import zimage_studio_readiness
+        capabilities['generation_readiness'] = zimage_studio_readiness()
     return jsonify({**capabilities, 'models': out, 'axes': axes,
                     'model_defaults': _base_defaults(kind, out)})
 

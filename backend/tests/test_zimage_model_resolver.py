@@ -6,6 +6,7 @@ pre-fix code did not resolve anything: the shipped workflow's `z ae.safetensors`
 went to ComfyUI verbatim, so `z_ae.safetensors` and `Z Image/` were "missing".
 """
 import os
+import pathlib
 import struct
 
 import pytest
@@ -287,6 +288,69 @@ def test_preflight_is_silent_once_the_users_own_layout_is_on_disk(app, tmp_path,
               '3': {'class_type': 'VAELoader', 'inputs': {'vae_name': 'z ae.safetensors'}}}
         apply_zimage_settings(wf)
         lts.preflight_family('zimage', [wf])   # no raise
+
+
+# --- LDS's own downloads: found with no setting, never over the user's choice ---
+
+def _downloaded_comfy(tmp_path):
+    """A valid fake ComfyUI holding the three Z-Image files at the exact
+    destinations the installer writes them to."""
+    from app import setup_installer
+    from app.services import trained_image_models as models
+    base = _comfy(tmp_path)
+    (base / 'main.py').write_text('# fake ComfyUI entrypoint', encoding='utf-8')
+    for slot in models.ZIMAGE_ASSET_SPECS:
+        _write(pathlib.Path(setup_installer._download_dest_path(models.install_action('zimage', slot))))
+    return base
+
+
+def test_downloaded_files_are_what_the_studio_loads_with_no_setting(app, tmp_path, monkeypatch):
+    from app.services import lora_test_studio as lts
+    from app.services import trained_image_models as models
+    from app.utils.comfyui import clear_model_caches
+    from app.utils.zimage_helper import apply_zimage_settings
+    with app.app_context():
+        _downloaded_comfy(tmp_path)
+        clear_model_caches()
+        official = os.path.join('z image', 'z_image_turbo_bf16.safetensors')
+        bases = lts.family_base_models('zimage')
+        assert bases == [official]
+        assert lts._select_base_models(bases, family='zimage') == [official]
+        wf = lts.load_workflow_local(str(lts.WORKFLOW_ZTURBO_PATH))
+        apply_zimage_settings(wf, z_model=official)
+        assert wf['1']['inputs']['unet_name'] == official
+        assert wf['2']['inputs']['clip_name'] == 'qwen_3_4b.safetensors'
+        assert wf['3']['inputs']['vae_name'] == os.path.join('z image', 'ae.safetensors')
+        monkeypatch.setattr('app.utils.comfyui.fetch_object_info_classes', lambda *a, **k: None)
+        lts.preflight_family('zimage', [wf])   # every file the graph names is on disk
+        status = models.generation_readiness('zimage', check_nodes=False)
+        assert status['models_ready'] and status['downloads'] == []
+        clear_model_caches()
+
+
+def test_the_users_own_choices_still_win_over_the_downloads(app, tmp_path):
+    from app import config
+    from app.services import lora_test_studio as lts
+    from app.services import trained_image_models as models
+    from app.services import zimage_model_resolver as zr
+    from app.utils.comfyui import clear_model_caches
+    with app.app_context():
+        base = _downloaded_comfy(tmp_path)
+        _write(base / 'models' / 'unet' / 'z image' / 'bigLove_zt3.safetensors')
+        _write(base / 'models' / 'vae' / 'mine' / 'my_vae.safetensors')
+        _write(base / 'models' / 'text_encoders' / 'mine' / 'qwen3_4b_custom.safetensors')
+        config.save_config({'zimage': {'vae': 'mine/my_vae.safetensors',
+                                       'text_encoder': 'mine/qwen3_4b_custom.safetensors'}})
+        clear_model_caches()
+        mine = os.path.join('z image', 'bigLove_zt3.safetensors')
+        bases = lts.family_base_models('zimage')
+        assert mine in bases
+        assert lts._select_base_models(bases, mine, family='zimage') == [mine]
+        assert zr.resolve_zimage_vae() == os.path.join('mine', 'my_vae.safetensors')
+        assert zr.resolve_zimage_text_encoder() == os.path.join('mine', 'qwen3_4b_custom.safetensors')
+        status = models.generation_readiness('zimage', check_nodes=False)
+        assert status['models_ready'] and status['downloads'] == [] and not status['pin_warnings']
+        clear_model_caches()
 
 
 # --- Point 2: Z-Image Base must not inherit Turbo's sampler defaults -----------

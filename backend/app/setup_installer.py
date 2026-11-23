@@ -2374,7 +2374,8 @@ def _resolver_backed_assets():
                krea_edit_helper.krea_invalid_assets) for a in _KREA_DOWNLOADS}
     from functools import partial
     from .services import trained_image_models as studio_models
-    for family, specs in studio_models.ASSET_SPECS.items():
+    for family, specs in ((studio_models.ZIMAGE, studio_models.ZIMAGE_ASSET_SPECS),
+                          *studio_models.ASSET_SPECS.items()):
         for slot in specs:
             out[studio_models.install_action(family, slot)] = (
                 partial(studio_models.missing_assets, family),

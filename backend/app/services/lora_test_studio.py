@@ -5112,6 +5112,9 @@ def studio_payload(user_id, dataset_id, family=None) -> dict | None:
                             'default_model': (readiness.get('assets') or {}).get('diffusion_model', '')}
         if readiness.get('config_error'):
             base_note = readiness['config_error']
+    elif eff == 'zimage':
+        from .trained_image_models import zimage_studio_readiness
+        generation_state = {'generation_readiness': zimage_studio_readiness()}
     return {
         **generation_state,
         'checkpoints': list_test_checkpoints(ds, eff),

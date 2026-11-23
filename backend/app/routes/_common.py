@@ -178,16 +178,20 @@ def _studio_missing_response(e):
     lists in a banner, so the user knows WHY the grid can't run instead of watching
     every tile fail silently.
 
-    No auto-download: unlike Klein's public assets, Studio bases / VAEs / text
-    encoders are large and often license-gated, and the missing custom nodes aren't
-    files at all — a clear 'place X here / install node Y' is the P0 contract.
+    LDS provides what it can: Z-Image's three model files are one-click downloads
+    in the Studio's model banner and in Settings (services.trained_image_models),
+    so its message names those downloads before manual placement, which stays
+    right for a file a setting pins. Missing custom nodes aren't files; naming
+    what to install stays their contract.
     Shared by the per-dataset run and the comparison run."""
     fam = _STUDIO_FAMILY_LABELS.get(e.family, e.family)
     invalid = getattr(e, 'invalid_files', None) or []
     msg = f"The {fam} test pipeline can't run. "
     if e.missing_files:
-        msg += (f"{len(e.missing_files)} required model file(s) are missing — place "
-                f"them at the shown path(s) inside your ComfyUI folder. ")
+        where = ('download them from the Test Studio or Settings → Image engines → Test Studio '
+                 'image models, or place them' if e.family == 'zimage' else 'place them')
+        msg += (f"{len(e.missing_files)} required model file(s) are missing — {where} "
+                f"at the shown path(s) inside your ComfyUI folder. ")
     if invalid:
         # Present-but-unloadable: the file is on disk but is not real weights (e.g. an
         # HTML licence-gate page saved as .safetensors, or a truncated download).

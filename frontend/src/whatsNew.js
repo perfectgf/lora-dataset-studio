@@ -102,6 +102,12 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-11-23-studio-zimage-model-downloads', date: '2026-11-23',
+    title: 'Z-Image test models download in one click',
+    blurb: 'When the Test Studio is missing a Z-Image file, it now offers a Download button with the size and progress of the official file: the Z-Image Turbo model, its Qwen3 4B text encoder or its VAE. Settings offers the same downloads. LDS checks each file against its published size and fingerprint, puts it where the Studio finds it, and reuses a file you already have.',
+    to: '/settings/engines',
+  },
+  {
     id: '2026-11-16-setup-check-comfyui-stopped', date: '2026-11-16',
     title: 'No “stopped working” warning when ComfyUI is simply off',
     blurb: 'A local engine added by a plugin, such as Dataset Forge, was reported as a part of your setup that stopped working whenever ComfyUI was not running. The background check now waits for ComfyUI to answer before it judges such an engine.',

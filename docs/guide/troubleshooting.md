@@ -30,7 +30,21 @@ must physically live in your ComfyUI install — and the scanner only accepts it
 inside a sub-folder whose name contains `z image` (or `zimage`). A file dropped
 loose in `models/unet` is **not** detected.
 
-**Fix:** lay the stack out like this inside your ComfyUI folder, then re-test:
+**Fix:** let LDS download what is missing. When a Z-Image file is missing, the
+Test Studio shows a **Prepare Z-Image for generation** panel with a **Download**
+button, its size and its progress for each file, and **Settings → Image engines →
+Test Studio image models → Z-Image** offers the same downloads. They are the
+official Z-Image Turbo files published by Comfy-Org, checked against their
+published size and SHA256, and they land where the Studio finds them:
+
+```
+models/diffusion_models/z image/z_image_turbo_bf16.safetensors
+models/text_encoders/qwen_3_4b.safetensors
+models/vae/z image/ae.safetensors
+```
+
+To use your own Z-Image checkpoint, or to place the files yourself, lay the
+stack out like this inside your ComfyUI folder, then re-test:
 
 ```
 models/unet/z image/<your Z-Image checkpoint>.safetensors
