@@ -53,7 +53,8 @@ The core runs without a GPU. Each task has its own floor:
 | Train Z-Image or SDXL | 16 GB |
 | Train FLUX.2 Klein 4B | 16 to 24 GB (9B: 32 to 48 GB) |
 | Train Krea 2 | 24 GB at 1024 px, 768 px only below 24 GB |
-| Train FLUX.1 or Anima | About 24 GB |
+| Train FLUX.1 | About 24 GB |
+| Train Anima | About 10 GB, an estimate for this 2B model, not a measurement |
 | No suitable card | Train on a rented [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU with the [Cloud training](bundled/cloud_training/) plugin, or run LDS on a [RunPod GPU](docs/guide/runpod.md) |
 
 These floors come from a 24 GB reference card; training below 16 GB has not been measured. The app needs Python 3.11–3.12 (3.13+ runs the core but not the local ML extras); the Windows launcher downloads Python 3.12 if needed. See the [hardware and dependency tables](docs/guide/requirements.md) before downloading models or renting a GPU.
@@ -325,7 +326,7 @@ LDS trains with [ai-toolkit](https://github.com/ostris/ai-toolkit). **Setup** in
 
 ### [How much VRAM do I need to train a LoRA?](docs/faq/lora-training-vram.md)
 
-Importing, sorting and manual captioning need no GPU. Auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training needs 16 GB or more for Z-Image (quantized, low-VRAM mode) and SDXL, 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px (under 24 GB, train at 768 px only) and about 24 GB for FLUX.1 and Anima. Short on VRAM? The [Cloud training](bundled/cloud_training/) plugin trains supported families on rented [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPUs, and LDS itself can run on a [RunPod GPU](docs/guide/runpod.md). See the [hardware tables](docs/guide/requirements.md).
+Importing, sorting and manual captioning need no GPU. Auto-captioning takes about 8 GB of VRAM and local generation about 16 GB. LoRA training needs 16 GB or more for Z-Image (quantized, low-VRAM mode) and SDXL, 16 to 24 GB for FLUX.2 Klein 4B (32 to 48 GB for 9B), 24 GB for Krea 2 at 1024 px (under 24 GB, train at 768 px only), about 24 GB for FLUX.1 and an estimated 10 GB for Anima, a 2B model. Short on VRAM? The [Cloud training](bundled/cloud_training/) plugin trains supported families on rented [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPUs, and LDS itself can run on a [RunPod GPU](docs/guide/runpod.md). See the [hardware tables](docs/guide/requirements.md).
 
 ### [How do I pick the best epoch or checkpoint?](docs/faq/pick-the-best-lora-checkpoint.md)
 
@@ -333,7 +334,7 @@ Open the run in Test Studio: it renders the checkpoints you pick at several stre
 
 ### [Can I train a style or concept LoRA?](docs/faq/style-and-concept-loras.md)
 
-Yes: **Style** and **Concept** datasets have their own workflows. Concept captions must be prose rather than booru tags, steps grow more slowly with the image count (about 475 × √n, from 2,000 to 12,000), and the guide explains how to [keep faces out of a concept](docs/DATASET_GUIDE.md#8-concept-loras-keeping-faces-out).
+Yes: **Style** and **Concept** datasets have their own workflows. Concept captions must be prose rather than booru tags, and concept steps grow more slowly with the image count (about 475 × √n, from 2,000 to 12,000). Style steps are about 50 per image, within limits set by the family. The guide explains how to [keep faces out of a concept](docs/DATASET_GUIDE.md#8-concept-loras-keeping-faces-out).
 
 ### [Can I train a video LoRA (Wan 2.2, LTX-2, MiniMax H3)?](docs/faq/video-lora-training.md)
 

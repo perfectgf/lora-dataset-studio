@@ -122,14 +122,14 @@ the target model accepts.
 - **Training starts here, but only one target is proven here.** A promoted set
   has a **▶ Train this dataset** button that hands the clips to the ai-toolkit
   installed on your machine, and the cloud lane rents a pod for the same set. The
-  eight offered targets (Wan 2.1 T2V and I2V, Wan 2.2 T2V and I2V A14B, Wan 2.2
-  TI2V-5B, LTX-2 and 2.3, MiniMax H3) are exactly the video architectures that
+  nine offered targets (Wan 2.1 T2V and I2V, Wan 2.2 T2V and I2V A14B, Wan 2.2
+  TI2V-5B, LTX-2 and 2.3, MiniMax H3 and MiniMax H3 Ref2V) are exactly the video architectures that
   ai-toolkit ships, and each one's settings were read in its code — plus a
   "Generic / other" escape hatch that imposes no frame rule at all. But **Wan 2.2
   14B is the only one a finished run has been through here**, and the card says so
   on the others. Measured on that run: 24 GB was full, at 170-185 s per step, with
   the CPU offload that makes 24 GB possible at all. Only three bases are stated by
-  anything installed locally, so **five of the eight need you to name a base
+  anything installed locally (both MiniMax H3 targets share one), so **five of the nine need you to name a base
   repository** — both I2V Wan variants, Wan 2.2 TI2V-5B, and both LTX-2 versions.
 - **The cloud lane names what it is billing.** The **☁ Train in the cloud** panel
   shows the GPU and its hourly price as soon as the pod reports them — while the
@@ -172,7 +172,7 @@ LDS uses ai-toolkit as its training engine. For unsupported architectures or exp
 | **Slider LoRA (Beta)** | Train a bipolar conceptual slider from positive and negative prompt poles, so LoRA strength moves the learned trait in either direction and Test Studio can sweep both sides |
 | **Cloud training** | Rent a [vast.ai](https://cloud.vast.ai/?ref_id=683073) GPU from the same launch flow, stream progress and checkpoints home, and terminate pods automatically |
 | **Parallel cloud runs** | Run several cloud trainings on one dataset at once to A/B toolkit settings — each run rents its own pod (billed separately), capped by the concurrent-runs ceiling in Settings |
-| **Full-model training (Krea 2)** | Train the whole transformer instead of an adapter. The finished master lands on your own disk and is verified before the pod is destroyed, appears in 📦 Checkpoints & LoRAs next to the ~10 GB fp8 twin ComfyUI loads, and can be continued from the step written inside it. The lane is cloud-only and Krea 2 only, and it accepts Raw, Turbo or a Krea 2 checkpoint of your own. Turbo is allowed with a warning nobody can honestly skip — a full-model run on a distilled base has not been measured, by us or by anyone, and it may cost the model its few-step behaviour. A ComfyUI scaled-fp8 export is refused outright as a base: the trainer cannot load one |
+| **Full-model training (Krea 2)** | Train the whole transformer instead of an adapter. The finished master lands on your own disk and is verified before the pod is destroyed, appears in 📦 Checkpoints & LoRAs next to the ~13 GB fp8 twin ComfyUI loads, and can be continued from the step written inside it. The lane is cloud-only and Krea 2 only, and it accepts Raw, Turbo or a Krea 2 checkpoint of your own. Turbo is allowed with a warning nobody can honestly skip — a full-model run on a distilled base has not been measured, by us or by anyone, and it may cost the model its few-step behaviour. A ComfyUI scaled-fp8 export is refused outright as a base: the trainer cannot load one |
 | **Merge a LoRA into a checkpoint** | Fold one or more of your LoRAs into a base, each at its own weight, and get a complete model you can publish. A plan answers first, from the file headers alone: how many tensors change, how big the output is, which drive it lands on, how long it takes, and what a half-way failure leaves. What comes out is a **merged** model, not a trained one — the file's own metadata records the base, every LoRA and its weight, so it stays true after a rename. It is also the published route to getting few-step speed back on a Raw full model, by folding in the re-distillation LoRA Krea publishes for Turbo; that one we have not tested ourselves, and the screen says so before you start it |
 | **Custom bases and continuation** | Train compatible custom weights, continue from any saved epoch, or use verified full-state resume where available |
 | **Runs** | Local and cloud runs together with progress, logs, stop/retry/continue/download actions and paste-safe config sharing |
@@ -225,7 +225,7 @@ LDS uses ai-toolkit as its training engine. For unsupported architectures or exp
 | **Publish to Civitai** | Push a trained checkpoint and the images you pick to a Civitai model page without leaving the app — the page, the version and the pictures in one dialog. It is left as a **draft** so nothing goes public until you have read it back on Civitai. Uses the same free API key the prompt browser and the scraper already share |
 | **ComfyUI deployment** | Deploy individual LoRA checkpoints or downloaded cloud results into the configured LoRA tree; a full model's fp8 twin goes to ComfyUI's own diffusion-models folder instead, hard-linked when it sits on the same drive so it costs no second copy. The full-precision master is never sent — it is the only file you can train from again |
 | **Recoverable deletion** | Deleted app data goes to Trash; destructive Image Bank actions state their destination before confirmation |
-| **Storage you can see and move** | Settings › Storage lists every folder the app writes to with its path and (on request) its size, and can point the dataset root, the cloud run staging and the checkpoint store at another drive — moving what is already there, or adopting the new folder empty, never silently. Trained checkpoints live in their own store that no cleanup touches; the trash sits on the same disk, so space returns only when you empty it. The same tab shrinks any full-precision `.safetensors` on this machine to the ~10 GB fp8 file ComfyUI loads, and chooses where a finished full model is delivered. |
+| **Storage you can see and move** | Settings › Storage lists every folder the app writes to with its path and (on request) its size, and can point the dataset root, the cloud run staging and the checkpoint store at another drive — moving what is already there, or adopting the new folder empty, never silently. Trained checkpoints live in their own store that no cleanup touches; the trash sits on the same disk, so space returns only when you empty it. With the Model tools plugin, the same tab shrinks any full-precision `.safetensors` on this machine to the fp8 file ComfyUI loads (about 13 GB for a 26 GB Krea 2 model), and chooses where a finished full model is delivered. |
 
 ## A quick visual tour
 

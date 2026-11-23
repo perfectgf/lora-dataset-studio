@@ -18,4 +18,4 @@ These are current boundaries, not setup failures.
 
 ComfyUI-dependent paths are covered extensively against a mocked API, but not every model/custom-node combination has been exercised on live third-party installations. A failed preflight should name the missing asset; use **Settings → Local tools → Test** and attach the diagnostic report when a supported layout is not detected.
 
-Provider policies, moderation and service availability are outside this project's control. See the direct [Gemini](settings-reference.md#what-the-gemini-engine-will-and-will-not-do), [ChatGPT subscription](settings-reference.md#chatgpt-subscription-experimental), [OpenRouter/image-engine](settings-reference.md#image-engines) and [Pexels](workflow.md#the-built-in-web-scraper) notes before depending on those lanes.
+Provider policies, moderation and service availability are outside this project's control. See the direct [Gemini](workflow.md#generate-from-references), [ChatGPT subscription](../../bundled/api_engines/README.md), [OpenRouter/image-engine](settings-reference.md#image-engines) and [Pexels](workflow.md#the-built-in-web-scraper) notes before depending on those lanes.

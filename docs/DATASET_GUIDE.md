@@ -56,8 +56,9 @@ The **Base** selector also lists every Krea 2 checkpoint sitting in your ComfyUI
 delivered, or a community Krea 2 build — so you can keep training on top of one
 instead of starting from the official weights every time. Entries carry a tag when
 the file is quantized: `· fp8 cast` trains but starts from degraded weights,
-`· packed export` cannot be loaded at all (see *Which quantized checkpoints can be
-trained on* in section 10). Local runs use the file directly; a cloud run first
+`· packed export` cannot be loaded at all (see
+[Krea 2 checkpoints listed as bases](guide/settings-reference.md#krea-2-the-checkpoints-on-your-disk-are-listed-as-bases)
+in the settings reference). Local runs use the file directly; a cloud run first
 pushes it to your private Hugging Face repo, which the panel offers to do.
 
 **FLUX.1 note:** trains on **FLUX.1-dev**, a *gated* Hugging Face model — accept its
@@ -272,8 +273,11 @@ Rules of thumb:
 The app sets the step count **automatically** for a character LoRA:
 **≈ 120 × kept images, clamped to 1500–3500.** The *target is the same* for
 Z-Image, SDXL, Krea 2, FLUX.1 and FLUX.2 Klein — the model family changes how *fast*
-that target converges, not the number. (Concept/style datasets scale differently:
-**475 · √n, clamped 2000–12000**, because they train on hundreds of images.)
+that target converges, not the number. (Concept datasets scale differently:
+**475 · √n, clamped 2000–12000**, because they train on hundreds of images. Style
+datasets take **50 × kept images, rounded up to the hundred**, clamped by family:
+1200 to 3000 on FLUX.2 Klein, 2000 to 3000 on Krea 2 Raw, 1000 to 2000 on Krea 2
+Turbo and Z-Image Turbo, 1500 to 3000 otherwise.)
 
 So the character step count just follows your dataset size:
 
