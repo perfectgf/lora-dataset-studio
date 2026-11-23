@@ -112,7 +112,7 @@
         {
           "source": "docs/LORA_TRAINING_GUIDE.md",
           "nav_label": "LoRA training guide",
-          "title": "LoRA training guide: dataset, captions, settings, checkpoints and fixes",
+          "title": "The complete guide to training a LoRA",
           "description": "A full LoRA training guide: choosing the model, building and captioning the dataset, settings, picking a checkpoint and fixing a LoRA that fails."
         },
         {

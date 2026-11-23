@@ -1,4 +1,4 @@
-# LoRA training guide: from the first image to a LoRA you keep
+# The complete guide to training a LoRA
 <!-- description: Train a LoRA from dataset to final checkpoint: images, captions, settings, testing and fixes, with the LDS feature for each step. -->
 
 ## How to use this guide
