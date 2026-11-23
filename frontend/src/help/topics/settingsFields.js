@@ -503,7 +503,7 @@ export const SETTINGS_FIELD_TOPICS = [
     guide: { chapter: 'dataset-guide', anchor: '1-pick-your-model-family-first' },
     app: { route: '/datasets' } },
   setting('studio_models', 'engines', 'studio-models', 'Prepare Test Studio image models',
-    ['qwen', 'qwen-image 2.1', 'flux', 'anima', 'moss', 'moss-image', 'test image', 'studio', 'base model',
+    ['z-image', 'zimage', 'z-image turbo', 'qwen', 'qwen-image 2.1', 'flux', 'anima', 'moss', 'moss-image', 'test image', 'studio', 'base model',
      'text encoder', 'vae', 'install models', 'missing model', 'train then generate',
      'missing nodes', 'repair ComfyUI', 'update ComfyUI', 'check nodes again']),
   { id: 'training.mask_faces', kind: 'setting', title: 'Mask faces (Concept datasets)',

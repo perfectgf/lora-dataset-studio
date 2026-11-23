@@ -61,6 +61,24 @@ test('a missing custom pin shows how to repair its selection instead of offering
   assert.doesNotMatch(html, />Install Diffusion model</);
 });
 
+test('Z-Image shows the files its resolvers found and installs the missing ones, without file fields', () => {
+  const slot = (key, label, filename) => ({ key, label, filename, kind: 'vae', files: [],
+    action: `studio_zimage_${key}`, source_url: 'https://huggingface.co/Comfy-Org/Z-Image-Turbo',
+    configurable: false });
+  const html = renderLoaded([{ ...family('zimage', 'Z-Image'),
+    assets: { diffusion_model: '', vae: 'ae.safetensors' },
+    install_actions: ['studio_zimage_diffusion_model'],
+    slots: [slot('diffusion_model', 'Turbo diffusion model', 'z_image_turbo_bf16.safetensors'),
+      slot('vae', 'VAE', 'ae.safetensors')],
+  }], { studio_models: { zimage: { vae: 'ignored.safetensors' } } });
+  assert.doesNotMatch(html, /aria-label="Z-Image /);
+  assert.doesNotMatch(html, /Use automatic detection/);
+  assert.match(html, /Not found · z_image_turbo_bf16\.safetensors/);
+  assert.match(html, /Found: ae\.safetensors/);
+  assert.equal((html.match(/>Install Turbo diffusion model</g) || []).length, 1);
+  assert.doesNotMatch(html, />Install VAE</);
+});
+
 test('an invalid configuration displays its error even when the resolver has no assets', () => {
   const html = renderLoaded([{ ...family('qwenimage21', 'Qwen-Image 2.1'),
     install_actions: [], config_error: 'Select a model inside your configured model folders.',

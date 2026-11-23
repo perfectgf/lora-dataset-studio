@@ -25,7 +25,7 @@ export default function TrainedImageModelsCard({ config, setField }) {
   useEffect(() => { load() }, [load])
   const refresh = () => load(true)
   return (
-    <Card title="Test Studio image models" help="Prepare FLUX.1, Anima, Qwen-Image 2.1 and MOSS-Image for generation. MOSS uses Base model only. Downloads start only when you choose Install.">
+    <Card title="Test Studio image models" help="Prepare Z-Image, FLUX.1, Anima, Qwen-Image 2.1 and MOSS-Image for generation. MOSS uses Base model only. Downloads start only when you choose Install.">
       <div id="studio-models" className="scroll-mt-24 space-y-3">
         <p className="text-xs text-content-muted">
           Leave a file blank to detect it automatically. Existing compatible files are reused,
@@ -59,23 +59,28 @@ export default function TrainedImageModelsCard({ config, setField }) {
                 </p>}
                 {family.slots.map((slot) => (
                   <div key={slot.key}>
-                    <label htmlFor={`studio-${family.family}-${slot.key}`} className="mb-1 block text-sm text-content">
+                    {/* A slot that is not configurable (Z-Image) shows the file its own resolvers found. */}
+                    {slot.configurable === false && <p className="mb-1 text-sm text-content">{slot.label}</p>}
+                    {slot.configurable === false && <p className="break-all text-xs text-content-muted">
+                      {family.assets?.[slot.key] ? `Found: ${family.assets[slot.key]}` : `Not found · ${slot.filename}`}
+                    </p>}
+                    {slot.configurable !== false && <label htmlFor={`studio-${family.family}-${slot.key}`} className="mb-1 block text-sm text-content">
                       {slot.label}
-                    </label>
-                    <ModelFilePicker id={`studio-${family.family}-${slot.key}`}
+                    </label>}
+                    {slot.configurable !== false && <ModelFilePicker id={`studio-${family.family}-${slot.key}`}
                       ariaLabel={`${family.label} ${slot.label}`}
                       value={values[slot.key] || ''}
                       onChange={(value) => setField('studio_models', family.family, { ...values, [slot.key]: value })}
                       placeholder={`Auto · ${family.assets?.[slot.key] || slot.filename}`}
                       files={slot.files || []} folder={`ComfyUI models/${slot.kind}`}
-                      loading={loading} error={false} rescan={refresh} rescanning={loading} />
+                      loading={loading} error={false} rescan={refresh} rescanning={loading} />}
                     {family.invalid_assets?.filter((item) => item.slot === slot.key).map((item) => (
                       <p key={item.asset} className="mt-1 text-xs text-red-400">{item.reason}</p>
                     ))}
                     {family.pin_warnings?.filter((item) => item.slot === slot.key).map((item) => (
                       <p key={item.slot} className="mt-1 text-xs text-amber-400">{item.message}</p>
                     ))}
-                    {values[slot.key] && <button type="button"
+                    {slot.configurable !== false && values[slot.key] && <button type="button"
                       onClick={() => setField('studio_models', family.family, { ...values, [slot.key]: '' })}
                       className="min-h-10 text-xs text-primary underline">Use automatic detection</button>}
                     {missing.has(slot.action) && <div className="mt-2 space-y-1">
