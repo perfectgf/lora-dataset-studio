@@ -216,8 +216,11 @@ export default function DatasetGridItem({ img, datasetId, onStatus, onCaption, o
       <div className="relative aspect-square bg-black">
         {selected && <SelectionMark />}
         {onToggleSelect && img.filename && (
+          // Same corner as the selection mark, so it turns OPAQUE once selected:
+          // at rest the mark says it, and whenever the checkbox shows (hover,
+          // focus, touch) it covers the mark instead of mixing with it.
           <label
-            className="dataset-grid-item__actions absolute bottom-1 left-1 z-10 flex items-center justify-center w-6 h-6 rounded bg-black/60 cursor-pointer"
+            className={`dataset-grid-item__actions absolute bottom-1 left-1 z-10 flex items-center justify-center w-6 h-6 rounded cursor-pointer ${selected ? 'bg-black' : 'bg-black/60'}`}
             title="Select for bulk actions"
             onClick={(e) => e.stopPropagation()}>
             {/* NOT gated on `busy`: ticking changes nothing on the server, and

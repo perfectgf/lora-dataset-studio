@@ -394,7 +394,7 @@ export default function BankImportPanel({ datasetId, onImported, disabled = fals
                         </button>
                         {on && (
                           <>
-                            <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-primary" />
+                            <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-inset ring-primary" />
                             <SelectionMark />
                           </>
                         )}

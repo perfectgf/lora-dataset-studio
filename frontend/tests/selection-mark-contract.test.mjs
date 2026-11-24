@@ -19,7 +19,8 @@ test('both grids draw the same selection mark, from the shared component', () =>
     const src = read(f);
     assert.match(src, /import SelectionMark from '\.\.\/shared\/SelectionMark'/,
       `${f} must use the shared mark, not its own`);
-    assert.match(src, /<SelectionMark \/>/, `${f} must render it when selected`);
+    assert.match(src, /selected && <SelectionMark(?: className="[^"]*")? \/>/,
+      `${f} must render it when selected`);
   }
 });
 
@@ -32,6 +33,21 @@ test('nothing is laid over the image to say it is selected', () => {
     assert.doesNotMatch(src, /inset-0[^"]*bg-(indigo|amber|primary)/,
       `${f} tints the picture to mark selection — mark the frame instead`);
   }
+});
+
+test('a selected tile shows it, whatever badges it carries', () => {
+  // The mark sat top-left, under the state badges: the ✓ of a kept Bank image
+  // covered it. Its frame was an OUTER ring inside a tile that clips, so it was
+  // cut off. A kept image looked the same selected or not.
+  assert.match(read('components/shared/SelectionMark.jsx'),
+    /className = 'absolute bottom-1 left-1'/, 'the mark keeps the corner no badge uses');
+  const tile = read('components/bank/BankTile.jsx');
+  assert.match(tile, /<li [^>]*overflow-hidden/, 'the Bank tile clips what leaves it…');
+  assert.match(tile, /absolute inset-0 [^"]*ring-2 ring-inset ring-primary/,
+    '…so its frame is drawn inside');
+  // One flow for the bottom row: a button pinned at a hand-computed offset runs
+  // under its neighbour as soon as a glyph is wider than the offset assumed.
+  assert.doesNotMatch(tile, /absolute bottom-1 (?:left|right)-/);
 });
 
 test('the mark carries its own contrast, so it survives any picture', () => {
