@@ -30,7 +30,7 @@ SHA256 = re.compile(r'[0-9a-f]{64}\Z')
 PUBLIC_PRODUCTS = frozenset({
     'api_engines', 'camera_angles', 'canvas', 'civitai_publish', 'cloud_training',
     'dlss5', 'hf_publish', 'image_upscale', 'live', 'model_tools', 'resource_monitor',
-    'qwen_dataset', 'scrape', 'seedvr2', 'video',
+    'qwen_dataset', 'remove_background', 'scrape', 'seedvr2', 'video',
 })
 ARCHIVE_SUFFIXES = ('.ldsplugin', '.zip', '.whl', '.tar', '.gz', '.bz2', '.xz',
                     '.tgz', '.tbz2', '.txz', '.7z', '.rar', '.pyz')

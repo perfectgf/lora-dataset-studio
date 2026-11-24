@@ -16,7 +16,7 @@ OFFICIAL_IDS = frozenset({
     'api_engines', 'camera_angles', 'civitai_publish', 'cloud_training',
     'hf_publish', 'model_tools', 'scrape', 'video', 'canvas',
     'image_upscale', 'resource_monitor', 'seedvr2', 'live',
-    'manga', 'dlss5', 'creature_battle', 'qwen_dataset',
+    'manga', 'dlss5', 'creature_battle', 'qwen_dataset', 'remove_background',
 })
 
 

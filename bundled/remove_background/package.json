@@ -1,0 +1,7 @@
+{
+  "name": "@lds-plugins/remove-background",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "lds": { "entry": "frontend/index.js", "sdk": "1.15.0" }
+}
