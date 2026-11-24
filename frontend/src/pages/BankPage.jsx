@@ -14,6 +14,7 @@ import FolderCheckLine from '../components/bank/FolderCheckLine'
 import RelocateBankDialog from '../components/bank/RelocateBankDialog'
 import ForgetMissingDialog from '../components/bank/ForgetMissingDialog'
 import PluginSlot from '../plugins/PluginSlot.jsx'
+import { MemberOptions } from '../components/patreon/MemberPreviews.jsx'
 import BankLaneTabs from '../components/bank/BankLaneTabs'
 import BankReadOnlyToggle from '../components/bank/BankReadOnlyToggle'
 import { bankListOverview } from '../components/bank/bankOverview.js'
@@ -251,6 +252,8 @@ export default function BankPage() {
       {/* Second way in: the scraper's own destination. A bank no longer needs a
           folder you prepared by hand — you can fill one straight from the web. */}
       <PluginSlot slot="sources.panel" surface="bank" banks={banks} onDone={() => refresh()} />
+      {/* Members previews of the source plugins, without an active membership. */}
+      <MemberOptions placements={['bank.sources']} variant="line" />
 
       <FolderCheckLine banks={banks} busy={rescanning} onRescan={rescan} />
 

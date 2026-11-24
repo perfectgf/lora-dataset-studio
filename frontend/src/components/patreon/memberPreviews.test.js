@@ -46,6 +46,9 @@ test('an unknown place or format shows nothing; each place shows its own entries
     item({ id: 'subject_crop', placement: 'bank.crop' }));
   assert.deepEqual(previewsAt(items, ['studio.options', 'studio.options.zimage']).map((i) => i.id), ['studio_remake']);
   assert.deepEqual(previewsAt(items, ['bank.crop']).map((i) => i.id), ['subject_crop']);
+  const sources = parse(item({ placement: 'dataset.sources' }), item({ placement: 'bank.sources' }));
+  assert.deepEqual(previewsAt(sources, ['dataset.sources']).map((i) => i.placement), ['dataset.sources']);
+  assert.deepEqual(previewsAt(sources, ['bank.sources']).map((i) => i.placement), ['bank.sources']);
 });
 
 test('the screens show what the server answers, and nothing once a read fails', async () => {

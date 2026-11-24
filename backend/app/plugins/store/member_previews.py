@@ -43,7 +43,8 @@ _PLACEMENT = re.compile(r'[a-z][a-z0-9_]{0,23}(?:\.[a-z0-9_]{1,24}){0,3}\Z')
 # Where this version shows previews. A newer catalog may name more places:
 # this version leaves those entries out, one by one.
 PLACEMENTS = frozenset({'studio.prompt', 'studio.options', 'training.options',
-                        'dataset.crop', 'bank.crop', 'watermark.engines'})
+                        'dataset.crop', 'bank.crop', 'watermark.engines',
+                        'dataset.sources', 'bank.sources'})
 # Test Studio options of one model family: studio.options.krea, studio.options.moss…
 _FAMILY_PLACEMENT = re.compile(r'studio\.options\.[a-z][a-z0-9]{1,23}\Z')
 # Controls, line separators and bidirectional overrides: a preview is plain text.

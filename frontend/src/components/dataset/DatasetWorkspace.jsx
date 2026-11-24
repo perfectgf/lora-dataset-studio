@@ -1577,6 +1577,10 @@ export default function DatasetWorkspace({ ds, onBack }) {
               <div id="ds-scrape-scan" tabIndex={-1} className="scroll-mt-20">
                 <PluginSlot slot="sources.panel" surface="dataset" key={`scraper-${d.id}`}
                   datasetId={d.id} onImport={ds.scrapeImport} busy={importBusy} />
+                {/* Members previews of the source plugins, without an active membership. */}
+                <div className="mt-3 empty:hidden">
+                  <MemberOptions placements={['dataset.sources']} variant="line" />
+                </div>
               </div>
             </div>
           )}

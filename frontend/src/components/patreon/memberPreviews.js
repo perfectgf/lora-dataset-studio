@@ -30,6 +30,7 @@ const unsafeText = (value) => [...value].some((ch) => {
 // this version leaves those entries out, one by one.
 export const PLACEMENTS = Object.freeze([
   'studio.prompt', 'studio.options', 'training.options', 'dataset.crop', 'bank.crop', 'watermark.engines',
+  'dataset.sources', 'bank.sources',
 ]);
 // Test Studio options of one model family: studio.options.krea, studio.options.moss…
 const FAMILY_PLACEMENT = /^studio\.options\.[a-z][a-z0-9]{1,23}$/;
