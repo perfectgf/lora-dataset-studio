@@ -161,8 +161,10 @@ def test_the_pod_installs_only_what_it_actually_imports():
     # --repo-id) and two heredocs that import huggingface_hub. An install nobody
     # imports is boot time on a machine billed by the hour.
     lines = [line for line in cq.build_onstart(_plan()).splitlines()
-             if line.startswith('python -m pip install')]
+             if line.startswith('python -m pip --isolated install')]
     assert len(lines) == 1
+    assert '--index-url https://lds.perfectgf.fr/models/tools/pypi/simple/' in lines[0]
+    assert '--only-binary=:all:' in lines[0]
     assert 'huggingface_hub>=0.30' in lines[0]
     assert 'safetensors' not in lines[0]
 
