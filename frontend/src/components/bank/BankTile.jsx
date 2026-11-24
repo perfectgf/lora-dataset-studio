@@ -66,12 +66,12 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
             edited ? edited.label : null].filter(Boolean).join(' — ')} loading="lazy"
           className={`w-full object-cover ${size === 'S' ? 'h-24' : 'h-36'}`} />
       </button>
+      {/* The ring marks the FRAME; nothing is laid over the picture. INSET,
+          because this tile clips its overflow: an outer ring is drawn in exactly
+          the pixels that clip removes, and only crumbs of it showed in the
+          corners. The radius is the tile's, less its 1-px border. */}
       {selected && (
-        <>
-          {/* The ring marks the FRAME; nothing is laid over the picture. */}
-          <span aria-hidden className="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-primary" />
-          <SelectionMark />
-        </>
+        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[7px] ring-2 ring-inset ring-primary" />
       )}
       <span className="absolute left-1 top-1 flex flex-wrap gap-0.5 max-w-[85%]">
         {img.status === 'keep' && badge('✓', 'bg-emerald-500/80 text-white')}
@@ -108,56 +108,67 @@ export default function Tile({ img, bankId, selected, onToggle, onReview, onTags
         {img.dup_group != null && badge(`≈${img.dup_group}`, 'bg-black/60 text-fuchsia-200')}
         {img.semantic_dup_group != null && badge(`✂${img.semantic_dup_group}`, 'bg-black/60 text-orange-200')}
       </span>
-      {/* ▶ starts the fast-triage lightbox AT this image. It's a separate hit
-          target on purpose: the tile's own click still (de)selects for the bulk
-          ✓/✕/⬆ bar, so neither use loses its gesture. */}
-      {/* 🏷️ MOVED HERE, out of the badge cluster in the top-left corner.
-          Everything up there is a STATE READOUT — ✓, ✕, ⬆, the flags, the person
-          and framing chips — and none of it is clickable. A button dropped in the
-          middle of that row does not read as an action; in the maintainer's own
-          words, "otherwise it gets drowned at the top with the icons that aren't
-          clickable". The tile's two real actions live in this bottom-right group,
-          so the third one joins them, in the same clothes.
+      {/* The bottom row: the actions on the right, the selection mark on the left.
+          A FLOW, not three buttons pinned at right-1 / right-6 / right-11: those
+          offsets assumed 20-px buttons, and Windows draws ▶ as a wider emoji that
+          ran over the tag button. Both reverses keep the actions still when an
+          image is selected: on a tile too narrow for the two, the mark is what
+          wraps, to a line ABOVE them. */}
+      <div className="pointer-events-none absolute inset-x-1 bottom-1 flex flex-row-reverse flex-wrap-reverse items-start gap-0.5">
+        <div className="pointer-events-auto flex gap-0.5">
+          {/* 🏷️ MOVED HERE, out of the badge cluster in the top-left corner.
+              Everything up there is a STATE READOUT — ✓, ✕, ⬆, the flags, the person
+              and framing chips — and none of it is clickable. A button dropped in the
+              middle of that row does not read as an action; in the maintainer's own
+              words, "otherwise it gets drowned at the top with the icons that aren't
+              clickable". The tile's two real actions live in this bottom-right group,
+              so the third one joins them, in the same clothes.
 
-          AND IT ONLY APPEARS WHEN IT CAN DELIVER. The chips ARE the words of the
-          caption, so on an image whose caption yields none the picker could only
-          say "This caption has no word worth filtering on." — a button promising
-          something it cannot do. That silence has already cost once, the other way
-          round: the feature had shipped for two days and was read as absent,
-          because the bank simply had no captions. So the button says WHY it is
-          not there, exactly the way a semantic action names its missing index
-          on the pass row — a shipped feature that says nothing is indistinguishable
-          from one that does not exist. */}
-      {tagChips.length > 0 ? (
-        <button type="button" onClick={onTags}
-          title={`Filter the bank by this image's tags — ${img.caption}`}
-          aria-label={`Use the tags of ${img.name} as a filter`}
-          className="absolute bottom-1 right-11 rounded bg-black/60 px-1 text-[11px] text-emerald-200 hover:bg-black/80"><Tag aria-hidden="true" className="h-3 w-3" /></button>
-      ) : (
-        <span
-          title={img.caption
-            ? 'Tags — this caption has no word worth filtering on (the chips are the caption\'s own words)'
-            : 'Tags (needs a caption) — run Caption on this bank and the chips appear here'}
-          aria-label={img.caption
-            ? 'Tags unavailable: this caption has no word worth filtering on'
-            : 'Tags unavailable: this image has no caption yet'}
-          className="absolute bottom-1 right-11 rounded bg-black/40 px-1 text-[11px] text-white/35"><Tag aria-hidden="true" className="h-3 w-3" /></span>
-      )}
-      <button type="button" onClick={onReview}
-        title="Review from this image — full size, one at a time, with Keep/Reject/Skip"
-        aria-label={`Review from ${img.name}`}
-        className="absolute bottom-1 right-6 rounded bg-black/60 px-1 text-[11px] text-white hover:bg-black/80">▶</button>
-      {/* ⛶ serves what the bank RESOLVES for this image, and on an edited row that
-          is the crop/upscale — so the tooltip stops calling it "the original file",
-          which a ✂ crop makes visibly false, and the version key travels with it
-          (this route is cached too). Renamed rather than made conditional: a
-          computed title is invisible to the surface-inventory guard, and this
-          button is worth keeping under it. */}
-      <a href={`/api/bank/${bankId}/file/${img.id}${imageVersionQuery(img)}`}
-        target="_blank" rel="noreferrer"
-        title="Open this image full size, as the Bank shows it — your own file on disk is never modified"
-        aria-label={`Open ${img.name} full size`}
-        className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[11px] text-white no-underline hover:bg-black/80">⛶</a>
+              AND IT ONLY APPEARS WHEN IT CAN DELIVER. The chips ARE the words of the
+              caption, so on an image whose caption yields none the picker could only
+              say "This caption has no word worth filtering on." — a button promising
+              something it cannot do. That silence has already cost once, the other way
+              round: the feature had shipped for two days and was read as absent,
+              because the bank simply had no captions. So the button says WHY it is
+              not there, exactly the way a semantic action names its missing index
+              on the pass row — a shipped feature that says nothing is indistinguishable
+              from one that does not exist. */}
+          {tagChips.length > 0 ? (
+            <button type="button" onClick={onTags}
+              title={`Filter the bank by this image's tags — ${img.caption}`}
+              aria-label={`Use the tags of ${img.name} as a filter`}
+              className="grid place-items-center rounded bg-black/60 px-1 text-[11px] text-emerald-200 hover:bg-black/80"><Tag aria-hidden="true" className="h-3 w-3" /></button>
+          ) : (
+            <span
+              title={img.caption
+                ? 'Tags — this caption has no word worth filtering on (the chips are the caption\'s own words)'
+                : 'Tags (needs a caption) — run Caption on this bank and the chips appear here'}
+              aria-label={img.caption
+                ? 'Tags unavailable: this caption has no word worth filtering on'
+                : 'Tags unavailable: this image has no caption yet'}
+              className="grid place-items-center rounded bg-black/40 px-1 text-[11px] text-white/35"><Tag aria-hidden="true" className="h-3 w-3" /></span>
+          )}
+          {/* ▶ starts the fast-triage lightbox AT this image. It's a separate hit
+              target on purpose: the tile's own click still (de)selects for the bulk
+              ✓/✕/⬆ bar, so neither use loses its gesture. */}
+          <button type="button" onClick={onReview}
+            title="Review from this image — full size, one at a time, with Keep/Reject/Skip"
+            aria-label={`Review from ${img.name}`}
+            className="rounded bg-black/60 px-1 text-[11px] text-white hover:bg-black/80">▶</button>
+          {/* ⛶ serves what the bank RESOLVES for this image, and on an edited row that
+              is the crop/upscale — so the tooltip stops calling it "the original file",
+              which a ✂ crop makes visibly false, and the version key travels with it
+              (this route is cached too). Renamed rather than made conditional: a
+              computed title is invisible to the surface-inventory guard, and this
+              button is worth keeping under it. */}
+          <a href={`/api/bank/${bankId}/file/${img.id}${imageVersionQuery(img)}`}
+            target="_blank" rel="noreferrer"
+            title="Open this image full size, as the Bank shows it — your own file on disk is never modified"
+            aria-label={`Open ${img.name} full size`}
+            className="rounded bg-black/60 px-1 text-[11px] text-white no-underline hover:bg-black/80">⛶</a>
+        </div>
+        {selected && <SelectionMark className="mr-auto" />}
+      </div>
     </li>
   )
 }

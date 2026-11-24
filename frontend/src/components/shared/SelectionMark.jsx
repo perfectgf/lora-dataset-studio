@@ -10,11 +10,20 @@
  *
  *  Shared on purpose: the Bank grid and the dataset grid are two surfaces of
  *  one gesture, and a selection that looks different on each is a bug with a
- *  delay on it. */
-export default function SelectionMark({ className = '' }) {
+ *  delay on it.
+ *
+ *  BOTTOM-LEFT on every surface. It was top-left, the corner a Bank tile fills
+ *  with its state badges and a wide dataset tile with its provenance. Both are
+ *  painted after the mark, so the ✓ of a kept image covered it and a selected
+ *  tile looked like any other. No badge lives bottom-left: on a dataset tile
+ *  that corner is already reserved for the bulk checkbox.
+ *
+ *  `className` is the PLACEMENT, so a tile whose bottom row must hold the mark
+ *  in its own flow (the Bank's) replaces the default instead of fighting it. */
+export default function SelectionMark({ className = 'absolute bottom-1 left-1' }) {
   return (
     <span aria-hidden="true"
-      className={`pointer-events-none absolute left-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-app/70 ${className}`}>
+      className={`pointer-events-none grid h-6 w-6 shrink-0 place-items-center rounded-full bg-app/70 ${className}`}>
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none"
         stroke="rgb(var(--accent))" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
         {/* One unbroken stroke, drawn as a hand would: down into the valley,

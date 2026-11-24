@@ -90,6 +90,12 @@ export const WHATS_NEW = [
     to: '/setup?step=comfyui',
   },
   {
+    id: '2026-11-24-z-selected-images-stand-out', date: '2026-11-24',
+    title: 'Selected images stand out again',
+    blurb: 'In the Bank, the selection mark was hidden behind the ✓ of a kept image and its frame was cut off, so a selected image looked like any other. The mark now has a corner of its own, on dataset images too, the frame is drawn inside the thumbnail, and the three buttons at its bottom no longer run over each other.',
+    to: '/bank',
+  },
+  {
     id: '2026-11-16-setup-check-comfyui-stopped', date: '2026-11-16',
     title: 'No “stopped working” warning when ComfyUI is simply off',
     blurb: 'A local engine added by a plugin, such as Dataset Forge, was reported as a part of your setup that stopped working whenever ComfyUI was not running. The background check now waits for ComfyUI to answer before it judges such an engine.',
