@@ -58,3 +58,18 @@ test('the stylesheet sizes the folded menu from that attribute, and the app appl
   assert.ok(main.indexOf('applySideNavCollapsed(readSideNavCollapsed())') < main.indexOf('loadPlugins().then'),
     'the stored choice is applied before the app mounts');
 });
+
+test("a menu opened from the side column is drawn over the generation dock, and under the dialogs", () => {
+  // Both float over the page at the bottom left. On one layer the dock, later in the document, hid the last
+  // entry of Setup & settings (Plugins) for as long as something was generating.
+  const layer = (file, pattern) => {
+    const found = readFileSync(new URL(file, import.meta.url), 'utf8').match(pattern);
+    assert.ok(found, `${file}: layer not found`);
+    return Number(found[1]);
+  };
+  const menu = layer('../../App.jsx', /app-sidebar fixed inset-y-0 left-0 z-\[?(\d+)\]? /);
+  const dock = layer('./GenerationQueueDock.jsx', /left-\[calc\(var\(--app-sidebar-w\)\+0\.75rem\)\] z-\[?(\d+)\]? /);
+  const pill = layer('../../pages/SettingsPage.jsx', /fixed left-\[var\(--app-sidebar-w\)\] right-0 bottom-4 z-\[?(\d+)\]? /);
+  assert.ok(menu > dock && menu > pill, `menu ${menu}, dock ${dock}, save pill ${pill}`);
+  assert.ok(menu < 50, "dialogs and sheets start at z-50");
+});
