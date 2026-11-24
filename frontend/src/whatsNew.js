@@ -84,7 +84,7 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
-    id: '2026-11-24-public-plugin-install-sources', date: '2026-11-24',
+    id: '2026-11-24-zzz-public-plugin-install-sources', date: '2026-11-24',
     title: 'Prepare plugin tools from the LDS server',
     blurb: 'Setup supplies the Python runtime, packages and custom nodes for your plugins from the LDS server. The ComfyUI guide now offers verified installation scripts for Windows, Linux and macOS. Model downloads stay with their publishers.',
     to: '/setup?step=comfyui',
