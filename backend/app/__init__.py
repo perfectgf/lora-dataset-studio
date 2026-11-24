@@ -86,6 +86,8 @@ _STATIC_MIME_TYPES = {
     '.otf': 'font/otf',
     '.wasm': 'application/wasm',
     '.txt': 'text/plain',
+    '.ps1': 'application/octet-stream',
+    '.sh': 'application/x-sh',
 }
 
 
