@@ -1,7 +1,7 @@
 import PluginSlot from './plugins/PluginSlot.jsx'
 import { Suspense, useEffect, useState, useSyncExternalStore } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet, NavLink, useLocation } from 'react-router'
-import { Archive, ArrowUp, CircleHelp, Dumbbell, FlaskConical, FolderOpen, Images, Loader2, Menu, PanelLeftClose, PanelLeftOpen, Puzzle, Settings, X } from 'lucide-react'
+import { Archive, ArrowUp, CircleHelp, Dumbbell, FlaskConical, FolderOpen, Images, LayoutGrid, Loader2, Menu, PanelLeftClose, PanelLeftOpen, Puzzle, Settings, X } from 'lucide-react'
 import { apiFetch, postJson } from './api/fetchClient'
 import { JobsProvider } from './context/JobsContext'
 import { ToastProvider, useToast } from './components/common/Toast'
@@ -302,7 +302,7 @@ function NavBar() {
   // triggers can reflect the active-nav style when you're on one of their screens.
   const path = useLocation().pathname
   const helpMenuActive = path === '/guide' || path === '/help'
-  const settingsMenuActive = path === '/setup' || path.startsWith('/settings') || path.startsWith('/plugins')
+  const settingsMenuActive = path === '/setup' || path.startsWith('/settings')
   const machineLoad = (
     <PluginSlot slot="resource_monitor.readout" surface="header" />
   )
@@ -340,12 +340,15 @@ function NavBar() {
         </span>
       ))}
       {entry('/studio', FlaskConical, 'Test Studio')}
-      {/* Gallery — every generated image, one feed. Last: it is where the
+      {/* Gallery — every generated image, one feed. Last workspace: it is where the
           OUTPUT of the other workspaces accumulates, so it reads as the shelf
           at the end of the list. Visible whenever any surface that generates
           is: renders can outlive a broken ComfyUI, so the training gates keep
           it reachable even while the studio gate is down. */}
       {(caps.studio_visible || caps.cloud_training || caps.training_visible) && entry('/gallery', Images, 'Gallery')}
+      {/* Plugins: where they are installed, updated and set up. Always listed, and followed by the pages they
+          add, so it heads that list in the side menu and in the panel alike. */}
+      {entry('/plugins', Puzzle, 'Plugins')}
     </>
   )
   // Nav entries an enabled plugin contributes ({ to, label, when(caps) }), in
@@ -391,13 +394,13 @@ function NavBar() {
             Folded: a handful of icons that never scroll, and the box must not
             clip the plugin list that opens beside it. */}
         <nav id="app-side-menu-pages" aria-label="Main navigation"
-          className={`app-nav flex min-h-0 flex-1 flex-col px-2 pb-3 ${rail ? 'items-center gap-1' : 'gap-4 overflow-y-auto'}`}>
+          className={`app-nav flex min-h-0 flex-1 flex-col px-2 pb-3 ${rail ? 'items-center gap-1' : 'gap-0.5 overflow-y-auto'}`}>
           <div className={`flex flex-col ${rail ? 'items-center gap-1' : 'gap-0.5'}`}>{workspaceLinks}</div>
           {pluginItems.length > 0 && (rail ? (
             /* Plugin pages declare no icon, so the strip gives them one door:
                their list opens beside it, top aligned, and scrolls if it is long. */
             <HeaderMenu placement="side-down" triggerClassName={railItemClass}
-              triggerLabel={<Puzzle aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />}
+              triggerLabel={<LayoutGrid aria-hidden="true" className="h-[1.125rem] w-[1.125rem]" />}
               triggerTitle="Plugin pages" active={onPluginPage}>
               {(closeMenu) => pluginItems.map((item) => (
                 <NavLink key={`${item.plugin}:${item.to}`} to={item.to} role="menuitem"
@@ -407,10 +410,7 @@ function NavBar() {
               ))}
             </HeaderMenu>
           ) : (
-            <div className="flex flex-col gap-0.5">
-              <p className="m-0 px-3 pb-1 font-mono text-xs uppercase tracking-[0.18em] text-content-subtle">Plugins</p>
-              {pluginLinks}
-            </div>
+            <div role="group" aria-label="Plugin pages" className="flex flex-col gap-0.5">{pluginLinks}</div>
           ))}
         </nav>
         {/* The foot: what is about the app rather than about the work. The two
@@ -463,7 +463,6 @@ function NavBar() {
       <NavLink to="/guide" className={navItemClass} onClick={close}>Guide</NavLink>
       <NavLink to="/setup" className={navItemClass} onClick={close}>Setup</NavLink>
       <NavLink to="/settings" className={navItemClass} onClick={close}>Settings</NavLink>
-      <NavLink to="/plugins" className={navItemClass} onClick={close}>Plugins</NavLink>
       <NavLink to="/help" className={navItemClass} onClick={close}>Help</NavLink>
       <NavLink to="/help?h=support-the-project" className={navItemClass} onClick={close}>Support LDS</NavLink>
       <HelpModeToggle onToggle={close} />
