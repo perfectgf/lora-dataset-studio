@@ -157,6 +157,7 @@ export const CORE_GUIDE_ANCHORS = {
     "the-page-is-completely-blank-on-windows-in-every-browser",
     "no-z-image-model-available-in-the-test-studio-or-training-panel",
     "no-sdxl-checkpoint-found-on-a-fresh-install",
+    "the-sdxl-test-studio-says-detaildaemonsamplernode-is-missing",
     "the-krea-2-turbo-test-studio-says-a-custom-node-is-missing",
     "the-reference-crop-isn-t-centered-on-the-face",
     "ollama-isn-t-detected-or-is-installed-but-stopped",
