@@ -164,6 +164,18 @@ test('every backend install action is reachable from a Setup surface', () => {
     ...inlineRunnerActions(),
     ...[...posted].flatMap((g) => groups[g] || []),
   ])
+  // A node pack the core ships for a product (backend/comfy_nodes, so the SDK can
+  // name its action) is offered by that product's own Setup section, which shows
+  // once the product is installed: the H3 block attention switch and reference
+  // loader of Video and Live. It counts only where a bundled product really
+  // offers it; every other action still needs a surface of the core.
+  const hosted = new Set(pyDictKeys(installer, '_BUNDLED_NODE_PACKS'))
+  for (const product of products) {
+    for (const action of productSurfaces(product).reachable) {
+      if (hosted.has(action)) reachable.add(action)
+    }
+    resetRegistry()
+  }
   const orphans = [...backendActions()].filter((a) => !reachable.has(a))
   assert.deepEqual(orphans, [],
     `installable through the API and offered NOWHERE on Setup: ${orphans.join(', ')}. `
@@ -196,29 +208,37 @@ test('every surfaced action carries a human label', () => {
   }
 })
 
+/** What one bundled product alone offers on Setup, registered and enabled by
+ *  itself: its catalog rows, Video's performance buttons, every install button
+ *  its own files render, and the install groups those files post. */
+function productSurfaces(product) {
+  assert.equal(registerBundledDescriptor(product.descriptor), true)
+  setEnabled([product.id])
+  const rows = installCatalog(FULL_CAPS)
+  const reachable = new Set(rows.map(row => row.action))
+  if (product.id === 'video') {
+    for (const action of videoPerformanceActions()) reachable.add(action)
+  }
+  const files = fs.readdirSync(path.join(BUNDLED, product.id, 'frontend'), { recursive: true })
+  const posted = new Set()
+  for (const file of files.filter(name => /\.jsx?$/.test(name))) {
+    const source = fs.readFileSync(path.join(BUNDLED, product.id, 'frontend', file), 'utf8')
+    for (const match of source.matchAll(/action="([a-z0-9_]+)"/g)) reachable.add(match[1])
+    // Some cards bind one named constant to InstallRunner instead of a literal.
+    if (/<InstallRunner\b[^>]*action=\{ACTION\}/.test(source)
+        || source.includes('postJson(`/api/setup/install/${ACTION}`, {}')) {
+      const action = source.match(/const ACTION = '([a-z0-9_]+)'/)
+      assert.ok(action, `${product.id}/${file}: unresolved install action`)
+      reachable.add(action[1])
+    }
+    for (const match of source.matchAll(/install-group\/([a-z0-9_]+)/g)) posted.add(match[1])
+  }
+  return { rows, reachable, posted }
+}
+
 for (const product of products) {
   test(`${product.id} alone exposes each declared preparation action`, () => {
-    assert.equal(registerBundledDescriptor(product.descriptor), true)
-    setEnabled([product.id])
-    const rows = installCatalog(FULL_CAPS)
-    const reachable = new Set(rows.map(row => row.action))
-    if (product.id === 'video') {
-      for (const action of videoPerformanceActions()) reachable.add(action)
-    }
-    const files = fs.readdirSync(path.join(BUNDLED, product.id, 'frontend'), { recursive: true })
-    const posted = new Set()
-    for (const file of files.filter(name => /\.jsx?$/.test(name))) {
-      const source = fs.readFileSync(path.join(BUNDLED, product.id, 'frontend', file), 'utf8')
-      for (const match of source.matchAll(/action="([a-z0-9_]+)"/g)) reachable.add(match[1])
-      // Some cards bind one named constant to InstallRunner instead of a literal.
-      if (/<InstallRunner\b[^>]*action=\{ACTION\}/.test(source)
-          || source.includes('postJson(`/api/setup/install/${ACTION}`, {}')) {
-        const action = source.match(/const ACTION = '([a-z0-9_]+)'/)
-        assert.ok(action, `${product.id}/${file}: unresolved install action`)
-        reachable.add(action[1])
-      }
-      for (const match of source.matchAll(/install-group\/([a-z0-9_]+)/g)) posted.add(match[1])
-    }
+    const { rows, reachable, posted } = productSurfaces(product)
     assert.deepEqual((product.manifest.owns?.install_actions || []).filter(action => !reachable.has(action)), [],
       'Every action must be reachable from this product alone, without another product supplying its UI')
     for (const group of posted) assert.ok(product.manifest.owns?.install_groups?.includes(group), group)
