@@ -185,7 +185,7 @@ memory* pinned near the top with *Shared GPU memory* at several GB means the
 driver is paging. The GPU % in the app's 📊 readout comes straight from
 `nvidia-smi` and is the figure to trust.
 
-**Fix.** ⏹ Stop the run, unfold the 📊 readout in the top bar and press
+**Fix.** ⏹ Stop the run, unfold the 📊 readout in the main menu and press
 🧹 **Free memory** (ComfyUI unloads its cached models and the vision model is
 released; the VRAM figure should fall to a couple of GB), or simply close
 ComfyUI, then launch again. A healthy run shows the GPU at 90-100 % and a few
