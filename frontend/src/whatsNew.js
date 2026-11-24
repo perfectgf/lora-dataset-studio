@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-24-zzzz-datasets-studio-plugins-fixes', date: '2026-11-24',
+    title: 'Fixes for API images, the Studio and plugin engines',
+    blurb: 'An image made by an API engine keeps 1024 px on its short side when it joins a dataset, instead of falling under the size a dataset accepts. When a model folder moved while ComfyUI was running, the Studio now asks you to restart ComfyUI instead of updating it. Posting a picture derived from another one names the model and LoRAs of the original. A plugin engine with a damaged package is repaired with one verified retry.',
+    to: '/datasets',
+  },
+  {
     id: '2026-11-24-zzz-public-plugin-install-sources', date: '2026-11-24',
     title: 'Prepare plugin tools from the LDS server',
     blurb: 'Setup supplies the Python runtime, packages and custom nodes for your plugins from the LDS server. The ComfyUI guide now offers verified installation scripts for Windows, Linux and macOS. Model downloads stay with their publishers.',
