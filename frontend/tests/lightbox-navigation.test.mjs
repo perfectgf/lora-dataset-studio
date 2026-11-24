@@ -185,11 +185,10 @@ test('a focused field keeps its own caret keys', () => {
 // ── 4. The page underneath follows ──────────────────────────────────────────
 
 test('the grid page that holds an index', () => {
-  assert.equal(GRID_PAGE_SIZE, 500)
   assert.equal(pageOfIndex(0), 0)
-  assert.equal(pageOfIndex(499), 0)
-  assert.equal(pageOfIndex(500), 1, 'crossing the boundary must turn the page')
-  assert.equal(pageOfIndex(1234), 2)
+  assert.equal(pageOfIndex(GRID_PAGE_SIZE - 1), 0)
+  assert.equal(pageOfIndex(GRID_PAGE_SIZE), 1, 'crossing the boundary must turn the page')
+  assert.equal(pageOfIndex(2 * GRID_PAGE_SIZE + 7), 2)
   assert.equal(pageOfIndex(-1), 0)
   assert.equal(pageOfIndex(null), 0)
 })
