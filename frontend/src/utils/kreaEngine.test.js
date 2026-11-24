@@ -188,3 +188,15 @@ test('Krea stays local and free when the API Engines owner is absent', () => {
   assert.equal(estimateCost(30, ['krea'], 'split', { multiplier: 2 }), 0);
   assert.deepEqual(engineBatches([1, 2], ['krea', 'chatgpt'], 'split').map(batch => batch.generator), ['krea']);
 });
+
+test('a ComfyUI too old for the Krea 2 text encoder is named before anything else is blamed', () => {
+  const unsupportedEnums = [{ node_id: '2', class_type: 'CLIPLoader', input: 'type', value: 'krea2' }];
+  const reason = kreaUnavailableReason({ unsupportedEnums });
+  assert.match(reason, /type "krea2"/);
+  assert.match(reason, /update ComfyUI/);
+  // A pinned file that is absent still comes first: it is what the user typed.
+  const pinned = kreaUnavailableReason({
+    unsupportedEnums, pinGaps: [{ slot: 'base', key: 'krea.base_model', configured: 'gone.safetensors' }],
+  });
+  assert.doesNotMatch(pinned, /krea2/);
+});

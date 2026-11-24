@@ -126,6 +126,13 @@ export const WHATS_NEW = [
       + 'still never replaces a package, and never adds a second OpenCV beside the one you have.',
   },
   {
+    id: '2026-11-24-krea-comfyui-too-old-named', date: '2026-11-24',
+    title: 'Krea 2 Edit says when ComfyUI is too old for it',
+    blurb: 'A ComfyUI older than Krea 2 support lacks the "krea2" text encoder type. Setup and the engine picker '
+      + 'used to show Krea 2 Edit as ready there, and the first edit was refused. They now say to update ComfyUI '
+      + 'before you launch anything.',
+  },
+  {
     id: '2026-11-24-comfyui-node-packs-one-click', date: '2026-11-24',
     title: 'The SDXL Test Studio installs its Detail Daemon node in one click',
     blurb: 'When the SDXL Test Studio reports DetailDaemonSamplerNode as missing, Fix missing ComfyUI nodes now '

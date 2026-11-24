@@ -2212,10 +2212,16 @@ def _probe_krea(comfy):
     # reads no header at all (step 3 of resolve_krea_unet only runs when more than
     # one survives step 2). Empty string = nothing loadable on disk.
     krea_base_resolved = _krh.resolve_krea_unet() or ''
+    # A value the graph pins that this ComfyUI does not list — the text encoder's
+    # `type='krea2'` on a ComfyUI older than Krea 2 support. Klein's net, one
+    # engine over: without it Setup went green and the first edit was refused.
+    krea_unsupported_enums = _krh.krea_unsupported_enums() if comfy['ok'] else []
     krea_ready = (comfy['ok'] and not krea_missing and not krea_nodes_missing
-                  and not krea_blocking_invalid and not krea_pin_gaps)
+                  and not krea_blocking_invalid and not krea_pin_gaps
+                  and not krea_unsupported_enums)
     return (krea_missing, krea_nodes_missing, krea_nodes_installed,
-            krea_invalid, krea_pin_gaps, krea_base_resolved, krea_ready)
+            krea_invalid, krea_pin_gaps, krea_base_resolved, krea_ready,
+            krea_unsupported_enums)
 
 
 def _probe_seedvr2(comfy):
@@ -2254,7 +2260,7 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
                           klein_unsupported_enums, klein_invalid,
                           krea_missing, krea_base_resolved,
                           krea_nodes_missing, krea_nodes_installed,
-                          krea_invalid, krea_pin_gaps):
+                          krea_invalid, krea_pin_gaps, krea_unsupported_enums=()):
     """The probe payload's ComfyUI card — the largest section of the caps
     dict, moved verbatim: reachability with its honest hint, directory
     validity, launcher support, the model scan, and every per-engine gap
@@ -2306,6 +2312,8 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         'krea_base_resolved': krea_base_resolved,
         'krea_nodes_missing': krea_nodes_missing,
         'krea_nodes_installed': krea_nodes_installed,
+        # Same shape and same fail-open rule as klein_unsupported_enums.
+        'krea_unsupported_enums': list(krea_unsupported_enums),
         # Krea assets PRESENT on disk but not real, loadable weights — same
         # [{asset, filename, verdict, blocking, reason}] shape as
         # klein_invalid, so one banner covers both engines.
@@ -2573,7 +2581,7 @@ def _probe_uncached():
     (_keh, klein_missing, klein_invalid, klein_unsupported_enums,
      klein_ready) = klein
     (krea_missing, krea_nodes_missing, krea_nodes_installed, krea_invalid,
-     krea_pin_gaps, krea_base_resolved, krea_ready) = krea
+     krea_pin_gaps, krea_base_resolved, krea_ready, krea_unsupported_enums) = krea
     base_dir = cfg.get('comfyui.base_dir') or ''
     from .services import comfyui_control
     comfy_launcher = comfyui_control.launcher_status()
@@ -2619,7 +2627,7 @@ def _probe_uncached():
             models, _keh, klein_missing, klein_unsupported_enums,
             klein_invalid, krea_missing, krea_base_resolved,
             krea_nodes_missing, krea_nodes_installed, krea_invalid,
-            krea_pin_gaps),
+            krea_pin_gaps, krea_unsupported_enums=krea_unsupported_enums),
         'ollama': {
             'reachable': ollama['ok'],
             # Installed = binary on disk, even when the server is stopped. The UI

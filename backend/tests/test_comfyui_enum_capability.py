@@ -327,3 +327,60 @@ def test_a_clean_verdict_does_not_re_download_object_info_every_probe(app, probe
         comfyui.clear_model_caches()
         assert keh.klein_unsupported_enums(_klein_like_workflow())
         assert probe['calls'] > n
+
+
+# --- Krea 2 Edit: the same net, one engine over ---------------------------------
+
+def _krea_object_info(clip_types):
+    """Stock /object_info plus a CLIPLoader whose `type` list is `clip_types`."""
+    info = _object_info()
+    info['CLIPLoader'] = {'input': {'required': {
+        'clip_name': [['qwen.safetensors'], {}],
+        'type': [list(clip_types), {}],
+        'device': [['default', 'cpu'], {}],
+    }}}
+    return info
+
+
+def test_krea_readiness_names_a_comfyui_too_old_for_its_text_encoder(app, probe):
+    """The Krea graph loads its Qwen3-VL encoder with CLIPLoader type='krea2'. A
+    ComfyUI older than Krea 2 support passes the node check (CLIPLoader is core)
+    and then refused the first edit; readiness now says so first."""
+    from app.services import krea_edit_helper as krh
+    from app.utils import comfyui
+    with app.app_context():
+        krh._enums_ok_until = 0.0
+        probe['payload'] = _krea_object_info(['stable_diffusion', 'qwen_image', 'flux2'])
+        found = krh.krea_unsupported_enums()
+        assert [(i['class_type'], i['input'], i['value']) for i in found] == [('CLIPLoader', 'type', 'krea2')]
+        assert krh._enums_ok_until == 0.0, 'a gap is never cached'
+        probe['payload'] = _krea_object_info(['stable_diffusion', 'qwen_image', 'krea2'])
+        comfyui.clear_model_caches()
+        assert krh.krea_unsupported_enums() == []
+
+
+def test_krea_enum_probe_fails_open_and_never_caches_an_unread_answer(app, probe):
+    from app.services import krea_edit_helper as krh
+    from app.utils import comfyui
+    with app.app_context():
+        krh._enums_ok_until = 0.0
+        comfyui.clear_model_caches()
+        probe['boom'] = True
+        assert krh.krea_unsupported_enums() == []
+        assert krh._enums_ok_until == 0.0
+
+
+def test_an_unsupported_krea_value_keeps_the_engine_dark(monkeypatch):
+    from app import capabilities
+    from app.services import krea_edit_helper as krh
+    gap = {'node_id': '2', 'class_type': 'CLIPLoader', 'input': 'type', 'value': 'krea2'}
+    for name, value in (('krea_missing_assets', []), ('krea_missing_nodes', []),
+                        ('krea_node_pack_installed', True), ('krea_invalid_assets', []),
+                        ('krea_pin_gaps', []), ('resolve_krea_unet', 'krea/base.safetensors'),
+                        ('krea_unsupported_enums', [gap])):
+        monkeypatch.setattr(krh, name, lambda *a, _v=value, **k: _v)
+    *_, ready, unsupported = capabilities._probe_krea({'ok': True})
+    assert ready is False and unsupported == [gap]
+    monkeypatch.setattr(krh, 'krea_unsupported_enums', lambda: [])
+    *_, ready, unsupported = capabilities._probe_krea({'ok': True})
+    assert ready is True and unsupported == []

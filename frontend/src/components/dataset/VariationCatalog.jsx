@@ -813,6 +813,7 @@ export default function VariationCatalog({ datasetId = null, onGenerate, busy, g
     missingNodes: caps.comfyui?.krea_nodes_missing,
     invalidAssets: caps.comfyui?.krea_invalid,
     nodePackInstalled: caps.comfyui?.krea_nodes_installed,
+    unsupportedEnums: caps.comfyui?.krea_unsupported_enums,
   });
 
   useEffect(() => {

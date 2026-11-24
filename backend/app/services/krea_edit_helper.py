@@ -553,8 +553,44 @@ def clear_nodes_cache():
     after the node pack is installed: the cache only ever holds a POSITIVE result,
     but a stale positive would hide a pack the user removed, and clearing costs
     one probe."""
-    global _nodes_ok_until
+    global _nodes_ok_until, _enums_ok_until
     _nodes_ok_until = 0.0
+    _enums_ok_until = 0.0
+
+
+_enums_ok_until = 0.0
+
+
+def krea_unsupported_enums():
+    """[{node_id, class_type, input, value, pack, url}] for every widget value the
+    Krea 2 Edit graph pins that the target ComfyUI does NOT accept — above all the
+    text encoder's `type='krea2'` on CLIPLoader, which a ComfyUI older than Krea 2
+    support does not list.
+
+    Sibling of `krea_missing_nodes` and of Klein's `klein_unsupported_enums`:
+    the node check compares class names, so an old ComfyUI passed it and then
+    refused the first edit. `queue_prompt` already refuses such a graph with a
+    clear sentence; this says it in readiness, before anything is launched.
+    Same success-only TTL; [] when /object_info cannot be read (fail-open)."""
+    global _enums_ok_until
+    if time.time() < _enums_ok_until:
+        return []
+    from ..utils.comfyui import fetch_object_info_enums, unsupported_enum_values
+    enums = fetch_object_info_enums()
+    if not enums:
+        return []
+    # Names do not matter here, only the pinned widget values: the graph is pure.
+    try:
+        workflow = build_workflow('lds_probe.png', '', unet='probe.safetensors',
+                                  clip='probe.safetensors', vae='probe.safetensors',
+                                  lora_name='probe.safetensors', width=1024, height=1024, seed=1)
+    except Exception:  # noqa: BLE001 — a readiness probe must never take the caps payload down
+        logger.warning('Krea enum preflight skipped: the probe graph could not be built', exc_info=True)
+        return []
+    found = unsupported_enum_values(workflow, enums)
+    if not found:
+        _enums_ok_until = time.time() + _NODES_OK_TTL_S
+    return found
 
 
 def krea_node_pack_installed():
