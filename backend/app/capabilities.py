@@ -2224,6 +2224,27 @@ def _probe_krea(comfy):
             krea_unsupported_enums)
 
 
+def _detail_daemon_nodes(comfy):
+    """{'detail_daemon_nodes_missing', 'detail_daemon_nodes_installed'}: the
+    pack's classes this ComfyUI does not expose (fail-open when it is down or
+    /object_info cannot be read) and whether its folder is on disk, which turns
+    "install the pack" into "restart ComfyUI"."""
+    from . import setup_installer
+    from .services.comfyui_node_recipes import DETAIL_DAEMON
+    from .utils.comfyui import fetch_object_info_classes
+    missing = []
+    if comfy['ok']:
+        classes = fetch_object_info_classes()
+        if classes is not None:
+            missing = [c for c in DETAIL_DAEMON.expected_classes if c not in classes]
+    try:
+        dest = setup_installer._node_pack_dest('detail_daemon_nodes')
+        installed = setup_installer._node_pack_already_there('detail_daemon_nodes', dest)
+    except Exception:  # noqa: BLE001 — no ComfyUI folder yet: we genuinely do not know
+        installed = False
+    return {'detail_daemon_nodes_missing': missing, 'detail_daemon_nodes_installed': installed}
+
+
 def _probe_seedvr2(comfy):
     """The SeedVR2 upscaler's readiness, moved verbatim: weights / node
     pack / loadability gaps, the single ready verdict, and the optional
@@ -2337,6 +2358,10 @@ def _comfyui_caps_section(comfy, base_dir, comfy_dir, comfy_launcher,
         'lanpaint_nodes_missing': (_lph.lanpaint_missing_nodes()
                                    if comfy['ok'] else []),
         'lanpaint_nodes_installed': _lph.lanpaint_node_pack_installed(),
+        # Detail Daemon — the SDXL Test Studio's second-pass sampler, installed
+        # at a pinned version from Setup's menu as well as from the Studio's
+        # "Fix missing ComfyUI nodes". Same two-part shape as LanPaint.
+        **_detail_daemon_nodes(comfy),
         # Krea 2 preset sampler — the OPTIONAL custom-sampling lane
         # (services/krea_sampler_helper). Same two-part shape as the packs
         # above, with one difference the UI must respect: this one gates
