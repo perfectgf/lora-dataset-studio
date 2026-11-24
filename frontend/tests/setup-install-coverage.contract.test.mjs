@@ -124,7 +124,10 @@ function mlCardActions() {
 
 // A caps payload where everything is possible, so installCatalog lists every
 // row it is capable of listing.
-const FULL_CAPS = { comfyui: { dir_valid: true, reachable: true } }
+// That includes a host that installs LDS's own H3 node packs: Video lists their
+// rows only where the core says it offers them (caps.comfyui.h3_host_node_actions).
+const FULL_CAPS = { comfyui: { dir_valid: true, reachable: true,
+  h3_host_node_actions: ['h3_attention_nodes', 'h3_reference_nodes'] } }
 
 // Video's optional performance installers get their action IDs from its API,
 // rather than writing literals in JSX. Follow that contract through the mounted
