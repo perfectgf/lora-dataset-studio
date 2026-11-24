@@ -9,6 +9,7 @@ import {
 } from './comfyFolders'
 import ResetToDefault from './ResetToDefault'
 import LmStudioDownload from './LmStudioDownload'
+import OllamaManualDownload from '../setup/OllamaManualDownload'
 import { defaultValueAt } from './settingDefaults.js'
 import TimeoutSettings from './TimeoutSettings'
 import LocalLlmModelSelect from './LocalLlmModelSelect'
@@ -217,11 +218,10 @@ function OllamaStatus({ caps, refreshCaps, toast }) {
     )
   }
   return (
-    <p className="text-xs text-content-muted">
-      <span aria-hidden="true">✗</span> Not detected on this machine.{' '}
-      <a href="https://ollama.com/download" target="_blank" rel="noreferrer"
-        className="text-sky-300 underline hover:text-sky-200">Download Ollama →</a>
-    </p>
+    <div className="space-y-1 text-xs text-content-muted">
+      <p><span aria-hidden="true">✗</span> Not detected on this machine.</p>
+      <OllamaManualDownload />
+    </div>
   )
 }
 
