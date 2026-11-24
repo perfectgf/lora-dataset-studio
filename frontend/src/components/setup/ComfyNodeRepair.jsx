@@ -134,6 +134,18 @@ export default function ComfyNodeRepair({ nodes = [], nodePacks = [], onRefresh 
                   <p>Let running and queued jobs finish, restart ComfyUI, then use “Check nodes again”.
                     {' MOSS uses the bundled LDS loaders and requires ComfyUI with Qwen3.5 support.'}</p>
                 </>
+              ) : pack.install_action === 'detail_daemon_nodes' ? (
+                <>
+                  <InstallRunner action="detail_daemon_nodes" buttonLabel={`Install ${pack.pack}`}
+                    successMessage={`${pack.pack} installed. Restart ComfyUI to load its nodes.`} onDone={onRefresh} />
+                  <p>LDS installs a verified version of this pack. Then let running and queued jobs finish,
+                    restart ComfyUI to load its nodes, and use “Check nodes again”.</p>
+                  {safeComfyLink(pack.url) && (
+                    <a href={safeComfyLink(pack.url)} target="_blank" rel="noopener noreferrer" className={linkClass}>
+                      {pack.pack} project page
+                    </a>
+                  )}
+                </>
               ) : safeComfyLink(pack.url) ? (
                 <>
                   <p>In ComfyUI-Manager, search for “{pack.search || pack.pack}” and install that package.

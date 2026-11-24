@@ -328,29 +328,82 @@ def _zip_bytes(top='comfyui-krea2edit-main'):
     return buf.getvalue()
 
 
+class _PinnedGet:
+    """requests.get serving one pinned body, to the verified worker (raw bytes,
+    which never follows a redirect) and to the checked ZIP path (iter_content).
+    Integrity rests on the SHA-256, checked on both paths."""
+    def __init__(self, payload):
+        self.payload = payload
+        self.urls = []
+        self.redirects = []
+
+    def __call__(self, url, **kw):
+        self.redirects.append(kw.get('allow_redirects'))
+        self.urls.append(url)
+        body = self.payload
+
+        class _Response:
+            status_code = 200
+            headers = {'Content-Length': str(len(body))}
+            raw = None
+
+            def __enter__(self):
+                self.raw = self
+                self._sent = False
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read1(self, size, decode_content=False):
+                if self._sent:
+                    return b''
+                self._sent = True
+                return body
+
+            def iter_content(self, chunk_size=0):
+                yield body
+        return _Response()
+
+
+def _pin_krea_to(monkeypatch, payload, top):
+    """The pinned recipe, re-pointed at a synthetic archive with ITS digest."""
+    from dataclasses import replace
+    from app.services import comfyui_node_recipes
+    recipe = replace(comfyui_node_recipes.KREA, sha256=hashlib.sha256(payload).hexdigest(),
+                     archive_prefix=top)
+    monkeypatch.setitem(comfyui_node_recipes.CORE_RECIPES, 'krea_nodes', recipe)
+    return recipe
+
+
 def test_node_pack_installs_into_this_comfyui_and_demands_a_restart(app, tmp_path, monkeypatch):
     """Installed = placed in THIS install's custom_nodes (found through the same
     resolver every other install uses, never guessed). And success must NOT read
     as "ready": ComfyUI registers nodes at startup only, so the log has to say
     restart — otherwise the engine card stays red and looks like a failed install.
-    Also covers the no-git fallback: a ZIP install of ComfyUI has no git."""
+    This layout is not the portable one: a pack that is only files still installs."""
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
-    monkeypatch.setattr(setup_installer.shutil, 'which', lambda n: None)  # no git
-    import hashlib
-    payload = _zip_bytes()
-    monkeypatch.setitem(setup_installer._NODE_PACKS['krea_nodes'], 'sha256', hashlib.sha256(payload).hexdigest())
-    monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(payload=payload))
+    top = 'comfyui-krea2edit-86f886dac23013d88996e3a2e99093ba44d322fb'
+    payload = _zip_bytes(top)
+    _pin_krea_to(monkeypatch, payload, top)
+    fetch = _PinnedGet(payload)
+    monkeypatch.setattr(setup_installer.requests, 'get', fetch)
     with app.app_context():
         config.save_config({'comfyui': {'base_dir': str(base)}})
         setup_installer._runs['krea_nodes'] = setup_installer._new_run()
         rc = setup_installer._run_node_pack('krea_nodes')
     log = ' '.join(setup_installer._runs['krea_nodes']['log'])
-    assert rc == 0
+    assert rc == 0, log
     assert (base / 'custom_nodes' / 'comfyui-krea2edit' / '__init__.py').is_file()
     assert 'RESTART ComfyUI' in log
-    # No stray temp folder left next to the pack.
-    assert sorted(p.name for p in (base / 'custom_nodes').iterdir()) == ['comfyui-krea2edit']
+    assert fetch.urls == ['https://lds.perfectgf.fr/models/tools/'
+                          'ff1102a1d17f597d8b100afd17bd489a7910325729483398f1385c541f18c171/comfyui-krea2edit.zip']
+    # No stray temp folder left next to the pack (a POSIX filelock keeps its
+    # inert lock file, which ComfyUI's loader skips).
+    from app.services.comfyui_node_install import LOCK_NAME
+    assert {p.name for p in (base / 'custom_nodes').iterdir()} - {LOCK_NAME} == {'comfyui-krea2edit'}
+    assert sorted(p.name for p in base.iterdir()) == ['custom_nodes', 'main.py', 'models']
 
 
 def test_node_pack_refuses_an_archive_with_a_changed_checksum(app, tmp_path, monkeypatch):
@@ -363,6 +416,29 @@ def test_node_pack_refuses_an_archive_with_a_changed_checksum(app, tmp_path, mon
         assert setup_installer._run_node_pack('krea_nodes') == 1
     assert 'checksum did not match' in ' '.join(setup_installer._runs['krea_nodes']['log'])
     assert not (base / 'custom_nodes' / 'comfyui-krea2edit').exists()
+
+
+def test_node_pack_never_clones_a_branch_or_runs_a_command(app, tmp_path, monkeypatch):
+    """Third-party code: one pinned archive, checked against its SHA-256. No git
+    clone of a moving branch, and on this layout no process at all (no pip)."""
+    from app import setup_installer, config
+    base = _make_comfyui(tmp_path)
+    top = 'comfyui-krea2edit-86f886dac23013d88996e3a2e99093ba44d322fb'
+    payload = _zip_bytes(top)
+    _pin_krea_to(monkeypatch, payload, top)
+    monkeypatch.setattr(setup_installer.requests, 'get', _PinnedGet(payload))
+
+    def _no_process(*a, **kw):
+        raise AssertionError(f'a node pack install ran a process: {a}')
+
+    monkeypatch.setattr(setup_installer.subprocess, 'run', _no_process)
+    monkeypatch.setattr(setup_installer.subprocess, 'Popen', _no_process)
+    with app.app_context():
+        config.save_config({'comfyui': {'base_dir': str(base)}})
+        setup_installer._runs['krea_nodes'] = setup_installer._new_run()
+        rc = setup_installer._run_node_pack('krea_nodes')
+    assert rc == 0
+    assert not hasattr(setup_installer, '_clone_node_pack')
 
 
 def test_node_pack_never_overwrites_an_existing_install(app, tmp_path, monkeypatch):
@@ -420,8 +496,8 @@ def test_node_pack_failure_tells_the_user_what_to_do_by_hand(app, tmp_path, monk
         rc = setup_installer._run_node_pack('krea_nodes')
     log = ' '.join(setup_installer._runs['krea_nodes']['log'])
     assert rc == 1
-    assert setup_installer._NODE_PACKS['krea_nodes']['zip'] in log
-    assert setup_installer._NODE_PACKS['krea_nodes']['sha256'] in log
+    assert 'lds.perfectgf.fr/models/tools/' in log and 'comfyui-krea2edit.zip' in log
+    assert 'ComfyUI Manager' in log
     assert not (base / 'custom_nodes' / 'comfyui-krea2edit').exists()
 
 

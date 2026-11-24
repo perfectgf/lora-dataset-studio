@@ -70,8 +70,8 @@ one moment that became an architecture decision for weeks):
   * The identity LoRA (Civitai 2761113) is a community file. The installer now
     fetches its author's unmodified file from the LDS download server, pinned
     to the published size and SHA256: no account and no API key are involved.
-  * The node pack declares `dependencies = []`, so installing it is a clone, not
-    a pip run.
+  * The node pack declares `dependencies = []`, so installing it is extracting a
+    pinned archive, not a pip run, on any ComfyUI layout.
 
 None of it sits behind a licence checkbox a human has to tick in a browser. That
 said, an OPEN download today is not a guarantee: for the Hugging Face files the

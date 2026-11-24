@@ -102,6 +102,24 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-11-24-node-pack-python-packages-kept', date: '2026-11-24',
+    title: 'Node packs install on more ComfyUI portables',
+    blurb: 'A node pack that needs Python packages used to stop when your ComfyUI portable already had another '
+      + 'version of one of them, numpy or matplotlib for example, which was the case on almost every portable. LDS '
+      + 'now keeps a version you already have when it is the same major release, and adds only what is missing. It '
+      + 'still never replaces a package, and never adds a second OpenCV beside the one you have.',
+  },
+  {
+    id: '2026-11-24-comfyui-node-packs-one-click', date: '2026-11-24',
+    title: 'The SDXL Test Studio installs its Detail Daemon node in one click',
+    blurb: 'When the SDXL Test Studio reports DetailDaemonSamplerNode as missing, Fix missing ComfyUI nodes now '
+      + 'has an Install button. Every node pack LDS installs, Krea 2 Edit and LanPaint included, now comes at a fixed '
+      + 'version whose download is checked first, and a folder you already have is never replaced. A pack that only '
+      + 'adds files installs on any ComfyUI, plugin packs included. A pack that adds Python packages, like Detail '
+      + 'Daemon with matplotlib, installs by itself on a ComfyUI Windows portable; on Desktop or a manual install the '
+      + 'button shows the exact steps and pip command instead. Restart ComfyUI afterwards to load the nodes.',
+  },
+  {
     id: '2026-11-23-studio-zimage-model-downloads', date: '2026-11-23',
     title: 'Z-Image test models download in one click',
     blurb: 'When the Test Studio is missing a Z-Image file, it now offers a Download button with the size and progress of the official file: the Z-Image Turbo model, its Qwen3 4B text encoder or its VAE. Settings offers the same downloads. LDS checks each file against its published size and fingerprint, puts it where the Studio finds it, and reuses a file you already have.',

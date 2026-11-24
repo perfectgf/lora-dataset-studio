@@ -1,4 +1,4 @@
-"""The existing Krea action uses the verified worker on a supported portable."""
+"""The core's recipe packs always go through the verified worker."""
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +14,7 @@ def action(tmp_path, monkeypatch):
     monkeypatch.setattr(installer, '_node_pack_dest', lambda _: str(destination))
     monkeypatch.setattr(control, '_validated_portable_layout', lambda: SimpleNamespace(base_dir=tmp_path))
     monkeypatch.setattr(installer, '_runs', {'krea_nodes': installer._new_run()})
-    monkeypatch.setattr(installer, '_zip_node_pack', lambda *_: pytest.fail('managed preparation must never use the ZIP fallback'))
+    monkeypatch.setattr(installer, '_zip_node_pack', lambda *_: pytest.fail('a recipe pack must never use another download path'))
     return destination
 
 
@@ -36,7 +36,7 @@ def test_core_preparation_uses_the_immutable_recipe_and_prepared_verdict(action,
     assert 'RESTART ComfyUI when it is idle' in ' '.join(installer._runs['krea_nodes']['log'])
 
 
-def test_failed_verification_never_falls_back_to_a_mobile_git_branch(action, monkeypatch):
+def test_failed_verification_never_falls_back_to_another_download(action, monkeypatch):
     def fail(*args, **kwargs):
         raise nodes.NodeInstallError('Archive hash mismatch.')
     monkeypatch.setattr(nodes, 'plan', fail)
@@ -63,9 +63,9 @@ def test_plugin_node_batch_refuses_an_unsupported_target_before_admission(monkey
     monkeypatch.setattr(environment, 'check_enabled', lambda *args, **kwargs: None)
     monkeypatch.setattr(environment, 'running', lambda _: False)
     def refuse():
-        raise nodes.NodeInstallError('Select a supported ComfyUI installation first.')
-    monkeypatch.setattr(nodes, '_target', refuse)
-    with pytest.raises(installer.Precondition, match='supported ComfyUI'):
+        raise nodes.NodeInstallError('Select your ComfyUI folder in Setup first.')
+    monkeypatch.setattr(nodes, 'check_target', refuse)
+    with pytest.raises(installer.Precondition, match='ComfyUI folder'):
         installer.check_start_preconditions('sample_nodes')
 
 

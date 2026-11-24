@@ -96,7 +96,16 @@ Qwen Image/Edit counterparts are incompatible. If native nodes are missing,
 choose **Fix missing ComfyUI nodes** in Studio or this Settings group. The repair
 panel provides update steps for Windows portable, Desktop and manual/server
 installations, links to ComfyUI and the official downloads, and identifies custom
-node packages when a test requires them. Finish active jobs before updating or
+node packages when a test requires them. A package LDS provides has an **Install**
+button there: the SDXL Studio's **ComfyUI-Detail-Daemon**, for example. LDS
+installs a fixed version whose archive it checks before anything reaches
+`custom_nodes/`, and never replaces a folder already there. A package that only
+adds files installs on any ComfyUI. One that adds Python packages (Detail Daemon
+adds `matplotlib`) installs by itself only on a ComfyUI Windows portable, where LDS
+manages ComfyUI's Python; on Desktop, manual or server installations the button
+installs nothing and lists the exact steps instead: the download, its SHA-256,
+where to extract it, and the `pip install` command with its pinned version.
+Restart ComfyUI after an install so it loads the nodes. Finish active jobs before updating or
 restarting. Preserve local changes in customized installations; the panel also
 links instructions for sharing existing models with a separate installation.
 After restarting, use **Check nodes again** to query the running ComfyUI afresh.

@@ -2435,11 +2435,14 @@ STUDIO_NODE_PACKS = {
     },
     # Detail Daemon sampler (node 57 of image_real_HQ.json, the SDXL family's pass
     # 2) — EVERY fresh SDXL Studio install needs this pack, so its absence must
-    # name the pack, not just the class (GitHub #36, KingyWolf).
+    # name the pack, not just the class (GitHub #36, KingyWolf). Setup installs
+    # it at a pinned version (setup_installer._NODE_PACKS); the link and search
+    # stay for a ComfyUI whose Python LDS does not manage.
     'DetailDaemonSamplerNode': {
         'pack': 'ComfyUI-Detail-Daemon',
         'url': 'https://github.com/Jonseed/ComfyUI-Detail-Daemon',
         'search': 'Detail Daemon',
+        'install_action': 'detail_daemon_nodes',
     },
     # ── The Video Test Studio's MiniMax H3 graph ──────────────────────────────
     # Four packs, and only the first is needed for a plain clip: the others come

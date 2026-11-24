@@ -1,8 +1,14 @@
-"""Prepare a pinned node recipe in the configured ComfyUI portable installation.
+"""Prepare a pinned node recipe in the configured ComfyUI installation.
 
-Recipes are trusted server registrations, never request bodies. This worker only
-adds missing wheels; it never upgrades an existing package, runs install.py, or
-starts ComfyUI. A disk receipt means prepared, not that node classes have loaded.
+Recipes are trusted server registrations, never request bodies. Every archive
+is checked against its pinned SHA-256 before anything reaches custom_nodes.
+On the validated Windows portable layout, whose Python LDS manages, this worker
+also adds the recipe's missing wheels; it never upgrades an existing package,
+runs install.py, or starts ComfyUI. A recipe without Python requirements is only
+files, so it is prepared into the custom_nodes folder of any configured layout
+(Desktop, manual, Linux), with the same path checks. A recipe with requirements
+on another layout installs nothing: its plan lists the exact steps instead.
+A disk receipt means prepared, not that node classes have loaded.
 The caller must re-probe those classes after its separately controlled restart.
 Managed node upgrades are deliberately refused until their migration is defined.
 """
@@ -27,20 +33,21 @@ import zipfile
 from filelock import FileLock, Timeout
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name, parse_wheel_filename
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 import requests
 from urllib3.exceptions import HTTPError as TransportError
 
 from ..plugins.environment import subprocess_env
 from ..plugins.node_recipe import (
-    BundledWheel as BundledWheel, NodeRecipe, NodeInstallError, _ID, MAX_ARCHIVE_BYTES,
-    _python_spec, _validate, _gpu_package,
+    BundledWheel as BundledWheel, NodeRecipe, NodeInstallError, NodeInstallManual, _ID,
+    MAX_ARCHIVE_BYTES, _python_spec, _validate, _gpu_package,
 )
 from ..plugins.install import ArchiveError, _entry_relpath, _validated_entries
 from . import comfyui_control as control
 from . import plugin_tool_sources
 
 RECEIPT = '.lds-node-prepared.json'
+LOCK_NAME = '.lds-node-install.lock'
 MAX_FILE_BYTES = 32 * 1024 * 1024
 MAX_DOWNLOAD_SECONDS = 120
 _LOCK = threading.RLock()
@@ -80,6 +87,119 @@ def _target():
     if nodes.exists() and not nodes.is_dir():
         raise NodeInstallError('The ComfyUI custom_nodes path is not a directory.')
     return base, python, nodes
+
+
+MANUAL_REASON = ('This node pack adds Python packages. LDS installs those automatically only on a '
+                 'ComfyUI Windows portable, where it manages ComfyUI’s Python (Setup points at its '
+                 'ComfyUI folder and the ComfyUI address is http://127.0.0.1:8188). Nothing was '
+                 'installed. To install it yourself:')
+
+
+def _python_layout():
+    """The portable layout whose Python LDS manages, or None for any other layout."""
+    layout = control._validated_portable_layout()
+    if layout is None or not control._safe_local_api_url(control.cfg.get('comfyui.api_url')):
+        return None
+    return layout
+
+
+def _mode(recipe):
+    """'python' on the managed portable; elsewhere 'files' for a recipe that is
+    only files, 'manual' for one that needs Python packages."""
+    if _python_layout() is not None:
+        return 'python'
+    return 'manual' if recipe.requirements or recipe.wheels else 'files'
+
+
+def _files_target():
+    """The configured ComfyUI and its custom_nodes, whatever the layout."""
+    from .. import capabilities
+    resolved = capabilities.resolve_comfyui_base(control.cfg.get('comfyui.base_dir') or '')
+    if not resolved['valid']:
+        raise NodeInstallError('Select your ComfyUI folder in Setup first.')
+    base = _safe(resolved['resolved'])
+    nodes = _safe(base / 'custom_nodes')
+    if nodes.exists() and not nodes.is_dir():
+        raise NodeInstallError('The ComfyUI custom_nodes path is not a directory.')
+    return base, nodes
+
+
+def check_target():
+    """Raise NodeInstallError when no configured ComfyUI can receive custom nodes."""
+    if _python_layout() is not None:
+        _target()
+    else:
+        _files_target()
+
+
+def _python_hint(base):
+    """ComfyUI's own interpreter when the folder shows one. Display only, never run."""
+    for candidate in (base.parent / 'python_embeded' / 'python.exe',
+                      base / '.venv' / 'Scripts' / 'python.exe', base / 'venv' / 'Scripts' / 'python.exe',
+                      base / '.venv' / 'bin' / 'python', base / 'venv' / 'bin' / 'python'):
+        if control._real_regular_file(candidate):
+            return str(candidate)
+    return None
+
+
+def _manual_steps(recipe, base, destination):
+    steps = [f'Download {recipe.url}',
+             f'Check that the downloaded file has the SHA-256 {recipe.sha256}',
+             f'Extract the folder {recipe.archive_prefix} from it into {destination.parent} '
+             f'and rename it to {recipe.folder}' if recipe.archive_prefix
+             else f'Extract its contents into {destination}']
+    # Same rule as the managed install: a GPU package is never offered, ComfyUI keeps its own.
+    gpu = [text for text in recipe.requirements if _gpu_package(canonicalize_name(Requirement(text).name))]
+    wanted = [text for text in recipe.requirements if text not in gpu]
+    if wanted:
+        python = _python_hint(base)
+        command = f'"{python}"' if python else 'python'
+        where = '' if python else ', with the Python that starts ComfyUI'
+        opencv = [text for text in wanted if canonicalize_name(Requirement(text).name) in _OPENCV]
+        plain = [text for text in wanted if text not in opencv]
+        if plain:
+            packages = ' '.join(f'"{text}"' for text in plain)
+            names = ', '.join(Requirement(text).name for text in plain)
+            pronoun = 'it' if len(plain) == 1 else 'them'
+            steps.append(f'If ComfyUI’s Python does not have {names} yet, add {pronoun}{where}: '
+                         f'{command} -m pip install {packages}')
+        # Its own step: someone with opencv-contrib-python would not see it in
+        # "does not have opencv-python yet", and a second build breaks cv2.
+        for text in opencv:
+            steps.append('If ComfyUI’s Python has no OpenCV yet (opencv-python, opencv-contrib-python '
+                         f'or a headless build), add it{where}: {command} -m pip install "{text}"')
+    if gpu:
+        steps.append('Keep the ' + ', '.join(Requirement(text).name for text in gpu)
+                     + ' that ComfyUI already runs; LDS never installs GPU packages.')
+    steps.append('Restart ComfyUI.')
+    return steps
+
+
+def manual_steps(recipe):
+    """The steps that install `recipe` by hand into the configured ComfyUI."""
+    try:
+        base, nodes = _files_target()
+    except NodeInstallError:
+        base = Path('<ComfyUI>')
+        nodes = base / 'custom_nodes'
+    return _manual_steps(recipe, base, nodes / recipe.folder)
+
+
+def prepared_version(recipe, destination):
+    """The version an LDS receipt in `destination` records for this recipe, else None.
+
+    Read-only. It lets a caller leave an older prepared copy alone, the rule for
+    any existing folder, instead of asking for an upgrade that is not supported."""
+    try:
+        marker = _safe(Path(destination) / RECEIPT)
+        if not marker.is_file() or marker.stat().st_size > 1024 * 1024:
+            return None
+        value = json.loads(marker.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if isinstance(value, dict) and value.get('recipe_id') == recipe.id and isinstance(value.get('version'), str):
+        return value['version']
+    return None
 
 
 def _run(python, args):
@@ -246,17 +366,51 @@ def _bundled_wheels(recipe, wheel_root, temporary, binding):
     return bundled
 
 
+# Every OpenCV build installs the same `cv2` module, and two of them in one
+# Python overwrite each other's files. So whichever build is installed answers
+# for an OpenCV requirement, and a second build is never added.
+_OPENCV = frozenset({'opencv-python', 'opencv-python-headless',
+                     'opencv-contrib-python', 'opencv-contrib-python-headless'})
+
+
+def _present(name, installed):
+    """The installed distribution that answers for the requirement `name`, or None."""
+    if name in installed:
+        return name
+    if name in _OPENCV:
+        return next(iter(sorted(_OPENCV & installed.keys())), None)
+    return None
+
+
+def _serves(req, version):
+    """Whether an installed `version` serves the recipe's exact pin `req`.
+
+    THE DEPENDENCY RULE (maintainer's call, 2026-11-24). A recipe pins the
+    version LDS installs when a package is missing. A version already installed
+    with the same major release is accepted as it is and never replaced. With
+    exact pins alone, almost every portable was refused, and two recipes pinning
+    different numpy releases could never both install. Another major release is
+    a conflict, and nothing is replaced.
+    """
+    if req.specifier.contains(version, prereleases=True):
+        return True
+    pins = [spec.version for spec in req.specifier if spec.operator == '==']
+    try:
+        return len(pins) == 1 and Version(version).major == Version(pins[0]).major
+    except InvalidVersion:
+        return False
+
+
 def _dependency_plan(recipe, python, installed, temporary, bundled=None):
     bundled = bundled or {}
     missing = []
     for text in recipe.requirements:
         req = Requirement(text)
-        name = canonicalize_name(req.name)
-        if name in installed:
-            if not req.specifier.contains(installed[name], prereleases=True):
-                raise NodeInstallError('A node dependency conflicts with the existing ComfyUI environment. No installed package will be replaced.')
-        else:
+        present = _present(canonicalize_name(req.name), installed)
+        if present is None:
             missing.append(text)
+        elif not _serves(req, installed[present]):
+            raise NodeInstallError('A node dependency conflicts with the existing ComfyUI environment. No installed package will be replaced.')
     if not missing:
         return []
     constraints = temporary / 'installed.txt'
@@ -270,7 +424,9 @@ def _dependency_plan(recipe, python, installed, temporary, bundled=None):
     _run(python, ['-m', 'pip', '--isolated', 'install', '--dry-run', '--report', str(report),
                   '--only-binary=:all:', '--index-url', 'https://pypi.org/simple',
                   '--no-input', '--disable-pip-version-check', '--no-cache-dir',
-                  '--constraint', str(constraints), *recipe.requirements])
+                  # Only what is missing: an accepted installed version differs
+                  # from its pin, and the constraints keep it as it is.
+                  '--constraint', str(constraints), *missing])
     try:
         data = json.loads(report.read_text(encoding='utf-8'))
         if data['version'] != '1' or not isinstance(data['install'], list):
@@ -283,6 +439,7 @@ def _dependency_plan(recipe, python, installed, temporary, bundled=None):
             url = item['download_info']['url']
             digest = item['download_info']['archive_info']['hashes']['sha256']
             if (name in installed or name in seen or _gpu_package(name)
+                    or (name in _OPENCV and _OPENCV & (installed.keys() | seen))
                     or not re.fullmatch(r'[a-f0-9]{64}', digest)):
                 raise ValueError
             if name in bundled:
@@ -298,13 +455,35 @@ def _dependency_plan(recipe, python, installed, temporary, bundled=None):
             seen.add(name)
             wheels.append({'name': name, 'version': version, **source, 'sha256': digest})
         resolved = {**installed, **{w['name']: w['version'] for w in wheels}}
-        if any(canonicalize_name(r.name) not in resolved
-               or not r.specifier.contains(resolved[canonicalize_name(r.name)], prereleases=True)
-               for r in map(Requirement, recipe.requirements)):
-            raise ValueError
+        for r in map(Requirement, recipe.requirements):
+            present = _present(canonicalize_name(r.name), resolved)
+            if present is None or not _serves(r, resolved[present]):
+                raise ValueError
         return sorted(wheels, key=lambda wheel: wheel['name'])
     except (OSError, ValueError, TypeError, KeyError) as exc:
-        raise NodeInstallError('The dependency plan would replace existing packages, add a GPU stack, or use unverifiable wheels. Nothing was installed.') from exc
+        raise NodeInstallError('The dependency plan would replace existing packages, add a GPU stack or a second '
+                               'OpenCV build, or use unverifiable wheels. Nothing was installed.') from exc
+
+
+def _layout_plan(recipe, owner, mode):
+    """Plan for a layout whose Python LDS does not manage: files only, or steps."""
+    base, nodes = _files_target()
+    destination = _safe(nodes / recipe.folder)
+    public = {'recipe_id': recipe.id, 'version': recipe.version,
+              'expected_classes': list(recipe.expected_classes),
+              'packages_to_add': [], 'restart_required': True}
+    if mode == 'manual':
+        if os.path.lexists(destination):
+            raise NodeInstallError('An existing custom-node folder is not managed by this LDS recipe; it will not be replaced.')
+        identity = {'recipe': asdict(recipe), 'owner': owner, 'mode': mode, 'base_dir': str(base)}
+        return {'plan_id': _digest(identity), 'state': 'manual', **public,
+                'manual_steps': _manual_steps(recipe, base, destination)}, None
+    binding = {'layout': 'custom_nodes', 'base_dir': str(base)}
+    receipt = _receipt(recipe, destination, binding)
+    state = 'install' if receipt is None else 'current' if owner in receipt['owners'] else 'shared'
+    identity = {'recipe': asdict(recipe), 'owner': owner, 'target': binding, 'receipt': receipt}
+    return ({'plan_id': _digest(identity), 'state': state, **public},
+            (None, destination, binding, {}, receipt, [], {}))
 
 
 def _plan(recipe, owner, temporary, wheel_root=None):
@@ -313,6 +492,9 @@ def _plan(recipe, owner, temporary, wheel_root=None):
     sources = _wheel_sources(recipe, wheel_root)
     for wheel in recipe.wheels:
         _read_wheel(sources[wheel.filename], wheel.sha256)
+    mode = _mode(recipe)
+    if mode != 'python':
+        return _layout_plan(recipe, owner, mode)
     base, python, nodes = _target()
     installed, binding = _inventory(python)
     required = _python_spec(recipe.python)
@@ -530,8 +712,23 @@ def prepare(recipe: NodeRecipe, *, owner: str, plan_id: str, log=None, wheel_roo
     emit = log if callable(log) else lambda _message: None
     _validate(recipe, owner)
     with _LOCK:
-        base, _, _ = _target()
-        lock_path = _safe(base.parent / '.lds-node-install.lock')
+        mode = _mode(recipe)
+        if mode == 'manual':
+            public = plan(recipe, owner=owner, wheel_root=wheel_root)
+            if not isinstance(plan_id, str) or public['plan_id'] != plan_id:
+                raise NodeInstallError('The custom-node plan or target changed. Review a fresh installation plan.')
+            raise NodeInstallManual(MANUAL_REASON, public['manual_steps'])
+        if mode == 'python':
+            base, _, _ = _target()
+            lock_path = _safe(base.parent / LOCK_NAME)
+        else:
+            # Not the parent of ComfyUI, which may belong to someone else (a
+            # Documents folder, a container's root). custom_nodes is ignored by
+            # ComfyUI's own .gitignore and its loader skips a file that is not
+            # .py, so the lock a POSIX filelock leaves behind there is inert.
+            base, nodes = _files_target()
+            nodes.mkdir(exist_ok=True)
+            lock_path = _safe(nodes / LOCK_NAME)
         try:
             with FileLock(str(lock_path), timeout=0):
                 return _prepare(recipe, owner, plan_id, emit, base, wheel_root)
@@ -543,7 +740,7 @@ def _prepare(recipe, owner, plan_id, emit, locked_base, wheel_root=None):
     with tempfile.TemporaryDirectory(prefix='lds-node-prepare-') as temporary:
         temporary = Path(temporary)
         public, internal = _plan(recipe, owner, temporary, wheel_root)
-        if not isinstance(plan_id, str) or public['plan_id'] != plan_id:
+        if not isinstance(plan_id, str) or public['plan_id'] != plan_id or internal is None:
             raise NodeInstallError('The custom-node plan or target changed. Review a fresh installation plan.')
         python, destination, binding, installed, receipt, wheels, bundled = internal
         if binding['base_dir'] != str(locked_base):
@@ -556,35 +753,44 @@ def _prepare(recipe, owner, plan_id, emit, locked_base, wheel_root=None):
         else:
             stage = destination
         prepared_files = _files(stage)
-        local_wheels, wheel_destinations = _verified_wheels(recipe, wheels, binding, temporary, bundled)
-        # Revalidate target and inventory after the download, before touching its environment.
-        base_now, python_now, _ = _target()
-        fresh, fresh_binding = _inventory(python_now)
-        fresh_binding['base_dir'] = str(base_now)
-        if fresh_binding != binding or fresh != installed:
-            raise NodeInstallError('The ComfyUI environment changed during preparation. Review a fresh plan.')
-        sources = _wheel_sources(recipe, wheel_root)
-        for wheel in recipe.wheels:
-            _read_wheel(sources[wheel.filename], wheel.sha256)
+        if python is None:
+            # Files only: no interpreter is involved, so the folder is what is rechecked.
+            base_now, _ = _files_target()
+            if str(base_now) != binding['base_dir']:
+                raise NodeInstallError('The ComfyUI environment changed during preparation. Review a fresh plan.')
+            stage_parent = base_now
+        else:
+            local_wheels, wheel_destinations = _verified_wheels(recipe, wheels, binding, temporary, bundled)
+            # Revalidate target and inventory after the download, before touching its environment.
+            base_now, python_now, _ = _target()
+            fresh, fresh_binding = _inventory(python_now)
+            fresh_binding['base_dir'] = str(base_now)
+            if fresh_binding != binding or fresh != installed:
+                raise NodeInstallError('The ComfyUI environment changed during preparation. Review a fresh plan.')
+            sources = _wheel_sources(recipe, wheel_root)
+            for wheel in recipe.wheels:
+                _read_wheel(sources[wheel.filename], wheel.sha256)
+            stage_parent = base_now.parent
         touched = False
         try:
-            if wheels:
-                emit('Adding the verified missing wheels to ComfyUI Python; existing packages are pinned.')
-                locked = temporary / 'wheels.txt'
-                locked.write_text('\n'.join(local_wheels), encoding='utf-8')
-                _free_wheel_paths(wheel_destinations)
-                touched = True
-                _run(python, ['-m', 'pip', '--isolated', 'install', '--no-deps', '--no-index',
-                              '--only-binary=:all:', '--require-hashes', '--no-input',
-                              '--disable-pip-version-check', '--no-cache-dir', '--no-compile', '-r', str(locked)])
-            _run(python, ['-m', 'pip', '--isolated', 'check'])
-            after, after_binding = _inventory(python)
-            after_binding['base_dir'] = str(base_now)
-            expected = {**installed, **{w['name']: w['version'] for w in wheels}}
-            final_base, final_python, _ = _target()
-            if (after != expected or after_binding != binding
-                    or final_base != base_now or final_python != python):
-                raise NodeInstallError('The dependency inventory changed unexpectedly.')
+            if python is not None:
+                if wheels:
+                    emit('Adding the verified missing wheels to ComfyUI Python; existing packages are pinned.')
+                    locked = temporary / 'wheels.txt'
+                    locked.write_text('\n'.join(local_wheels), encoding='utf-8')
+                    _free_wheel_paths(wheel_destinations)
+                    touched = True
+                    _run(python, ['-m', 'pip', '--isolated', 'install', '--no-deps', '--no-index',
+                                  '--only-binary=:all:', '--require-hashes', '--no-input',
+                                  '--disable-pip-version-check', '--no-cache-dir', '--no-compile', '-r', str(locked)])
+                _run(python, ['-m', 'pip', '--isolated', 'check'])
+                after, after_binding = _inventory(python)
+                after_binding['base_dir'] = str(base_now)
+                expected = {**installed, **{w['name']: w['version'] for w in wheels}}
+                final_base, final_python, _ = _target()
+                if (after != expected or after_binding != binding
+                        or final_base != base_now or final_python != python):
+                    raise NodeInstallError('The dependency inventory changed unexpectedly.')
             if (_files(stage) != prepared_files
                     or (receipt is not None and _receipt(recipe, destination, binding) != receipt)):
                 raise NodeInstallError('The custom-node files or receipt changed during preparation.')
@@ -596,7 +802,7 @@ def _prepare(recipe, owner, plan_id, emit, locked_base, wheel_root=None):
             if receipt is None:
                 # Stage on the destination volume, outside custom_nodes so ComfyUI cannot import it.
                 import shutil
-                with tempfile.TemporaryDirectory(prefix='.lds-node-stage-', dir=base_now.parent) as sibling:
+                with tempfile.TemporaryDirectory(prefix='.lds-node-stage-', dir=stage_parent) as sibling:
                     final_stage = Path(sibling) / 'pack'
                     shutil.copytree(stage, final_stage)
                     _safe(destination)

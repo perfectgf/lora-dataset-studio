@@ -320,15 +320,133 @@ def test_wrong_python_environment_refused(sandbox, field, value):
     assert sandbox.gets == [] and pip_installs(sandbox) == []
 
 
-def test_nonportable_target_and_remote_endpoint_refused(sandbox):
+def test_a_files_only_recipe_installs_on_any_layout_without_running_python(sandbox):
+    """No requirement means only files: a remote endpoint or a folder that is not
+    the managed portable still receives them, and no interpreter ever runs."""
     sandbox.config['comfyui.api_url'] = 'http://localhost:8188'
-    with pytest.raises(nodes.NodeInstallError, match='endpoint'):
-        nodes.plan(sandbox.recipe, owner='example.one')
+    assert prepare(sandbox)['state'] == 'prepared'
+    directory = sandbox.base / 'custom_nodes' / sandbox.recipe.folder
+    receipt = json.loads((directory / nodes.RECEIPT).read_text(encoding='utf-8'))
+    assert receipt['target']['layout'] == 'custom_nodes' and set(receipt['files']) == {'__init__.py', 'install.py'}
+    # Nothing staged beside ComfyUI; only the pack (and an inert POSIX lock) in custom_nodes.
+    assert sorted(p.name for p in sandbox.base.iterdir()) == ['custom_nodes', 'main.py', 'models']
+    assert {p.name for p in directory.parent.iterdir()} - {nodes.LOCK_NAME} == {sandbox.recipe.folder}
     sandbox.config['comfyui.api_url'] = 'http://127.0.0.1:8188'
     (sandbox.base.parent / 'run_nvidia_gpu.bat').unlink()
-    with pytest.raises(nodes.NodeInstallError, match='supported ComfyUI'):
-        nodes.plan(sandbox.recipe, owner='example.one')
-    assert sandbox.calls == []
+    assert nodes.plan(sandbox.recipe, owner='example.one')['state'] == 'current'
+    assert sandbox.calls == [] and pip_installs(sandbox) == []
+
+
+@pytest.mark.parametrize('layout', ['remote endpoint', 'not portable'])
+def test_requirements_outside_the_managed_portable_return_exact_steps_and_install_nothing(sandbox, layout):
+    if layout == 'remote endpoint':
+        sandbox.config['comfyui.api_url'] = 'http://localhost:8188'
+    else:
+        (sandbox.base.parent / 'run_nvidia_gpu.bat').unlink()
+    recipe = replace(sandbox.recipe, requirements=('example-helper==1.2.3',))
+    proposal = nodes.plan(recipe, owner='example.one')
+    assert proposal['state'] == 'manual'
+    steps = proposal['manual_steps']
+    assert steps[0] == f'Download {recipe.url}' and recipe.sha256 in steps[1]
+    assert str(sandbox.base / 'custom_nodes') in steps[2] and recipe.folder in steps[2]
+    assert f'"{sandbox.python}" -m pip install "example-helper==1.2.3"' in steps[3]
+    with pytest.raises(nodes.NodeInstallManual) as refused:
+        nodes.prepare(recipe, owner='example.one', plan_id=proposal['plan_id'])
+    assert refused.value.manual_steps == steps
+    assert sandbox.calls == [] and sandbox.gets == []
+    assert not (sandbox.base / 'custom_nodes').exists()
+
+
+def test_manual_steps_never_offer_a_gpu_package(sandbox):
+    (sandbox.base.parent / 'run_nvidia_gpu.bat').unlink()
+    recipe = replace(sandbox.recipe, requirements=('torch==2.8.0', 'example-helper==1.2.3'))
+    steps = nodes.plan(recipe, owner='example.one')['manual_steps']
+    assert steps[3].endswith('-m pip install "example-helper==1.2.3"') and 'torch==' not in ' '.join(steps)
+    assert steps[4] == 'Keep the torch that ComfyUI already runs; LDS never installs GPU packages.'
+    assert sandbox.calls == [] and sandbox.gets == []
+
+
+def test_portable_detail_daemon_adds_only_its_pinned_matplotlib(sandbox):
+    from app.services.comfyui_node_recipes import DETAIL_DAEMON
+    body = archive_bytes({f'{DETAIL_DAEMON.archive_prefix}/__init__.py': '# stand-in\n'})
+    sandbox.body = body
+    sandbox.recipe = replace(DETAIL_DAEMON, url=sandbox.recipe.url, sha256=hashlib.sha256(body).hexdigest())
+    sandbox.reports = [wheel('matplotlib', '3.11.2')]
+    assert prepare(sandbox, recipe=sandbox.recipe)['state'] == 'prepared'
+    dry_run = next(args for args in sandbox.calls if '--dry-run' in args)
+    assert dry_run[-1] == 'matplotlib==3.11.2' and '--only-binary=:all:' in dry_run
+    [install] = pip_installs(sandbox)
+    assert {'--no-deps', '--no-index', '--require-hashes'} <= set(install)
+    assert 'matplotlib-3.11.2' in sandbox.locked and '--hash=sha256:' in sandbox.locked
+    assert (sandbox.base / 'custom_nodes' / 'ComfyUI-Detail-Daemon' / '__init__.py').is_file()
+
+
+def test_portable_detail_daemon_keeps_an_installed_matplotlib_of_the_same_major(sandbox):
+    """The pin is what LDS installs when matplotlib is missing. A 3.x already
+    there serves it as it is: nothing resolved, nothing added, nothing replaced."""
+    from app.services.comfyui_node_recipes import DETAIL_DAEMON
+    body = archive_bytes({f'{DETAIL_DAEMON.archive_prefix}/__init__.py': '# stand-in\n'})
+    sandbox.body = body
+    recipe = replace(DETAIL_DAEMON, url=sandbox.recipe.url, sha256=hashlib.sha256(body).hexdigest())
+    sandbox.recipe = recipe
+    sandbox.installed['matplotlib'] = '3.9.2'
+    assert nodes.plan(recipe, owner='lds.core')['packages_to_add'] == []
+    assert prepare(sandbox, recipe=recipe, owner='lds.core')['state'] == 'prepared'
+    assert not any('--dry-run' in args for args in sandbox.calls) and pip_installs(sandbox) == []
+    assert sandbox.installed['matplotlib'] == '3.9.2'
+
+
+def test_portable_detail_daemon_refuses_another_major_matplotlib(sandbox):
+    from app.services.comfyui_node_recipes import DETAIL_DAEMON
+    sandbox.installed['matplotlib'] = '2.2.5'
+    with pytest.raises(nodes.NodeInstallError, match='No installed package will be replaced'):
+        nodes.plan(replace(DETAIL_DAEMON, url=sandbox.recipe.url), owner='lds.core')
+    assert sandbox.gets == [] and pip_installs(sandbox) == []
+
+
+def test_two_recipes_pinning_different_numpy_releases_both_install(sandbox):
+    """The SeedVR2 recipe pins numpy 2.5.2 and the refmods one 2.2.6: with exact
+    pins one of them was always refused. The portable's numpy 2.x serves both."""
+    sandbox.installed['numpy'] = '2.3.1'
+    first = replace(sandbox.recipe, requirements=('numpy==2.5.2',))
+    second = replace(sandbox.recipe, id='other.nodes', folder='other-nodes', requirements=('numpy==2.2.6',))
+    assert prepare(sandbox, recipe=first)['state'] == 'prepared'
+    assert prepare(sandbox, recipe=second)['state'] == 'prepared'
+    assert pip_installs(sandbox) == [] and sandbox.installed['numpy'] == '2.3.1'
+
+
+def test_an_installed_opencv_build_answers_for_another_one(sandbox):
+    sandbox.installed['opencv-contrib-python'] = '5.1.0.90'
+    recipe = replace(sandbox.recipe, requirements=('opencv-python==5.0.0.93',))
+    assert prepare(sandbox, recipe=recipe)['state'] == 'prepared'
+    assert pip_installs(sandbox) == [] and 'opencv-python' not in sandbox.installed
+
+
+def test_a_second_opencv_build_is_never_added(sandbox):
+    sandbox.installed['opencv-python-headless'] = '4.12.0.88'
+    recipe = replace(sandbox.recipe, requirements=('opencv-python==5.0.0.93',))
+    with pytest.raises(nodes.NodeInstallError, match='No installed package will be replaced'):
+        nodes.plan(recipe, owner='example.one')
+    # Not even as another package's dependency.
+    sandbox.installed['opencv-python-headless'] = '5.0.0.93'
+    sandbox.reports = [wheel(), wheel('opencv-python', '5.0.0.93')]
+    with pytest.raises(nodes.NodeInstallError, match='second OpenCV build'):
+        nodes.plan(replace(sandbox.recipe, requirements=('example-helper==1.2.3',)), owner='example.one')
+    assert sandbox.gets == [] and pip_installs(sandbox) == []
+
+
+def test_manual_steps_name_every_opencv_build(sandbox):
+    """Someone with opencv-contrib-python would not see it in "does not have
+    opencv-python yet" and would install a second cv2: OpenCV gets its own step."""
+    (sandbox.base.parent / 'run_nvidia_gpu.bat').unlink()
+    recipe = replace(sandbox.recipe, requirements=('opencv-python==5.0.0.93', 'imageio-ffmpeg==0.6.0'))
+    steps = nodes.plan(recipe, owner='example.one')['manual_steps']
+    assert steps[3].startswith('If ComfyUI’s Python does not have imageio-ffmpeg yet, add it')
+    assert steps[3].endswith('-m pip install "imageio-ffmpeg==0.6.0"')
+    assert steps[4].startswith('If ComfyUI’s Python has no OpenCV yet (opencv-python, '
+                               'opencv-contrib-python or a headless build), add it')
+    assert steps[4].endswith('-m pip install "opencv-python==5.0.0.93"')
+    assert steps[5] == 'Restart ComfyUI.'
 
 
 def test_plan_becomes_stale_after_environment_change(sandbox):

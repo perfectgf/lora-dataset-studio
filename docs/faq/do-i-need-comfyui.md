@@ -22,7 +22,7 @@ In **Settings → Local tools → ComfyUI**, set the **ComfyUI API URL** (defaul
 
 The Setup wizard checks that folder as you type. You can also continue without ComfyUI: Setup lists what turns off and what stays on, and remembers the choice until you enter a directory.
 
-When a Test Studio family needs nodes your ComfyUI lacks, **Fix missing ComfyUI nodes** gives update steps for portable, Desktop and manual installs. LDS guides the update; it does not run ComfyUI's updater or restart it for you. Krea 2 Edit also needs its own custom node pack and model files, listed in the [settings reference](../guide/settings-reference.md#krea-2-edit-local).
+When a Test Studio family needs nodes your ComfyUI lacks, **Fix missing ComfyUI nodes** gives update steps for portable, Desktop and manual installs. LDS guides the update; it does not run ComfyUI's updater or restart it for you. For a custom node pack that LDS provides, such as the SDXL Studio's Detail Daemon, the panel has an **Install** button that puts a checked, fixed version into `custom_nodes/`. A pack that adds Python packages installs by itself only on a ComfyUI Windows portable, where LDS manages its Python; on another installation the button shows the exact steps and `pip` command instead. Restart ComfyUI afterwards so it loads the nodes. Krea 2 Edit also needs its own custom node pack and model files, listed in the [settings reference](../guide/settings-reference.md#krea-2-edit-local).
 
 ## ComfyUI with Docker
 
