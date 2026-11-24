@@ -15,6 +15,7 @@ import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissing
 import SettingsLink from '../components/common/SettingsLink'
 import GuidedSteps from '../components/setup/GuidedSteps'
 import ComfyManualInstall from '../components/setup/ComfyManualInstall'
+import OllamaManualDownload from '../components/setup/OllamaManualDownload'
 import SetupStart from '../components/setup/SetupStart'
 import { normalizeJourney } from '../components/setup/setupJourney'
 import { completeCoreSetup } from '../components/setup/completeCoreSetup'
@@ -1337,8 +1338,8 @@ export default function SetupPage() {
       return (
         <GuidedSteps
           intro="Ollama runs local models for captioning and auto-framing. Installing it is not enough — you also need to pull a vision model."
-          steps={[{ text: 'Install Ollama and start it (defaults to port 11434).' }]}
-          link={{ href: 'https://ollama.com/download', label: 'Download Ollama →' }}>
+          steps={[{ text: 'Start Ollama from its extracted folder. Its default port is 11434.' }]}>
+          <OllamaManualDownload />
           {fields}
         </GuidedSteps>
       )
