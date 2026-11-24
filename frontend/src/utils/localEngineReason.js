@@ -110,6 +110,7 @@ export function localEngineUnavailableReason(engine, caps, enabledEngines = null
       invalidAssets: comfy.krea_invalid,
       nodePackInstalled: comfy.krea_nodes_installed,
       pinGaps: comfy.krea_pin_gaps,
+      unsupportedEnums: comfy.krea_unsupported_enums,
     });
   }
   return null;

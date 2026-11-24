@@ -12,6 +12,7 @@
    from the capabilities payload, and it is unit-tested — one branch per real
    failure mode, in the order the user must fix them. */
 import { brokenAssetReason, blockingInvalid } from './modelIntegrityWords.js';
+import { comfyEnumUnavailableReason } from './comfyEnumSupport.js';
 import { comfyuiDownReason } from './comfyuiStatus.js';
 import { pinnedModelGapReason } from './modelFileOptions.js';
 
@@ -43,7 +44,7 @@ export function kreaMissingLabels(missing) {
 export function kreaUnavailableReason({
   enabledInSettings = true, comfyuiReachable = true,
   missingAssets = [], missingNodes = [], invalidAssets = [],
-  nodePackInstalled = false, comfyui = null, pinGaps = [],
+  nodePackInstalled = false, comfyui = null, pinGaps = [], unsupportedEnums = [],
 } = {}) {
   if (!enabledInSettings) return '⚠ Krea 2 Edit is disabled in Settings (engines)';
   // `comfyui` is the raw capabilities block. Passing it is what lets this say
@@ -57,6 +58,10 @@ export function kreaUnavailableReason({
   // dark with the catch-all sentence and no way to guess which field to fix.
   const pinned = pinnedModelGapReason('Krea 2 Edit', pinGaps);
   if (pinned) return pinned;
+  // A ComfyUI too old for the Krea 2 text encoder (`type='krea2'`): every check
+  // below passes on it, and the first edit was refused. Same sentence as Klein's.
+  const enumHint = comfyEnumUnavailableReason(unsupportedEnums);
+  if (enumHint) return enumHint;
   if (Array.isArray(missingNodes) && missingNodes.length) {
     // The pack is ON DISK but ComfyUI hasn't loaded it: ComfyUI registers custom
     // nodes at STARTUP only. Now that the app installs the pack itself, this is
