@@ -365,8 +365,10 @@ function NavBar() {
 
   if (sideNav) {
     const foldLabel = rail ? 'Expand the menu' : 'Fold the menu'
+    // One step above the generation dock and the save pill (z-40): the menus of this column open over the page,
+    // right where the dock floats, and on the same layer the dock hid their last entries. Dialogs stay above.
     return (
-      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 flex w-[var(--app-sidebar-w)] flex-col border-r border-border bg-surface-overlay"
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-[45] flex w-[var(--app-sidebar-w)] flex-col border-r border-border bg-surface-overlay"
         data-collapsed={rail || undefined}>
         <div className={rail ? 'flex justify-center px-2 pb-2 pt-4' : 'flex items-center gap-1 pb-3 pl-5 pr-2 pt-4'}>
           {!rail && (
