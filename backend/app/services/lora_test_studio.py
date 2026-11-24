@@ -2424,15 +2424,20 @@ STUDIO_NODE_PACKS = {
         'url': 'https://github.com/kijai/ComfyUI-KJNodes',
         'search': 'KJNodes',
     },
+    # `plugin_actions`: the node-pack installs the Video and Live plugins
+    # register for that pack. The hint names Setup only when an enabled plugin
+    # really offers one (`studio_missing_node_hints`); an older plugin keeps the link.
     'MiniMaxH3TurboLoRA': {
         'pack': 'ComfyUI-MiniMax-H3-Turbo',
         'url': 'https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo',
         'search': 'MiniMax H3 Turbo',
+        'plugin_actions': ('h3_turbo_nodes', 'live_h3_turbo_nodes'),
     },
     'MiniMaxH3TurboSampler': {
         'pack': 'ComfyUI-MiniMax-H3-Turbo',
         'url': 'https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo',
         'search': 'MiniMax H3 Turbo',
+        'plugin_actions': ('h3_turbo_nodes', 'live_h3_turbo_nodes'),
     },
     'H3SparseAttentionAdvanced': {
         'pack': 'H3-Optimizations',
@@ -2443,30 +2448,54 @@ STUDIO_NODE_PACKS = {
         'pack': 'Comfyui-MMH3-UltimateUpscale',
         'url': 'https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale',
         'search': 'MMH3 Ultimate Upscale',
+        'plugin_actions': ('h3_upscale_nodes',),
     },
     'MMH3LatentUpscaleWithModelParams': {
         'pack': 'Comfyui-MMH3-UltimateUpscale',
         'url': 'https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale',
         'search': 'MMH3 Ultimate Upscale',
+        'plugin_actions': ('h3_upscale_nodes',),
     },
     'MMH3TemporalSplitParams': {
         'pack': 'Comfyui-MMH3-UltimateUpscale',
         'url': 'https://github.com/bbaudio-2025/Comfyui-MMH3-UltimateUpscale',
         'search': 'MMH3 Ultimate Upscale',
+        'plugin_actions': ('h3_upscale_nodes',),
     },
 }
+
+
+def _offered_plugin_action(candidates):
+    """The first of `candidates` an enabled plugin registered as a node-pack
+    install, or None. Read from the same catalogue the Setup menu lists."""
+    if not candidates:
+        return None
+    try:
+        from .. import setup_installer
+        catalog = setup_installer.plugin_actions_catalog()
+    except Exception:  # noqa: BLE001 — a hint must never break the 409 it decorates
+        return None
+    return next((a for a in candidates if (catalog.get(a) or {}).get('kind') == 'node_pack'), None)
 
 
 def studio_missing_node_hints(nodes):
     """[{class_type, pack, url, search}] for each missing node class that maps to a
     known community pack (unknown classes omitted). Lets a studio_missing 409 name
     WHAT to install instead of only the bare class_type — same spirit as Klein's
-    format_missing_nodes_message."""
+    format_missing_nodes_message.
+
+    A pack a plugin installs itself also carries `setup_action`, the Setup action
+    that installs it, so the message sends the user to that one-click install
+    instead of ComfyUI-Manager."""
     out = []
     for ct in nodes or []:
         pk = STUDIO_NODE_PACKS.get(ct)
         if pk:
-            out.append({'class_type': ct, **pk})
+            hint = {'class_type': ct, **pk}
+            action = _offered_plugin_action(hint.pop('plugin_actions', ()))
+            if action:
+                hint['setup_action'] = action
+            out.append(hint)
     return out
 
 

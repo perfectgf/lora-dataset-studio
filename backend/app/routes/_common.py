@@ -211,7 +211,11 @@ def _studio_missing_response(e):
         if native_missing:
             msg += 'Update ComfyUI to add its built-in nodes, then restart ComfyUI. '
         for h in node_packs:
-            if h.get('install_action') and h.get('url'):
+            if h.get('setup_action'):
+                # A pack the installed Video/Live plugin installs itself.
+                msg += (f"For “{h['class_type']}”, install “{h['pack']}” in one click from Setup, "
+                        "then restart ComfyUI. ")
+            elif h.get('install_action') and h.get('url'):
                 msg += (f"For “{h['class_type']}”, install “{h['pack']}” in one click under "
                         "“Fix missing ComfyUI nodes”, then restart ComfyUI. ")
             elif h.get('url'):

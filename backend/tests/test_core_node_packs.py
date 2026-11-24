@@ -278,3 +278,33 @@ def test_the_sdxl_studio_offers_the_detail_daemon_install_where_the_node_is_miss
     assert status == 409
     assert body['studio_missing']['node_packs'][0]['install_action'] == 'detail_daemon_nodes'
     assert 'install “ComfyUI-Detail-Daemon” in one click under “Fix missing ComfyUI nodes”' in body['error']
+
+
+@pytest.mark.parametrize('catalog,expected', [
+    ({'h3_turbo_nodes': {'kind': 'node_pack', 'plugin': 'video'}}, 'h3_turbo_nodes'),
+    ({'live_h3_turbo_nodes': {'kind': 'node_pack', 'plugin': 'live'}}, 'live_h3_turbo_nodes'),
+    ({}, None),                                           # a plugin that installs nothing
+    ({'h3_turbo_nodes': {'kind': 'download', 'plugin': 'video'}}, None),
+    (RuntimeError('registry unreadable'), None),
+])
+def test_a_video_pack_points_to_setup_only_when_a_plugin_installs_it(app, monkeypatch, catalog, expected):
+    from app.routes._common import _studio_missing_response
+    from app.services.lora_test_studio import StudioAssetsMissing, studio_missing_node_hints
+
+    def plugin_actions_catalog():
+        if isinstance(catalog, Exception):
+            raise catalog
+        return catalog
+
+    monkeypatch.setattr(installer, 'plugin_actions_catalog', plugin_actions_catalog)
+    [hint] = studio_missing_node_hints(['MiniMaxH3TurboSampler'])
+    assert hint.get('setup_action') == expected and 'plugin_actions' not in hint
+    with app.test_request_context():
+        response, _status = _studio_missing_response(
+            StudioAssetsMissing('video', [], ['MiniMaxH3TurboSampler']))
+    error = response.get_json()['error']
+    if expected:
+        assert 'install “ComfyUI-MiniMax-H3-Turbo” in one click from Setup' in error
+        assert 'ComfyUI-Manager' not in error
+    else:
+        assert 'install “ComfyUI-MiniMax-H3-Turbo” via ComfyUI-Manager' in error
