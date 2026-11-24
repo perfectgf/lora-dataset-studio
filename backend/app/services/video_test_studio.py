@@ -193,6 +193,15 @@ SPARSE_MODES = ('', 'default', 'conservative', 'max')
 # meant to run on a rented GPU nobody inspected.
 SPARSE_BACKEND = 'Kitchen INT8'
 
+# H3-Optimizations 0.2.31 and later renamed that backend and added controls
+# whose defaults change the clip (an Early KV ramp, 1x8x8 token tiles,
+# calibrated per-head budgets). The presets were tuned on 0.2.14, which had none
+# of them, so these values keep that behaviour wherever the installed release
+# declares the control. Same values as lds_sdk.h3_render.
+SPARSE_KEEP_TUNED = {'early_schedule': 'Hold', 'video_token_order': 'Raster (stock H3 order)',
+                     'head_budgets': 'Off'}
+SPARSE_RENAMES = {'backend': ('Kitchen INT8 64Q x 64KV (Quality)',)}
+
 # 🔬 The latent upscaler. H3 emits an INTERLEAVED latent — 24 video channels and
 # 32 audio channels in one tensor — which image upscalers cannot read; they have
 # to decode to pixels, enlarge, and re-encode, which is where the re-muxed audio
@@ -607,12 +616,15 @@ def _graft_sparse(wf, mode, *, upscale_armed):
       * `max` → sparse on BOTH passes, adherence drift accepted by whoever
         ticked it. It is never the default.
     """
+    from ..utils.comfyui import fetch_node_info, fit_node_inputs
     settings = SPARSE_PRESETS[mode]
     _drop_sage(wf)
     head = wf[N_GUIDER]['inputs']['model']
     wf[N_SPARSE] = {
         'class_type': 'H3SparseAttentionAdvanced',
-        'inputs': {'model': head, 'backend': SPARSE_BACKEND, **settings},
+        'inputs': fit_node_inputs(fetch_node_info('H3SparseAttentionAdvanced'),
+                                  {'model': head, 'backend': SPARSE_BACKEND, **settings},
+                                  prefer=SPARSE_KEEP_TUNED, renames=SPARSE_RENAMES),
     }
     if not (upscale_armed and mode != 'max'):
         wf[N_GUIDER]['inputs']['model'] = [N_SPARSE, 0]

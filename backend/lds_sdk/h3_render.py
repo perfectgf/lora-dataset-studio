@@ -256,6 +256,16 @@ SPARSE_MODES = ('', 'default', 'conservative', 'max')
 
 SPARSE_BACKEND = 'Kitchen INT8'
 
+# H3-Optimizations 0.2.31 and later renamed that backend and added controls
+# whose defaults change the clip: an Early KV ramp, 1x8x8 token tiles,
+# calibrated per-head budgets, and two memory modes. The presets were tuned on
+# 0.2.14, which had none of them, so these values keep that behaviour wherever
+# the installed release declares the control (`fit_node_inputs`).
+SPARSE_KEEP_TUNED = {'early_schedule': 'Hold', 'video_token_order': 'Raster (stock H3 order)',
+                     'head_budgets': 'Off'}
+SPARSE_RENAMES = {'backend': ('Kitchen INT8 64Q x 64KV (Quality)',)}
+SPARSE_MEMORY_KEEP_TUNED = {'embedding_memory_mode': 'Stock', 'kitchen_v_memory_mode': 'Standard'}
+
 UPSCALE_MODEL = 'minimax_h3_latent_upscaler_3d_bf16.safetensors'
 
 TARGET_KEY = 'minimax_h3'
@@ -876,6 +886,7 @@ def _graft_sparse(wf, mode, *, upscale_armed):
       * `max` → sparse on BOTH passes, adherence drift accepted by whoever
         ticked it. It is never the default.
     """
+    from lds_sdk.video_host.comfyui import fetch_node_info, fit_node_inputs
     settings = SPARSE_PRESETS[mode]
     _drop_sage(wf)
     head = wf[N_GUIDER]['inputs']['model']
@@ -885,14 +896,19 @@ def _graft_sparse(wf, mode, *, upscale_armed):
         # letting the attention kernel sparsify only the target-video tokens.
         wf[N_REF_SPARSE_MEMORY] = {
             'class_type': 'H3MemoryOptimization',
-            'inputs': {'model': head, 'fused_qkv': 'off', 'mlp_memory': 'off',
-                       'chunk_rows': 4096, 'preserve_precision': True,
-                       'precision_mode': 'Preserve native', 'qkv_streaming_mode': 'Off'},
+            'inputs': fit_node_inputs(
+                fetch_node_info('H3MemoryOptimization'),
+                {'model': head, 'fused_qkv': 'off', 'mlp_memory': 'off',
+                 'chunk_rows': 4096, 'preserve_precision': True,
+                 'precision_mode': 'Preserve native', 'qkv_streaming_mode': 'Off'},
+                prefer=SPARSE_MEMORY_KEEP_TUNED),
         }
         head = [N_REF_SPARSE_MEMORY, 0]
     wf[N_SPARSE] = {
         'class_type': 'H3SparseAttentionAdvanced',
-        'inputs': {'model': head, 'backend': SPARSE_BACKEND, **settings},
+        'inputs': fit_node_inputs(fetch_node_info('H3SparseAttentionAdvanced'),
+                                  {'model': head, 'backend': SPARSE_BACKEND, **settings},
+                                  prefer=SPARSE_KEEP_TUNED, renames=SPARSE_RENAMES),
     }
     if not (upscale_armed and mode != 'max'):
         wf[N_GUIDER]['inputs']['model'] = [N_SPARSE, 0]

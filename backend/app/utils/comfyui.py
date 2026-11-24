@@ -2890,14 +2890,68 @@ ATTENTION_SWITCH_CLASS = 'LDSMiniMaxH3BlockAttentionSplit'
 SAGE_BACKEND = 'sage attention'
 
 
+def _input_choices(spec):
+    """The accepted values of one declared input, or None when it is not a combo.
+    Legacy nodes declare `[[choice, …], {…}]`, newer ones `["COMBO", {"options": […]}]`."""
+    if not isinstance(spec, (list, tuple)) or not spec:
+        return None
+    options = spec[0]
+    if options == 'COMBO' and len(spec) > 1 and isinstance(spec[1], dict):
+        options = spec[1].get('options')
+    return [o for o in options if isinstance(o, str)] if isinstance(options, list) else None
+
+
+def _input_default(spec):
+    extra = spec[1] if isinstance(spec, (list, tuple)) and len(spec) > 1 and isinstance(spec[1], dict) else {}
+    if 'default' in extra:
+        return extra['default']
+    choices = _input_choices(spec)
+    return choices[0] if choices else None
+
+
 def _combo_options(node_info, name):
-    combo = (((node_info or {}).get('input') or {}).get('required') or {}).get(name)
-    if not isinstance(combo, (list, tuple)) or not combo:
-        return []
-    options = combo[0]
-    if options == 'COMBO' and len(combo) > 1 and isinstance(combo[1], dict):
-        options = combo[1].get('options')
-    return [str(o) for o in options if isinstance(o, str)] if isinstance(options, list) else []
+    return _input_choices((((node_info or {}).get('input') or {}).get('required') or {}).get(name)) or []
+
+
+_PRIMITIVE_INPUTS = ('INT', 'FLOAT', 'BOOLEAN', 'STRING')
+
+
+def fit_node_inputs(node_info, inputs, *, prefer=None, renames=None):
+    """`inputs` made valid for the release of a third-party node `node_info` describes.
+
+    A pack moves under a graph written for an older release: it renames a
+    choice, or makes a new control required, and ComfyUI refuses the whole
+    prompt ("Value not in list", "Required input is missing"). From the node's
+    /object_info entry: each `prefer` control the release declares takes that
+    value when it is one of its choices (the values that keep the behaviour
+    the graph was tuned on); a value the release no longer lists is replaced by
+    the first of its `renames` successors that it lists; any other required
+    input still missing takes the node's own default. A failed probe (None)
+    returns `inputs` unchanged, and ComfyUI decides, as before.
+    """
+    sections = node_info.get('input') if isinstance(node_info, dict) else None
+    if not isinstance(sections, dict):
+        return dict(inputs)
+    required = sections.get('required') if isinstance(sections.get('required'), dict) else {}
+    optional = sections.get('optional') if isinstance(sections.get('optional'), dict) else {}
+    declared = {**optional, **required}
+    out = dict(inputs)
+    for name, value in (prefer or {}).items():
+        if value in (_input_choices(declared.get(name)) or ()):
+            out[name] = value
+    for name, successors in (renames or {}).items():
+        choices = _input_choices(declared.get(name))
+        if choices and out.get(name) not in choices:
+            out[name] = next((s for s in successors if s in choices), out.get(name))
+    for name, spec in required.items():
+        if name in out:
+            continue
+        primitive = isinstance(spec, (list, tuple)) and spec and spec[0] in _PRIMITIVE_INPUTS
+        if primitive or _input_choices(spec) is not None:
+            default = _input_default(spec)
+            if default is not None:
+                out[name] = default
+    return out
 
 
 def sageattention_importable(classes, worker_url=None) -> bool:

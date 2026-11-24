@@ -102,6 +102,14 @@ export const WHATS_NEW = [
     to: '/bank',
   },
   {
+    id: '2026-11-24-video-sparse-attention-current-pack', date: '2026-11-24',
+    title: 'Sparse attention works with current H3-Optimizations releases',
+    blurb: 'From version 0.2.31, H3-Optimizations renamed the backend LDS asks for and added required settings, so '
+      + 'ComfyUI refused every Video and Live render with sparse attention on. LDS now reads what your installed '
+      + 'release offers and fills those settings with the values that keep the clip LDS was tuned for: Early KV held, '
+      + 'the stock token order and one shared budget. Older releases get exactly the same graph as before.',
+  },
+  {
     id: '2026-11-24-video-h3-nodes-and-sageattention', date: '2026-11-24',
     title: 'Video and Live: two Install buttons work, and SageAttention no longer breaks renders',
     blurb: 'The MiniMax H3 block attention switch and the reference LoRA loader, two ComfyUI nodes LDS writes '
