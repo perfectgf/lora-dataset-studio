@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "id": "remove_background",
+  "bundled": true,
+  "name": "Remove Background",
+  "version": "1.0.0",
+  "api": 1,
+  "publisher": { "id": "lds", "name": "LDS" },
+  "description": "Say what stays in a picture (the main subject, a rough selection, a few words or a click) and get a clean cut-out with a mask you can paint on. SAM 3.1 finds it; BiRefNet, RMBG 3.0 or Lucida cuts its edge. Works on imported pictures and from the dataset, Bank and Gallery viewers, on your own ComfyUI.",
+  "requires": [],
+  "python_package": "lds_remove_background",
+  "frontend": "frontend/index.js",
+  "in_process_requirements": false,
+  "owns": {
+    "install_actions": ["remove_bg_birefnet", "remove_bg_sam", "remove_bg_lucida", "remove_bg_rmbg", "remove_bg_rmbg_text_encoder", "remove_bg_rmbg_vae"],
+    "install_groups": ["remove_background", "remove_background_fine"],
+    "probes": ["remove_background", "comfyui.remove_background_missing", "comfyui.remove_background_invalid", "comfyui.remove_background_fine_missing", "comfyui.remove_background_fine_invalid"],
+    "engines": [],
+    "config_sections": [],
+    "config_keys_in_shared_sections": {},
+    "help_topics": ["remove-background", "remove-background-setup"],
+    "tables": [],
+    "whats_new_ids": ["2026-11-24-remove-background"],
+    "model_slots": [],
+    "job_kinds": ["is_remove_background"]
+  },
+  "models": [],
+  "node_packs": [],
+  "permissions": ["banks:read", "comfyui", "datasets:read", "datasets:write", "filesystem", "gpu", "network"],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "lora-dataset-studio",
+  "experience": {
+    "entrypoints": [{ "label": "Open Remove Background", "path": "/remove-background" }],
+    "setup": { "label": "Prepare Remove Background", "path": "/plugins/remove_background/settings" },
+    "setup_hint": "Requires a configured, recent ComfyUI. The everyday models total about 3.1 GB; RMBG 3.0 for the finest edges is optional and non-commercial.",
+    "surfaces": ["Remove Background", "Dataset viewer", "Bank viewer", "Gallery viewer"]
+  },
+  "compatibility": { "lds": ">=2026.11.15", "api": ">=1.23,<2", "python": ">=3.10,<4",
+    "os": ["windows", "linux", "darwin"], "arch": ["x86_64", "arm64"] },
+  "guide_ownership": { "chapters": ["remove_background.guide"],
+    "sections": ["remove_background.guide#remove-the-background", "remove_background.guide#the-result", "remove_background.guide#models"] }
+}
