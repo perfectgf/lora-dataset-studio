@@ -2882,3 +2882,48 @@ def fetch_node_info(class_type, timeout=10, worker_url=None):
         return None
     entry = data.get(class_type) if isinstance(data, dict) else None
     return entry if isinstance(entry, dict) else None
+
+
+# LDS's own block-attention switch (backend/comfy_nodes/lds_h3_attention) and
+# the backend name it lists only when ComfyUI could import `sageattention`.
+ATTENTION_SWITCH_CLASS = 'LDSMiniMaxH3BlockAttentionSplit'
+SAGE_BACKEND = 'sage attention'
+
+
+def _combo_options(node_info, name):
+    combo = (((node_info or {}).get('input') or {}).get('required') or {}).get(name)
+    if not isinstance(combo, (list, tuple)) or not combo:
+        return []
+    options = combo[0]
+    if options == 'COMBO' and len(combo) > 1 and isinstance(combo[1], dict):
+        options = combo[1].get('options')
+    return [str(o) for o in options if isinstance(o, str)] if isinstance(options, list) else []
+
+
+def sageattention_importable(classes, worker_url=None) -> bool:
+    """Can the target ComfyUI's Python import `sageattention`? False when nothing can tell.
+
+    KJNodes registers its SageAttention patch whether or not the package is
+    there, and imports it only when the patch runs: a render on a ComfyUI with
+    KJNodes and no package fails. ComfyUI tries the import itself at startup
+    (`SAGE_ATTENTION_IS_AVAILABLE` in comfy.ldm.modules.attention), and LDS's
+    block-attention switch lists "sage attention" only when that import worked,
+    so a registered switch answers. Without it, on the Windows portable whose
+    Python LDS manages and whose local server is the target, the package folder
+    in site-packages answers, read on disk, never run. Anywhere else: no.
+    """
+    if classes and ATTENTION_SWITCH_CLASS in classes:
+        info = fetch_node_info(ATTENTION_SWITCH_CLASS, worker_url=worker_url)
+        return SAGE_BACKEND in _combo_options(info, 'middle_backend')
+    if worker_url:
+        return False
+    try:
+        from pathlib import Path
+        from ..services import comfyui_control as control
+        layout = control._validated_portable_layout()
+        if layout is None or not control._safe_local_api_url(control.cfg.get('comfyui.api_url')):
+            return False
+        site = Path(layout.python_exe).parent / 'Lib' / 'site-packages'
+        return (site / 'sageattention' / '__init__.py').is_file()
+    except Exception:  # noqa: BLE001 — an unreadable layout is "cannot tell", never a yes
+        return False

@@ -330,7 +330,9 @@ def fake_comfyui(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('action,folder', [('krea_sampler_nodes', 'lds_krea_sampler'),
-                                         ('moss_nodes', 'lds_moss_image')])
+                                         ('moss_nodes', 'lds_moss_image'),
+                                         ('h3_attention_nodes', 'lds_h3_attention'),
+                                         ('h3_reference_nodes', 'lds_h3_reference')])
 def test_deploy_copies_the_node_and_stamps_it(fake_comfyui, action, folder):
     from app import setup_installer as si
     from app.version import APP_VERSION
