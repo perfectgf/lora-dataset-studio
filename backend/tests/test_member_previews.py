@@ -91,6 +91,11 @@ def test_any_invalid_entry_refuses_the_whole_list(bad):
         mp.parse_member_previews(bad)
 
 
+def test_the_places_where_sources_are_listed_are_shown():
+    parsed = mp.parse_member_previews(listing(entry(placement='dataset.sources'), entry(placement='bank.sources')))
+    assert [p['placement'] for p in parsed] == ['dataset.sources', 'bank.sources']
+
+
 def test_a_place_this_version_does_not_show_is_left_out_alone():
     parsed = mp.parse_member_previews(listing(entry(placement='settings.later'), entry()))
     assert [p['placement'] for p in parsed] == ['studio.options.krea']
