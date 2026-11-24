@@ -103,10 +103,10 @@
       }
     ],
     "setup": {
-      "label": "Configure Klein Improve",
-      "path": "/plugins/image_upscale/settings?focus=klein-improve-settings"
+      "label": "Prepare Klein Improve",
+      "path": "/setup?step=comfyui"
     },
-    "setup_hint": "Use the local Klein models configured in LDS. Adjust the improvement instruction, LoRA strengths and finishing here. SeedVR2 is a separate optional product.",
+    "setup_hint": "Open Setup to select ComfyUI and prepare the shared Klein files. The plugin settings control the instruction, LoRAs and finishing.",
     "surfaces": [
       "Bank",
       "Dataset",

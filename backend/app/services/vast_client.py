@@ -27,6 +27,14 @@ _TIMEOUT = 30
 MAX_IMAGE_CHARS = 1024
 MAX_ONSTART_CHARS = 16384
 
+# Keep the tag while sending a paid rental the LDS copy of its pinned image.
+# The registry resolves these names to the reviewed manifest digests.
+_TRAINER_IMAGE_TAGS = frozenset({
+    '4625406-2026-07-12-cuda-12.9', 'da79ebc-2026-08-27-cuda-12.9',
+    '0bd3411-2026-09-23-cuda-12.9', '8cf43dd-2026-10-18-cuda-12.9',
+    '4a7f285-2026-11-11-cuda-12.9',
+})
+
 # How much of vast's own answer travels inside an exception. Long enough for a
 # sentence and a field name, short enough to stay a log line and to fit the
 # error column of the runs table.
@@ -224,6 +232,10 @@ def create_instance(offer_id, disk_gb: int, label: str, template_hash: str | Non
 
     ``disk_gb`` must be backed by an offer that HAS that much free disk: vast
     refuses the ask otherwise. See search_offers(min_disk_gb=…)."""
+    if isinstance(image, str):
+        repo, _, tag = image.rpartition(':')
+        if repo == 'vastai/ostris-ai-toolkit' and tag in _TRAINER_IMAGE_TAGS:
+            image = 'lds.perfectgf.fr/models/tools/aitoolkit:' + tag
     if image and len(str(image)) > MAX_IMAGE_CHARS:
         raise VastError(f'image reference is {len(str(image))} characters; vast '
                         f'refuses more than {MAX_IMAGE_CHARS} — nothing was sent')

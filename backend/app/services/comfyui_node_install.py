@@ -34,10 +34,11 @@ from urllib3.exceptions import HTTPError as TransportError
 from ..plugins.environment import subprocess_env
 from ..plugins.node_recipe import (
     BundledWheel as BundledWheel, NodeRecipe, NodeInstallError, _ID, MAX_ARCHIVE_BYTES,
-    _https, _python_spec, _validate, _gpu_package,
+    _python_spec, _validate, _gpu_package,
 )
 from ..plugins.install import ArchiveError, _entry_relpath, _validated_entries
 from . import comfyui_control as control
+from . import plugin_tool_sources
 
 RECEIPT = '.lds-node-prepared.json'
 MAX_FILE_BYTES = 32 * 1024 * 1024
@@ -82,9 +83,10 @@ def _target():
 
 
 def _run(python, args):
+    args, env = plugin_tool_sources.pip_install(args, subprocess_env())
     try:
         result = subprocess.run([str(python), '-I', *args], capture_output=True,
-                                text=True, timeout=processing_timeout(300), env=subprocess_env())
+                                text=True, timeout=processing_timeout(300), env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise NodeInstallError('The ComfyUI Python operation could not finish. Its installation was not marked prepared.') from exc
     # Child output can contain credentials, repository URLs or personal paths.
@@ -159,14 +161,21 @@ def _receipt(recipe, destination, binding):
             raise ValueError
         if value['version'] != recipe.version:
             raise NodeInstallError('A different managed node version is installed. Automatic shared-node upgrades are not supported yet.')
-        identities = {_digest(asdict(recipe))}
-        if str(_python_spec(recipe.python)) == '>=3.10':
-            # API 1.20 receipts predating this optional field remain valid only
-            # for its unchanged default. Every other recipe field stays bound.
-            legacy = asdict(recipe)
-            legacy.pop('python')
-            identities.add(_digest(legacy))
-        if value['recipe_sha256'] not in identities or value['files'] != _files(destination):
+        fields = asdict(recipe)
+        if _digest(fields) in plugin_tool_sources.H3MOD_RECIPE_DIGESTS:
+            trusted = plugin_tool_sources.matches_h3mod_receipt(fields, value, _digest)
+        else:
+            variants = [fields]
+            old_url = plugin_tool_sources.LEGACY_NODE_ORIGINS.get(recipe.sha256)
+            if old_url and recipe.url.startswith(plugin_tool_sources.ROOT + '/'):
+                # A mirror move preserves the prepared files and their owners.
+                variants.append({**fields, 'url': old_url})
+            identities = {_digest(variant) for variant in variants}
+            if str(_python_spec(recipe.python)) == '>=3.10':
+                for variant in variants:
+                    identities.add(_digest({k: v for k, v in variant.items() if k != 'python'}))
+            trusted = value['recipe_sha256'] in identities
+        if not trusted or value['files'] != _files(destination):
             raise NodeInstallError('The managed node recipe or its files changed. Repair requires an explicit reviewed operation.')
         return value
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -283,8 +292,7 @@ def _dependency_plan(recipe, python, installed, temporary, bundled=None):
                     raise ValueError
                 source = {'filename': supplied['filename']}
             else:
-                parsed = _https(url)
-                if not unquote(parsed.path).lower().endswith('.whl'):
+                if not plugin_tool_sources.is_installer_wheel(name, url, digest):
                     raise ValueError
                 source = {'url': url}
             seen.add(name)

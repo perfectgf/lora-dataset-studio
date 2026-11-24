@@ -299,7 +299,10 @@ def test_node_pack_installs_into_this_comfyui_and_demands_a_restart(app, tmp_pat
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
     monkeypatch.setattr(setup_installer.shutil, 'which', lambda n: None)  # no git
-    monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(payload=_zip_bytes()))
+    import hashlib
+    payload = _zip_bytes()
+    monkeypatch.setitem(setup_installer._NODE_PACKS['krea_nodes'], 'sha256', hashlib.sha256(payload).hexdigest())
+    monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(payload=payload))
     with app.app_context():
         config.save_config({'comfyui': {'base_dir': str(base)}})
         setup_installer._runs['krea_nodes'] = setup_installer._new_run()
@@ -312,35 +315,16 @@ def test_node_pack_installs_into_this_comfyui_and_demands_a_restart(app, tmp_pat
     assert sorted(p.name for p in (base / 'custom_nodes').iterdir()) == ['comfyui-krea2edit']
 
 
-def test_node_pack_prefers_git_and_never_uses_a_shell(app, tmp_path, monkeypatch):
-    """Third-party code: the URL is a CONSTANT and the clone runs as an argument
-    list with a timeout. A `shell=True` here would be a command-injection surface."""
+def test_node_pack_refuses_an_archive_with_a_changed_checksum(app, tmp_path, monkeypatch):
     from app import setup_installer, config
     base = _make_comfyui(tmp_path)
-    seen = {}
-
-    class _Proc:
-        returncode = 0
-        stdout = 'Cloning into ...'
-
-    def fake_run(cmd, **kw):
-        seen['cmd'] = cmd
-        seen['kw'] = kw
-        os.makedirs(cmd[-1], exist_ok=True)
-        open(os.path.join(cmd[-1], '__init__.py'), 'w').close()
-        return _Proc()
-
-    monkeypatch.setattr(setup_installer.shutil, 'which', lambda n: 'git')
-    monkeypatch.setattr(setup_installer.subprocess, 'run', fake_run)
+    monkeypatch.setattr(setup_installer.requests, 'get', _FakeGet(payload=_zip_bytes()))
     with app.app_context():
         config.save_config({'comfyui': {'base_dir': str(base)}})
         setup_installer._runs['krea_nodes'] = setup_installer._new_run()
-        rc = setup_installer._run_node_pack('krea_nodes')
-    assert rc == 0
-    assert isinstance(seen['cmd'], list) and seen['cmd'][1] == 'clone'
-    assert seen['kw'].get('shell') in (None, False)
-    assert seen['kw'].get('timeout')
-    assert seen['cmd'][-2] == 'https://github.com/lbouaraba/comfyui-krea2edit'
+        assert setup_installer._run_node_pack('krea_nodes') == 1
+    assert 'checksum did not match' in ' '.join(setup_installer._runs['krea_nodes']['log'])
+    assert not (base / 'custom_nodes' / 'comfyui-krea2edit').exists()
 
 
 def test_node_pack_never_overwrites_an_existing_install(app, tmp_path, monkeypatch):
@@ -398,8 +382,8 @@ def test_node_pack_failure_tells_the_user_what_to_do_by_hand(app, tmp_path, monk
         rc = setup_installer._run_node_pack('krea_nodes')
     log = ' '.join(setup_installer._runs['krea_nodes']['log'])
     assert rc == 1
-    assert 'github.com/lbouaraba/comfyui-krea2edit' in log
-    assert 'ComfyUI Manager' in log
+    assert setup_installer._NODE_PACKS['krea_nodes']['zip'] in log
+    assert setup_installer._NODE_PACKS['krea_nodes']['sha256'] in log
     assert not (base / 'custom_nodes' / 'comfyui-krea2edit').exists()
 
 

@@ -40,6 +40,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -52,7 +53,7 @@ import requests
 from . import capabilities
 from . import config as cfg
 from .utils.redact import redact_tokens, redact_user_paths
-from .services import infer_env, managed_python
+from .services import infer_env, managed_python, plugin_tool_sources
 from .version import APP_VERSION
 
 logger = logging.getLogger(__name__)
@@ -256,7 +257,8 @@ _NODE_PACKS = {
     'krea_nodes': {
         'pack': 'comfyui-krea2edit',
         'repo': 'https://github.com/lbouaraba/comfyui-krea2edit',
-        'zip': 'https://codeload.github.com/lbouaraba/comfyui-krea2edit/zip/refs/heads/main',
+        'zip': 'https://lds.perfectgf.fr/models/tools/ff1102a1d17f597d8b100afd17bd489a7910325729483398f1385c541f18c171/comfyui-krea2edit.zip',
+        'sha256': 'ff1102a1d17f597d8b100afd17bd489a7910325729483398f1385c541f18c171',
         'folder': 'comfyui-krea2edit',
     },
     # LanPaint: the training-free inpainting sampler the masked Repair lane
@@ -269,7 +271,8 @@ _NODE_PACKS = {
     'lanpaint_nodes': {
         'pack': 'LanPaint',
         'repo': 'https://github.com/scraed/LanPaint',
-        'zip': 'https://codeload.github.com/scraed/LanPaint/zip/refs/heads/master',
+        'zip': 'https://lds.perfectgf.fr/models/tools/bc79a3466fb607d7ee70076b03059d11c14391cee25ad40f6afefc4604628d2f/LanPaint.zip',
+        'sha256': 'bc79a3466fb607d7ee70076b03059d11c14391cee25ad40f6afefc4604628d2f',
         'folder': 'LanPaint',
     },
 }
@@ -747,6 +750,13 @@ def _capability_python(action) -> str:
     return cfg.get(f'{action}.python') or sys.executable
 
 
+def _manual_pip(python, args, *, index=plugin_tool_sources.PYPI):
+    cmd = f'{_quote(python)} -m pip install {args} --index-url {index} --isolated'
+    if 'transnetv2-pytorch' in args:
+        cmd += ' --constraint ' + _quote(plugin_tool_sources.MODEL_CONSTRAINTS)
+    return cmd
+
+
 def manual_command(action) -> str:
     """The exact command that reproduces an install BY HAND, scoped to THIS app's
     own interpreter (sys.executable). A copy-paste then targets the SAME
@@ -766,11 +776,12 @@ def manual_command(action) -> str:
         if callable(spec.get('run')):
             return f"(run from Setup: {spec.get('label') or action})"
         try:
-            return ' '.join(_quote(part) for part in _plugin_action_command(spec))
+            command, _ = plugin_tool_sources.pip_install(_plugin_action_command(spec), {})
+            return ' '.join(_quote(part) for part in [*command, '--isolated'])
         except Precondition as e:
             return f'({e})'
     if action in _PIP_REQUIREMENTS:        # scrape_extras: pure-python -r install
-        return f'{_quote(sys.executable)} -m pip install -r {_quote(str(_PIP_REQUIREMENTS[action]))}'
+        return _manual_pip(sys.executable, '-r ' + _quote(str(_PIP_REQUIREMENTS[action])))
     if action in _CAPABILITY_ML_ACTIONS:
         # One scoped capability (face_scoring | masks): the exact version-pinned
         # lines from requirements-ml.txt, quoted (the '>=' / '<' are shell
@@ -780,9 +791,8 @@ def manual_command(action) -> str:
         python = _capability_python(action)
         specs = ' '.join(f'"{_requirement_spec(p)}"' for p in _CAPABILITY_PACKAGES[action])
         guard = ' '.join(f'"{g}"' for g in _flask_pillow_guard(python))
-        cmd = (f'{_quote(python)} -m pip install {specs} '
-               f'-c {_quote(str(_ML_REQUIREMENTS))}')
-        return f'{cmd} {guard}' if guard else cmd
+        args = f'{specs} -c {_quote(str(_ML_REQUIREMENTS))}'
+        return _manual_pip(python, f'{args} {guard}' if guard else args)
     if action == 'watermark_inpaint':
         # Quote the spec: the '>=' in 'simple-lama-inpainting>=0.1.2' is shell
         # redirection unquoted. Interpreter = the wrapper's resolved python — but
@@ -793,7 +803,7 @@ def manual_command(action) -> str:
         spec = _requirement_spec(_WATERMARK_PKG)
         if _is_flask_venv(python):
             python = _watermark_env_python()
-        return f'{_quote(python)} -m pip install "{spec}"'
+        return _manual_pip(python, f'"{spec}"')
     if action == 'bank_scoring':
         # The dedicated managed venv (auto-built) + CPU torch + the CLIP/NSFW stack.
         # This command documents what the Install button itself does.  A borrowed
@@ -803,16 +813,14 @@ def manual_command(action) -> str:
         # test_requirements_ml_floors_transformers_for_qwen3vl).
         python = _bank_scoring_env_python()
         pkgs = ' '.join(f'"{s}"' for s in _bank_scoring_specs())
-        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
-                f'&&  {_quote(python)} -m pip install {pkgs}')
+        return '  &&  '.join((_manual_pip(python, 'torch torchvision', index=_TORCH_CPU_INDEX), _manual_pip(python, pkgs)))
     if action == 'shot_detect':
         # One line, and no weights step: transnetv2-pytorch carries its own inside
         # the wheel. Targets the scoring environment because of torch.
         python = (cfg.get('shot_detect.python') or cfg.get('bank_scoring.python')
                   or _bank_scoring_env_python())
-        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
-                f'&&  {_quote(python)} -m pip install '
-                f'"{_requirement_spec("transnetv2-pytorch")}" "{_requirement_spec("av")}"')
+        pkgs = f'"{_requirement_spec("transnetv2-pytorch")}" "{_requirement_spec("av")}"'
+        return '  &&  '.join((_manual_pip(python, 'torch torchvision', index=_TORCH_CPU_INDEX), _manual_pip(python, pkgs)))
     if action == 'bank_siglip2':
         # ALWAYS the LDS-managed environment — exactly what the Install button
         # does, and deliberately blind to ``bank_semantic.python``. That key is
@@ -827,11 +835,9 @@ def manual_command(action) -> str:
             f"d(repo_id='{assets.MODEL_ID}', filename='{name}', "
             f"revision='{assets.REVISION}', cache_dir=r'{root}')"
             for name in assets.FILES)
-        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
-                f'&&  {_quote(python)} -m pip install "transformers>=4.49" '
-                f'huggingface_hub safetensors sentencepiece Pillow  &&  '
-                f'{_quote(python)} -c "from huggingface_hub import hf_hub_download as d; '
-                f'{pulls}"')
+        packages = _manual_pip(python, '"transformers>=4.49" huggingface_hub safetensors sentencepiece Pillow')
+        weights = f'{_quote(python)} -c "from huggingface_hub import hf_hub_download as d; {pulls}"'
+        return '  &&  '.join((_manual_pip(python, 'torch torchvision', index=_TORCH_CPU_INDEX), packages, weights))
     if action == 'watermark_detect':
         # Packages then weights. The weights line names the FILES on purpose —
         # a bare `snapshot_download` of the SigLIP2 repo pulls its training
@@ -845,9 +851,8 @@ def manual_command(action) -> str:
                         for name in meta['files'])
             + '"'
             for repo, meta in watermark_detector.MODEL_FILES.items())
-        return (f'{_quote(python)} -m pip install torch torchvision --index-url {_TORCH_CPU_INDEX}  '
-                f'&&  {_quote(python)} -m pip install transformers huggingface_hub '
-                f'safetensors  &&  {pulls}')
+        packages = _manual_pip(python, 'transformers huggingface_hub safetensors')
+        return '  &&  '.join((_manual_pip(python, 'torch torchvision', index=_TORCH_CPU_INDEX), packages, pulls))
     if action == 'ollama_model':
         # The Studio container need not have an Ollama CLI; this action is HTTP-only.
         return ''
@@ -875,7 +880,8 @@ def manual_command(action) -> str:
             dest = _node_pack_dest(action)
         except Precondition:
             dest = os.path.join('<ComfyUI>', 'custom_nodes', spec['folder'])
-        return f'git clone --depth 1 {spec["repo"]} "{dest}"'
+        return (f'Download {spec["zip"]}, verify SHA-256 {spec["sha256"]}, then extract the archive folder '
+                f'to "{dest}" and restart ComfyUI.')
     if action in _BUNDLED_NODE_PACKS:
         # No remote to fetch: the "manual command" is the copy this action performs.
         try:
@@ -1380,6 +1386,7 @@ def _run_pip(action, cmd, *, env=None) -> int:
                                   'watermark_inpaint', 'bank_scoring',
                                   'bank_siglip2', 'watermark_detect', 'shot_detect'):
         env = managed_python.subprocess_env()
+    cmd, env = plugin_tool_sources.pip_install(cmd, env)
     rc = -1
     for attempt in range(1, _PIP_RETRIES + 1):
         buf = []
@@ -1428,7 +1435,7 @@ _VENV_PY_MAX = (3, 12)   # torch / simple-lama publish wheels for CPython 3.10-3
 # masked regions where CPU is fine. watermark.device='auto' resolves to CPU when CUDA is
 # absent, so the env works with zero config. A user who wants GPU points watermark.python
 # at their own CUDA env — where we DON'T force CPU torch (we never downgrade their build).
-_TORCH_CPU_INDEX = 'https://download.pytorch.org/whl/cpu'
+_TORCH_CPU_INDEX = plugin_tool_sources.CPU
 # Budget for the post-install verification import (see _verify_watermark_import). Far
 # longer than the capability probe's 60 s ceiling on purpose: importing simple-lama pulls
 # in torch + torchvision + opencv (~430 MB of native code, a single 291 MB torch_cpu.dll),
@@ -1451,7 +1458,7 @@ def _install_cpu_torch_pair(action, python, *, constraints=None) -> int:
     builds. One index, both names: pip resolves a matched pair, and the call is a
     no-op when a matched pair is already there."""
     _append(action, 'installing CPU torch + torchvision '
-                    '(download.pytorch.org/whl/cpu) if needed')
+                    'from the LDS CPU wheel index if needed')
     cmd = [python, '-m', 'pip', 'install', 'torch', 'torchvision',
            '--index-url', _TORCH_CPU_INDEX]
     if constraints:
@@ -2487,36 +2494,16 @@ def _node_pack_already_there(action, dest) -> bool:
         return False
 
 
-def _clone_node_pack(action, spec, dest) -> bool:
-    """git clone --depth 1 into `dest`. False when git is absent or the clone
-    fails (the caller then tries the ZIP). Argument list, no shell, fixed URL."""
-    git = shutil.which('git')
-    if not git:
-        _append(action, 'git is not installed — falling back to a ZIP download')
-        return False
-    _append(action, f"git clone --depth 1 {spec['repo']}")
-    try:
-        proc = subprocess.run([git, 'clone', '--depth', '1', spec['repo'], dest],
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, timeout=network_timeout(_GIT_CLONE_TIMEOUT_S))
-    except (OSError, subprocess.SubprocessError) as e:
-        _append(action, f'git clone failed ({e}) — falling back to a ZIP download')
-        return False
-    for line in (proc.stdout or '').splitlines():
-        _append(action, line)
-    if proc.returncode == 0:
-        return True
-    _append(action, f'git clone exited {proc.returncode} — falling back to a ZIP download')
-    shutil.rmtree(dest, ignore_errors=True)     # never leave a half clone behind
-    return False
-
-
 def _zip_node_pack(action, spec, dest) -> bool:
-    """Fallback for installs with no git: fetch GitHub's source ZIP and move its
-    single top-level folder into place. Extracts to a sibling temp folder first,
-    so a failure never leaves a partial pack ComfyUI would try to import."""
+    """Fetch the pack's pinned commit ZIP, check its SHA-256, and move its single
+    top-level folder into place. Extracts to a sibling temp folder first, so a
+    failure never leaves a partial pack ComfyUI would try to import."""
     import tempfile
     import zipfile
+    if not spec.get('sha256'):
+        # Every catalog entry is pinned; an unpinned one is a catalog bug.
+        _append(action, 'This node pack has no pinned checksum. Nothing was installed.')
+        return False
     _append(action, f"downloading {spec['zip']}")
     parent = os.path.dirname(dest)
     os.makedirs(parent, exist_ok=True)
@@ -2524,14 +2511,19 @@ def _zip_node_pack(action, spec, dest) -> bool:
     archive = os.path.join(tmp_dir, 'pack.zip')
     try:
         with requests.get(spec['zip'], stream=True, timeout=network_timeout(_ZIP_TIMEOUT),
-                          allow_redirects=True) as resp:
-            if resp.status_code >= 400:
+                          allow_redirects=False) as resp:
+            if resp.status_code != 200:
                 _append(action, f'HTTP {resp.status_code} downloading the ZIP')
                 return False
             with open(archive, 'wb') as fh:
+                digest = hashlib.sha256()
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         fh.write(chunk)
+                        digest.update(chunk)
+        if digest.hexdigest() != spec['sha256']:
+            _append(action, 'The node archive checksum did not match. Nothing was installed.')
+            return False
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(tmp_dir)
         roots = [n for n in os.listdir(tmp_dir)
@@ -2650,10 +2642,7 @@ def refresh_bundled_node_packs() -> dict:
 
 
 def _run_node_pack(action) -> int:
-    """Install a custom-node pack into THIS user's ComfyUI. git clone first, ZIP
-    fallback, and an explicit "here is what to do by hand" when both fail — never
-    a bare traceback. Success does NOT mean the engine is ready: ComfyUI
-    registers nodes at startup only, so the last line says to restart it."""
+    """Install the reviewed node archive or reuse a previously prepared folder."""
     spec = _NODE_PACKS[action]
     try:
         dest = _node_pack_dest(action)
@@ -2664,7 +2653,7 @@ def _run_node_pack(action) -> int:
         return 1
     # The recognized portable uses the pinned, verified recipe. Other layouts
     # retain their existing acquisition path until they have a runtime adapter.
-    # Never fall back to an unverified clone after a managed preparation fails.
+    # Never fall back to an unverified download after a managed preparation fails.
     from .services import comfyui_control, comfyui_node_install, comfyui_node_recipes
     recipe = comfyui_node_recipes.CORE_RECIPES.get(action)
     managed = (recipe is not None and comfyui_control._validated_portable_layout() is not None)
@@ -2686,12 +2675,10 @@ def _run_node_pack(action) -> int:
                         'If ComfyUI still reports the nodes as missing, restart ComfyUI.')
         return 0
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    ok = _clone_node_pack(action, spec, dest) or _zip_node_pack(action, spec, dest)
+    ok = _zip_node_pack(action, spec, dest)
     if not ok:
         _append(action, f"couldn't install {spec['pack']} automatically.")
-        _append(action, f"Install it by hand: clone {spec['repo']} into {os.path.dirname(dest)}"
-                        ' (or use the ComfyUI Manager and search for the pack name), then '
-                        'restart ComfyUI.')
+        _append(action, manual_command(action))
         return 1
     _append(action, f"installed {spec['pack']} -> {dest}")
     # The pack declares no dependencies today; if a future version adds some, say

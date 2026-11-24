@@ -14,14 +14,14 @@ def action(tmp_path, monkeypatch):
     monkeypatch.setattr(installer, '_node_pack_dest', lambda _: str(destination))
     monkeypatch.setattr(control, '_validated_portable_layout', lambda: SimpleNamespace(base_dir=tmp_path))
     monkeypatch.setattr(installer, '_runs', {'krea_nodes': installer._new_run()})
-    monkeypatch.setattr(installer, '_clone_node_pack', lambda *_: pytest.fail('managed preparation must never use git fallback'))
+    monkeypatch.setattr(installer, '_zip_node_pack', lambda *_: pytest.fail('managed preparation must never use the ZIP fallback'))
     return destination
 
 
 def test_core_preparation_uses_the_immutable_recipe_and_prepared_verdict(action, monkeypatch):
     calls = []
     def plan(recipe, *, owner):
-        assert recipe.url.endswith('/86f886dac23013d88996e3a2e99093ba44d322fb')
+        assert recipe.url == f'https://lds.perfectgf.fr/models/tools/{recipe.sha256}/comfyui-krea2edit.zip'
         assert recipe.sha256 == 'ff1102a1d17f597d8b100afd17bd489a7910325729483398f1385c541f18c171'
         assert recipe.requirements == ()
         calls.append(('plan', owner))

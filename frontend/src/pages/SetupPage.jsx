@@ -14,6 +14,7 @@ import { deriveSetupSteps, deriveCapabilitySummary, SETUP_STEP_IDS, kleinMissing
   from '../hooks/useSetupSteps'
 import SettingsLink from '../components/common/SettingsLink'
 import GuidedSteps from '../components/setup/GuidedSteps'
+import ComfyManualInstall from '../components/setup/ComfyManualInstall'
 import SetupStart from '../components/setup/SetupStart'
 import { normalizeJourney } from '../components/setup/setupJourney'
 import { completeCoreSetup } from '../components/setup/completeCoreSetup'
@@ -935,15 +936,10 @@ export default function SetupPage() {
         )
       }
       return (
-        <GuidedSteps
-          intro="ComfyUI is a local image generator. Install it once, then point the app at it."
-          steps={[
-            { text: 'Clone ComfyUI and follow its README to install it.', command: 'git clone https://github.com/comfyanonymous/ComfyUI' },
-            { text: 'Start it (defaults to port 8188).' },
-          ]}
-          link={{ href: 'https://github.com/comfyanonymous/ComfyUI', label: 'ComfyUI on GitHub →' }}>
+        <div className="space-y-4">
+          <ComfyManualInstall />
           {fields}
-        </GuidedSteps>
+        </div>
       )
     }
     if (id === 'ollama') {
