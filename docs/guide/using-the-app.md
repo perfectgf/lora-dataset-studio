@@ -212,7 +212,7 @@ model, and image generation keeps running.
 
 ## The Gallery (every image you generated)
 
-**🖼 Gallery** in the top bar is one feed of everything the app ever rendered —
+**🖼 Gallery** in the main menu is one feed of everything the app ever rendered —
 Test Studio cells, Canvas previews, comparison runs and ✨ Upscale & improve
 results — across every dataset at once, newest first. The per-checkpoint
 galleries answer "what did this training produce"; this page answers "what did

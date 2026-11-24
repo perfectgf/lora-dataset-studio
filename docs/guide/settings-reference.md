@@ -4,7 +4,7 @@ Every setting in LoRA Dataset Studio, explained: what it does, its default, when
 
 ## How settings work
 
-Open **Settings** from the top nav. Each rail entry on the left is a section (Overview, Image engines, Scraping & sources, Local tools, Captioning & quality, Training, Server & access, Maintenance); its little LED shows live health at a glance — **green** when the section is fully configured, **amber** when it's partly set up, **off** when nothing is configured yet.
+Open **Settings** from the main menu, under **Setup & settings**. Each rail entry on the left is a section (Overview, Image engines, Scraping & sources, Local tools, Captioning & quality, Training, Server & access, Maintenance); its little LED shows live health at a glance — **green** when the section is fully configured, **amber** when it's partly set up, **off** when nothing is configured yet.
 
 A few things hold true everywhere:
 
