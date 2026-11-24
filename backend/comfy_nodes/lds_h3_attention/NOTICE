@@ -1,0 +1,3 @@
+Derived from jacokon/fasth3-live, custom_nodes/h3_block_attention. Apache-2.0. Source: https://huggingface.co/datasets/jacokon/fasth3-live
+
+Modified by LDS on 2026-09-04: the class key is namespaced (LDSMiniMaxH3BlockAttentionSplit); the list of backends is computed where it is needed instead of as a side effect of INPUT_TYPES; the report names the backend that actually ran for each span.

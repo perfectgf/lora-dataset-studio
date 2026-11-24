@@ -329,18 +329,21 @@ def fake_comfyui(tmp_path, monkeypatch):
     return root
 
 
-def test_deploy_copies_the_node_and_stamps_it(fake_comfyui):
+@pytest.mark.parametrize('action,folder', [('krea_sampler_nodes', 'lds_krea_sampler'),
+                                         ('h3_attention_nodes', 'lds_h3_attention'),
+                                         ('h3_reference_nodes', 'lds_h3_reference')])
+def test_deploy_copies_the_node_and_stamps_it(fake_comfyui, action, folder):
     from app import setup_installer as si
     from app.version import APP_VERSION
 
-    ok, message = si._deploy_bundled_pack('krea_sampler_nodes')
+    ok, message = si._deploy_bundled_pack(action)
     assert ok, message
-    dest = fake_comfyui / 'custom_nodes' / 'lds_krea_sampler'
+    dest = fake_comfyui / 'custom_nodes' / folder
     assert (dest / '__init__.py').is_file()
     assert (dest / si._BUNDLED_STAMP).read_text(encoding='utf-8') == APP_VERSION
-    assert si._bundled_pack_state('krea_sampler_nodes') == 'current'
+    assert si._bundled_pack_state(action) == 'current'
     # Idempotent: a second click must not rewrite anything.
-    ok, message = si._deploy_bundled_pack('krea_sampler_nodes')
+    ok, message = si._deploy_bundled_pack(action)
     assert ok and 'up to date' in message
 
 

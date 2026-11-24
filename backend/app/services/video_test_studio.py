@@ -329,11 +329,10 @@ def build_workflow(*, prompt, mode='i2v', image=None, seed=None, steps=None,
     latent upscale is armed and there is an image to measure; without it the
     upscale keeps the node's own target size.
 
-    `sage=False` takes SageAttention out. It is a speed patch from a pack the
-    installer deliberately does not fetch (it declares pip dependencies, and
-    this app never pip-installs a third-party requirements file into someone
-    else's environment), so the graph has to be able to do without it — the
-    caller passes what the target ComfyUI actually registers.
+    `sage=False` takes SageAttention out. It is a speed patch that needs the
+    `sageattention` GPU package, which LDS never installs, so the graph has to be
+    able to do without it — the caller passes `sage_available()`, which keeps it
+    only when the target ComfyUI registers KJNodes' patch AND imports the package.
     """
     wf = load_base_workflow()
     notes = []
@@ -1575,15 +1574,12 @@ UNFETCHABLE = {
 # first clip with nothing but the weights.
 #
 # SageAttention is absent too, and that is the same decision seen from the other
-# side: it is a speed patch, its pack declares pip dependencies, and this app
-# never pip-installs a third-party requirements file — so it is used when the
-# target ComfyUI already has it and skipped when it does not.
-# WHY THESE ARE LINKS AND NOT BUTTONS (maintainer's call, 2026-08-31)
-# "Downloading models is fine, but we do not take responsibility for breaking a
-# ComfyUI install." A weight is an inert file; a custom node is code ComfyUI
-# imports at startup, and one bad import takes the server down for every other
-# lane. So the app names the pack, links it, and lets the user install it on the
-# ComfyUI side — where they can see what they are adding.
+# side: it is a speed patch that needs the `sageattention` GPU package, which
+# LDS never installs — so it is used when the target ComfyUI already has it and
+# skipped when it does not (see `sage_available`).
+# The 2026-08-31 rule that kept these packs as links was replaced on 2026-11-24
+# ("everything provided, pinned", setup_installer's node-pack rule): the Video
+# plugin installs them at pinned versions. This legacy table only names them.
 OPTION_NODE_PACKS = {
     'turbo': {
         'pack': 'ComfyUI-MiniMax-H3-Turbo',
@@ -1615,8 +1611,9 @@ OPTION_NODE_PACKS = {
 }
 
 # SageAttention. Not an option and not a checkbox: a speed patch the graph keeps
-# when the target ComfyUI has it and drops when it does not. Linked for the same
-# reason as the three above, and installed the same way — by the user.
+# when the target ComfyUI has it and drops when it does not. Linked, never
+# installed: it only works with the `sageattention` GPU package, which LDS never
+# installs, so the user adds both on the ComfyUI side.
 SAGE_CLASS = 'PathchSageAttentionKJ'
 SAGE_PACK = {
     'pack': 'ComfyUI-KJNodes',
@@ -1740,7 +1737,13 @@ def sage_available(classes=None) -> bool:
     """
     if classes is None:
         classes = registered_classes()
-    return bool(classes) and SAGE_CLASS in classes
+    # KJNodes registers the patch without the `sageattention` package and
+    # imports it only when the patch runs: its class alone let every render fail
+    # on a ComfyUI that had KJNodes and not the package.
+    if not classes or SAGE_CLASS not in classes:
+        return False
+    from ..utils.comfyui import sageattention_importable
+    return sageattention_importable(classes)
 
 
 def studio_ready(missing=None) -> bool:

@@ -15,8 +15,13 @@ def fetch_output_image_bytes(*args, **kwargs):
     return fetch_output_image_bytes(*args, **kwargs)
 
 
+def sageattention_importable(*args, **kwargs):
+    from app.utils.comfyui import sageattention_importable
+    return sageattention_importable(*args, **kwargs)
 
-__all__ = ['fetch_node_info', 'fetch_object_info_classes', 'fetch_output_image_bytes']
+
+__all__ = ['fetch_node_info', 'fetch_object_info_classes', 'fetch_output_image_bytes',
+           'sageattention_importable']
 
 
 # Compatibility with the original public SDK exports.
