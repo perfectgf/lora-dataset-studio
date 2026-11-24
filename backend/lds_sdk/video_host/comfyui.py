@@ -20,8 +20,13 @@ def sageattention_importable(*args, **kwargs):
     return sageattention_importable(*args, **kwargs)
 
 
+def fit_node_inputs(*args, **kwargs):
+    from app.utils.comfyui import fit_node_inputs
+    return fit_node_inputs(*args, **kwargs)
+
+
 __all__ = ['fetch_node_info', 'fetch_object_info_classes', 'fetch_output_image_bytes',
-           'sageattention_importable']
+           'fit_node_inputs', 'sageattention_importable']
 
 
 # Compatibility with the original public SDK exports.

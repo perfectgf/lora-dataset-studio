@@ -159,6 +159,22 @@ def _no_live_comfyui_input_visibility_probe(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_live_comfyui_node_info(request, monkeypatch):
+    """Building an H3 graph with sparse attention now ASKS ComfyUI which
+    H3-Optimizations release it runs (`fit_node_inputs`), and the Sage probe
+    asks the block-attention switch. Same undeclared dependency as the fixtures
+    above: `api_address()` always resolves to 127.0.0.1:8188, so on a machine
+    running ComfyUI the graph would depend on whatever pack that ComfyUI has.
+
+    None is `fetch_node_info`'s own "could not ask", which leaves every graph as
+    the code writes it. Tests about the adaptation set their own value; tests
+    marked @pytest.mark.comfyui_http drive `requests` themselves."""
+    if request.node.get_closest_marker('comfyui_http'):
+        return
+    monkeypatch.setattr('app.utils.comfyui.fetch_node_info', lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
 def _reset_inmemory_registries():
     """dataset_activity is a process-global in-memory store (a batch dies with the
     process, not the request). With :memory: DBs each test restarts dataset ids at
