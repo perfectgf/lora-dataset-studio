@@ -30,7 +30,21 @@ must physically live in your ComfyUI install — and the scanner only accepts it
 inside a sub-folder whose name contains \`z image\` (or \`zimage\`). A file dropped
 loose in \`models/unet\` is **not** detected.
 
-**Fix:** lay the stack out like this inside your ComfyUI folder, then re-test:
+**Fix:** let LDS download what is missing. When a Z-Image file is missing, the
+Test Studio shows a **Prepare Z-Image for generation** panel with a **Download**
+button, its size and its progress for each file, and **Settings → Image engines →
+Test Studio image models → Z-Image** offers the same downloads. They are the
+official Z-Image Turbo files published by Comfy-Org, checked against their
+published size and SHA256, and they land where the Studio finds them:
+
+\`\`\`
+models/diffusion_models/z image/z_image_turbo_bf16.safetensors
+models/text_encoders/qwen_3_4b.safetensors
+models/vae/z image/ae.safetensors
+\`\`\`
+
+To use your own Z-Image checkpoint, or to place the files yourself, lay the
+stack out like this inside your ComfyUI folder, then re-test:
 
 \`\`\`
 models/unet/z image/<your Z-Image checkpoint>.safetensors
@@ -65,6 +79,25 @@ ComfyUI install directory**. If only the API URL is set, there's nothing to scan
 **Fix:** point the install directory at the folder that contains \`models/\` and
 \`main.py\` (the Setup wizard detects it for you), then hit **Test**. SDXL
 checkpoints are scanned from \`models/checkpoints\`.
+
+## The SDXL Test Studio says \`DetailDaemonSamplerNode\` is missing
+
+**Why:** every SDXL Studio cell runs the Detail Daemon sampler for its second
+pass. It comes from the **ComfyUI-Detail-Daemon** custom node pack, which a
+fresh ComfyUI does not have, so the Studio stops before wasting a run.
+
+**Fix:** in the Studio's error banner, choose **Fix missing ComfyUI nodes**, then
+**Install ComfyUI-Detail-Daemon**. LDS installs version 1.2.0 after checking its
+archive. The pack also needs the Python package \`matplotlib\`: on a ComfyUI
+Windows portable LDS adds \`matplotlib\` 3.11.2 to ComfyUI's Python. It never
+replaces an installed package, so if ComfyUI already has another \`matplotlib\`
+version the install stops with a message, and ComfyUI-Manager can install the
+pack instead. On Desktop, manual or server installations
+LDS does not manage ComfyUI's Python, so the button installs nothing and lists
+the exact steps: the download and its SHA-256, the folder to extract it into,
+and the \`pip install "matplotlib==3.11.2"\` command to run with ComfyUI's own
+Python if it does not have \`matplotlib\` yet. Restart ComfyUI, then use **Check
+nodes again** and relaunch the test.
 
 ## The Krea 2 Turbo Test Studio says a custom node is missing
 
