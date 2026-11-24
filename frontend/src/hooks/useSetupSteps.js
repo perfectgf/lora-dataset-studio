@@ -943,6 +943,10 @@ function coreInstallCatalog(caps) {
     || !!(cu.reachable
       && !(Array.isArray(cu.lanpaint_nodes_missing) && cu.lanpaint_nodes_missing.length))
   const lanpaintRestart = lanpaintNeedsComfyuiRestart(c)
+  const detailDaemonMissing = Array.isArray(cu.detail_daemon_nodes_missing)
+    && cu.detail_daemon_nodes_missing.length > 0
+  const detailDaemonPresent = !!cu.detail_daemon_nodes_installed || !!(cu.reachable && !detailDaemonMissing)
+  const detailDaemonRestart = !!cu.detail_daemon_nodes_installed && detailDaemonMissing
   // Same three-state rule as the two packs above: the folder is there, OR a
   // REACHABLE ComfyUI exposes the node (installed under another name); on
   // disk but not loaded yet is a restart, not an install.
@@ -1034,6 +1038,13 @@ function coreInstallCatalog(caps) {
       ...item('lanpaint_nodes', dirValid && lanpaintNodesPresent && !lanpaintRestart,
         dirValid, kleinHint),
       ...(lanpaintRestart ? { state: 'restart', stateLabel: '⟳ Restart ComfyUI' } : {}),
+    },
+    // Detail Daemon: the SDXL Test Studio's second-pass sampler (a pinned pack
+    // that adds matplotlib). Same present/restart logic as LanPaint.
+    {
+      ...item('detail_daemon_nodes', dirValid && detailDaemonPresent && !detailDaemonRestart,
+        dirValid, kleinHint),
+      ...(detailDaemonRestart ? { state: 'restart', stateLabel: '⟳ Restart ComfyUI' } : {}),
     },
   ]
 }

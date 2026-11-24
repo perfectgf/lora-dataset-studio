@@ -478,6 +478,7 @@ test('installCatalog lists every app-installable component, present + available'
     ['face_scoring', 'masks', 'watermark_inpaint', 'video_text', 'ollama_model',
       'klein_model', 'klein_text_encoder', 'klein_vae', 'klein_lora', 'klein_enhancement_lora',
       'krea_nodes', 'krea_model', 'krea_text_encoder', 'krea_vae', 'krea_identity_lora', 'lanpaint_nodes',
+      'detail_daemon_nodes',
       'video', 'video_host', 'shot_detect', 'h3_base', 'h3_text_encoder', 'h3_clip_projection',
       'h3_clipproj_nodes', 'h3_video_vae', 'h3_video_vae_int8',
       'h3_audio_vae', 'h3_turbo_lora', 'h3_parasyte_lora', 'h3_dareties_lora',
@@ -498,7 +499,7 @@ test('installCatalog lists every app-installable component, present + available'
 test('installCatalog stays fully available for reinstall when all is green', () => {
   // The menu must never collapse once installed — each item can always be repaired.
   const cat = installCatalog(fullCaps());
-  assert.equal(cat.length, 49); // Core plus explicitly active products; shared OCR appears once.
+  assert.equal(cat.length, 50); // Core plus explicitly active products; shared OCR appears once.
   for (const c of cat) assert.equal(c.available, true, `${c.action} available to reinstall`);
 });
 
@@ -529,6 +530,20 @@ test('installCatalog still lets you REPAIR a present ML extra on an unsupported 
     python: { ml_supported: false, ml_range: '3.10–3.12' }, face_scoring: true }));
   assert.equal(cat.face_scoring.present, true);
   assert.equal(cat.face_scoring.available, true);
+});
+
+test('installCatalog offers the Detail Daemon pack and tells a restart from an install', () => {
+  const comfy = (extra) => ({ ...fullCaps().comfyui, ...extra });
+  const missing = byAction(installCatalog({ ...fullCaps(),
+    comfyui: comfy({ detail_daemon_nodes_missing: ['DetailDaemonSamplerNode'], detail_daemon_nodes_installed: false }) }));
+  assert.equal(missing.detail_daemon_nodes.present, false);
+  assert.equal(missing.detail_daemon_nodes.available, true);
+  const restart = byAction(installCatalog({ ...fullCaps(),
+    comfyui: comfy({ detail_daemon_nodes_missing: ['DetailDaemonSamplerNode'], detail_daemon_nodes_installed: true }) }));
+  assert.equal(restart.detail_daemon_nodes.state, 'restart');
+  const loaded = byAction(installCatalog({ ...fullCaps(),
+    comfyui: comfy({ detail_daemon_nodes_missing: [], detail_daemon_nodes_installed: false }) }));
+  assert.equal(loaded.detail_daemon_nodes.present, true);
 });
 
 test('installCatalog gates the vision model on a reachable, named Ollama', () => {

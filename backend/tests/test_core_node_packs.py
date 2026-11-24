@@ -308,3 +308,24 @@ def test_a_video_pack_points_to_setup_only_when_a_plugin_installs_it(app, monkey
         assert 'ComfyUI-Manager' not in error
     else:
         assert 'install “ComfyUI-MiniMax-H3-Turbo” via ComfyUI-Manager' in error
+
+
+def test_setup_reports_the_detail_daemon_pack_like_lanpaint(monkeypatch, tmp_path):
+    """Missing classes come from /object_info (fail-open), the folder from disk:
+    together they tell "install" from "restart ComfyUI" in Setup's menu."""
+    from app import capabilities
+    from app.utils import comfyui
+    folder = tmp_path / 'custom_nodes' / 'ComfyUI-Detail-Daemon'
+    monkeypatch.setattr(installer, '_comfyui_root', lambda: str(tmp_path))
+    monkeypatch.setattr(comfyui, 'fetch_object_info_classes', lambda *a, **k: {'KSampler'})
+    assert capabilities._detail_daemon_nodes({'ok': True}) == {
+        'detail_daemon_nodes_missing': ['DetailDaemonSamplerNode'], 'detail_daemon_nodes_installed': False}
+    folder.mkdir(parents=True)
+    (folder / '__init__.py').write_text('# stand-in\n', encoding='utf-8')
+    assert capabilities._detail_daemon_nodes({'ok': True})['detail_daemon_nodes_installed'] is True
+    monkeypatch.setattr(comfyui, 'fetch_object_info_classes', lambda *a, **k: {'DetailDaemonSamplerNode'})
+    assert capabilities._detail_daemon_nodes({'ok': True})['detail_daemon_nodes_missing'] == []
+    # ComfyUI down, or /object_info unreadable: no verdict on the classes.
+    assert capabilities._detail_daemon_nodes({'ok': False})['detail_daemon_nodes_missing'] == []
+    monkeypatch.setattr(comfyui, 'fetch_object_info_classes', lambda *a, **k: None)
+    assert capabilities._detail_daemon_nodes({'ok': True})['detail_daemon_nodes_missing'] == []
