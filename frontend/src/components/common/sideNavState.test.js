@@ -59,6 +59,19 @@ test('the stylesheet sizes the folded menu from that attribute, and the app appl
     'the stored choice is applied before the app mounts');
 });
 
+test('Plugins is an entry of its own right under Gallery, always listed, and once in the phone panel', () => {
+  const app = readFileSync(new URL('../../App.jsx', import.meta.url), 'utf8');
+  const workspaces = app.slice(app.indexOf('const workspaceLinks'), app.indexOf('const pluginItems'));
+  const gallery = workspaces.indexOf("entry('/gallery', Images, 'Gallery')");
+  const plugins = workspaces.indexOf("{entry('/plugins', Puzzle, 'Plugins')}");
+  assert.ok(gallery > -1 && plugins > gallery, 'Plugins follows Gallery');
+  assert.equal(workspaces.slice(gallery + 1).match(/entry\('/g).length, 1, 'and nothing stands between them');
+  const panel = app.slice(app.indexOf('const panelLinks'));
+  assert.ok(!panel.slice(0, panel.indexOf('</>')).includes('to="/plugins"'), 'the panel gets it from the workspaces');
+  // Only its own entry lights up on the Plugins page, not the menu that also lists it.
+  assert.doesNotMatch(app, /settingsMenuActive = [^\n]*\/plugins/);
+});
+
 test("a menu opened from the side column is drawn over the generation dock, and under the dialogs", () => {
   // Both float over the page at the bottom left. On one layer the dock, later in the document, hid the last
   // entry of Setup & settings (Plugins) for as long as something was generating.
