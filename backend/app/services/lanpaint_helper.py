@@ -30,9 +30,10 @@ from .. import config as cfg
 LANPAINT_NODE_CLASSES = ('LanPaint_KSampler',)
 
 # Same contract as setup_installer._NODE_PACKS['lanpaint_nodes'] (a test pins
-# the two together): constant URL, clone-or-zip, installed into
-# <validated ComfyUI>/custom_nodes/<folder>. The pack declares zero pip
-# dependencies (pyproject checked 2026-08-25, v2.1.0), so a clone is enough.
+# the two together): a pinned commit archive checked against its SHA-256,
+# installed into <validated ComfyUI>/custom_nodes/<folder>. The pack declares
+# zero pip dependencies (pyproject checked 2026-11-24, v2.1.0), so its files
+# are enough.
 LANPAINT_NODE_PACK = {
     'pack': 'LanPaint',
     'url': 'https://github.com/scraed/LanPaint',

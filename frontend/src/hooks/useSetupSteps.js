@@ -791,6 +791,7 @@ export const INSTALL_ALL_ACTION_LABELS = {
   krea_vae: 'Krea 2 VAE',
   krea_identity_lora: 'Krea 2 Identity Edit LoRA',
   lanpaint_nodes: 'LanPaint sampler (masked Repair)',
+  detail_daemon_nodes: 'Detail Daemon node pack (SDXL Test Studio)',
 }
 
 /** Resolve Setup labels from the feature that owns the action. Core callers
@@ -1025,8 +1026,8 @@ function coreInstallCatalog(caps) {
     },
     ...['krea_model', 'krea_text_encoder', 'krea_vae', 'krea_identity_lora'].map(
       (a) => item(a, dirValid && !kreaMissing.includes(a), dirValid, kleinHint)),
-    // LanPaint — the sampler the masked ✦ Repair lane runs on (a ~1 MB clone,
-    // zero pip dependencies). Same present/restart logic as the Krea pack: a
+    // LanPaint: the sampler the masked ✦ Repair lane runs on (a pinned 200 MB
+    // archive, mostly example media; zero pip dependencies). Same present/restart logic as the Krea pack: a
     // reachable ComfyUI that exposes the node counts as present whatever the
     // folder is called, and on-disk-but-not-loaded is a restart, not an install.
     {

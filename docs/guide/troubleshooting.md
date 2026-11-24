@@ -80,6 +80,25 @@ ComfyUI install directory**. If only the API URL is set, there's nothing to scan
 `main.py` (the Setup wizard detects it for you), then hit **Test**. SDXL
 checkpoints are scanned from `models/checkpoints`.
 
+## The SDXL Test Studio says `DetailDaemonSamplerNode` is missing
+
+**Why:** every SDXL Studio cell runs the Detail Daemon sampler for its second
+pass. It comes from the **ComfyUI-Detail-Daemon** custom node pack, which a
+fresh ComfyUI does not have, so the Studio stops before wasting a run.
+
+**Fix:** in the Studio's error banner, choose **Fix missing ComfyUI nodes**, then
+**Install ComfyUI-Detail-Daemon**. LDS installs version 1.2.0 after checking its
+archive. The pack also needs the Python package `matplotlib`: on a ComfyUI
+Windows portable LDS adds `matplotlib` 3.11.2 to ComfyUI's Python. It never
+replaces an installed package, so if ComfyUI already has another `matplotlib`
+version the install stops with a message, and ComfyUI-Manager can install the
+pack instead. On Desktop, manual or server installations
+LDS does not manage ComfyUI's Python, so the button installs nothing and lists
+the exact steps: the download and its SHA-256, the folder to extract it into,
+and the `pip install "matplotlib==3.11.2"` command to run with ComfyUI's own
+Python if it does not have `matplotlib` yet. Restart ComfyUI, then use **Check
+nodes again** and relaunch the test.
+
 ## The Krea 2 Turbo Test Studio says a custom node is missing
 
 **Why:** the Krea grid rebalances the Qwen3-VL conditioning through a small

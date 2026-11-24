@@ -623,8 +623,8 @@ def _krea_missing_response(e):
     pipeline" failure for a generation engine.
 
     AUTO-INSTALLS, exactly like Klein's 409: the four weights are wired into
-    setup_installer and the custom-node pack is git-cloned into this user's own
-    ComfyUI. Selecting the engine and pressing Generate is the intent; the
+    setup_installer and the custom-node pack is installed, at its pinned and checked
+    version, into this user's own ComfyUI. Selecting the engine and pressing Generate is the intent; the
     message then reports what is being fetched instead of listing five manual
     gestures. The manual paths stay in the payload (and in the message when
     nothing could be started), so a machine that can't download is never left
@@ -769,7 +769,7 @@ def _improve_engine_error(e):
 
 def _autostart_krea_install(missing, missing_nodes):
     """Kick off the installs that close a Krea preflight miss: the node pack (a
-    small git clone) and each missing weight. Returns the action names actually
+    small pinned archive) and each missing weight. Returns the action names actually
     started. Never raises — an install that can't start (already running, disk
     precondition) is simply absent from the list, and the message degrades to the
     manual instructions."""

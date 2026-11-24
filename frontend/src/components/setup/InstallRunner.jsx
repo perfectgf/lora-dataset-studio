@@ -37,9 +37,12 @@ export function InstallRuntimeNotice({ result, onChoose }) {
 // state instead of a dead-looking button.
 // `body` is posted with the start request (the AI Toolkit install sends its
 // folder); `cancellable` shows a Cancel button for actions the backend can stop.
+// The one by-hand path: a node pack that adds Python packages, on a ComfyUI
+// whose Python LDS does not manage, ends with nothing installed and the exact
+// steps (`manual_steps`), shown instead of a failure.
 export default function InstallRunner({ action, buttonLabel, busyLabel = 'Installing…', onDone,
   body = null, disabled = false, cancellable = action === 'ollama_model',
-  cancelLabel = 'Cancel download', cancelledNote = '' }) {
+  cancelLabel = 'Cancel download', cancelledNote = '', successMessage = '' }) {
   const toast = useToast()
   const [state, setState] = useState('idle')  // idle|queued|running|success|error|cancelled
   const [cancelling, setCancelling] = useState(false)
@@ -48,6 +51,7 @@ export default function InstallRunner({ action, buttonLabel, busyLabel = 'Instal
   const [progress, setProgress] = useState(null)  // {done,total,pct} for streaming downloads
   const [step, setStep] = useState(null)  // {index,total,label} for multi-step installs
   const [runtimeNotice, setRuntimeNotice] = useState(null)
+  const [manualSteps, setManualSteps] = useState([])
   const [pythonPicker, setPythonPicker] = useState(null)
   const timer = useRef(null)
   const mountedRef = useRef(true)
@@ -58,6 +62,8 @@ export default function InstallRunner({ action, buttonLabel, busyLabel = 'Instal
     setProgress(s.progress || null)
     setStep(s.step || null)
     setRuntimeNotice(s.runtime_notice || null)
+    setManualSteps(Array.isArray(s.manual_steps)
+      ? s.manual_steps.filter((line) => typeof line === 'string') : [])
     if (s.state !== 'running') setCancelling(false)
   }
 
@@ -71,7 +77,10 @@ export default function InstallRunner({ action, buttonLabel, busyLabel = 'Instal
         timer.current = setTimeout(poll, POLL_MS)   // keep polling while queued too
       } else if (s.state === 'success') {
         const completion = installCompletion(s.state, s.runtime_notice)
-        toast[completion.tone](completion.message); onDone?.()
+        toast[completion.tone](successMessage && completion.tone === 'success'
+          ? successMessage : completion.message); onDone?.()
+      } else if (s.state === 'error' && s.manual_steps?.length) {
+        toast.info('Nothing was installed. Follow the steps shown to install it yourself.')
       } else if (s.state === 'error') {
         const completion = installCompletion(s.state, s.runtime_notice)
         toast[completion.tone](completion.message)
@@ -109,7 +118,7 @@ export default function InstallRunner({ action, buttonLabel, busyLabel = 'Instal
 
   const start = async () => {
     setLog([]); setReturncode(null); setProgress(null); setStep(null); setState('running')
-    setRuntimeNotice(null); setPythonPicker(null)
+    setRuntimeNotice(null); setPythonPicker(null); setManualSteps([])
     setCancelling(false); fails.current = 0
     try {
       const s = await postJson(`/api/setup/install/${action}`, body || {})
@@ -139,6 +148,7 @@ export default function InstallRunner({ action, buttonLabel, busyLabel = 'Instal
   const running = state === 'running'
   const busy = running || state === 'queued'
   const repairResult = installRuntimeNotice(runtimeNotice)
+  const byHand = state === 'error' && manualSteps.length > 0
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -185,12 +195,24 @@ export default function InstallRunner({ action, buttonLabel, busyLabel = 'Instal
       )}
       {!busy && <InstallRuntimeNotice result={repairResult}
         onChoose={() => setPythonPicker(repairResult.profile)} />}
-      {(log.length > 0 || running) && (
+      {byHand && (
+        <div role="status" className="space-y-2 rounded-md border border-amber-400/50 bg-amber-500/10 p-3 text-xs text-amber-200">
+          <p className="font-semibold">Install it yourself</p>
+          <p>This node pack adds Python packages. LDS installs those only on a ComfyUI Windows portable,
+            where it manages ComfyUI’s Python, so nothing was installed here.</p>
+          <ol className="list-decimal space-y-1 pl-5">
+            {manualSteps.map((line, index) => (
+              <li key={index} className="select-text break-all font-mono text-[11px]">{line}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {(log.length > 0 || running) && !byHand && (
         <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-surface-raised p-2 text-[11px] text-content-muted">
           {log.slice(-40).join('\n') || 'starting…'}
         </pre>
       )}
-      {state === 'error' && !repairResult?.errorIsSelection && (
+      {state === 'error' && !byHand && !repairResult?.errorIsSelection && (
         <p className="text-xs text-rose-400">
           {returncode != null
             ? `Install failed (exit ${returncode}). Click "${buttonLabel}" to try again — it repairs in place.`

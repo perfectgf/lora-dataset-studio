@@ -21,7 +21,7 @@ const ROW_META = {
 
 
 // One click that deploys the SECOND local engine: the comfyui-krea2edit custom-node
-// pack (a small clone into this install's custom_nodes) plus its four weights.
+// pack (a small pinned archive, extracted into this install's custom_nodes) plus its four weights.
 //
 // WHY IT IS ITS OWN CARD, not part of "Install everything"
 // -------------------------------------------------------

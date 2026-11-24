@@ -55,7 +55,9 @@ of that revision. Pin a release/commit archive; do not select a moving branch.
 - `classes` contains the exact node names expected from ComfyUI's `/object_info`.
   These are ComfyUI class names, which can differ from Python identifiers.
 - `requirements` defaults to `[]`. Use exact `name==version` pins; flags, direct
-  URLs, extras, markers, ranges and duplicate package names are refused.
+  URLs, extras, markers, ranges and duplicate package names are refused. The pin
+  is the version installed when the package is missing. A version already
+  installed with the same major release is accepted as it is (see below).
 - `python` defaults to `">=3.10"`. Declare the recipe's actual Python range,
   for example `">=3.12"`, using a nonempty packaging version specifier of at
   most 120 characters. This constrains ComfyUI's interpreter, separately from
@@ -145,15 +147,27 @@ This registration does not restart ComfyUI or submit a GPU render.
 
 ## Initial supported target and limits
 
-Managed preparation initially targets the configured local NVIDIA Windows
-portable ComfyUI layout. Its own interpreter is validated; LDS's Python and a
-plugin's CPU worker environment are not substitutes. Other ComfyUI layouts can
-still be used by LDS, but this API does not promise automatic preparation there.
+A recipe without `requirements` or `wheels` is only files: it is prepared into
+the `custom_nodes` folder of the configured ComfyUI whatever its layout
+(portable, Desktop, manual, Linux), with the same archive, path and link checks.
+A recipe that adds Python packages is prepared automatically only on the
+configured local NVIDIA Windows portable ComfyUI layout, where LDS manages that
+interpreter. Its own interpreter is validated; LDS's Python and a plugin's CPU
+worker environment are not substitutes. On any other layout nothing is
+installed: the plan reports `state: 'manual'` with `manual_steps` (the pinned
+download, its SHA-256, where to extract it, and the `pip install` command with
+the pinned requirements, GPU packages excepted), and the Setup action ends with
+those steps for the user instead of a bare refusal.
 
 The installer preserves the existing dependency versions and adds only missing,
-compatible wheels from its reviewed plan. Conflicting versions, unsupported GPU
-dependency changes, foreign node directories and automatic managed-node upgrades
-are refused. It does not execute an arbitrary repository `install.py`.
+compatible wheels from its reviewed plan. An installed package with the same
+major release as the recipe's pin serves that pin and is kept: `numpy 2.3.1`
+serves `numpy==2.5.2`, and `numpy 1.26.4` conflicts with it. Every OpenCV build
+(`opencv-python`, `opencv-contrib-python` and their headless builds) provides
+the same `cv2` module, so an installed build answers for any of them and a
+second build is never added. Conflicting versions, unsupported GPU dependency
+changes, foreign node directories and automatic managed-node upgrades are
+refused. It does not execute an arbitrary repository `install.py`.
 
 A compatible managed node can be shared by independent plugins without making
 one plugin depend on the other. Package uninstall does not remove shared nodes

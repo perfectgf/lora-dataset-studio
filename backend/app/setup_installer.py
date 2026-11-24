@@ -35,12 +35,12 @@ ollama pull don't touch a venv, so they stay parallel.
 """
 from .timeout_settings import network_timeout, processing_timeout
 import contextlib
+import hashlib
 import importlib
 import json
 import logging
 import os
 import re
-import hashlib
 import shutil
 import subprocess
 import sys
@@ -234,29 +234,27 @@ from .services.trained_image_models import model_downloads as _studio_model_down
 _STUDIO_DOWNLOADS = _studio_model_downloads()
 _MODEL_DOWNLOADS = {**_KLEIN_DOWNLOADS, **_KREA_DOWNLOADS, **_STUDIO_DOWNLOADS}
 
-# Custom-node packs the app can install itself. The first git-cloned
-# dependencies this app installs at all, so the rules are written down rather
+# Custom-node packs the core installs itself. The rules are written down rather
 # than implied:
-#   * the URL is a CONSTANT here, never derived from user input, and the clone
-#     runs as an argument list (no shell) with a timeout;
+#   * each pack is pinned to ONE commit archive whose SHA-256 is checked before
+#     anything reaches custom_nodes. The URL is a CONSTANT, never derived from
+#     user input, and no moving branch is ever fetched or cloned;
 #   * the destination is <validated ComfyUI>/custom_nodes/<folder> — resolved
 #     through the same capabilities.resolve_comfyui_base every other install
 #     uses, and REFUSED (never guessed) when no valid ComfyUI is configured;
 #   * an existing folder is left strictly alone (a user may have patched it);
-#   * git may be absent (ZIP installs of ComfyUI have none), so a codeload ZIP
-#     is the fallback — and if both fail the log says what to do by hand;
+#   * a pack with a recipe in services/comfyui_node_recipes (the pin lives there)
+#     goes through services/comfyui_node_install on the portable layout, or when
+#     it adds Python packages, with its path, replacement and GPU-stack checks.
+#     A files-only recipe pack on another layout takes the same pinned archive
+#     through _zip_node_pack, which also serves LanPaint: its archive is 199.6 MB
+#     of example media, over that worker's 64 MiB download bound;
 #   * ComfyUI only registers nodes at STARTUP, so a successful install reports
 #     "restart ComfyUI", it never claims the engine is ready.
-# `pip`: the pack declares `dependencies = []` (pyproject, checked 2026-07-27),
-# so a clone is enough. We deliberately do NOT pip-install a third-party
-# requirements file into the app's environment — if one appears the log says so
-# and leaves the call to the user.
 _NODE_PACKS = {
     'krea_nodes': {
         'pack': 'comfyui-krea2edit',
         'repo': 'https://github.com/lbouaraba/comfyui-krea2edit',
-        'zip': 'https://lds.perfectgf.fr/models/tools/ff1102a1d17f597d8b100afd17bd489a7910325729483398f1385c541f18c171/comfyui-krea2edit.zip',
-        'sha256': 'ff1102a1d17f597d8b100afd17bd489a7910325729483398f1385c541f18c171',
         'folder': 'comfyui-krea2edit',
     },
     # LanPaint: the training-free inpainting sampler the masked Repair lane
@@ -264,33 +262,38 @@ _NODE_PACKS = {
     # InpaintModelConditioning — GitHub #43). GPL-3.0, like ComfyUI itself and
     # installed the same way every ComfyUI custom node is: into the USER'S
     # ComfyUI, at their click. pyproject declares zero dependencies (checked
-    # 2026-08-25, v2.1.0), so a clone is enough — same contract as the pack
-    # above.
+    # 2026-11-24 at this commit, v2.1.0), so the files are enough.
     'lanpaint_nodes': {
         'pack': 'LanPaint',
         'repo': 'https://github.com/scraed/LanPaint',
+        'commit': '2d7912f9a5efe5ece8de334c7ca18317b8288c39',
         'zip': 'https://lds.perfectgf.fr/models/tools/bc79a3466fb607d7ee70076b03059d11c14391cee25ad40f6afefc4604628d2f/LanPaint.zip',
         'sha256': 'bc79a3466fb607d7ee70076b03059d11c14391cee25ad40f6afefc4604628d2f',
         'folder': 'LanPaint',
     },
+    # Detail Daemon: every SDXL Test Studio cell runs DetailDaemonSamplerNode.
+    # Its recipe adds matplotlib, so it installs by itself on the portable only.
+    'detail_daemon_nodes': {
+        'pack': 'ComfyUI-Detail-Daemon',
+        'repo': 'https://github.com/Jonseed/ComfyUI-Detail-Daemon',
+        'folder': 'ComfyUI-Detail-Daemon',
+    },
 }
 
-# WHY THE VIDEO STUDIO'S NODE PACKS ARE NOT HERE (maintainer's call, 2026-08-31)
-# --------------------------------------------------------------------------
-# "Downloading models is fine, but we do not take responsibility for breaking a
-# ComfyUI install." A weight is an inert file in a models folder: worst case it
-# is unused. A custom node is CODE that ComfyUI imports at startup, and one bad
-# import takes the whole server down for every other lane the user has — a cost
-# they did not agree to when they clicked a button in this app.
+# THE NODE PACK RULE
+# ------------------
+# LDS promises a simple install, so it provides every ComfyUI node pack that one
+# of its features needs or offers: one click installs it at a frozen, verified
+# version (a commit archive and its SHA-256). A pack that only adds files
+# installs on every ComfyUI layout. A pack that adds Python packages installs
+# automatically only on a ComfyUI Windows portable, where LDS manages Python;
+# on any other layout the action installs nothing and shows the exact steps,
+# the pip command with its pinned requirement included. Plugins declare their
+# packs in their manifest (node_packs) and go through the same worker.
 #
-# So the three optional packs of the video lane (MiniMax-H3-Turbo,
-# H3-Optimizations, MMH3-UltimateUpscale) and SageAttention (ComfyUI-KJNodes)
-# are NAMED and LINKED by the studio, and installed by the user on the ComfyUI
-# side, through ComfyUI-Manager or a clone. `video_test_studio.OPTION_NODE_PACKS`
-# holds those links; nothing here fetches them.
-#
-# The two packs above (krea/lanpaint) predate that rule and keep their buttons —
-# what changed is the direction, not a retrofit of somebody's working install.
+# A custom node is code that ComfyUI imports at startup, so a pack is added to
+# a catalog only at a reviewed commit, its requirements are pinned, and an
+# installed Python package or a folder already present is never replaced.
 
 # Node packs the app SHIPS (backend/comfy_nodes/<folder>), installed by COPY into
 # the user's ComfyUI instead of fetched from a remote. See
@@ -869,13 +872,7 @@ def manual_command(action) -> str:
             lines.append(f'curl -L -o "{os.path.join(root, "models", *comp["dest"])}" "{comp["url"]}"')
         return '  &&  '.join(lines)
     if action in _NODE_PACKS:
-        spec = _NODE_PACKS[action]
-        try:
-            dest = _node_pack_dest(action)
-        except Precondition:
-            dest = os.path.join('<ComfyUI>', 'custom_nodes', spec['folder'])
-        return (f'Download {spec["zip"]}, verify SHA-256 {spec["sha256"]}, then extract the archive folder '
-                f'to "{dest}" and restart ComfyUI.')
+        return '; '.join(_node_pack_manual_steps(action))
     if action in _BUNDLED_NODE_PACKS:
         # No remote to fetch: the "manual command" is the copy this action performs.
         try:
@@ -893,7 +890,8 @@ def status(action) -> dict:
     if run is None:
         return {'state': 'idle', 'returncode': None, 'log': [], 'progress': None,
                 'waiting_for': None, 'cancel_requested': False,
-                'manual_command': cmd, 'runtime_notice': None, 'step': None}
+                'manual_command': cmd, 'runtime_notice': None, 'step': None,
+                'manual_steps': []}
     return {'state': run['state'], 'returncode': run['returncode'],
             'log': list(run['log']), 'progress': run.get('progress'),
             'step': dict(run['step']) if run.get('step') else None,
@@ -905,6 +903,10 @@ def status(action) -> dict:
             # Kept for the diagnostic/debug log only — no longer shown as a user
             # "run this by hand" path (installs auto-recover or repair on re-click).
             'manual_command': cmd,
+            # The one case that IS shown: a node pack whose Python packages LDS
+            # does not manage on this layout ended with nothing installed, and
+            # these are the exact steps (see the node pack rule).
+            'manual_steps': list(run.get('manual_steps') or []),
             'runtime_notice': dict(run['runtime_notice']) if run.get('runtime_notice') else None}
 
 
@@ -1358,8 +1360,14 @@ def _execute(action):
         _append(action, 'cancelled by user')
         _finish_run(action, None, 'cancelled')
     except Exception as e:  # never let a worker thread die silently
-        _append(action, f'error: {e}')
-        _finish_run(action, -1, 'error')
+        if getattr(e, 'manual_steps', None):
+            # A plugin's node pack that needs Python packages on a layout whose
+            # Python LDS does not manage: nothing ran, the steps are the answer.
+            _record_manual_steps(action, e)
+            _finish_run(action, 1, 'error')
+        else:
+            _append(action, f'error: {e}')
+            _finish_run(action, -1, 'error')
     finally:
         # Always hand the pip worker to the next queued install, even on failure — a
         # crashed install must not wedge the queue behind it.
@@ -2477,7 +2485,6 @@ def _run_model_download(action) -> int:
 
 # --- Custom-node pack install --------------------------------------------------
 # Bounded so a hung network can never wedge the install worker thread.
-_GIT_CLONE_TIMEOUT_S = 300
 _ZIP_TIMEOUT = (10, 120)
 
 
@@ -2639,8 +2646,42 @@ def refresh_bundled_node_packs() -> dict:
     return out
 
 
+def _node_pack_manual_steps(action) -> list:
+    """The by-hand steps for a core pack at its pinned version (same pin as the button)."""
+    from .services import comfyui_node_install, comfyui_node_recipes
+    recipe = comfyui_node_recipes.CORE_RECIPES.get(action)
+    if recipe is not None:
+        return comfyui_node_install.manual_steps(recipe)
+    spec = _NODE_PACKS[action]
+    try:
+        parent = os.path.dirname(_node_pack_dest(action))
+    except Precondition:
+        parent = os.path.join('<ComfyUI>', 'custom_nodes')
+    top = f"{spec['repo'].rstrip('/').rsplit('/', 1)[-1]}-{spec['commit']}"
+    return [f"Download {spec['zip']}",
+            f"Check that the downloaded file has the SHA-256 {spec['sha256']}",
+            f"Extract the folder {top} from it into {parent} and rename it to {spec['folder']}",
+            'Restart ComfyUI.']
+
+
+def _record_manual_steps(action, exc):
+    """Keep the exact steps of a node pack that LDS installs only on the portable."""
+    run = _runs.get(action)
+    if run is not None:
+        run['manual_steps'] = list(exc.manual_steps)
+    _append(action, str(exc))
+    for step in exc.manual_steps:
+        _append(action, f'  {step}')
+
+
 def _run_node_pack(action) -> int:
-    """Install the reviewed node archive or reuse a previously prepared folder."""
+    """Install a custom-node pack into THIS user's ComfyUI at its pinned version:
+    the managed worker on the portable layout or for a pack that adds Python
+    packages, the checked pinned ZIP for a files-only pack anywhere else.
+    A folder already there is left alone, and a failure ends on the steps to do
+    it by hand, never on a bare traceback. Success does NOT mean the engine is
+    ready: ComfyUI registers nodes at startup only, so the last line says to
+    restart it."""
     spec = _NODE_PACKS[action]
     try:
         dest = _node_pack_dest(action)
@@ -2649,46 +2690,59 @@ def _run_node_pack(action) -> int:
         _append(action, "the pack has to go inside YOUR ComfyUI's custom_nodes folder, and "
                         "the app doesn't know where that is yet — nothing was installed.")
         return 1
-    # The recognized portable uses the pinned, verified recipe. Other layouts
-    # retain their existing acquisition path until they have a runtime adapter.
-    # Never fall back to an unverified download after a managed preparation fails.
     from .services import comfyui_control, comfyui_node_install, comfyui_node_recipes
     recipe = comfyui_node_recipes.CORE_RECIPES.get(action)
-    managed = (recipe is not None and comfyui_control._validated_portable_layout() is not None)
-    existing = _node_pack_already_there(action, dest)
-    if managed and (not existing or os.path.lexists(os.path.join(dest, comfyui_node_install.RECEIPT))):
-        try:
-            plan = comfyui_node_install.plan(recipe, owner='lds.core')
-            comfyui_node_install.prepare(recipe, owner='lds.core', plan_id=plan['plan_id'],
-                                         log=lambda line: _append(action, str(line)))
-        except comfyui_node_install.NodeInstallError as exc:
-            _append(action, str(exc))
-            return 1
-        _append(action, 'Prepared the verified Krea node pack. RESTART ComfyUI when it is idle; '
-                        'LDS will check the loaded nodes before marking the engine ready.')
-        return 0
-    if existing:
+    # The managed worker owns the portable layout, and any recipe that adds Python
+    # packages (elsewhere it answers with the exact steps). A files-only pack on
+    # another layout takes the pinned archive straight into custom_nodes, exactly
+    # where the former clone went, so a custom_nodes folder reached through a link
+    # keeps working as it did.
+    managed = recipe is not None and (
+        comfyui_control._validated_portable_layout() is not None
+        or bool(recipe.requirements) or bool(recipe.wheels))
+    # The worker re-verifies a folder it prepared at THIS version. Any other
+    # folder is left as it is, an older prepared version included: managed
+    # upgrades are not supported, and that copy kept working where it was.
+    if _node_pack_already_there(action, dest) and not (
+            managed and comfyui_node_install.prepared_version(recipe, dest) == recipe.version):
         _append(action, f'already installed: {dest}')
         _append(action, 'left untouched (an existing folder may be a version you chose). '
                         'If ComfyUI still reports the nodes as missing, restart ComfyUI.')
         return 0
+    if managed:
+        try:
+            plan = comfyui_node_install.plan(recipe, owner='lds.core')
+            comfyui_node_install.prepare(recipe, owner='lds.core', plan_id=plan['plan_id'],
+                                         log=lambda line: _append(action, str(line)))
+        except comfyui_node_install.NodeInstallManual as exc:
+            _record_manual_steps(action, exc)
+            return 1
+        except comfyui_node_install.NodeInstallError as exc:
+            # Never fall back to an unpinned clone after a verified preparation fails.
+            _append(action, str(exc))
+            _node_pack_by_hand(action)
+            return 1
+        _append(action, f"Prepared the verified {spec['pack']} node pack. RESTART ComfyUI when it is "
+                        'idle; LDS checks that its nodes loaded before it uses them.')
+        return 0
+    if recipe is not None:
+        spec = {**spec, 'zip': recipe.url, 'sha256': recipe.sha256}
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    ok = _zip_node_pack(action, spec, dest)
-    if not ok:
-        _append(action, f"couldn't install {spec['pack']} automatically.")
-        _append(action, manual_command(action))
+    if not _zip_node_pack(action, spec, dest):
+        _node_pack_by_hand(action)
         return 1
     _append(action, f"installed {spec['pack']} -> {dest}")
-    # The pack declares no dependencies today; if a future version adds some, say
-    # so instead of silently pip-installing third-party requirements into the app.
-    reqs = os.path.join(dest, 'requirements.txt')
-    if os.path.isfile(reqs):
-        _append(action, 'note: this pack now ships a requirements.txt. The app does not '
-                        'install third-party Python packages for you — install them into '
-                        "your ComfyUI's Python if the nodes fail to load.")
     _append(action, '⚠ RESTART ComfyUI now — it only registers custom nodes at startup, so '
                     'the engine stays marked "nodes missing" until you do.')
     return 0
+
+
+def _node_pack_by_hand(action):
+    spec = _NODE_PACKS[action]
+    _append(action, f"couldn't install {spec['pack']} automatically. Install it by hand "
+                    '(or use the ComfyUI Manager and search for the pack name):')
+    for step in _node_pack_manual_steps(action):
+        _append(action, f'  {step}')
 
 
 def _ollama_cancelled(action) -> bool:
@@ -3284,9 +3338,11 @@ def check_start_preconditions(action):
         except environment.EnvironmentError as exc:
             raise Precondition(str(exc)) from exc
         if spec.get('node_pack'):
+            # Any configured ComfyUI is a target: its worker installs the files,
+            # or, for Python packages it does not manage there, returns the steps.
             from .services import comfyui_node_install
             try:
-                comfyui_node_install._target()
+                comfyui_node_install.check_target()
             except comfyui_node_install.NodeInstallError as exc:
                 raise Precondition(str(exc)) from exc
 

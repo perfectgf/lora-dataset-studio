@@ -25,6 +25,15 @@ class NodeInstallError(ValueError):
         self.dependencies_may_have_changed = dependencies_may_have_changed
 
 
+class NodeInstallManual(NodeInstallError):
+    """Nothing was installed: the recipe adds Python packages and LDS does not
+    manage this ComfyUI's Python. `manual_steps` lists what the user can run."""
+
+    def __init__(self, message, manual_steps):
+        super().__init__(message)
+        self.manual_steps = list(manual_steps)
+
+
 @dataclass(frozen=True)
 class BundledWheel:
     filename: str

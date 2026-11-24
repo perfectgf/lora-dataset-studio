@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { HelpBadge } from '../../help/HelpMode';
+import InstallRunner from './InstallRunner';
 import ComfyManualInstall from './ComfyManualInstall';
 import SettingsLink from '../common/SettingsLink';
 
@@ -125,7 +126,19 @@ export default function ComfyNodeRepair({ nodes = [], nodePacks = [], onRefresh 
           {custom.map((pack) => (
             <div key={pack.class_type} className="space-y-1">
               <p><code className="break-all">{pack.class_type}</code> needs <b>{pack.pack}</b>.</p>
-              {safeComfyLink(pack.url) ? (
+              {pack.install_action === 'detail_daemon_nodes' ? (
+                <>
+                  <InstallRunner action="detail_daemon_nodes" buttonLabel={`Install ${pack.pack}`}
+                    successMessage={`${pack.pack} installed. Restart ComfyUI to load its nodes.`} onDone={onRefresh} />
+                  <p>LDS installs a verified version of this pack. Then let running and queued jobs finish,
+                    restart ComfyUI to load its nodes, and use “Check nodes again”.</p>
+                  {safeComfyLink(pack.url) && (
+                    <a href={safeComfyLink(pack.url)} target="_blank" rel="noopener noreferrer" className={linkClass}>
+                      {pack.pack} project page
+                    </a>
+                  )}
+                </>
+              ) : safeComfyLink(pack.url) ? (
                 <>
                   <p>In ComfyUI-Manager, search for “{pack.search || pack.pack}” and install that package.
                     Restart ComfyUI when installation finishes.</p>

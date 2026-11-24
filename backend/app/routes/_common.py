@@ -181,8 +181,8 @@ def _studio_missing_response(e):
     LDS provides what it can: Z-Image's three model files are one-click downloads
     in the Studio's model banner and in Settings (services.trained_image_models),
     so its message names those downloads before manual placement, which stays
-    right for a file a setting pins. Missing custom nodes aren't files; naming
-    what to install stays their contract.
+    right for a file a setting pins. A missing custom node names its pack, and a
+    pack LDS provides (an `install_action` hint) points at its Install button.
     Shared by the per-dataset run and the comparison run."""
     fam = _STUDIO_FAMILY_LABELS.get(e.family, e.family)
     invalid = getattr(e, 'invalid_files', None) or []
@@ -211,7 +211,10 @@ def _studio_missing_response(e):
         if native_missing:
             msg += 'Update ComfyUI to add its built-in nodes, then restart ComfyUI. '
         for h in node_packs:
-            if h.get('url'):
+            if h.get('install_action') and h.get('url'):
+                msg += (f"For “{h['class_type']}”, install “{h['pack']}” in one click under "
+                        "“Fix missing ComfyUI nodes”, then restart ComfyUI. ")
+            elif h.get('url'):
                 msg += (f"For “{h['class_type']}”, install “{h['pack']}” via ComfyUI-Manager "
                         f"({h['url']}). ")
             else:
