@@ -273,8 +273,8 @@
         "id": "h3-refmods",
         "version": "0.2.5",
         "folder": "ComfyUI-MiniMaxH3Mod",
-        "url": "https://codeload.github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod/zip/22ca77e247375dd47fc7340286b5f391887d3410",
-        "sha256": "7e1f5d3f47fd3639de03c23ee4340af5cd9b6f0e721cf7f60af60e99eceac1b2",
+        "url": "https://lds.perfectgf.fr/models/tools/40fa27ee131a635bf3eea1758f6450dade42b15772975a75254ac418e8763f54/ComfyUI-MiniMaxH3Mod.zip",
+        "sha256": "40fa27ee131a635bf3eea1758f6450dade42b15772975a75254ac418e8763f54",
         "archive_prefix": "ComfyUI-MiniMaxH3Mod-22ca77e247375dd47fc7340286b5f391887d3410",
         "requirements": [
           "safetensors==0.6.2",
@@ -295,7 +295,7 @@
         "id": "h3-spectrum",
         "version": "0.1.0",
         "folder": "ComfyUI-Spectrum-MiniMax-H3",
-        "url": "https://codeload.github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3/zip/5161f0457bc8c52535212d6783eee73f439e1537",
+        "url": "https://lds.perfectgf.fr/models/tools/7a7f71461e8196665863802a37dbfbf6bd78ce7fd0f9d33e7ffa4130c282de1c/ComfyUI-Spectrum-MiniMax-H3.zip",
         "sha256": "7a7f71461e8196665863802a37dbfbf6bd78ce7fd0f9d33e7ffa4130c282de1c",
         "archive_prefix": "ComfyUI-Spectrum-MiniMax-H3-5161f0457bc8c52535212d6783eee73f439e1537",
         "requirements": []
@@ -312,7 +312,7 @@
         "id": "h3-clipproj",
         "version": "0.1.13",
         "folder": "ComfyUI-ClipProj",
-        "url": "https://codeload.github.com/nicolab28/ComfyUI-ClipProj/zip/c01ba8fb8f41b4f2094dbd0b185cdc238fb6134c",
+        "url": "https://lds.perfectgf.fr/models/tools/5db98923f741bafd1beb56649df23a0f7981055ab482b3c34da9778083e995df/ComfyUI-ClipProj.zip",
         "sha256": "5db98923f741bafd1beb56649df23a0f7981055ab482b3c34da9778083e995df",
         "archive_prefix": "ComfyUI-ClipProj-c01ba8fb8f41b4f2094dbd0b185cdc238fb6134c",
         "requirements": []

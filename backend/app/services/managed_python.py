@@ -2,19 +2,18 @@
 
 This is the same upstream used by the portable launcher. No system installer,
 PATH changes, administrator rights, or packages installed into the host Python.
-The GitHub asset digest is mandatory; an unverified archive is never executed.
+The shipped SHA-256 pins identify the original publisher archives on the LDS server.
 """
 from ..timeout_settings import network_timeout, processing_timeout
 import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import platform
-import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import quote
 import uuid
 
 import requests
@@ -23,8 +22,20 @@ from .. import config as cfg
 
 
 PYTHON_VERSION = '3.12'
-_RELEASE_API = 'https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest'
-_DOWNLOAD_PREFIX = 'https://github.com/astral-sh/python-build-standalone/releases/download/'
+_DOWNLOAD_PREFIX = 'https://lds.perfectgf.fr/models/tools/'
+_PYTHON_BUILD = '3.12.16+20261123'
+_RUNTIME_FILES = {
+    'x86_64-pc-windows-msvc':
+        ('75988f49393727d7e53b673d50088e7f809a629dd37cb59da3756479bc6ea5c1', 22388474),
+    'x86_64-unknown-linux-gnu':
+        ('c85811d35971d06612585a057db3b71806378df6ea8476275fb16aa5c9fe56a0', 34741061),
+    'aarch64-unknown-linux-gnu':
+        ('97bca1d0960240b721b6e58ec2dc080519fcd11f979bf64356434ae9d0f96947', 29460203),
+    'x86_64-apple-darwin':
+        ('da628e539cebac13f43a3dc42dd99826aeab254387d3bc43478a73267a362713', 24997878),
+    'aarch64-apple-darwin':
+        ('0de87cfc2649849da10a54084f87fd01fa1e653478e32eee92198c213550e15c', 25260089),
+}
 _MAX_ARCHIVE = 128 * 1024 * 1024
 _MAX_EXTRACTED = 1024 * 1024 * 1024
 _HEADERS = {'User-Agent': 'lora-dataset-studio-setup'}
@@ -92,37 +103,22 @@ def _valid_python(python):
 
 
 def _asset(triple):
-    with requests.get(_RELEASE_API, headers=_HEADERS, timeout=network_timeout((15, 45))) as response:
-        response.raise_for_status()
-        release = response.json()
-    pattern = re.compile(
-        rf'^cpython-3\.12\.\d+\+\d+-{re.escape(triple)}-install_only_stripped\.tar\.gz$')
-    assets = [a for a in release.get('assets', []) if pattern.fullmatch(a.get('name', ''))]
-    if len(assets) != 1:
-        raise ValueError('The Python publisher did not provide one compatible runtime.')
-    asset = assets[0]
-    url = asset.get('browser_download_url', '')
-    if not url.startswith(_DOWNLOAD_PREFIX) or urlsplit(url).query or urlsplit(url).fragment:
-        raise ValueError('Unexpected Python download address.')
-    digest = asset.get('digest') or ''
-    if not re.fullmatch(r'sha256:[a-fA-F0-9]{64}', digest):
-        raise ValueError('The Python publisher did not provide a SHA-256 checksum.')
-    if not isinstance(asset.get('size'), int) or not 0 < asset['size'] <= _MAX_ARCHIVE:
-        raise ValueError('Unexpected Python archive size.')
-    return asset
+    if triple not in _RUNTIME_FILES:
+        raise ValueError('No managed Python build is available for this platform.')
+    digest, size = _RUNTIME_FILES[triple]
+    filename = f'cpython-{_PYTHON_BUILD}-{triple}-install_only_stripped.tar.gz'
+    return {'name': filename, 'size': size, 'digest': 'sha256:' + digest,
+            'browser_download_url': _DOWNLOAD_PREFIX + digest + '/' + quote(filename)}
 
 
 def _download(asset, destination):
     digest = hashlib.sha256()
     size = 0
     with requests.get(asset['browser_download_url'], headers=_HEADERS,
-                      timeout=network_timeout((15, 60)), stream=True) as response:
+                      timeout=network_timeout((15, 60)), stream=True, allow_redirects=False) as response:
         response.raise_for_status()
-        final = urlsplit(response.url)
-        if final.scheme != 'https' or final.hostname not in (
-                'github.com', 'release-assets.githubusercontent.com',
-                'objects.githubusercontent.com'):
-            raise ValueError('Unexpected Python download redirect.')
+        if response.status_code != 200:
+            raise ValueError('The LDS Python runtime server did not return an archive.')
         with destination.open('wb') as output:
             for chunk in response.iter_content(1024 * 1024):
                 size += len(chunk)

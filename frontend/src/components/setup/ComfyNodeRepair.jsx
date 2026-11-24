@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { apiFetch } from '../../api/fetchClient';
 import { HelpBadge } from '../../help/HelpMode';
+import ComfyManualInstall from './ComfyManualInstall';
 import SettingsLink from '../common/SettingsLink';
 
 const UPDATE_GUIDE = 'https://docs.comfy.org/installation/update_comfyui';
-const PORTABLE_RELEASES = 'https://github.com/Comfy-Org/ComfyUI/releases/latest';
 const MODEL_PATHS = 'https://docs.comfy.org/installation/comfyui_portable_windows#adding-extra-model-paths';
 const buttonClass = 'min-h-10 rounded-md border border-border px-3 py-1.5 text-xs text-content hover:bg-surface-raised disabled:opacity-50';
 const linkClass = 'break-words text-xs text-content underline';
@@ -151,36 +151,15 @@ export default function ComfyNodeRepair({ nodes = [], nodePacks = [], onRefresh 
               </label>
               <p>If you have edited ComfyUI or added local commits, back up and preserve those changes first.
                 A separate updated installation can keep your current setup intact.</p>
-              {method === 'portable' && (
-                <ol className="list-decimal space-y-1 pl-5">
-                  <li>Close ComfyUI after its jobs finish.</li>
-                  <li>Open the <code>update</code> folder beside your portable launcher.</li>
-                  <li>Run <code className="break-all">update_comfyui.bat</code> to get the latest development version.
-                    The stable script can lag behind new nodes. Use the ordinary updater first; the Python-dependencies
-                    updater is for environment repairs.</li>
-                  <li>When it finishes successfully, relaunch ComfyUI with your usual launcher, then check nodes again.</li>
-                </ol>
+              {(method === 'portable' || method === 'manual') && (
+                <ComfyManualInstall platform={method} />
               )}
               {method === 'desktop' && (
-                <p>Open Desktop’s <b>Manage → Update</b> controls. If the Stable channel still lacks these nodes,
-                  choose <b>Latest on GitHub</b> where available. Older Desktop versions use
-                  <b> Help → Check for Updates</b>. Follow the official guide below, restart, then check again.</p>
-              )}
-              {method === 'manual' && (
-                <div className="space-y-2">
-                  <p>On the ComfyUI host, stop its service after jobs finish. Open its installation folder
-                    and activate its own Python environment. Check changes first:</p>
-                  <pre className="whitespace-pre-wrap break-all rounded bg-surface p-2 text-content">git status --short</pre>
-                  <p>Continue only with a clean checkout and no local commits to preserve. Run each command
-                    separately; stop if either fails:</p>
-                  <pre className="whitespace-pre-wrap break-all rounded bg-surface p-2 text-content">{'git pull --ff-only\npython -m pip install -r requirements.txt'}</pre>
-                  <p>Restart using your usual launcher or service, then check nodes again.
-                    For a managed server, ask its owner to perform this update.</p>
-                </div>
+                <p>For an existing Desktop installation, see the official update guide below.
+                  For a separate installation supplied by LDS, choose Portable Windows or Manual or server.</p>
               )}
               <div className="flex flex-col items-start gap-2">
                 <a href={UPDATE_GUIDE} target="_blank" rel="noopener noreferrer" className={linkClass}>Official ComfyUI update guide</a>
-                <a href={PORTABLE_RELEASES} target="_blank" rel="noopener noreferrer" className={linkClass}>Download the latest portable release</a>
                 <a href={MODEL_PATHS} target="_blank" rel="noopener noreferrer" className={linkClass}>Share existing models with a separate installation</a>
               </div>
               <p>For a separate installation, select its folder and API address in LDS Settings before checking again.</p>

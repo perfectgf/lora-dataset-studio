@@ -45,7 +45,7 @@ def wheel_bytes(name, version, *, files=None, entry_points=None):
 def wheel(name='example-helper', version='1.2.3', *, body=None):
     body = body if body is not None else wheel_bytes(name, version)
     return {'metadata': {'name': name, 'version': version}, 'download_info': {
-        'url': f'https://files.pythonhosted.org/packages/{name.replace("-", "_")}-{version}-py3-none-any.whl',
+        'url': f'https://lds.perfectgf.fr/models/tools/packages/{name.replace("-", "_")}-{version}-py3-none-any.whl',
         'archive_info': {'hashes': {'sha256': hashlib.sha256(body).hexdigest()}}}}
 
 

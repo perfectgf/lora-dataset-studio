@@ -20,6 +20,7 @@ from pathlib import Path
 from packaging.requirements import InvalidRequirement, Requirement
 
 from .. import config as cfg
+from ..services import plugin_tool_sources
 
 ACTION_PREFIX = 'plugin_environment:'
 MARKER = '.lds-plugin-environment.json'
@@ -350,7 +351,7 @@ def _cpu_plan(report):
         download = item.get('download_info') or {}
         url = download.get('url', '')
         digest = (download.get('archive_info') or {}).get('hashes', {}).get('sha256')
-        if not url.startswith('https://') or not re.fullmatch(r'[a-f0-9]{64}', str(digest or '')):
+        if not plugin_tool_sources.is_installer_wheel(name, url, digest) or not re.fullmatch(r'[a-f0-9]{64}', str(digest or '')):
             raise EnvironmentError('The resolved package plan has no verified HTTPS archive.')
         plan.append((name, f'{url} --hash=sha256:{digest}'))
     return plan
@@ -377,7 +378,8 @@ def install(action, record, *, extra_packages=(), extra_requirements=None):
     env = subprocess_env()
 
     def run(cmd):
-        return si._run_pip(action, cmd, env=env)
+        args, install_env = plugin_tool_sources.pip_install(cmd, env)
+        return si._run_pip(action, args, env=install_env)
 
     check_enabled(record)
     packages = requirements(record) + _specs(extra_packages)

@@ -78,7 +78,7 @@
         "id": "seedvr2",
         "version": "2.5.24-lds.1",
         "folder": "seedvr2_videoupscaler",
-        "url": "https://codeload.github.com/numz/ComfyUI-SeedVR2_VideoUpscaler/zip/4490bd1f482e026674543386bb2a4d176da245b9",
+        "url": "https://lds.perfectgf.fr/models/tools/04c61842bc00fd8673e6bc9a3b1b1935955461f363791070ed14d67d2a2e77fb/ComfyUI-SeedVR2_VideoUpscaler.zip",
         "sha256": "04c61842bc00fd8673e6bc9a3b1b1935955461f363791070ed14d67d2a2e77fb",
         "requirements": [
           "torch==2.14.0",

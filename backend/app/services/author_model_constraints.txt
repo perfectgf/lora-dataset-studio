@@ -1,0 +1,1 @@
+transnetv2-pytorch @ https://files.pythonhosted.org/packages/85/be/bb14f9015d357c9dff395a065bd658d1f7a199eb1f8d3abb9f4792416f11/transnetv2_pytorch-1.0.5-py3-none-any.whl#sha256=9f8e72085526aaa95383d219b6750b1fa45b865fd10d840cafa12ef78ab3bf27

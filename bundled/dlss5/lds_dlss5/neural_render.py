@@ -110,8 +110,9 @@ _INFER_DIR = Path(__file__).resolve().parents[1] / 'infer'
 BRIDGE_PROJECT_URL = 'https://github.com/lisitskyaa/ComfyUI-DLSS5-NR'
 BRIDGE_RELEASE = {
     'version': '0.3.0',
-    'url': ('https://github.com/lisitskyaa/ComfyUI-DLSS5-NR/releases/download/'
-            'v0.3.0/ComfyUI-DLSS5-NR-v0.3.0-windows-x64.zip'),
+    'url': ('https://lds.perfectgf.fr/models/tools/'
+            '3b7d52507a5548d10c3f60f9a5ea4cc5eb2fd9bd715b536533df55887a1d907f/'
+            'ComfyUI-DLSS5-NR-v0.3.0-windows-x64.zip'),
     'size': 176746,
     'sha256': '3b7d52507a5548d10c3f60f9a5ea4cc5eb2fd9bd715b536533df55887a1d907f',
     # zip member -> path under runtime_dir()

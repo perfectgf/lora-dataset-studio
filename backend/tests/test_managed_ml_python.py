@@ -70,6 +70,7 @@ def test_automatic_platform_contract(monkeypatch, system, arch, libc, expected):
 
 
 class Response:
+    status_code = 200
     def __init__(self, data=None, body=b''):
         self.data, self.body = data, body
         self.url = 'https://release-assets.githubusercontent.com/asset'
@@ -90,14 +91,14 @@ class Response:
         yield self.body
 
 
-@pytest.mark.parametrize('digest', ['', None, 'md5:' + '0' * 32, 'sha256:short'])
-def test_publisher_checksum_is_mandatory(monkeypatch, digest):
-    asset = {'name': 'cpython-3.12.14+20260901-x86_64-pc-windows-msvc-install_only_stripped.tar.gz',
-             'size': 123, 'digest': digest,
-             'browser_download_url': mp._DOWNLOAD_PREFIX + '20260901/runtime.tar.gz'}
-    monkeypatch.setattr(mp.requests, 'get', lambda *a, **k: Response({'assets': [asset]}))
-    with pytest.raises((ValueError, TypeError)):
-        mp._asset('x86_64-pc-windows-msvc')
+def test_publisher_checksums_and_lds_only_download():
+    for triple in mp._RUNTIME_FILES:
+        asset = mp._asset(triple)
+        assert len(bytes.fromhex(asset['digest'][7:])) == 32
+        assert asset['browser_download_url'].startswith(mp._DOWNLOAD_PREFIX + asset['digest'][7:] + '/')
+        assert 0 < asset['size'] <= mp._MAX_ARCHIVE
+    with pytest.raises(ValueError):
+        mp._asset('unknown-platform')
 
 
 def test_download_hash_is_checked_before_extraction(tmp_path, monkeypatch):
