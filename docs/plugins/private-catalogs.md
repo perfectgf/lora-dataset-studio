@@ -95,7 +95,11 @@ identities or unauthorized publishers remain invalid. A catalog cannot enable
 this option itself.
 
 The public catalog keeps its original products in `catalog.json`. New first-party
-identifiers, starting with Dataset Forge, live in `catalog-v2-extra.json`, read
-only by hosts that authorize them. Publishers must preserve and renew both signed
-targets and their archives; changing one product must not drop the other target.
-This lets older clients continue to receive their existing plugin updates.
+identifiers live in additional targets, read only by hosts that authorize them:
+Dataset Forge in `catalog-v2-extra.json`, Remove Background in
+`catalog-v3-extra.json`. Each new identifier needs a new target, published before
+the core that declares it: a host refuses a whole target that lists an identifier
+it does not know, and its whole Store when a declared target is missing.
+Publishers must preserve and renew every signed target and its archives; changing
+one product must not drop another target. This lets older clients continue to
+receive their existing plugin updates.
