@@ -244,6 +244,39 @@ def _retry_cancel_interrupt(job_id, prompt_id) -> bool:
         return queue_manager._interrupt_stalled_prompt(job_id, prompt_id)
 
 
+def _dispatch_auto_resolved_cancellation(job_id) -> None:
+    """Settle the linked card of a job that was just cancelled.
+
+    Best effort by design: the barrier is already gone and the app already
+    unblocked, so a service callback that fails must not turn into a failed
+    recovery. `_dispatch_completion` refuses a row still marked `stalled`, which
+    is the guard that keeps this from touching anything unresolved.
+    """
+    try:
+        job = ImageGenerationQueue.query.filter_by(
+            job_id=str(job_id), status='cancelled').first()
+        if job is not None:
+            # SAY WHY, once, for every lane's card. Without this the linked row
+            # falls back to its own "generation failed — see the ComfyUI error"
+            # default and sends the user hunting for an error that was never
+            # logged: nothing failed in the graph, the prompt DISAPPEARED when
+            # ComfyUI restarted. Observed on a real clip (2026-08-31): a video
+            # rendering when the app was updated came back as a failure blaming
+            # a ComfyUI error, on a run whose graph was fine.
+            #
+            # Written on the job rather than passed down, because every
+            # completion branch already reads `job.error_message` — one sentence
+            # reaches the Test Studio grid, the video clips and the dataset
+            # images without any of them learning about this path.
+            if job.error_message in (None, '', 'generation failed'):
+                job.error_message = COMFYUI_LOST_MESSAGE
+                db.session.commit()
+            _dispatch_completion(job, None, True)
+    except Exception:
+        logger.exception(
+            'job_queue: could not settle the linked card of auto-resolved job %s', job_id)
+
+
 def probe_comfyui_barrier() -> ComfyBarrierProbe:
     """Settle a known prompt from its history once it leaves the remote queue.
 
