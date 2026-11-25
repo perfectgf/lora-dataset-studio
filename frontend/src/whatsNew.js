@@ -84,6 +84,12 @@ import { SETUP_DEEP_LINK_STEPS } from './hooks/useSetupSteps.js';
 // Newest first. Prepend new waves at the top.
 export const WHATS_NEW = [
   {
+    id: '2026-11-25-zz-late-comfyui-renders', date: '2026-11-25',
+    title: 'A render that finishes late is no longer lost',
+    blurb: 'When ComfyUI finishes an image or a clip after the waiting time, its result now joins its place by itself, even with the Studio page closed. If ComfyUI reports an error instead, you see which node failed.',
+    to: '/studio',
+  },
+  {
     id: '2026-11-25-remove-background-plugin', date: '2026-11-25',
     title: 'Remove the background of any picture, with a new free plugin',
     blurb: 'Install Remove Background from Plugins, then say what stays in a picture: the main subject, a rough selection, a few words or a click. You get a clean cut-out, made on your own ComfyUI, with a mask you can touch up with a brush, and you save it as a transparent picture, on a plain background or into a dataset. It also opens from the dataset, Bank and Gallery viewers.',

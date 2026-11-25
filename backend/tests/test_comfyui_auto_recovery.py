@@ -95,6 +95,40 @@ def test_auto_resolves_when_comfyui_no_longer_knows_the_prompt(app):
         assert notice and 'cleared automatically' in notice['message']
 
 
+@pytest.mark.parametrize('remote,kind,expected,filename', [
+    ('success', 'output', 'completed', 'render.mp4'),
+    ('success', 'input', 'failed', None),
+    ('error', 'output', 'failed', None),
+])
+def test_late_terminal_history_settles_job_and_card_once(app, remote, kind, expected, filename):
+    from app.job_queue import auto_resolve_comfyui_barrier, peek_auto_recovery_notice
+    from app.models import ImageGenerationQueue
+    from app.utils.comfyui import ComfyHistoryHealth, ComfyHistoryProbe
+    status = {'completed': remote == 'success', 'status_str': remote, 'messages': [
+        ['execution_error', {'node_type': 'Sampler', 'exception_message': 'out of memory'}]
+    ] if remote == 'error' else []}
+    entry = {'status': status, 'outputs': {
+        '902': {'images': [{'filename': 'reference.mp4', 'type': 'input'}]},
+        '92': {'images': [{'filename': 'render.mp4', 'type': kind}]},
+    }}
+    with app.app_context():
+        job_id = _stalled_prompt_barrier(app)
+        probe = ComfyHistoryProbe(ComfyHistoryHealth.READY, history={'p-stalled': entry})
+        with patch('app.utils.comfyui.comfyui_prompt_is_absent', return_value=True), \
+             patch('app.utils.comfyui.cancel_comfyui_prompt_state') as cancel, \
+             patch('app.utils.comfyui.get_comfyui_history_probe', return_value=probe), \
+             patch('app.job_queue._dispatch_completion') as dispatch:
+            assert auto_resolve_comfyui_barrier()['job_id'] == job_id
+            assert auto_resolve_comfyui_barrier() is None
+        job = ImageGenerationQueue.query.filter_by(job_id=job_id).one()
+        assert (job.status, job.result_filename) == (expected, filename)
+        if remote == 'error':
+            assert job.error_message == 'ComfyUI Sampler: out of memory'
+        dispatch.assert_called_once_with(job, filename, expected == 'failed')
+        cancel.assert_not_called()
+        assert peek_auto_recovery_notice() is None
+
+
 def test_never_auto_resolves_while_comfyui_is_unreachable(app):
     """No answer is not an answer: an unreachable ComfyUI proves nothing."""
     from app.job_queue import (auto_resolve_comfyui_barrier, peek_auto_recovery_notice,
