@@ -35,12 +35,12 @@ The cuts are measured rather than guessed: the aesthetic and near-duplicate thre
       <a href="../screenshots/bank/bank-analyze-and-overview.png"><img src="../screenshots/bank/bank-analyze-and-overview.png" alt="The Bank workspace: the Passes panel with every analysis pass, and a Bank overview reporting coverage, resolution, framing, medium and structure for the whole bank" width="100%"></a>
     </td>
     <td width="38%" valign="top">
-      <a href="../screenshots/bank/bank-launch-all.png"><img src="../screenshots/bank/bank-launch-all.png" alt="The Launch all dialog: eight passes ticked, each quality flag quoting how many images it would reject, and a warning that unscanned images will change those counts" width="100%"></a>
+      <a href="../screenshots/bank/bank-launch-all.png"><img src="../screenshots/bank/bank-launch-all.png" alt="The Launch all dialog: the passes that will run are ticked, each quality flag quotes how many images it would reject, and a pass whose tool is not installed is marked will skip" width="100%"></a>
     </td>
   </tr>
   <tr>
     <td valign="top"><sub><strong>The workspace</strong> — every pass on the left, and on the right what the bank actually <em>is</em>: how much of it each pass has covered, its resolutions, framings, mediums, and how many duplicate and person groups are still unresolved. Every number here is measured, never assumed: a pass that has not run says so instead of showing a zero.</sub></td>
-    <td valign="top"><sub><strong>Launch all</strong> — the whole triage in one go. Every flag quotes what it would reject <em>today</em>, and says out loud that 3,602 images have not been scanned yet, so those counts will grow. Stop it any time; a pass whose tool is missing is skipped, never failed.</sub></td>
+    <td valign="top"><sub><strong>Launch all</strong> — the whole triage in one go. Every flag quotes what it would reject <em>today</em>. Stop it any time; a pass whose tool is missing is skipped, never failed.</sub></td>
   </tr>
 </table>
 
