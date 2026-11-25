@@ -258,7 +258,7 @@ These plugins are delivered through the member catalog and require an active, li
 ## Latest member updates
 
 > [!IMPORTANT]
-> **The public edition is free; member features require an active LDS Member subscription.** Updates reach [Patreon](https://www.patreon.com/c/Loraperfectgf) members first. Bug fixes also reach the public edition; exclusive features and plugins remain members-only. Link an active **LDS Member** membership in LDS to use them, including in an already installed version. Your files and datasets remain yours when membership ends.
+> **The public edition is free; member features require an active LDS Member, New Releases or Full Catalogue subscription.** Updates reach [Patreon](https://www.patreon.com/c/Loraperfectgf) members first. Bug fixes also reach the public edition; exclusive features and plugins remain members-only. Link that membership in LDS to use them, including in an already installed version. Your files and datasets remain yours when membership ends.
 
 The public core and public plugins are free under the [PolyForm Noncommercial license](LICENSE), and running them needs no account; optional usage statistics are off by default. External APIs and rented GPUs have their own charges. Public features keep working without a membership.
 
